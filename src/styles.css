@@ -96,6 +96,24 @@
 
 }
 
+[data-group] {
+  display: flex;
+  width: 100%;
+  height: 100%;
+}
+
+[data-group][data-orientation="horizontal"] {
+  flex-direction: row;
+}
+
+[data-group][data-orientation="vertical"] {
+  flex-direction: column;
+}
+
+[data-panel] {
+  overflow: hidden;
+}
+
 .xterm {
   height: 100%;
   padding: 8px 0 0 8px;

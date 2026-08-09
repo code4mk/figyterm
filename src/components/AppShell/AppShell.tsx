@@ -1,106 +1,204 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { Terminal } from "../Terminal/Terminal";
 import { TabBar } from "../Terminal/TabBar";
 import { StatusBar } from "../Terminal/StatusBar";
 import { CommandPalette } from "../CommandPalette/CommandPalette";
 import { Settings } from "../Settings/Settings";
+import {
+  PaneContainer,
+  PaneNode,
+  countPanes,
+  findLeafIds,
+  splitPane,
+  removePane,
+} from "../Terminal/PaneContainer";
 import { useTerminalStore } from "../../stores/terminalStore";
 import { TerminalSession } from "../../types/terminal";
 
-interface TerminalInstance {
+const MAX_PANES_PER_TAB = 4;
+
+interface TabInstance {
   id: string;
-  sessionId: string | null;
-  session: TerminalSession | null;
-  clearRef: React.MutableRefObject<(() => void) | null>;
+  paneTree: PaneNode;
+  sessions: Record<string, { sessionId: string | null; session: TerminalSession | null }>;
 }
 
 export function AppShell() {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [terminals, setTerminals] = useState<TerminalInstance[]>([]);
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const [tabs, setTabs] = useState<TabInstance[]>([]);
+  const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  const [activePaneId, setActivePaneId] = useState<string | null>(null);
   const [liveCwds, setLiveCwds] = useState<Record<string, string>>({});
   const [customTabNames, setCustomTabNames] = useState<Record<string, string>>({});
   const initialCreated = useRef(false);
 
   const { addTab, removeTab, setActiveTab } = useTerminalStore();
-
   const clearRefs = useRef<Map<string, React.MutableRefObject<(() => void) | null>>>(new Map());
 
   const handleNewTab = useCallback(() => {
-    const id = crypto.randomUUID();
-    const clearRef: React.MutableRefObject<(() => void) | null> = { current: null };
-    clearRefs.current.set(id, clearRef);
-    setTerminals((prev) => [...prev, { id, sessionId: null, session: null, clearRef }]);
-    setActiveId(id);
+    const tabId = crypto.randomUUID();
+    const paneId = crypto.randomUUID();
+    const paneTree: PaneNode = { type: "leaf", id: paneId };
+    setTabs((prev) => [...prev, { id: tabId, paneTree, sessions: {} }]);
+    setActiveTabId(tabId);
+    setActivePaneId(paneId);
   }, []);
 
   const handleSessionCreated = useCallback(
-    (instanceId: string, session: TerminalSession) => {
-      setTerminals((prev) =>
-        prev.map((t) =>
-          t.id === instanceId ? { ...t, sessionId: session.id, session } : t
-        )
+    (paneId: string, session: TerminalSession) => {
+      setTabs((prev) =>
+        prev.map((tab) => {
+          const leafIds = findLeafIds(tab.paneTree);
+          if (leafIds.includes(paneId)) {
+            return {
+              ...tab,
+              sessions: { ...tab.sessions, [paneId]: { sessionId: session.id, session } },
+            };
+          }
+          return tab;
+        })
       );
       addTab(session);
       setActiveTab(session.id);
-      setActiveId(instanceId);
     },
     [addTab, setActiveTab]
   );
 
-  const handleCloseTab = useCallback(
-    (instanceId: string) => {
-      clearRefs.current.delete(instanceId);
-      setTerminals((prev) => {
-        const updated = prev.filter((t) => t.id !== instanceId);
-        if (activeId === instanceId && updated.length > 0) {
-          const idx = prev.findIndex((t) => t.id === instanceId);
+  const handleSplitPane = useCallback(
+    (direction: "horizontal" | "vertical") => {
+      if (!activeTabId || !activePaneId) return;
+      setTabs((prev) =>
+        prev.map((tab) => {
+          if (tab.id !== activeTabId) return tab;
+          if (countPanes(tab.paneTree) >= MAX_PANES_PER_TAB) return tab;
+          const newPaneId = crypto.randomUUID();
+          const newTree = splitPane(tab.paneTree, activePaneId, direction, newPaneId);
+          setActivePaneId(newPaneId);
+          return { ...tab, paneTree: newTree };
+        })
+      );
+    },
+    [activeTabId, activePaneId]
+  );
+
+  const handleClosePane = useCallback(() => {
+    if (!activeTabId || !activePaneId) return;
+
+    setTabs((prev) => {
+      const tab = prev.find((t) => t.id === activeTabId);
+      if (!tab) return prev;
+
+      const paneCount = countPanes(tab.paneTree);
+      if (paneCount <= 1) {
+        // Last pane — close the entire tab
+        const updated = prev.filter((t) => t.id !== activeTabId);
+        if (updated.length > 0) {
+          const idx = prev.findIndex((t) => t.id === activeTabId);
           const newIdx = Math.min(idx, updated.length - 1);
-          setActiveId(updated[newIdx].id);
+          setActiveTabId(updated[newIdx].id);
+          const newLeafs = findLeafIds(updated[newIdx].paneTree);
+          setActivePaneId(newLeafs[0] || null);
+        } else {
+          setActiveTabId(null);
+          setActivePaneId(null);
+        }
+
+        // Clean up session
+        const paneSession = tab.sessions[activePaneId];
+        if (paneSession?.sessionId) {
+          removeTab(paneSession.sessionId);
+        }
+        clearRefs.current.delete(activePaneId);
+        return updated;
+      }
+
+      // Remove one pane from the tree
+      const newTree = removePane(tab.paneTree, activePaneId);
+      if (!newTree) return prev;
+
+      const remainingLeafs = findLeafIds(newTree);
+      setActivePaneId(remainingLeafs[0] || null);
+
+      const paneSession = tab.sessions[activePaneId];
+      if (paneSession?.sessionId) {
+        removeTab(paneSession.sessionId);
+      }
+      clearRefs.current.delete(activePaneId);
+
+      const newSessions = { ...tab.sessions };
+      delete newSessions[activePaneId];
+
+      return prev.map((t) =>
+        t.id === activeTabId ? { ...t, paneTree: newTree, sessions: newSessions } : t
+      );
+    });
+  }, [activeTabId, activePaneId, removeTab]);
+
+  const handleCloseTab = useCallback(
+    (tabId: string) => {
+      setTabs((prev) => {
+        const tab = prev.find((t) => t.id === tabId);
+        if (tab) {
+          Object.values(tab.sessions).forEach((s) => {
+            if (s.sessionId) removeTab(s.sessionId);
+          });
+          findLeafIds(tab.paneTree).forEach((id) => clearRefs.current.delete(id));
+        }
+
+        const updated = prev.filter((t) => t.id !== tabId);
+        if (activeTabId === tabId && updated.length > 0) {
+          const idx = prev.findIndex((t) => t.id === tabId);
+          const newIdx = Math.min(idx, updated.length - 1);
+          setActiveTabId(updated[newIdx].id);
+          const newLeafs = findLeafIds(updated[newIdx].paneTree);
+          setActivePaneId(newLeafs[0] || null);
         } else if (updated.length === 0) {
-          setActiveId(null);
+          setActiveTabId(null);
+          setActivePaneId(null);
         }
         return updated;
       });
-      const terminal = terminals.find((t) => t.id === instanceId);
-      if (terminal?.sessionId) {
-        removeTab(terminal.sessionId);
-      }
     },
-    [activeId, terminals, removeTab]
+    [activeTabId, removeTab]
   );
 
   const handleSwitchTab = useCallback(
-    (instanceId: string) => {
-      setActiveId(instanceId);
-      const terminal = terminals.find((t) => t.id === instanceId);
-      if (terminal?.sessionId) {
-        setActiveTab(terminal.sessionId);
+    (tabId: string) => {
+      setActiveTabId(tabId);
+      const tab = tabs.find((t) => t.id === tabId);
+      if (tab) {
+        const leafIds = findLeafIds(tab.paneTree);
+        if (leafIds.length > 0 && (!activePaneId || !leafIds.includes(activePaneId))) {
+          setActivePaneId(leafIds[0]);
+        }
+        const firstSession = tab.sessions[leafIds[0]];
+        if (firstSession?.sessionId) {
+          setActiveTab(firstSession.sessionId);
+        }
       }
     },
-    [terminals, setActiveTab]
+    [tabs, activePaneId, setActiveTab]
   );
 
   const switchToNextTab = useCallback(() => {
-    if (terminals.length <= 1) return;
-    const currentIdx = terminals.findIndex((t) => t.id === activeId);
-    const nextIdx = (currentIdx + 1) % terminals.length;
-    handleSwitchTab(terminals[nextIdx].id);
-  }, [terminals, activeId, handleSwitchTab]);
+    if (tabs.length <= 1) return;
+    const currentIdx = tabs.findIndex((t) => t.id === activeTabId);
+    const nextIdx = (currentIdx + 1) % tabs.length;
+    handleSwitchTab(tabs[nextIdx].id);
+  }, [tabs, activeTabId, handleSwitchTab]);
 
   const switchToPreviousTab = useCallback(() => {
-    if (terminals.length <= 1) return;
-    const currentIdx = terminals.findIndex((t) => t.id === activeId);
-    const prevIdx = (currentIdx - 1 + terminals.length) % terminals.length;
-    handleSwitchTab(terminals[prevIdx].id);
-  }, [terminals, activeId, handleSwitchTab]);
+    if (tabs.length <= 1) return;
+    const currentIdx = tabs.findIndex((t) => t.id === activeTabId);
+    const prevIdx = (currentIdx - 1 + tabs.length) % tabs.length;
+    handleSwitchTab(tabs[prevIdx].id);
+  }, [tabs, activeTabId, handleSwitchTab]);
 
   const handleClearTerminal = useCallback(() => {
-    if (!activeId) return;
-    const ref = clearRefs.current.get(activeId);
+    if (!activePaneId) return;
+    const ref = clearRefs.current.get(activePaneId);
     if (ref?.current) ref.current();
-  }, [activeId]);
+  }, [activePaneId]);
 
   useEffect(() => {
     if (!initialCreated.current) {
@@ -118,9 +216,7 @@ export function AppShell() {
         handleNewTab();
       } else if (isMod && e.key === "w") {
         e.preventDefault();
-        if (activeId) {
-          handleCloseTab(activeId);
-        }
+        handleClosePane();
       } else if (isMod && e.key === "k") {
         e.preventDefault();
         handleClearTerminal();
@@ -137,26 +233,41 @@ export function AppShell() {
       } else if (isMod && e.key === ",") {
         e.preventDefault();
         setSettingsOpen(true);
+      } else if (isMod && e.key === "d" && !e.shiftKey) {
+        e.preventDefault();
+        handleSplitPane("horizontal");
+      } else if (isMod && e.shiftKey && (e.key === "D" || e.key === "d")) {
+        e.preventDefault();
+        handleSplitPane("vertical");
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleNewTab, handleCloseTab, activeId, switchToNextTab, switchToPreviousTab, handleClearTerminal]);
+  }, [handleNewTab, handleClosePane, handleClearTerminal, switchToNextTab, switchToPreviousTab, handleSplitPane]);
 
-  const activeTerminal = terminals.find((t) => t.id === activeId);
+  const activeTab = tabs.find((t) => t.id === activeTabId);
 
-  const tabsForUI = terminals
-    .filter((t) => t.session !== null)
-    .map((t) => ({
-      id: t.id,
-      title: customTabNames[t.id] || t.session!.title,
-      isActive: t.id === activeId,
-    }));
+  const tabsForUI = tabs.map((tab) => {
+    const leafIds = findLeafIds(tab.paneTree);
+    const firstSession = tab.sessions[leafIds[0]];
+    const title = customTabNames[tab.id] || firstSession?.session?.title || "Terminal";
+    const paneCount = countPanes(tab.paneTree);
+    return {
+      id: tab.id,
+      title,
+      isActive: tab.id === activeTabId,
+      paneCount,
+    };
+  });
+
+  const activePaneSession = activeTab?.sessions[activePaneId || ""];
 
   const commands = [
     { id: "new-terminal", label: "New Terminal", shortcut: "⌘T", action: handleNewTab },
-    { id: "close-terminal", label: "Close Terminal", shortcut: "⌘W", action: () => activeId && handleCloseTab(activeId) },
+    { id: "split-right", label: "Split Right", shortcut: "⌘D", action: () => handleSplitPane("horizontal") },
+    { id: "split-down", label: "Split Down", shortcut: "⌘⇧D", action: () => handleSplitPane("vertical") },
+    { id: "close-pane", label: "Close Pane", shortcut: "⌘W", action: handleClosePane },
     { id: "clear-terminal", label: "Clear Terminal", shortcut: "⌘K", action: handleClearTerminal },
     { id: "next-tab", label: "Next Tab", shortcut: "⌘Tab", action: switchToNextTab },
     { id: "prev-tab", label: "Previous Tab", shortcut: "⌘⇧Tab", action: switchToPreviousTab },
@@ -174,20 +285,25 @@ export function AppShell() {
         onDuplicateTab={handleNewTab}
       />
       <div className="flex-1 relative overflow-hidden">
-        {terminals.map((terminal) => (
-          <Terminal
-            key={terminal.id}
-            instanceId={terminal.id}
-            isActive={terminal.id === activeId}
-            onSessionCreated={(session) => handleSessionCreated(terminal.id, session)}
-            onCwdChange={(cwd) => setLiveCwds((prev) => ({ ...prev, [terminal.id]: cwd }))}
-            clearRef={terminal.clearRef}
-          />
+        {tabs.map((tab) => (
+          <div
+            key={tab.id}
+            className={`absolute inset-0 ${tab.id === activeTabId ? "z-10" : "z-0 invisible"}`}
+          >
+            <PaneContainer
+              paneTree={tab.paneTree}
+              activePaneId={tab.id === activeTabId ? activePaneId : null}
+              onPaneFocus={setActivePaneId}
+              onSessionCreated={handleSessionCreated}
+              onCwdChange={(paneId, cwd) => setLiveCwds((prev) => ({ ...prev, [paneId]: cwd }))}
+              clearRefs={clearRefs}
+            />
+          </div>
         ))}
       </div>
       <StatusBar
-        cwd={activeId ? (liveCwds[activeId] || activeTerminal?.session?.cwd || "") : ""}
-        shell={activeTerminal?.session?.shell ?? ""}
+        cwd={activePaneId ? (liveCwds[activePaneId] || activePaneSession?.session?.cwd || "") : ""}
+        shell={activePaneSession?.session?.shell ?? ""}
         onOpenSettings={() => setSettingsOpen(true)}
       />
       <CommandPalette
@@ -198,7 +314,7 @@ export function AppShell() {
       <Settings
         isOpen={settingsOpen}
         onClose={() => setSettingsOpen(false)}
-        activeSessionId={terminals.find((t) => t.id === activeId)?.sessionId ?? null}
+        activeSessionId={activePaneSession?.sessionId ?? null}
       />
     </div>
   );

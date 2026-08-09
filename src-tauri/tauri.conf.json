@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-config-schema/schema.json",
-  "productName": "Figyterm",
+  "productName": "FigyTerm",
   "version": "0.1.0",
   "identifier": "com.figyterm.app",
   "build": {
@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Figyterm",
+        "title": "FigyTerm",
         "width": 1100,
         "height": 700,
         "minWidth": 500,

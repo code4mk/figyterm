@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect, Fragment } from "react";
 import { Dialog, Transition } from "@headlessui/react";
-import { TerminalSquare, X, Plus, Pencil } from "lucide-react";
+import { TerminalSquare, X, Plus, Pencil, Columns2 } from "lucide-react";
 
 interface Tab {
   id: string;
   title: string;
   isActive: boolean;
+  paneCount?: number;
 }
 
 interface TabBarProps {
@@ -53,11 +54,12 @@ export function TabBar({ tabs, onTabClick, onTabClose, onNewTab, onRenameTab }: 
         {tabs.map((tab, index) => (
           <div
             key={tab.id}
+            draggable={false}
             onClick={() => onTabClick(tab.id)}
             onDoubleClick={() => openRename(tab)}
             onMouseEnter={() => setHoveredTab(tab.id)}
             onMouseLeave={() => setHoveredTab(null)}
-            className={`group relative flex items-center h-[30px] px-3 rounded-t-lg text-[11px] font-medium transition-all duration-100 min-w-[120px] max-w-[200px] cursor-pointer no-drag ${
+            className={`group relative flex items-center h-[30px] px-3 rounded-t-lg text-[11px] font-medium transition-all duration-100 min-w-[120px] max-w-[200px] cursor-pointer no-drag select-none ${
               tab.isActive
                 ? "bg-ft-bg text-ft-text z-10"
                 : "text-ft-text-muted hover:text-ft-text-secondary hover:bg-ft-tab-active/60"
@@ -71,6 +73,12 @@ export function TabBar({ tabs, onTabClick, onTabClose, onNewTab, onRenameTab }: 
                 }`}
               />
               <span className="truncate leading-none">{tab.title}</span>
+              {tab.paneCount && tab.paneCount > 1 && (
+                <span className="flex items-center gap-0.5 text-[9px] text-ft-text-muted flex-shrink-0">
+                  <Columns2 size={8} className="opacity-60" />
+                  {tab.paneCount}
+                </span>
+              )}
             </div>
 
             <div

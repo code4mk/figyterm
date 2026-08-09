@@ -10,6 +10,7 @@ import { TerminalSession } from "../../types/terminal";
 import { SuggestionPopup, SuggestionItem } from "./SuggestionPopup";
 import { getAutocompleteSuggestions } from "../../services/figy-autocomplete-engine";
 import { specRegistry } from "../../services/figy-spec-registry";
+import { isDragging } from "./SplitHandle";
 
 const DARK_THEME: ITheme = {
   background: "#1a1d23",
@@ -250,7 +251,7 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
   const acceptSuggestion = useCallback((item: SuggestionItem, inline = false) => {
     if (!xtermRef.current || !sessionIdRef.current) return;
 
-    // "Select current folder"  remove trailing slash, send Enter to execute cd
+    // "Select current folder" ? remove trailing slash, send Enter to execute cd
     if (item.name === ".") {
       const encoder = new TextEncoder();
       invoke("write_terminal_session", {
@@ -369,7 +370,7 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
           navigator.clipboard.writeText(xterm.getSelection());
           return false; // Prevent xterm from handling it
         }
-        // No selection  let xterm send \x03 (SIGINT)
+        // No selection ? let xterm send \x03 (SIGINT)
         return true;
       }
       if (event.metaKey && event.key === "v") {
@@ -506,14 +507,18 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
       }).catch(() => {});
     });
 
+    let resizeDebounce: ReturnType<typeof setTimeout> | null = null;
     xterm.onResize(({ cols, rows }) => {
-      if (sessionIdRef.current) {
-        invoke("resize_terminal_session", {
-          sessionId: sessionIdRef.current,
-          cols,
-          rows,
-        }).catch(() => {});
-      }
+      if (resizeDebounce) clearTimeout(resizeDebounce);
+      resizeDebounce = setTimeout(() => {
+        if (sessionIdRef.current) {
+          invoke("resize_terminal_session", {
+            sessionId: sessionIdRef.current,
+            cols,
+            rows,
+          }).catch(() => {});
+        }
+      }, 400);
     });
 
     // Create session
@@ -566,20 +571,34 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const observer = new ResizeObserver(() => {
-      if (isActive && fitAddonRef.current && xtermRef.current) {
+
+    const doFit = () => {
+      if (fitAddonRef.current && xtermRef.current) {
         fitAddonRef.current.fit();
+      }
+    };
+
+    const observer = new ResizeObserver(() => {
+      if (!isDragging()) {
+        doFit();
       }
     });
     observer.observe(el);
-    return () => observer.disconnect();
-  }, [isActive]);
+
+    const onDragEnd = () => doFit();
+    window.addEventListener("pane-drag-end", onDragEnd);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("pane-drag-end", onDragEnd);
+    };
+  }, []);
 
   return (
     <div
       ref={wrapperRef}
       data-instance-id={instanceId}
-      className={`absolute inset-0 ${isActive ? "z-10" : "z-0 invisible"}`}
+      className="relative w-full h-full"
     >
       <div
         ref={containerRef}
