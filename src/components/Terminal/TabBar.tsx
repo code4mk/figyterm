@@ -46,7 +46,7 @@ export function TabBar({ tabs, onTabClick, onTabClose, onNewTab, onRenameTab }: 
   return (
     <>
       <div className="flex items-center h-9 bg-ft-surface border-b border-ft-border-subtle px-2 gap-0.5 overflow-x-auto no-drag">
-        <div className="flex items-center gap-1.5 px-2 mr-1 flex-shrink-0">
+        <div className="flex items-center gap-1.5 px-2 mr-1 flex-shrink-0 no-drag">
           <img src="/logo.png" alt="Figyterm" className="w-4 h-4 rounded-sm" />
         </div>
         {tabs.map((tab) => (

@@ -5,21 +5,21 @@
 @layer base {
   :root,
   .dark {
-    --ft-bg: #0d0f14;
-    --ft-surface: #13151c;
-    --ft-elevated: #1a1d27;
-    --ft-border: #262a36;
-    --ft-border-subtle: #1e2230;
-    --ft-text: #e4e7ef;
-    --ft-text-secondary: #8b91a5;
-    --ft-text-muted: #5c6175;
+    --ft-bg: #1a1d23;
+    --ft-surface: #1e2228;
+    --ft-elevated: #262a30;
+    --ft-border: #353b44;
+    --ft-border-subtle: #2a2f37;
+    --ft-text: #e6edf3;
+    --ft-text-secondary: #8b949e;
+    --ft-text-muted: #6e7681;
     --ft-accent: #6366f1;
     --ft-accent-hover: #7c7fff;
-    --ft-success: #34d399;
-    --ft-warning: #fbbf24;
-    --ft-error: #f87171;
-    --ft-tab: #171a23;
-    --ft-tab-active: #1e2230;
+    --ft-success: #3fb950;
+    --ft-warning: #d29922;
+    --ft-error: #f85149;
+    --ft-tab: #181b21;
+    --ft-tab-active: #1e2228;
   }
 
   .light {

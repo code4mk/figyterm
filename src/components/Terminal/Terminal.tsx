@@ -12,21 +12,21 @@ import { getAutocompleteSuggestions } from "../../services/figy-autocomplete-eng
 import { specRegistry } from "../../services/figy-spec-registry";
 
 const DARK_THEME: ITheme = {
-  background: "#0d0f14",
-  foreground: "#e4e7ef",
+  background: "#1a1d23",
+  foreground: "#e6edf3",
   cursor: "#6366f1",
-  cursorAccent: "#0d0f14",
+  cursorAccent: "#1a1d23",
   selectionBackground: "rgba(99, 102, 241, 0.25)",
   selectionForeground: "#ffffff",
-  black: "#1a1d27",
-  red: "#f87171",
-  green: "#34d399",
-  yellow: "#fbbf24",
-  blue: "#60a5fa",
-  magenta: "#c084fc",
-  cyan: "#22d3ee",
-  white: "#e4e7ef",
-  brightBlack: "#5c6175",
+  black: "#1e2228",
+  red: "#f85149",
+  green: "#3fb950",
+  yellow: "#d29922",
+  blue: "#58a6ff",
+  magenta: "#bc8cff",
+  cyan: "#39d353",
+  white: "#e6edf3",
+  brightBlack: "#6e7681",
   brightRed: "#fca5a5",
   brightGreen: "#6ee7b7",
   brightYellow: "#fde68a",
@@ -224,7 +224,7 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
         if (command === "cd" && partial.endsWith("/")) {
           const currentDirItem: SuggestionItem = {
             name: ".",
-            description: "‚Ü™ Select current folder",
+            description: "? Select current folder",
             type: "folder",
           };
           items = [currentDirItem, ...items];
@@ -244,7 +244,7 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
   const acceptSuggestion = useCallback((item: SuggestionItem, inline = false) => {
     if (!xtermRef.current || !sessionIdRef.current) return;
 
-    // "Select current folder" ‚Äî remove trailing slash, send Enter to execute cd
+    // "Select current folder" ù remove trailing slash, send Enter to execute cd
     if (item.name === ".") {
       const encoder = new TextEncoder();
       invoke("write_terminal_session", {
@@ -363,7 +363,7 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
           navigator.clipboard.writeText(xterm.getSelection());
           return false; // Prevent xterm from handling it
         }
-        // No selection ‚Äî let xterm send \x03 (SIGINT)
+        // No selection ù let xterm send \x03 (SIGINT)
         return true;
       }
       // Cmd+V paste

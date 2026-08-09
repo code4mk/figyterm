@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 type Theme = "dark" | "light";
 
@@ -27,6 +28,11 @@ function applyTheme(theme: Theme) {
   }
   try {
     localStorage.setItem("figyterm-theme", theme);
+  } catch {}
+
+  // Update native macOS titlebar to match
+  try {
+    getCurrentWindow().setTheme(theme === "dark" ? "dark" : "light");
   } catch {}
 }
 
