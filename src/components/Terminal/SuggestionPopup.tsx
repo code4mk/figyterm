@@ -2,6 +2,18 @@ import { useEffect, useRef } from "react";
 import { computePosition, flip, offset, shift } from "@floating-ui/dom";
 import { ChevronRight, Folder, FileText, Terminal, Hash, Circle, Sparkles } from "lucide-react";
 
+function resolveIcon(icon?: string): string | null {
+  if (!icon) return null;
+  const match = icon.match(/figy:\/\/icon\?type=(\w+)/);
+  if (match) return `/icons/${match[1]}.png`;
+  if (icon.startsWith("fig://icon?type=")) {
+    const type = icon.replace("fig://icon?type=", "");
+    return `/icons/${type}.png`;
+  }
+  if (icon.startsWith("/") || icon.startsWith("http")) return icon;
+  return null;
+}
+
 export interface SuggestionItem {
   name: string;
   description?: string;
@@ -104,7 +116,7 @@ export function SuggestionPopup({
               onClick={() => onSelect(item)}
               onMouseDown={(e) => e.preventDefault()}
             >
-              <ItemIcon type={item.type} />
+              <ItemIcon type={item.type} icon={item.icon} />
 
               <div className="flex-1 min-w-0">
                 <span className="text-[11px] font-medium truncate block">
@@ -126,24 +138,61 @@ export function SuggestionPopup({
   );
 }
 
-function ItemIcon({ type }: { type: SuggestionItem["type"] }) {
-  const base = "flex-shrink-0 w-[18px] h-[18px] flex items-center justify-center rounded";
+function ItemIcon({ type, icon }: { type: SuggestionItem["type"]; icon?: string }) {
+  const base = "flex-shrink-0 w-[20px] h-[20px] flex items-center justify-center rounded-md p-[3px]";
+  const resolved = resolveIcon(icon);
 
+  if (resolved) {
+    return (
+      <div className={`${base} bg-ft-bg/60`}>
+        <img
+          src={resolved}
+          alt=""
+          className="w-[13px] h-[13px] object-contain"
+          onError={(e) => {
+            const img = e.target as HTMLImageElement;
+            const wrapper = img.parentElement as HTMLElement;
+            img.style.display = "none";
+            wrapper.className = `${base} ${bgForType(type)}`;
+            const fallback = img.nextElementSibling as HTMLElement;
+            if (fallback) fallback.style.display = "block";
+          }}
+        />
+        <span className="hidden">
+          <DefaultTypeIcon type={type} />
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`${base} ${bgForType(type)}`}>
+      <DefaultTypeIcon type={type} />
+    </div>
+  );
+}
+
+function bgForType(type: SuggestionItem["type"]): string {
   switch (type) {
-    case "folder":
-      return <div className={`${base} bg-blue-500/10 text-blue-400`}><Folder size={10} /></div>;
-    case "file":
-      return <div className={`${base} bg-gray-500/10 text-gray-400`}><FileText size={9} /></div>;
-    case "subcommand":
-      return <div className={`${base} bg-purple-500/10 text-purple-400`}><Terminal size={10} /></div>;
-    case "option":
-      return <div className={`${base} bg-amber-500/10 text-amber-400`}><Hash size={10} /></div>;
-    case "arg":
-      return <div className={`${base} bg-emerald-500/10 text-emerald-400`}><Circle size={9} /></div>;
-    case "special":
-      return <div className={`${base} bg-pink-500/10 text-pink-400`}><Sparkles size={9} /></div>;
-    default:
-      return <div className={`${base} bg-gray-500/10 text-gray-400`}><FileText size={9} /></div>;
+    case "folder": return "bg-blue-500/10 text-blue-400";
+    case "file": return "bg-gray-500/10 text-gray-400";
+    case "subcommand": return "bg-purple-500/10 text-purple-400";
+    case "option": return "bg-amber-500/10 text-amber-400";
+    case "arg": return "bg-emerald-500/10 text-emerald-400";
+    case "special": return "bg-pink-500/10 text-pink-400";
+    default: return "bg-gray-500/10 text-gray-400";
+  }
+}
+
+function DefaultTypeIcon({ type }: { type: SuggestionItem["type"] }) {
+  switch (type) {
+    case "folder": return <Folder size={11} />;
+    case "file": return <FileText size={10} />;
+    case "subcommand": return <Terminal size={11} />;
+    case "option": return <Hash size={11} />;
+    case "arg": return <Circle size={10} />;
+    case "special": return <Sparkles size={10} />;
+    default: return <FileText size={10} />;
   }
 }
 

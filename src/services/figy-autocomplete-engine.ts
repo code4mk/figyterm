@@ -307,6 +307,7 @@ export async function getAutocompleteSuggestions(
 
   const { currentToken, currentSpec, isTypingOption, expectingArgForOption, consumedArgs, usedOptions, cwd: ctxCwd } = ctx;
   const suggestions: AutocompleteSuggestion[] = [];
+  const commandIcon = `/icons/${ctx.command}.png`;
 
   if (!currentSpec) return suggestions;
 
@@ -369,7 +370,7 @@ export async function getAutocompleteSuggestions(
               name,
               description: sub.description,
               type: "subcommand",
-              icon: sub.icon,
+              icon: sub.icon || commandIcon,
               priority: sub.priority ?? 70,
             });
             break;

@@ -198,6 +198,7 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
               name: s.name,
               description: s.description,
               type: s.type as SuggestionItem["type"],
+              icon: s.icon,
               insertValue: s.insertValue,
             }));
 
