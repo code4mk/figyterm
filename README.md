@@ -1,135 +1,195 @@
-# My Terminal
+<p align="center">
+  <img src="public/logo.png" alt="FigyTerm" width="80" />
+</p>
 
-A cross-platform desktop terminal application built with Tauri 2, React, and Rust. Figyterm is a fully local desktop application with no backend server required.
+<h1 align="center">FigyTerm</h1>
 
-## Architecture
+<p align="center">
+  <strong>A modern, intelligent terminal for macOS with autocomplete superpowers.</strong>
+</p>
 
-```
-React (UI Layer)
-  │
-  │ Tauri IPC
-  ▼
-Rust (Native Layer)
-  │
-  ├── PTY management (persistent shell sessions)
-  ├── Filesystem operations
-  ├── Git operations
-  └── Process management
-```
+<p align="center">
+  <a href="#features">Features</a> •
+  <a href="#installation">Installation</a> •
+  <a href="#development">Development</a> •
+  <a href="#keyboard-shortcuts">Shortcuts</a> •
+  <a href="docs/CONTRIBUTING.md">Contributing</a>
+</p>
 
-### Key Design Decisions
+---
 
-- **Real PTY sessions** — Each terminal tab maintains a persistent shell process via PTY, not independent command executions.
-- **No backend server** — All communication between frontend and Rust uses Tauri IPC (commands/events).
-- **Offline-first** — Core functionality works without network access.
-- **xterm.js for rendering** — Terminal output is handled directly by xterm.js, not React state.
-- **Streaming output via events** — PTY output is emitted to the frontend through Tauri events for efficient real-time rendering.
+FigyTerm is a fully local desktop terminal built with **Tauri 2**, **React**, and **Rust**. It brings IDE-level autocomplete to your command line — context-aware suggestions for git, docker, pnpm, npm, uv, and more — all running natively with zero network dependency.
 
-## Tech Stack
+Inspired by [Fig](https://fig.io) (now part of AWS), FigyTerm is an open-source alternative that keeps your terminal experience fast, private, and extensible.
 
-| Layer | Technology |
-|-------|-----------|
-| Frontend | React, TypeScript, Vite, Tailwind CSS |
-| Terminal rendering | xterm.js, @xterm/addon-fit, @xterm/addon-web-links |
-| Desktop runtime | Tauri 2.x |
-| Native layer | Rust |
-| PTY | portable-pty |
-| State management | Zustand |
+## Features
 
-## Getting Started
+- **Intelligent Autocomplete** — Context-aware suggestions for commands, subcommands, options, and file paths
+- **Spec-based Engine** — Compatible with Fig's spec format for community-driven command completions
+- **Split Panes** — Up to 4 resizable terminal panes per tab (Cmd+D / Cmd+Shift+D)
+- **Multiple Tabs** — Browser-style tab bar with drag-to-reorder and rename support
+- **Oh My Zsh Integration** — Real-time theme switching with full prompt rendering
+- **Dark & Light Mode** — Beautifully themed UI that adapts to your preference
+- **Recent Directory Ordering** — Frequently visited folders appear first in suggestions
+- **Clickable URLs** — Links in terminal output open in your default browser
+- **Native Performance** — Rust PTY backend with zero-latency input
 
-### Prerequisites
+## Installation
 
-- [Node.js](https://nodejs.org/) (v18+)
-- [Rust](https://rustup.rs/) (1.86+)
-- Platform-specific Tauri dependencies ([see Tauri docs](https://v2.tauri.app/start/prerequisites/))
+### Download (macOS)
 
-### Install & Run
+Download the latest `.dmg` from the [Releases](https://github.com/code4mk/figyterm/releases) page.
 
 ```bash
-# Install frontend dependencies
+# Or build from source
+git clone https://github.com/code4mk/figyterm.git
+cd figyterm
 npm install
-
-# Run in development mode
-npm run tauri dev
-```
-
-### Build for Production
-
-```bash
 npm run tauri build
 ```
 
-## Project Structure
+The built app will be at `src-tauri/target/release/bundle/macos/FigyTerm.app`.
 
-```
-figy-term/
-├── src/                          # Frontend (React + TypeScript)
-│   ├── components/
-│   │   ├── AppShell/             # Main application shell
-│   │   ├── Terminal/             # Terminal UI (xterm.js integration)
-│   │   ├── CommandPalette/       # Command palette (Cmd+K)
-│   │   └── Settings/            # Settings panel
-│   ├── hooks/                    # React hooks (useTerminal, useTerminalTabs)
-│   ├── services/                 # Tauri IPC service layer
-│   ├── stores/                   # Zustand state stores
-│   └── types/                    # TypeScript type definitions
-├── src-tauri/                    # Backend (Rust)
-│   └── src/
-│       ├── terminal/             # PTY session management
-│       ├── filesystem/           # Filesystem operations
-│       ├── git/                  # Git integration
-│       ├── commands/             # Tauri command handlers
-│       └── state/               # Application state
-├── package.json
-└── README.md
-```
+### Prerequisites (for building)
+
+| Requirement | Version |
+|-------------|---------|
+| [Node.js](https://nodejs.org/) | 18+ |
+| [Rust](https://rustup.rs/) | 1.86+ |
+| [Tauri CLI](https://v2.tauri.app/start/prerequisites/) | 2.x |
 
 ## Keyboard Shortcuts
 
 | Shortcut | Action |
 |----------|--------|
-| `Cmd/Ctrl + T` | New terminal tab |
-| `Cmd/Ctrl + W` | Close current tab |
-| `Cmd/Ctrl + K` | Command palette |
-| `Cmd/Ctrl + Shift + P` | Command palette |
-| `Cmd/Ctrl + Tab` | Next tab |
-| `Cmd/Ctrl + Shift + Tab` | Previous tab |
+| `⌘ T` | New tab |
+| `⌘ W` | Close active pane |
+| `⌘ D` | Split pane horizontally |
+| `⌘ ⇧ D` | Split pane vertically |
+| `⌘ K` | Clear terminal |
+| `⌘ ,` | Settings |
+| `⌘ 1-9` | Switch to tab N |
+| `⌘ ⇧ [` | Previous tab |
+| `⌘ ⇧ ]` | Next tab |
+| `Tab` | Accept autocomplete suggestion |
+| `↑ ↓` | Navigate suggestions |
+| `Esc` | Dismiss suggestions |
 
-Terminal-native shortcuts (Ctrl+C, Ctrl+D, Ctrl+Z, Ctrl+L, Ctrl+R) pass through to the shell.
+Shell-native shortcuts (`Ctrl+C`, `Ctrl+D`, `Ctrl+Z`, `Ctrl+L`) pass through directly.
 
-## Development Phases
+## Supported Command Specs
 
-### Phase 1 (Current) — Terminal Foundation
-- Tauri + React + xterm.js
-- Real PTY sessions in Rust
-- Multiple terminal tabs
-- Keyboard shortcuts
-- Shell detection (zsh, bash, fish, PowerShell)
-- Terminal resize
-- Dark theme
+FigyTerm ships with built-in specs for popular tools:
 
-### Phase 2 — Intelligence
-- Autocomplete engine
-- Filesystem suggestions
-- Git-aware suggestions
-- Command specifications
-- Command history
-- Command palette enhancements
+| Command | Coverage |
+|---------|----------|
+| `git` | Subcommands, branches, options |
+| `docker` | Commands, containers, images, options |
+| `docker compose` | Services, commands, options |
+| `npm` | Scripts, packages, options |
+| `pnpm` | Scripts, workspaces, options |
+| `yarn` | Scripts, packages, options |
+| `uv` | Scripts from pyproject.toml, options |
+| `cd` | Directories with recent-first ordering |
 
-### Phase 3 — AI Integration
-- AI provider abstraction (OpenAI, Anthropic, Gemini, Ollama)
-- Command generation
-- Command explanation
-- Error explanation
+Adding a new spec is straightforward — see the [Spec Authoring Guide](docs/SPECS.md).
 
-### Phase 4 — Advanced Features
-- Split panes
-- Workspaces
-- Docker/Kubernetes/AWS integration
-- SSH sessions
-- Remote terminals
+## Architecture
+
+```
+┌─────────────────────────────────────────────┐
+│  React + TypeScript (UI Layer)              │
+│  ├── xterm.js (terminal rendering)         │
+│  ├── Autocomplete engine (spec-based)      │
+│  ├── Split panes (react-resizable-panels)  │
+│  └── Settings & theme management           │
+├─────────────────────────────────────────────┤
+│  Tauri IPC (commands + events)             │
+├─────────────────────────────────────────────┤
+│  Rust (Native Layer)                        │
+│  ├── PTY session management                │
+│  ├── Path completion (filesystem)          │
+│  ├── Shell command execution               │
+│  └── Window management                     │
+└─────────────────────────────────────────────┘
+```
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Frontend | React 18, TypeScript, Vite, Tailwind CSS |
+| Terminal | xterm.js, FitAddon, WebLinksAddon |
+| Desktop | Tauri 2.x |
+| Native | Rust |
+| PTY | portable-pty |
+| State | Zustand |
+| UI Components | Headless UI, Lucide Icons |
+| Panels | react-resizable-panels |
+
+## Development
+
+```bash
+# Install dependencies
+npm install
+
+# Start dev mode (hot-reload frontend + Rust rebuild)
+npm run tauri dev
+
+# Type check
+npx tsc --noEmit
+
+# Production build
+npm run tauri build
+```
+
+### Project Structure
+
+```
+figyterm/
+├── src/                          # Frontend (React + TypeScript)
+│   ├── components/
+│   │   ├── AppShell/             # Main layout, tab & pane management
+│   │   ├── Terminal/             # Terminal, TabBar, SplitHandle, PaneContainer
+│   │   └── Settings/            # Settings modal (tabbed)
+│   ├── services/                 # Autocomplete engine, spec registry, recent dirs
+│   ├── specs/                    # Command completion specs (git, docker, etc.)
+│   ├── stores/                   # Zustand stores (settings, theme)
+│   └── types/                    # TypeScript definitions (figy, terminal)
+├── src-tauri/                    # Backend (Rust)
+│   └── src/
+│       ├── commands/             # Tauri IPC handlers
+│       │   ├── terminal.rs       # PTY session create/write/resize/close
+│       │   ├── autocomplete.rs   # Path completions
+│       │   └── shell_exec.rs     # Shell command execution
+│       └── lib.rs                # App entry point
+├── docs/                         # Documentation
+│   ├── CONTRIBUTING.md           # Contribution guidelines
+│   └── SPECS.md                  # Spec authoring guide
+├── public/                       # Static assets (logo, icons)
+└── package.json
+```
+
+## Roadmap
+
+- [x] Real PTY sessions with persistent shell
+- [x] Multi-tab support with rename
+- [x] Intelligent autocomplete (spec-based)
+- [x] Split panes (up to 4 per tab)
+- [x] Oh My Zsh theme management
+- [x] Dark/Light mode
+- [x] Recent directory ordering
+- [x] Clickable URLs
+- [ ] Command history search (Ctrl+R enhancement)
+- [ ] Plugin system for custom specs
+- [ ] AI-powered command suggestions (local models)
+- [ ] Snippet management
+- [ ] Session restore on relaunch
+
+## Contributing
+
+We welcome contributions! Please read our [Contributing Guide](docs/CONTRIBUTING.md) to get started.
 
 ## License
 
-MIT
+[MIT](LICENSE)
