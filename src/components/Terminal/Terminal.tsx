@@ -164,6 +164,12 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
       return;
     }
 
+    // Don't suggest when input ends with \ (line continuation)
+    if (trimmed.endsWith("\\")) {
+      updateUI([], 0, false);
+      return;
+    }
+
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
       const parts = trimmed.split(/\s+/);
@@ -366,19 +372,8 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
         // No selection  let xterm send \x03 (SIGINT)
         return true;
       }
-      // Cmd+V paste
-      if (event.metaKey && event.key === "v" && event.type === "keydown") {
-        navigator.clipboard.readText().then((text) => {
-          if (text && sessionIdRef.current) {
-            const encoder = new TextEncoder();
-            invoke("write_terminal_session", {
-              sessionId: sessionIdRef.current,
-              data: Array.from(encoder.encode(text)),
-            });
-            inputBufferRef.current += text;
-          }
-        });
-        return false;
+      if (event.metaKey && event.key === "v") {
+        return true;
       }
       return true;
     });
@@ -423,7 +418,11 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
       const idx = selectedIndexRef.current;
 
       if (data === "\r" || data === "\n" || data === "\x1bOM") {
-        if (isShowing && items.length > 0) {
+        const trimmedInput = inputBufferRef.current.trimEnd();
+        if (trimmedInput.endsWith("\\")) {
+          // Line continuation: pass through to shell, keep buffer context
+          updateUI([], 0, false);
+        } else if (isShowing && items.length > 0) {
           const input = inputBufferRef.current.trimStart();
           const parts = input.split(/\s+/);
           const currentToken = parts[parts.length - 1] || "";
@@ -431,21 +430,20 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
           const selectedName = selected.name.toLowerCase();
 
           if (currentToken.length > 0) {
-            // Partial match: accept if not already fully typed
             if (selectedName.startsWith(currentToken.toLowerCase()) && selectedName !== currentToken.toLowerCase()) {
               acceptSuggestion(selected);
               return;
             }
           } else {
-            // Empty token: only accept if it's an arg/subcommand (required pick), not optional options
             if (selected.type === "arg" || selected.type === "subcommand") {
               acceptSuggestion(selected);
               return;
             }
           }
         }
-        // Otherwise, just execute the command
-        inputBufferRef.current = "";
+        if (!trimmedInput.endsWith("\\")) {
+          inputBufferRef.current = "";
+        }
         updateUI([], 0, false);
       } else if (data === "\x7f") {
         inputBufferRef.current = inputBufferRef.current.slice(0, -1);
@@ -492,6 +490,10 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
           return;
         }
       } else if (data.length === 1 && data.charCodeAt(0) >= 32) {
+        inputBufferRef.current += data;
+        triggerAutocomplete(inputBufferRef.current);
+      } else if (data.length > 1 && !data.startsWith("\x1b")) {
+        // Multi-character input (paste)
         inputBufferRef.current += data;
         triggerAutocomplete(inputBufferRef.current);
       }

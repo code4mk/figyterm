@@ -19,4 +19,6 @@ export function initializeSpecs(): void {
   specRegistry.registerLazySpec("git", () => import("./git"));
   specRegistry.registerLazySpec("pnpm", () => import("./pnpm"));
   specRegistry.registerLazySpec("uv", () => import("./uv"));
+  specRegistry.registerLazySpec("docker", () => import("./docker"));
+  specRegistry.registerLazySpec("docker-compose", () => import("./docker-compose"));
 }

@@ -79,14 +79,14 @@ export function SuggestionPopup({
         <div className="flex items-center justify-between px-2.5 py-[5px] bg-ft-surface border-b border-ft-border-subtle">
           <div className="flex items-center gap-1.5">
             <ChevronRight size={8} className="text-ft-accent" />
-            <span className="text-[9px] font-bold text-ft-text-muted uppercase tracking-wider">
+            <span className="text-[9px] font-bold text-ft-text-secondary uppercase tracking-wider">
               Suggestions
             </span>
-            <span className="text-[8px] text-ft-text-muted/60">({items.length})</span>
+            <span className="text-[8px] text-ft-text-secondary/70">({items.length})</span>
           </div>
           <div className="flex items-center gap-1">
-            <kbd className="text-[7px] text-ft-text-muted bg-ft-bg px-[3px] py-[1px] rounded border border-ft-border-subtle font-mono">↑↓</kbd>
-            <kbd className="text-[7px] text-ft-text-muted bg-ft-bg px-[3px] py-[1px] rounded border border-ft-border-subtle font-mono">Tab</kbd>
+            <kbd className="text-[7px] text-ft-text-secondary bg-ft-bg px-[3px] py-[1px] rounded border border-ft-border-subtle font-mono">↑↓</kbd>
+            <kbd className="text-[7px] text-ft-text-secondary bg-ft-bg px-[3px] py-[1px] rounded border border-ft-border-subtle font-mono">Tab</kbd>
           </div>
         </div>
 
@@ -99,7 +99,7 @@ export function SuggestionPopup({
               className={`flex items-center gap-2 px-2 py-[5px] mx-0.5 my-[1px] rounded-lg cursor-pointer transition-all duration-[50ms] ${
                 idx === selectedIndex
                   ? "bg-ft-accent/[0.12] ring-1 ring-inset ring-ft-accent/25 text-ft-text"
-                  : "text-ft-text-secondary hover:bg-ft-surface"
+                  : "text-ft-text hover:bg-ft-surface"
               }`}
               onClick={() => onSelect(item)}
               onMouseDown={(e) => e.preventDefault()}
@@ -149,12 +149,12 @@ function ItemIcon({ type }: { type: SuggestionItem["type"] }) {
 
 function TypeBadge({ type }: { type: SuggestionItem["type"] }) {
   const labels: Record<string, { text: string; cls: string }> = {
-    folder: { text: "dir", cls: "text-blue-400/60" },
-    file: { text: "file", cls: "text-gray-400/60" },
-    subcommand: { text: "cmd", cls: "text-purple-400/60" },
-    option: { text: "opt", cls: "text-amber-400/60" },
-    arg: { text: "arg", cls: "text-emerald-400/60" },
-    special: { text: "misc", cls: "text-pink-400/60" },
+    folder: { text: "dir", cls: "text-blue-400/80" },
+    file: { text: "file", cls: "text-gray-400/80" },
+    subcommand: { text: "cmd", cls: "text-purple-400/80" },
+    option: { text: "opt", cls: "text-amber-400/80" },
+    arg: { text: "arg", cls: "text-emerald-400/80" },
+    special: { text: "misc", cls: "text-pink-400/80" },
   };
 
   const label = labels[type];

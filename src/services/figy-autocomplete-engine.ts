@@ -140,7 +140,16 @@ async function resolveContext(input: string, cwd?: string): Promise<(ParsedConte
         return names.includes(tok);
       });
       if (sub) {
-        currentSpec = sub;
+        if ((sub as any).loadSpec && typeof (sub as any).loadSpec === "string") {
+          const loadedSpec = await specRegistry.getSpec((sub as any).loadSpec);
+          if (loadedSpec) {
+            currentSpec = loadedSpec;
+          } else {
+            currentSpec = sub;
+          }
+        } else {
+          currentSpec = sub;
+        }
         consumedArgs = 0;
         tokenIdx++;
         continue;
