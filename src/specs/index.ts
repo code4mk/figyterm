@@ -21,4 +21,5 @@ export function initializeSpecs(): void {
   specRegistry.registerLazySpec("uv", () => import("./uv"));
   specRegistry.registerLazySpec("docker", () => import("./docker"));
   specRegistry.registerLazySpec("docker-compose", () => import("./docker-compose"));
+  specRegistry.registerLazySpec("brew", () => import("./brew"));
 }

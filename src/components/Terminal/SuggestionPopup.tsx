@@ -4,12 +4,8 @@ import { ChevronRight, Folder, FileText, Terminal, Hash, Circle, Sparkles } from
 
 function resolveIcon(icon?: string): string | null {
   if (!icon) return null;
-  const match = icon.match(/figy:\/\/icon\?type=(\w+)/);
+  const match = icon.match(/(?:figy|fig):\/\/icon\?type=([\w-]+)/);
   if (match) return `/icons/${match[1]}.png`;
-  if (icon.startsWith("fig://icon?type=")) {
-    const type = icon.replace("fig://icon?type=", "");
-    return `/icons/${type}.png`;
-  }
   if (icon.startsWith("/") || icon.startsWith("http")) return icon;
   return null;
 }
@@ -151,8 +147,8 @@ function ItemIcon({ type, icon }: { type: SuggestionItem["type"]; icon?: string 
           className="w-[13px] h-[13px] object-contain"
           onError={(e) => {
             const img = e.target as HTMLImageElement;
-            const wrapper = img.parentElement as HTMLElement;
             img.style.display = "none";
+            const wrapper = img.parentElement as HTMLElement;
             wrapper.className = `${base} ${bgForType(type)}`;
             const fallback = img.nextElementSibling as HTMLElement;
             if (fallback) fallback.style.display = "block";

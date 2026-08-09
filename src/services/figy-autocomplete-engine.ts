@@ -307,7 +307,7 @@ export async function getAutocompleteSuggestions(
 
   const { currentToken, currentSpec, isTypingOption, expectingArgForOption, consumedArgs, usedOptions, cwd: ctxCwd } = ctx;
   const suggestions: AutocompleteSuggestion[] = [];
-  const commandIcon = `/icons/${ctx.command}.png`;
+  const commandIcon = `figy://icon?type=${ctx.command}`;
 
   if (!currentSpec) return suggestions;
 
