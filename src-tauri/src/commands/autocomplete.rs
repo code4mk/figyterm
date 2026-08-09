@@ -124,3 +124,8 @@ pub fn list_path_completions(
     results.truncate(20);
     Ok(results)
 }
+
+#[tauri::command]
+pub fn get_home_dir() -> String {
+    std::env::var("HOME").unwrap_or_else(|_| String::from("/tmp"))
+}

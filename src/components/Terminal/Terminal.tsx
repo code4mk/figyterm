@@ -11,6 +11,7 @@ import { SuggestionPopup, SuggestionItem } from "./SuggestionPopup";
 import { getAutocompleteSuggestions } from "../../services/figy-autocomplete-engine";
 import { specRegistry } from "../../services/figy-spec-registry";
 import { isDragging } from "./SplitHandle";
+import { recordDirUsage, sortByRecency, setHomeDir } from "../../services/recent-dirs";
 
 const DARK_THEME: ITheme = {
   background: "#1a1d23",
@@ -132,13 +133,15 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
         baseDir: cwdRef.current || "~",
         partial,
       });
-      return entries.map((e) => ({
+      const items = entries.map((e) => ({
         name: e.name,
         type: e.isDir ? "folder" as const : "file" as const,
         path: e.path,
         isDir: e.isDir,
         isHidden: e.isHidden,
       }));
+      const parentDir = cwdRef.current || "";
+      return sortByRecency(items, parentDir);
     } catch {
       return [];
     }
@@ -404,6 +407,7 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
         if (promptCwd) newCwd = promptCwd[1];
         if (newCwd && newCwd !== cwdRef.current) {
           cwdRef.current = newCwd;
+          recordDirUsage(newCwd);
           onCwdChange?.(newCwd);
         }
       }
@@ -526,6 +530,7 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
       const raw = await invoke<RawTerminalSession>("create_terminal_session", { cols, rows });
       sessionIdRef.current = raw.id;
       cwdRef.current = raw.cwd;
+      invoke<string>("get_home_dir").then((home) => setHomeDir(home)).catch(() => {});
 
       const session: TerminalSession = {
         id: raw.id,

@@ -21,6 +21,7 @@ pub fn run() {
             commands::terminal::get_default_shell,
             commands::terminal::get_default_working_directory,
             commands::autocomplete::list_path_completions,
+            commands::autocomplete::get_home_dir,
             commands::shell_exec::execute_shell_command,
         ])
         .run(tauri::generate_context!())
