@@ -20,6 +20,7 @@ interface TabBarProps {
 export function TabBar({ tabs, onTabClick, onTabClose, onNewTab, onRenameTab }: TabBarProps) {
   const [renameModal, setRenameModal] = useState<{ id: string; title: string } | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [hoveredTab, setHoveredTab] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -45,61 +46,81 @@ export function TabBar({ tabs, onTabClick, onTabClose, onNewTab, onRenameTab }: 
 
   return (
     <>
-      <div className="flex items-center h-9 bg-ft-surface border-b border-ft-border-subtle px-2 gap-0.5 overflow-x-auto no-drag">
-        <div className="flex items-center gap-1.5 px-2 mr-1 flex-shrink-0 no-drag">
+      <div className="flex items-end h-[38px] bg-ft-tab pt-[6px] pl-[72px] pr-2 gap-[2px] overflow-x-auto no-drag drag-region select-none">
+        <div className="flex items-center h-[30px] px-2 flex-shrink-0 no-drag">
           <img src="/logo.png" alt="Figyterm" className="w-4 h-4 rounded-sm" />
         </div>
-        {tabs.map((tab) => (
+        {tabs.map((tab, index) => (
           <div
             key={tab.id}
             onClick={() => onTabClick(tab.id)}
             onDoubleClick={() => openRename(tab)}
-            className={`group relative flex items-center gap-2 h-7 px-3 rounded-md text-xs font-medium transition-all duration-150 min-w-0 max-w-[200px] cursor-pointer ${
+            onMouseEnter={() => setHoveredTab(tab.id)}
+            onMouseLeave={() => setHoveredTab(null)}
+            className={`group relative flex items-center h-[30px] px-3 rounded-t-lg text-[11px] font-medium transition-all duration-100 min-w-[120px] max-w-[200px] cursor-pointer no-drag ${
               tab.isActive
-                ? "bg-ft-elevated text-ft-text shadow-sm"
-                : "text-ft-text-muted hover:text-ft-text-secondary hover:bg-ft-elevated/50"
+                ? "bg-ft-bg text-ft-text z-10"
+                : "text-ft-text-muted hover:text-ft-text-secondary hover:bg-ft-tab-active/60"
             }`}
           >
-            <TerminalSquare size={10} className="flex-shrink-0 opacity-60" />
-            <span className="truncate">{tab.title}</span>
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              <TerminalSquare
+                size={12}
+                className={`flex-shrink-0 ${
+                  tab.isActive ? "text-ft-accent" : "opacity-50"
+                }`}
+              />
+              <span className="truncate leading-none">{tab.title}</span>
+            </div>
 
-            <div className="flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 ml-auto pl-1 transition-all">
-              <span
+            <div
+              className={`flex items-center gap-0.5 flex-shrink-0 ml-2 transition-opacity duration-100 ${
+                hoveredTab === tab.id || tab.isActive ? "opacity-100" : "opacity-0"
+              }`}
+            >
+              <button
                 onClick={(e) => {
                   e.stopPropagation();
                   openRename(tab);
                 }}
-                className="text-ft-text-muted hover:text-ft-accent p-0.5 rounded hover:bg-ft-bg/50"
+                className="p-[3px] rounded text-ft-text-muted hover:text-ft-accent hover:bg-ft-elevated/80 transition-colors"
                 title="Rename tab"
               >
-                <Pencil size={8} />
-              </span>
+                <Pencil size={9} />
+              </button>
               {tabs.length > 1 && (
-                <span
+                <button
                   onClick={(e) => {
                     e.stopPropagation();
                     onTabClose(tab.id);
                   }}
-                  className="text-ft-text-muted hover:text-ft-error p-0.5 rounded hover:bg-ft-bg/50"
-                  title="Close tab"
+                  className="p-[3px] rounded text-ft-text-muted hover:text-ft-error hover:bg-ft-error/10 transition-colors"
+                  title="Close tab (⌘W)"
                 >
-                  <X size={9} />
-                </span>
+                  <X size={10} />
+                </button>
               )}
             </div>
 
             {tab.isActive && (
-              <div className="absolute bottom-0 left-2 right-2 h-[2px] bg-ft-accent rounded-full" />
+              <div className="absolute bottom-0 left-3 right-3 h-[2px] bg-ft-accent rounded-full" />
+            )}
+
+            {!tab.isActive && index < tabs.length - 1 && !tabs[index + 1]?.isActive && (
+              <div className="absolute right-0 top-[7px] bottom-[7px] w-px bg-ft-border-subtle/50" />
             )}
           </div>
         ))}
+
         <button
           onClick={onNewTab}
-          className="flex items-center justify-center w-6 h-6 ml-1 rounded text-ft-text-muted hover:text-ft-text hover:bg-ft-elevated/50 transition-colors flex-shrink-0"
+          className="flex items-center justify-center w-7 h-7 ml-1 mb-[1px] rounded-md text-ft-text-muted hover:text-ft-text hover:bg-ft-tab-active/80 transition-all duration-100 flex-shrink-0 no-drag"
           title="New Tab (⌘T)"
         >
-          <Plus size={12} />
+          <Plus size={13} strokeWidth={2} />
         </button>
+
+        <div className="flex-1 drag-region" />
       </div>
 
       {/* Rename Modal */}
@@ -118,7 +139,7 @@ export function TabBar({ tabs, onTabClick, onTabClose, onNewTab, onRenameTab }: 
             leaveFrom="opacity-100"
             leaveTo="opacity-0"
           >
-            <div className="fixed inset-0 bg-black/40" />
+            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" />
           </Transition.Child>
 
           <div className="fixed inset-0 flex items-center justify-center p-4">
