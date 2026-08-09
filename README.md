@@ -38,25 +38,43 @@ Inspired by [Fig](https://fig.io) (now part of AWS), FigyTerm is an open-source 
 
 ### Download (macOS)
 
-Download the latest `.dmg` from the [Releases](https://github.com/code4mk/figyterm/releases) page.
+1. Go to the [Releases](https://github.com/code4mk/figyterm/releases) page
+2. Download the `.dmg` file for your Mac:
+   - **Apple Silicon** (M1/M2/M3/M4): `FigyTerm_x.x.x_aarch64.dmg`
+   - **Intel**: `FigyTerm_x.x.x_x64.dmg`
+3. Open the `.dmg` file
+4. Drag **FigyTerm** to your **Applications** folder
+5. Launch from Applications
+
+> **First launch:** macOS may show "FigyTerm can't be opened because it is from an unidentified developer." Go to **System Settings > Privacy & Security**, scroll down, and click **Open Anyway**.
+
+> **"FigyTerm" is damaged and can't be opened:** This happens because the app isn't code-signed. Run this in Terminal:
+> ```bash
+> xattr -cr /Applications/FigyTerm.app
+> ```
+> Then launch again.
+
+> **Keychain access popup:** macOS may ask to allow FigyTerm to access your keychain (for SSH keys, credentials, etc.). Click **Always Allow** or **Allow** to proceed. If you accidentally deny it, go to **Keychain Access > login** and update the access control for the relevant entry.
+
+### Build from Source
 
 ```bash
-# Or build from source
 git clone https://github.com/code4mk/figyterm.git
 cd figyterm
 npm install
 npm run tauri build
 ```
 
-The built app will be at `src-tauri/target/release/bundle/macos/FigyTerm.app`.
+The built `.app` and `.dmg` will be in `src-tauri/target/release/bundle/macos/`.
 
-### Prerequisites (for building)
+### Prerequisites (for building from source)
 
 | Requirement | Version |
 |-------------|---------|
 | [Node.js](https://nodejs.org/) | 18+ |
 | [Rust](https://rustup.rs/) | 1.86+ |
 | [Tauri CLI](https://v2.tauri.app/start/prerequisites/) | 2.x |
+| Xcode Command Line Tools | `xcode-select --install` |
 
 ## Keyboard Shortcuts
 
