@@ -12,6 +12,8 @@
  */
 
 import { Figy } from "../types/figy";
+import { listInstalledSpecs, readSpecFile } from "./spec-store";
+import { evaluateSpec } from "./spec-evaluator";
 
 type SpecModule = { default: Figy.Spec } | Figy.Spec;
 
@@ -76,6 +78,29 @@ class SpecRegistry {
     this.specs.clear();
     this.specLoaders.clear();
     this.loadedCache.clear();
+  }
+
+  async loadUserSpecs(): Promise<void> {
+    try {
+      const installed = await listInstalledSpecs();
+      for (const entry of installed) {
+        if (this.hasSpec(entry.name)) continue;
+        this.registerLazySpec(entry.name, async () => {
+          const content = await readSpecFile(entry.name);
+          const spec = evaluateSpec(content) as Figy.Spec;
+          if (!spec) throw new Error(`Could not evaluate spec: ${entry.name}`);
+          return spec;
+        });
+      }
+    } catch (err) {
+      console.warn("[spec-registry] Failed to load user specs:", err);
+    }
+  }
+
+  unregisterSpec(name: string): void {
+    this.specs.delete(name);
+    this.specLoaders.delete(name);
+    this.loadedCache.delete(name);
   }
 }
 

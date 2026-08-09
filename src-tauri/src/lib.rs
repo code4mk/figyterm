@@ -23,6 +23,12 @@ pub fn run() {
             commands::autocomplete::list_path_completions,
             commands::autocomplete::get_home_dir,
             commands::shell_exec::execute_shell_command,
+            commands::specs::list_installed_specs,
+            commands::specs::read_spec_file,
+            commands::specs::save_spec_file,
+            commands::specs::save_spec_icon,
+            commands::specs::remove_spec,
+            commands::specs::get_spec_icon_path,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

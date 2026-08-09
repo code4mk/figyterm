@@ -11,11 +11,26 @@ import {
   Terminal as TerminalIcon,
   Command,
   SplitSquareHorizontal,
+  Package,
+  Download,
+  Trash2,
+  RefreshCw,
+  Search,
+  Loader2,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useThemeStore } from "../../stores/themeStore";
 import { Settings as SettingsType } from "../../services/settings";
+import {
+  fetchRegistry,
+  installSpec,
+  removeSpec,
+  listInstalledSpecs,
+  type RemoteSpecEntry,
+  type InstalledSpec,
+} from "../../services/spec-store";
+import { specRegistry } from "../../services/figy-spec-registry";
 
 interface SettingsProps {
   isOpen: boolean;
@@ -29,7 +44,7 @@ interface ShellCommandOutput {
   status: number;
 }
 
-type SettingsTab = "general" | "terminal" | "theme" | "shortcuts";
+type SettingsTab = "general" | "terminal" | "theme" | "shortcuts" | "specs";
 
 export function Settings({ isOpen, onClose, activeSessionId }: SettingsProps) {
   const { settings, updateSettings, resetSettings } = useSettingsStore();
@@ -254,6 +269,7 @@ source "${resolvedPath}"`, `${home}/.zshrc`],
     { id: "terminal", label: "Terminal", icon: <TerminalIcon size={14} /> },
     { id: "theme", label: "Theme", icon: <Palette size={14} /> },
     { id: "shortcuts", label: "Shortcuts", icon: <Keyboard size={14} /> },
+    { id: "specs", label: "Specs", icon: <Package size={14} /> },
   ];
 
   return (
@@ -342,6 +358,7 @@ source "${resolvedPath}"`, `${home}/.zshrc`],
                     />
                   )}
                   {activeTab === "shortcuts" && <ShortcutsTab />}
+                  {activeTab === "specs" && <SpecsTab />}
                 </div>
               </div>
 
@@ -802,6 +819,212 @@ interface TerminalPreviewProps {
   cursorBlink: boolean;
   theme: "dark" | "light";
   zshTheme: string;
+}
+
+/* ---------- Specs Tab ---------- */
+
+function SpecsTab() {
+  const [installed, setInstalled] = useState<InstalledSpec[]>([]);
+  const [available, setAvailable] = useState<RemoteSpecEntry[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [installing, setInstalling] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [error, setError] = useState("");
+
+  const builtinSpecs = ["git", "docker", "docker-compose", "npm", "pnpm", "yarn", "uv", "brew"];
+
+  useEffect(() => {
+    loadInstalled();
+    loadAvailable();
+  }, []);
+
+  async function loadInstalled() {
+    try {
+      const specs = await listInstalledSpecs();
+      setInstalled(specs);
+    } catch {}
+  }
+
+  async function loadAvailable() {
+    setLoading(true);
+    setError("");
+    try {
+      const registry = await fetchRegistry();
+      setAvailable(registry.specs);
+    } catch (err) {
+      setError("Failed to fetch spec registry. Check your internet connection.");
+    }
+    setLoading(false);
+  }
+
+  async function handleInstall(name: string) {
+    setInstalling(name);
+    try {
+      await installSpec(name);
+      await specRegistry.loadUserSpecs();
+      await loadInstalled();
+    } catch (err) {
+      setError(`Failed to install ${name}`);
+    }
+    setInstalling(null);
+  }
+
+  async function handleRemove(name: string) {
+    setRemoving(name);
+    try {
+      await removeSpec(name);
+      specRegistry.unregisterSpec(name);
+      await loadInstalled();
+    } catch (err) {
+      setError(`Failed to remove ${name}`);
+    }
+    setRemoving(null);
+  }
+
+  const installedNames = new Set([...builtinSpecs, ...installed.map((s) => s.name)]);
+
+  const filteredAvailable = available.filter(
+    (s) => !installedNames.has(s.name) &&
+      (searchQuery === "" ||
+        s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        s.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        s.category.toLowerCase().includes(searchQuery.toLowerCase()))
+  );
+
+  const categories = [...new Set(filteredAvailable.map((s) => s.category))].sort();
+
+  return (
+    <div className="space-y-5">
+      <SectionHeader icon={<Package size={13} />} title="Command Specs" />
+      <p className="text-xs text-ft-text-muted -mt-3">
+        Manage autocomplete specs. Built-in specs are always available. Install additional specs from the community repository.
+      </p>
+
+      {error && (
+        <div className="text-xs text-ft-error bg-ft-error/10 border border-ft-error/20 rounded-lg px-3 py-2">
+          {error}
+        </div>
+      )}
+
+      {/* Built-in specs */}
+      <div>
+        <FieldLabel>Built-in ({builtinSpecs.length})</FieldLabel>
+        <div className="mt-1.5 rounded-lg border border-ft-border-subtle bg-ft-bg overflow-hidden">
+          <div className="grid grid-cols-2 gap-px bg-ft-border-subtle/30">
+            {builtinSpecs.map((name) => (
+              <div key={name} className="flex items-center gap-2 px-3 py-2 bg-ft-bg">
+                <img
+                  src={`/icons/${name}.png`}
+                  alt=""
+                  className="w-4 h-4 object-contain"
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                />
+                <span className="text-xs font-mono text-ft-text">{name}</span>
+                <span className="ml-auto text-[8px] text-ft-accent/70 font-medium uppercase">built-in</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* User-installed specs */}
+      {installed.length > 0 && (
+        <div>
+          <FieldLabel>Installed ({installed.length})</FieldLabel>
+          <div className="mt-1.5 rounded-lg border border-ft-border-subtle bg-ft-bg overflow-hidden">
+            {installed.map((spec) => (
+              <div key={spec.name} className="flex items-center gap-2 px-3 py-2 border-b border-ft-border-subtle/50 last:border-0">
+                <span className="text-xs font-mono text-ft-text">{spec.name}</span>
+                <span className="text-[9px] text-ft-text-muted ml-1">
+                  {(spec.fileSize / 1024).toFixed(1)}KB
+                </span>
+                <button
+                  onClick={() => handleRemove(spec.name)}
+                  disabled={removing === spec.name}
+                  className="ml-auto flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-ft-error/80 hover:text-ft-error hover:bg-ft-error/10 rounded transition-colors"
+                >
+                  {removing === spec.name ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={10} />}
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Available from remote */}
+      <div>
+        <div className="flex items-center justify-between mb-1.5">
+          <FieldLabel>Available from Repository</FieldLabel>
+          <button
+            onClick={loadAvailable}
+            disabled={loading}
+            className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-ft-accent hover:bg-ft-accent/10 rounded transition-colors"
+          >
+            {loading ? <Loader2 size={10} className="animate-spin" /> : <RefreshCw size={10} />}
+            {available.length === 0 ? "Load Specs" : "Refresh"}
+          </button>
+        </div>
+
+        {available.length > 0 && (
+          <>
+            <div className="relative mb-2">
+              <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ft-text-muted" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search specs..."
+                className="w-full bg-ft-bg border border-ft-border-subtle rounded-lg pl-7 pr-3 py-1.5 text-xs text-ft-text outline-none focus:border-ft-accent/50 transition-colors placeholder:text-ft-text-muted"
+              />
+            </div>
+
+            <div className="max-h-[240px] overflow-y-auto rounded-lg border border-ft-border-subtle bg-ft-bg">
+              {categories.map((cat) => {
+                const catSpecs = filteredAvailable.filter((s) => s.category === cat);
+                if (catSpecs.length === 0) return null;
+                return (
+                  <div key={cat}>
+                    <div className="px-3 py-1.5 bg-ft-surface/50 border-b border-ft-border-subtle/50">
+                      <span className="text-[9px] font-bold text-ft-text-muted uppercase tracking-wider">{cat}</span>
+                    </div>
+                    {catSpecs.map((spec) => (
+                      <div key={spec.name} className="flex items-center gap-2 px-3 py-2 border-b border-ft-border-subtle/30 last:border-0">
+                        <div className="flex-1 min-w-0">
+                          <span className="text-xs font-mono text-ft-text block">{spec.name}</span>
+                          <span className="text-[9px] text-ft-text-muted block truncate">{spec.description}</span>
+                        </div>
+                        <button
+                          onClick={() => handleInstall(spec.name)}
+                          disabled={installing === spec.name}
+                          className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-medium text-ft-accent bg-ft-accent/10 hover:bg-ft-accent/20 rounded-md transition-colors shrink-0"
+                        >
+                          {installing === spec.name ? <Loader2 size={10} className="animate-spin" /> : <Download size={10} />}
+                          Install
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+              {filteredAvailable.length === 0 && (
+                <div className="px-3 py-4 text-center text-xs text-ft-text-muted">
+                  {searchQuery ? "No matching specs found" : "All available specs are already installed"}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {available.length === 0 && !loading && (
+          <div className="text-xs text-ft-text-muted bg-ft-bg rounded-lg border border-ft-border-subtle px-4 py-3 text-center">
+            Click "Load Specs" to browse available autocomplete specs from the community repository.
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function TerminalPreview({
