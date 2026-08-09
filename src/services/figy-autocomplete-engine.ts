@@ -393,10 +393,12 @@ export async function getAutocompleteSuggestions(
       ? (Array.isArray(currentSpec.args) ? currentSpec.args : [currentSpec.args])
       : [];
 
-    // Skip args already consumed (non-variadic only).
-    // Variadic args keep showing until a non-empty option token is typed.
+    // Skip args already consumed.
+    // For variadic args, stop showing suggestions once at least one arg is consumed
+    // and the current token is empty (user has moved past it).
     const args = allArgs.filter((arg, idx) => {
       if (idx < consumedArgs && !arg.isVariadic) return false;
+      if (arg.isVariadic && consumedArgs > 0 && currentToken === "") return false;
       return true;
     });
 
