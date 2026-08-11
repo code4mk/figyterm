@@ -11,6 +11,7 @@
 <p align="center">
   <a href="#features">Features</a> •
   <a href="#installation">Installation</a> •
+  <a href="#recommended-setup">Shell Setup</a> •
   <a href="#development">Development</a> •
   <a href="#keyboard-shortcuts">Shortcuts</a> •
   <a href="docs/CONTRIBUTING.md">Contributing</a>
@@ -75,6 +76,55 @@ The built `.app` and `.dmg` will be in `src-tauri/target/release/bundle/macos/`.
 | [Rust](https://rustup.rs/) | 1.86+ |
 | [Tauri CLI](https://v2.tauri.app/start/prerequisites/) | 2.x |
 | Xcode Command Line Tools | `xcode-select --install` |
+
+## Recommended Setup
+
+FigyTerm runs your normal login shell — it uses the `$SHELL` environment variable (same as Terminal.app). **You do not need to install anything extra for basic use.**
+
+For the best experience (themes, prompts, plugins, and recent-folder ordering from history), we recommend **zsh** with **Oh My Zsh**.
+
+### Shell
+
+| Shell | Required? | Notes |
+|-------|-----------|-------|
+| **zsh** | No (recommended) | Default on macOS since Catalina (`/bin/zsh`). FigyTerm launches whatever `$SHELL` points to. |
+| **bash / fish** | Supported | Works out of the box if `$SHELL` is set to them. |
+| **Oh My Zsh** | No (recommended) | Enables theme switching in Settings and rich prompt rendering. Without it, the terminal still works — you just won't see Oh My Zsh themes in Settings. |
+
+To confirm your shell:
+
+```bash
+echo $SHELL
+# Expected on modern macOS: /bin/zsh
+```
+
+If you want to switch the default shell to zsh:
+
+```bash
+chsh -s /bin/zsh
+```
+
+Restart FigyTerm (or open a new tab) after changing shells.
+
+### Oh My Zsh (optional)
+
+Oh My Zsh is **not required**, but it unlocks FigyTerm's theme picker (Settings → Theme) and matches how most developers configure their macOS terminal.
+
+Install Oh My Zsh:
+
+```bash
+sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
+```
+
+After install:
+
+1. Restart FigyTerm or open a new tab
+2. Open **Settings → Theme** to browse and switch Oh My Zsh themes live
+3. Custom themes can be placed in `~/.oh-my-zsh/custom/themes/`
+
+> **Already using Oh My Zsh in Terminal.app?** FigyTerm reads the same `~/.zshrc` and `~/.oh-my-zsh` config — no extra setup needed.
+
+> **Not using Oh My Zsh?** FigyTerm still works. Autocomplete, split panes, tabs, and path suggestions are independent of Oh My Zsh.
 
 ## Keyboard Shortcuts
 
