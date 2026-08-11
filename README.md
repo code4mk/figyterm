@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="public/logo.png" alt="FigyTerm" width="80" />
+  <img src="public/logo.png" alt="FigyTerm icon" height="64" />
+  &nbsp;&nbsp;
+  <img src="public/figyterm.png" alt="FigyTerm" height="64" />
 </p>
-
-<h1 align="center">FigyTerm</h1>
 
 <p align="center">
   <strong>A modern, intelligent terminal for macOS with autocomplete superpowers.</strong>
