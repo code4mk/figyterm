@@ -72,6 +72,7 @@ interface PaneContainerProps {
   onSessionCreated: (paneId: string, session: TerminalSession) => void;
   onCwdChange: (paneId: string, cwd: string) => void;
   clearRefs: React.MutableRefObject<Map<string, React.MutableRefObject<(() => void) | null>>>;
+  focusRefs: React.MutableRefObject<Map<string, React.MutableRefObject<(() => void) | null>>>;
 }
 
 export function PaneContainer({
@@ -81,6 +82,7 @@ export function PaneContainer({
   onSessionCreated,
   onCwdChange,
   clearRefs,
+  focusRefs,
 }: PaneContainerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const slotRefsMap = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -145,6 +147,11 @@ export function PaneContainer({
           clearRef = { current: null };
           clearRefs.current.set(paneId, clearRef);
         }
+        let focusRef = focusRefs.current.get(paneId);
+        if (!focusRef) {
+          focusRef = { current: null };
+          focusRefs.current.set(paneId, focusRef);
+        }
 
         return (
           <div
@@ -169,6 +176,7 @@ export function PaneContainer({
               onSessionCreated={(session) => onSessionCreated(paneId, session)}
               onCwdChange={(cwd) => onCwdChange(paneId, cwd)}
               clearRef={clearRef}
+              focusRef={focusRef}
             />
           </div>
         );

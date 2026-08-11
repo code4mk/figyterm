@@ -58,6 +58,57 @@ export function recordDirUsage(dirPath: string) {
   save(entries);
 }
 
+const SEEDED_KEY = "figyterm-recent-dirs-seeded";
+
+export async function seedFromHistory(): Promise<void> {
+  if (localStorage.getItem(SEEDED_KEY)) return;
+
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    // Parse both zsh extended history (`: timestamp:0;cd dir`) and plain history (`cd dir`)
+    const script = [
+      "cat ~/.zsh_history 2>/dev/null | sed -n 's/^.*;//p' | grep -E '^cd ' | sed 's/^cd //'",
+      "cat ~/.bash_history 2>/dev/null | grep -E '^cd ' | sed 's/^cd //'"
+    ].join(" ; ");
+
+    const result = await invoke<{ stdout: string; status: number }>("execute_shell_command", {
+      command: "sh",
+      args: ["-c", script],
+      cwd: null,
+    });
+
+    if (result.stdout && result.stdout.trim()) {
+      const lines = result.stdout.trim().split("\n");
+      const dirCount = new Map<string, number>();
+
+      for (const line of lines) {
+        let dir = line.trim();
+        if (!dir || dir === "." || dir === ".." || dir === "~" || dir === "-") continue;
+        // Remove surrounding quotes if present
+        if ((dir.startsWith('"') && dir.endsWith('"')) || (dir.startsWith("'") && dir.endsWith("'"))) {
+          dir = dir.slice(1, -1);
+        }
+        const abs = normalize(dir);
+        if (!abs) continue;
+        dirCount.set(abs, (dirCount.get(abs) || 0) + 1);
+      }
+
+      const entries = load();
+      const now = Date.now();
+
+      for (const [path, count] of dirCount) {
+        if (entries.find((e) => e.path === path)) continue;
+        entries.push({ path, count: Math.min(count, 20), lastUsed: now - 3600000 });
+      }
+
+      entries.sort((a, b) => b.count - a.count);
+      save(entries);
+    }
+  } catch {}
+
+  localStorage.setItem(SEEDED_KEY, "1");
+}
+
 export function sortByRecency<T extends { path?: string; name?: string }>(
   items: T[],
   parentDir: string

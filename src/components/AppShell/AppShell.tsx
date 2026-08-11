@@ -34,6 +34,13 @@ export function AppShell() {
 
   const { addTab, removeTab, setActiveTab } = useTerminalStore();
   const clearRefs = useRef<Map<string, React.MutableRefObject<(() => void) | null>>>(new Map());
+  const focusRefs = useRef<Map<string, React.MutableRefObject<(() => void) | null>>>(new Map());
+
+  const focusActivePane = useCallback(() => {
+    if (!activePaneId) return;
+    const ref = focusRefs.current.get(activePaneId);
+    if (ref?.current) ref.current();
+  }, [activePaneId]);
 
   const handleNewTab = useCallback(() => {
     const tabId = crypto.randomUUID();
@@ -175,6 +182,11 @@ export function AppShell() {
         if (firstSession?.sessionId) {
           setActiveTab(firstSession.sessionId);
         }
+        setTimeout(() => {
+          const targetPaneId = leafIds.includes(activePaneId || "") ? activePaneId : leafIds[0];
+          const ref = focusRefs.current.get(targetPaneId || "");
+          if (ref?.current) ref.current();
+        }, 50);
       }
     },
     [tabs, activePaneId, setActiveTab]
@@ -276,15 +288,17 @@ export function AppShell() {
 
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-ft-bg">
-      <TabBar
-        tabs={tabsForUI}
-        onTabClick={handleSwitchTab}
-        onTabClose={handleCloseTab}
-        onNewTab={handleNewTab}
-        onRenameTab={(id, name) => setCustomTabNames((prev) => ({ ...prev, [id]: name }))}
-        onDuplicateTab={handleNewTab}
-      />
-      <div className="flex-1 relative overflow-hidden">
+      <div onMouseUp={focusActivePane}>
+        <TabBar
+          tabs={tabsForUI}
+          onTabClick={handleSwitchTab}
+          onTabClose={handleCloseTab}
+          onNewTab={handleNewTab}
+          onRenameTab={(id, name) => setCustomTabNames((prev) => ({ ...prev, [id]: name }))}
+          onDuplicateTab={handleNewTab}
+        />
+      </div>
+      <div className="flex-1 relative overflow-hidden" onClick={focusActivePane}>
         {tabs.map((tab) => (
           <div
             key={tab.id}
@@ -297,15 +311,18 @@ export function AppShell() {
               onSessionCreated={handleSessionCreated}
               onCwdChange={(paneId, cwd) => setLiveCwds((prev) => ({ ...prev, [paneId]: cwd }))}
               clearRefs={clearRefs}
+              focusRefs={focusRefs}
             />
           </div>
         ))}
       </div>
-      <StatusBar
-        cwd={activePaneId ? (liveCwds[activePaneId] || activePaneSession?.session?.cwd || "") : ""}
-        shell={activePaneSession?.session?.shell ?? ""}
-        onOpenSettings={() => setSettingsOpen(true)}
-      />
+      <div onMouseUp={focusActivePane}>
+        <StatusBar
+          cwd={activePaneId ? (liveCwds[activePaneId] || activePaneSession?.session?.cwd || "") : ""}
+          shell={activePaneSession?.session?.shell ?? ""}
+          onOpenSettings={() => setSettingsOpen(true)}
+        />
+      </div>
       <CommandPalette
         isOpen={commandPaletteOpen}
         onClose={() => setCommandPaletteOpen(false)}

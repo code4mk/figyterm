@@ -69,6 +69,7 @@ interface TerminalProps {
   onSessionCreated: (session: TerminalSession) => void;
   onCwdChange?: (cwd: string) => void;
   clearRef?: React.MutableRefObject<(() => void) | null>;
+  focusRef?: React.MutableRefObject<(() => void) | null>;
 }
 
 interface RawTerminalSession {
@@ -94,7 +95,7 @@ interface CompletionEntry {
 
 const PATH_COMMANDS = ["cd", "ls", "cat", "less", "more", "head", "tail", "vim", "nano", "code", "open", "cp", "mv", "rm", "mkdir", "touch", "chmod", "chown", "source", "bat"];
 
-export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, clearRef }: TerminalProps) {
+export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, clearRef, focusRef }: TerminalProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
@@ -498,10 +499,31 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
       } else if (data.length === 1 && data.charCodeAt(0) >= 32) {
         inputBufferRef.current += data;
         triggerAutocomplete(inputBufferRef.current);
-      } else if (data.length > 1 && !data.startsWith("\x1b")) {
-        // Multi-character input (paste)
-        inputBufferRef.current += data;
-        triggerAutocomplete(inputBufferRef.current);
+      } else if (data.length > 1) {
+        // Multi-character input (paste) — handle bracketed paste sequences
+        let pasteContent = data;
+        if (pasteContent.startsWith("\x1b[200~")) {
+          pasteContent = pasteContent.slice(6);
+        }
+        if (pasteContent.endsWith("\x1b[201~")) {
+          pasteContent = pasteContent.slice(0, -6);
+        }
+        // Skip pure escape sequences (arrows, function keys, etc.)
+        if (pasteContent.startsWith("\x1b") && pasteContent.length <= 6) {
+          // Not a paste, just a normal escape sequence — don't update buffer
+        } else if (pasteContent.includes("\n") || pasteContent.includes("\r")) {
+          const lines = pasteContent.split(/[\r\n]+/);
+          const lastLine = lines[lines.length - 1] || "";
+          inputBufferRef.current = lastLine;
+          if (lastLine.trim()) {
+            triggerAutocomplete(lastLine);
+          } else {
+            updateUI([], 0, false);
+          }
+        } else if (pasteContent.length > 0 && !pasteContent.startsWith("\x1b")) {
+          inputBufferRef.current += pasteContent;
+          triggerAutocomplete(inputBufferRef.current);
+        }
       }
 
       // Send data to PTY
@@ -573,6 +595,14 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
       xtermRef.current.focus();
     }
   }, [isActive]);
+
+  useEffect(() => {
+    if (focusRef) {
+      focusRef.current = () => {
+        xtermRef.current?.focus();
+      };
+    }
+  });
 
   useEffect(() => {
     const el = containerRef.current;
