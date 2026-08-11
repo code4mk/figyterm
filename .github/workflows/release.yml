@@ -7,9 +7,17 @@ on:
 
 jobs:
   build-macos:
-    runs-on: macos-latest
     permissions:
       contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - args: "--target aarch64-apple-darwin"
+            rust_target: aarch64-apple-darwin
+          - args: "--target x86_64-apple-darwin"
+            rust_target: x86_64-apple-darwin
+    runs-on: macos-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -22,6 +30,8 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -66,39 +76,4 @@ jobs:
             See [CHANGELOG](https://github.com/code4mk/figyterm/blob/main/CHANGELOG.md) for details.
           releaseDraft: false
           prerelease: false
-
-  build-macos-intel:
-    runs-on: macos-13
-    permissions:
-      contents: write
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: "npm"
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Rust cache
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: "src-tauri -> target"
-
-      - name: Install frontend dependencies
-        run: npm ci
-
-      - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "FigyTerm ${{ github.ref_name }}"
-          releaseBody: ""
-          releaseDraft: false
-          prerelease: false
+          args: ${{ matrix.args }}
