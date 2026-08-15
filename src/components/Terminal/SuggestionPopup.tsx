@@ -40,9 +40,14 @@ export function SuggestionPopup({
   const popupRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const selectedElRef = useRef<HTMLDivElement>(null);
+  const positionedRef = useRef(false);
 
   useEffect(() => {
-    if (!visible || !anchorRef.current || !popupRef.current) return;
+    if (!visible) {
+      positionedRef.current = false;
+      return;
+    }
+    if (!anchorRef.current || !popupRef.current) return;
 
     const container = anchorRef.current;
     const textarea = container.querySelector(".xterm-helper-textarea") as HTMLElement;
@@ -63,6 +68,8 @@ export function SuggestionPopup({
       if (popupRef.current) {
         popupRef.current.style.left = `${x}px`;
         popupRef.current.style.top = `${y}px`;
+        popupRef.current.style.visibility = "visible";
+        positionedRef.current = true;
       }
     });
   }, [visible, anchorRef, items, selectedIndex]);
@@ -79,9 +86,9 @@ export function SuggestionPopup({
     <div
       ref={popupRef}
       className="fixed z-[200]"
-      style={{ top: 0, left: 0 }}
+      style={{ top: 0, left: 0, visibility: "hidden" }}
     >
-      <div className="suggestion-popup w-[300px] max-h-[220px] rounded-xl overflow-hidden animate-slide-up">
+      <div className="suggestion-popup w-[300px] max-h-[220px] rounded-xl overflow-hidden">
         {/* Header */}
         <div className="suggestion-header flex items-center justify-between px-2.5 py-[6px]">
           <div className="flex items-center gap-1.5">

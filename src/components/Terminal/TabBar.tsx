@@ -15,18 +15,30 @@ interface TabBarProps {
   onTabClose: (id: string) => void;
   onNewTab: () => void;
   onRenameTab?: (id: string, name: string) => void;
-  onMoveTab?: (id: string, direction: "left" | "right") => void;
   onReorderTabs?: (fromIndex: number, toIndex: number) => void;
+  onPrevTab?: () => void;
+  onNextTab?: () => void;
 }
 
-export function TabBar({ tabs, onTabClick, onTabClose, onNewTab, onRenameTab, onMoveTab, onReorderTabs }: TabBarProps) {
+export function TabBar({ tabs, onTabClick, onTabClose, onNewTab, onRenameTab, onReorderTabs, onPrevTab, onNextTab }: TabBarProps) {
   const [renameModal, setRenameModal] = useState<{ id: string; title: string } | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [hoveredTab, setHoveredTab] = useState<string | null>(null);
-  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
-  const [dropTargetIndex, setDropTargetIndex] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const tabRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+
+  // Pointer-based drag (refs for event listener closures, state for rendering)
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dropIndex, setDropIndex] = useState<number | null>(null);
+  const [ghostPos, setGhostPos] = useState<{ x: number; y: number } | null>(null);
+  const dragIndexRef = useRef<number | null>(null);
+  const dropIndexRef = useRef<number | null>(null);
+  const dragStartX = useRef(0);
+  const dragStartY = useRef(0);
+  const dragActive = useRef(false);
+  const tabContainerRef = useRef<HTMLDivElement>(null);
+  const ghostRef = useRef<HTMLDivElement>(null);
+  const onReorderRef = useRef(onReorderTabs);
+  onReorderRef.current = onReorderTabs;
 
   useEffect(() => {
     if (renameModal) {
@@ -50,149 +62,189 @@ export function TabBar({ tabs, onTabClick, onTabClose, onNewTab, onRenameTab, on
     setRenameModal(null);
   };
 
-  const handleDragStart = useCallback((e: React.DragEvent, index: number) => {
-    setDraggedIndex(index);
-    e.dataTransfer.effectAllowed = "move";
-    e.dataTransfer.setData("text/plain", String(index));
+  const handlePointerDown = useCallback((e: React.PointerEvent, index: number) => {
+    if (e.button !== 0) return;
+    if ((e.target as HTMLElement).closest("button")) return;
 
-    const el = tabRefs.current.get(index);
-    if (el) {
-      const ghost = el.cloneNode(true) as HTMLElement;
-      ghost.style.position = "absolute";
-      ghost.style.top = "-9999px";
-      ghost.style.opacity = "0.9";
-      document.body.appendChild(ghost);
-      e.dataTransfer.setDragImage(ghost, 60, 15);
-      requestAnimationFrame(() => ghost.remove());
-    }
+    dragStartX.current = e.clientX;
+    dragStartY.current = e.clientY;
+    dragActive.current = false;
+    dragIndexRef.current = index;
+    dropIndexRef.current = null;
+    setDragIndex(index);
+    setDropIndex(null);
+    setGhostPos(null);
+
+    const handlePointerMove = (ev: PointerEvent) => {
+      const dx = Math.abs(ev.clientX - dragStartX.current);
+      if (dx > 5 && !dragActive.current) {
+        dragActive.current = true;
+        document.body.style.cursor = "grabbing";
+      }
+      if (!dragActive.current || !tabContainerRef.current) return;
+
+      setGhostPos({ x: ev.clientX, y: ev.clientY });
+
+      const tabEls = tabContainerRef.current.querySelectorAll<HTMLElement>("[data-tab-index]");
+      let target: number | null = null;
+
+      for (const el of tabEls) {
+        const rect = el.getBoundingClientRect();
+        const midX = rect.left + rect.width / 2;
+        const tabIdx = Number(el.dataset.tabIndex);
+        if (ev.clientX < midX) {
+          target = tabIdx;
+          break;
+        }
+        target = tabIdx + 1;
+      }
+
+      if (target !== null && target !== index && target !== index + 1) {
+        dropIndexRef.current = target;
+        setDropIndex(target);
+      } else {
+        dropIndexRef.current = null;
+        setDropIndex(null);
+      }
+    };
+
+    const handlePointerUp = () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      document.body.style.cursor = "";
+
+      const from = dragIndexRef.current;
+      const drop = dropIndexRef.current;
+
+      if (dragActive.current && from !== null && drop !== null) {
+        const to = drop > from ? drop - 1 : drop;
+        if (from !== to) {
+          onReorderRef.current?.(from, to);
+        }
+      }
+
+      dragIndexRef.current = null;
+      dropIndexRef.current = null;
+      dragActive.current = false;
+      setDragIndex(null);
+      setDropIndex(null);
+      setGhostPos(null);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
   }, []);
 
-  const handleDragOver = useCallback((e: React.DragEvent, index: number) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    setDropTargetIndex(index);
-  }, []);
-
-  const handleDrop = useCallback((e: React.DragEvent, toIndex: number) => {
-    e.preventDefault();
-    const fromIndex = draggedIndex;
-    setDraggedIndex(null);
-    setDropTargetIndex(null);
-    if (fromIndex !== null && fromIndex !== toIndex) {
-      onReorderTabs?.(fromIndex, toIndex);
-    }
-  }, [draggedIndex, onReorderTabs]);
-
-  const handleDragEnd = useCallback(() => {
-    setDraggedIndex(null);
-    setDropTargetIndex(null);
-  }, []);
+  const activeIndex = tabs.findIndex((t) => t.isActive);
+  const canPrev = activeIndex > 0;
+  const canNext = activeIndex < tabs.length - 1;
 
   return (
     <>
-      <div className="tab-bar flex items-end h-[40px] pt-[6px] pl-[72px] pr-2 gap-[1px] overflow-x-auto no-drag drag-region select-none">
+      <div className="tab-bar flex items-end h-[40px] pt-[6px] pl-[72px] pr-2 gap-0 overflow-x-auto no-drag drag-region select-none">
         {/* Logo */}
         <div className="flex items-center h-[32px] px-2 flex-shrink-0 no-drag">
           <img src="/logo.png" alt="FigyTerm" className="h-4 w-auto" />
         </div>
 
-        {/* Tabs */}
-        {tabs.map((tab, index) => {
-          const isDragged = draggedIndex === index;
-          const isDropTarget = dropTargetIndex === index && draggedIndex !== null && draggedIndex !== index;
-          const canMoveLeft = index > 0;
-          const canMoveRight = index < tabs.length - 1;
-
-          return (
-            <div
-              key={tab.id}
-              ref={(el) => { if (el) tabRefs.current.set(index, el); }}
-              draggable
-              onDragStart={(e) => handleDragStart(e, index)}
-              onDragOver={(e) => handleDragOver(e, index)}
-              onDragEnter={(e) => { e.preventDefault(); setDropTargetIndex(index); }}
-              onDragLeave={() => { if (dropTargetIndex === index) setDropTargetIndex(null); }}
-              onDrop={(e) => handleDrop(e, index)}
-              onDragEnd={handleDragEnd}
-              onClick={() => onTabClick(tab.id)}
-              onDoubleClick={() => openRename(tab)}
-              onMouseEnter={() => setHoveredTab(tab.id)}
-              onMouseLeave={() => setHoveredTab(null)}
-              className={`tab-item group relative flex items-center h-[32px] px-3 rounded-t-lg text-[11px] font-medium transition-all duration-100 min-w-[130px] max-w-[220px] cursor-pointer no-drag select-none ${
-                tab.isActive ? "active" : ""
-              } ${isDragged ? "dragging" : ""} ${isDropTarget ? "drop-target" : ""}`}
+        {/* Global nav arrows */}
+        {tabs.length > 1 && (
+          <div className="flex items-center h-[32px] gap-0 mr-1 flex-shrink-0 no-drag">
+            <button
+              onClick={onPrevTab}
+              disabled={!canPrev}
+              className={`tab-nav-btn flex items-center justify-center w-5 h-5 rounded transition-colors ${!canPrev ? "opacity-25 cursor-default" : ""}`}
+              title="Previous Tab (⌘⇧[)"
             >
-              {/* Drop indicator line */}
-              {isDropTarget && (
-                <div className="drop-indicator absolute left-0 top-[4px] bottom-[4px] w-[2px] rounded-full" />
-              )}
+              <ChevronLeft size={12} />
+            </button>
+            <button
+              onClick={onNextTab}
+              disabled={!canNext}
+              className={`tab-nav-btn flex items-center justify-center w-5 h-5 rounded transition-colors ${!canNext ? "opacity-25 cursor-default" : ""}`}
+              title="Next Tab (⌘⇧])"
+            >
+              <ChevronRight size={12} />
+            </button>
+          </div>
+        )}
 
-              <div className="flex items-center gap-2 flex-1 min-w-0">
-                <TerminalSquare
-                  size={12}
-                  className={`flex-shrink-0 ${tab.isActive ? "text-ft-accent" : "tab-icon"}`}
-                />
-                <span className="truncate leading-none">{tab.title}</span>
-                {tab.paneCount && tab.paneCount > 1 && (
-                  <span className="flex items-center gap-0.5 text-[9px] tab-pane-count flex-shrink-0">
-                    <Columns2 size={8} className="opacity-60" />
-                    {tab.paneCount}
-                  </span>
-                )}
-              </div>
+        {/* Tabs */}
+        <div ref={tabContainerRef} className="flex items-end gap-[1px] min-w-0 overflow-x-auto no-drag">
+          {tabs.map((tab, index) => {
+          const isDragged = dragIndex === index && dropIndex !== null;
+          const showDropBefore = dropIndex === index && dragIndex !== null && dragIndex !== index;
+          const showDropAfter = dropIndex === tabs.length && index === tabs.length - 1 && dragIndex !== null && dragIndex !== index;
 
-              {/* Action buttons */}
+            return (
               <div
-                className={`flex items-center gap-0 flex-shrink-0 ml-1.5 transition-opacity duration-100 ${
-                  hoveredTab === tab.id || tab.isActive ? "opacity-100" : "opacity-0"
-                }`}
+                key={tab.id}
+                data-tab-index={index}
+                onPointerDown={(e) => handlePointerDown(e, index)}
+                onClick={() => { if (!dragActive.current) onTabClick(tab.id); }}
+                onDoubleClick={() => openRename(tab)}
+                onMouseEnter={() => setHoveredTab(tab.id)}
+                onMouseLeave={() => setHoveredTab(null)}
+                className={`tab-item group relative flex items-center h-[32px] px-3 rounded-t-lg text-[11px] font-medium transition-all duration-100 min-w-[130px] max-w-[220px] cursor-pointer no-drag select-none ${
+                  tab.isActive ? "active" : ""
+                } ${isDragged ? "dragging" : ""}`}
               >
-                {/* Move left/right buttons — only on hover */}
-                {hoveredTab === tab.id && tabs.length > 1 && (
-                  <>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); if (canMoveLeft) onMoveTab?.(tab.id, "left"); }}
-                      className={`tab-action-btn p-[2px] rounded transition-colors ${canMoveLeft ? "" : "opacity-30 cursor-default"}`}
-                      title="Move tab left"
-                    >
-                      <ChevronLeft size={10} />
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); if (canMoveRight) onMoveTab?.(tab.id, "right"); }}
-                      className={`tab-action-btn p-[2px] rounded transition-colors ${canMoveRight ? "" : "opacity-30 cursor-default"}`}
-                      title="Move tab right"
-                    >
-                      <ChevronRight size={10} />
-                    </button>
-                  </>
+                {/* Drop indicator — before this tab */}
+                {showDropBefore && (
+                  <div className="drop-indicator absolute -left-[1px] top-[4px] bottom-[4px] w-[2px] rounded-full" />
+                )}
+                {/* Drop indicator — after last tab */}
+                {showDropAfter && (
+                  <div className="drop-indicator absolute -right-[1px] top-[4px] bottom-[4px] w-[2px] rounded-full" />
                 )}
 
-                <button
-                  onClick={(e) => { e.stopPropagation(); openRename(tab); }}
-                  className="tab-action-btn p-[2px] rounded transition-colors"
-                  title="Rename tab"
-                >
-                  <Pencil size={9} />
-                </button>
+                <div className="flex items-center gap-2 flex-1 min-w-0">
+                  <TerminalSquare
+                    size={12}
+                    className={`flex-shrink-0 ${tab.isActive ? "text-ft-accent" : "tab-icon"}`}
+                  />
+                  <span className="truncate leading-none">{tab.title}</span>
+                  {tab.paneCount && tab.paneCount > 1 && (
+                    <span className="flex items-center gap-0.5 text-[9px] tab-pane-count flex-shrink-0">
+                      <Columns2 size={8} className="opacity-60" />
+                      {tab.paneCount}
+                    </span>
+                  )}
+                </div>
 
-                {tabs.length > 1 && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onTabClose(tab.id); }}
-                    className="tab-close-btn p-[2px] rounded transition-colors"
-                    title="Close tab (⌘W)"
+                {/* Action buttons */}
+                <div
+                  className={`flex items-center gap-0 flex-shrink-0 ml-1.5 transition-opacity duration-100 ${
+                    hoveredTab === tab.id || tab.isActive ? "opacity-100" : "opacity-0"
+                  }`}
+                >
+                <button
+                    onClick={(e) => { e.stopPropagation(); openRename(tab); }}
+                    className="tab-action-btn p-[2px] rounded transition-colors"
+                    title="Rename tab"
                   >
-                    <X size={10} />
+                    <Pencil size={9} />
                   </button>
+
+                  {tabs.length > 1 && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onTabClose(tab.id); }}
+                      className="tab-close-btn p-[2px] rounded transition-colors"
+                      title="Close tab (⌘W)"
+                    >
+                      <X size={10} />
+                    </button>
+                  )}
+                </div>
+
+                {/* Active indicator */}
+                {tab.isActive && (
+                  <div className="absolute bottom-0 left-3 right-3 h-[2px] bg-ft-accent rounded-full" />
                 )}
               </div>
-
-              {/* Active indicator */}
-              {tab.isActive && (
-                <div className="absolute bottom-0 left-3 right-3 h-[2px] bg-ft-accent rounded-full" />
-              )}
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
 
         {/* New tab button */}
         <button
@@ -205,6 +257,21 @@ export function TabBar({ tabs, onTabClick, onTabClose, onNewTab, onRenameTab, on
 
         <div className="flex-1 drag-region" />
       </div>
+
+      {/* Floating drag ghost */}
+      {ghostPos && dragIndex !== null && tabs[dragIndex] && (
+        <div
+          ref={ghostRef}
+          className="drag-ghost fixed z-[500] pointer-events-none flex items-center gap-2 h-[30px] px-3 rounded-lg text-[11px] font-medium"
+          style={{
+            left: ghostPos.x - 60,
+            top: ghostPos.y - 15,
+          }}
+        >
+          <TerminalSquare size={12} className="text-ft-accent flex-shrink-0" />
+          <span className="truncate">{tabs[dragIndex].title}</span>
+        </div>
+      )}
 
       {/* Rename Modal */}
       <Transition appear show={renameModal !== null} as={Fragment}>

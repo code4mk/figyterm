@@ -61,6 +61,8 @@ impl PtyInstance {
         cmd.env("TERM_PROGRAM", "Figyterm");
         cmd.env("LOGNAME", &user);
         cmd.env("TMPDIR", std::env::var("TMPDIR").unwrap_or_else(|_| "/tmp".to_string()));
+        // Suppress the '%' mark zsh shows when previous output lacks trailing newline
+        cmd.env("PROMPT_EOL_MARK", "");
 
         pair.slave
             .spawn_command(cmd)

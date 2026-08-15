@@ -206,23 +206,6 @@ export function AppShell() {
     handleSwitchTab(tabs[prevIdx].id);
   }, [tabs, activeTabId, handleSwitchTab]);
 
-  const handleMoveTab = useCallback(
-    (tabId: string, direction: "left" | "right") => {
-      const idx = tabs.findIndex((t) => t.id === tabId);
-      if (idx < 0) return;
-      const newIdx = direction === "left" ? idx - 1 : idx + 1;
-      if (newIdx < 0 || newIdx >= tabs.length) return;
-      setTabs((prev) => {
-        const updated = [...prev];
-        const [moved] = updated.splice(idx, 1);
-        updated.splice(newIdx, 0, moved);
-        return updated;
-      });
-      reorderTabs(idx, newIdx);
-    },
-    [tabs, reorderTabs]
-  );
-
   const handleReorderTabs = useCallback(
     (fromIndex: number, toIndex: number) => {
       if (fromIndex === toIndex) return;
@@ -282,12 +265,24 @@ export function AppShell() {
       } else if (isMod && e.shiftKey && (e.key === "D" || e.key === "d")) {
         e.preventDefault();
         handleSplitPane("vertical");
+      } else if (isMod && e.shiftKey && e.key === "[") {
+        e.preventDefault();
+        switchToPreviousTab();
+      } else if (isMod && e.shiftKey && e.key === "]") {
+        e.preventDefault();
+        switchToNextTab();
+      } else if (isMod && !e.shiftKey && e.key >= "1" && e.key <= "9") {
+        e.preventDefault();
+        const tabNum = parseInt(e.key, 10) - 1;
+        if (tabNum < tabs.length) {
+          handleSwitchTab(tabs[tabNum].id);
+        }
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleNewTab, handleClosePane, handleClearTerminal, switchToNextTab, switchToPreviousTab, handleSplitPane]);
+  }, [handleNewTab, handleClosePane, handleClearTerminal, switchToNextTab, switchToPreviousTab, handleSplitPane, handleSwitchTab, tabs]);
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
 
@@ -326,8 +321,9 @@ export function AppShell() {
           onTabClose={handleCloseTab}
           onNewTab={handleNewTab}
           onRenameTab={(id, name) => setCustomTabNames((prev) => ({ ...prev, [id]: name }))}
-          onMoveTab={handleMoveTab}
           onReorderTabs={handleReorderTabs}
+          onPrevTab={switchToPreviousTab}
+          onNextTab={switchToNextTab}
         />
       </div>
       <div className="flex-1 relative overflow-hidden" onClick={focusActivePane}>

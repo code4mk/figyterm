@@ -199,6 +199,7 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fetchIdRef = useRef(0);
 
   const updateUI = useCallback((items: SuggestionItem[], idx: number, show: boolean) => {
     if (!show && debounceRef.current) {
@@ -236,6 +237,7 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
   const triggerAutocomplete = useCallback((input: string) => {
     const trimmed = input.trimStart();
     if (!trimmed) {
+      if (debounceRef.current) { clearTimeout(debounceRef.current); debounceRef.current = null; }
       updateUI([], 0, false);
       return;
     }
@@ -250,18 +252,26 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
       if (ch === '"' && !inSingle) inDouble = !inDouble;
     }
     if (inSingle || inDouble) {
+      if (debounceRef.current) { clearTimeout(debounceRef.current); debounceRef.current = null; }
       updateUI([], 0, false);
       return;
     }
 
     // Don't suggest when input ends with \ (line continuation)
     if (trimmed.endsWith("\\")) {
+      if (debounceRef.current) { clearTimeout(debounceRef.current); debounceRef.current = null; }
       updateUI([], 0, false);
       return;
     }
 
+    // Don't hide existing suggestions during the debounce wait — only clear
+    // the timer and start a fresh one. This prevents flash (hide → show).
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    const thisId = ++fetchIdRef.current;
     debounceRef.current = setTimeout(async () => {
+      // If another trigger fired while we waited, bail out
+      if (thisId !== fetchIdRef.current) return;
+
       const parts = trimmed.split(/\s+/);
       const command = parts[0].toLowerCase();
       const lastToken = extractLastToken(trimmed);
@@ -272,6 +282,7 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
       if (hasSpec && parts.length >= 1) {
         try {
           const figSuggestions = await getAutocompleteSuggestions(trimmed, cwdRef.current);
+          if (thisId !== fetchIdRef.current) return;
 
           const needsPathCompletion = figSuggestions.some(
             (s) => s.type === "file" || s.type === "folder"
@@ -291,6 +302,7 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
             const foldersOnly = figSuggestions.some((s) => s.type === "folder") &&
               !figSuggestions.some((s) => s.type === "file");
             const pathItems = await fetchPathCompletions(lastTokenUnescaped);
+            if (thisId !== fetchIdRef.current) return;
             const filtered = foldersOnly
               ? pathItems.filter((p) => p.type === "folder")
               : pathItems;
@@ -303,10 +315,11 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
             updateUI([], 0, false);
           }
         } catch {
-          updateUI([], 0, false);
+          if (thisId === fetchIdRef.current) updateUI([], 0, false);
         }
       } else if (parts.length >= 2 && PATH_COMMANDS.includes(command)) {
         const pathItems = await fetchPathCompletions(lastTokenUnescaped);
+        if (thisId !== fetchIdRef.current) return;
         let items = command === "cd"
           ? pathItems.filter((p) => p.type === "folder")
           : pathItems;
@@ -328,7 +341,7 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
       } else {
         updateUI([], 0, false);
       }
-    }, 80);
+    }, 120);
   }, [fetchPathCompletions, updateUI]);
 
   const acceptSuggestion = useCallback((item: SuggestionItem, inline = false) => {
@@ -581,12 +594,15 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
       if (data === "\r" || data === "\n" || data === "\x1bOM") {
         const trimmedInput = inputBufferRef.current.trimEnd();
         if (trimmedInput.endsWith("\\")) {
-          // Line continuation: pass through to shell, keep buffer context
           updateUI([], 0, false);
         } else if (isShowing && items.length > 0) {
-          // Popup open → Enter always picks the selected suggestion
-          acceptSuggestion(items[idx]);
-          return;
+          const selected = items[idx];
+          // Enter skips only --options/-flags; accepts everything else (files, folders, subcommands, args)
+          const isOption = selected.type === "option" || (selected.name && /^-/.test(selected.name));
+          if (!isOption) {
+            acceptSuggestion(selected);
+            return;
+          }
         }
         if (!trimmedInput.endsWith("\\")) {
           inputBufferRef.current = "";
@@ -596,8 +612,10 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
         inputBufferRef.current = inputBufferRef.current.slice(0, -1);
         const trimmedBuf = inputBufferRef.current.trimStart();
         if (trimmedBuf.length > 0 && trimmedBuf.includes(" ")) {
+          // Re-trigger without hiding first to prevent flash
           triggerAutocomplete(inputBufferRef.current);
         } else {
+          if (debounceRef.current) { clearTimeout(debounceRef.current); debounceRef.current = null; }
           updateUI([], 0, false);
         }
       } else if (data === "\x03") {
@@ -635,9 +653,11 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
           return; // Don't send tab to terminal
         }
       } else if (data === "\x1b[C" || data === "\x1bOC") {
-        // Arrow right - just close popup, let it pass through to terminal
+        // Arrow right - close popup and consume the keystroke to prevent
+        // zsh-autosuggestions from accepting its ghost suggestion
         if (isShowing) {
           updateUI([], 0, false);
+          return;
         }
       } else if (data === "\x1b[A" || data === "\x1bOA") {
         // Arrow up
