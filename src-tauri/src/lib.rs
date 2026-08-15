@@ -22,6 +22,7 @@ pub fn run() {
             commands::terminal::get_default_working_directory,
             commands::autocomplete::list_path_completions,
             commands::autocomplete::get_home_dir,
+            commands::autocomplete::read_shell_history,
             commands::shell_exec::execute_shell_command,
             commands::specs::list_installed_specs,
             commands::specs::read_spec_file,

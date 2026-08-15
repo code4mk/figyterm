@@ -699,6 +699,317 @@
   background: rgba(79, 70, 229, 0.12);
 }
 
+/* ─── History Search ─── */
+
+.history-modal {
+  background: #1e2228;
+  border: 1px solid #353b44;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+}
+
+.history-header {
+  border-bottom: 1px solid #2a2f37;
+}
+
+.history-search-icon {
+  color: #6366f1;
+}
+
+.history-input {
+  color: #e6edf3;
+}
+
+.history-input::placeholder {
+  color: #5d636e;
+}
+
+.history-count {
+  color: #6e7681;
+}
+
+.history-close-btn {
+  color: #6e7681;
+}
+
+.history-close-btn:hover {
+  color: #e6edf3;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.history-hints {
+  border-bottom: 1px solid #2a2f37;
+  color: #5d636e;
+  font-size: 10px;
+}
+
+.history-kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 4px;
+  font-size: 9px;
+  font-weight: 500;
+  color: #8b949e;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+}
+
+.history-list {
+  background: #1a1d22;
+}
+
+.history-item {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.history-item:last-child {
+  border-bottom: none;
+}
+
+.history-item:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.history-item.active {
+  background: rgba(99, 102, 241, 0.08);
+}
+
+.history-item-icon {
+  color: #4a4f5a;
+}
+
+.history-item.active .history-item-icon {
+  color: #6366f1;
+}
+
+.history-command {
+  color: #b0b8c4;
+}
+
+.history-item.active .history-command {
+  color: #e6edf3;
+}
+
+.history-highlight {
+  color: #fbbf24;
+  font-weight: 600;
+}
+
+.history-time {
+  color: #4a4f5a;
+}
+
+.history-enter-icon {
+  color: #6366f1;
+}
+
+.history-empty {
+  color: #5d636e;
+}
+
+.history-drag-handle {
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.history-drag-handle:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.history-grip-icon {
+  color: #4a4f5a;
+}
+
+.history-drag-handle:hover .history-grip-icon {
+  color: #6e7681;
+}
+
+.history-resize-handle {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: nwse-resize;
+  z-index: 10;
+}
+
+.history-resize-icon {
+  color: #4a4f5a;
+}
+
+.history-resize-handle:hover .history-resize-icon {
+  color: #8b949e;
+}
+
+.history-modal {
+  position: relative;
+}
+
+.history-modal.history-pip {
+  position: fixed;
+  z-index: 250;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(99, 102, 241, 0.15);
+}
+
+.history-pip-label {
+  color: #6e7681;
+}
+
+.history-pip-btn {
+  color: #6e7681;
+}
+
+.history-pip-btn:hover {
+  color: #e6edf3;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.light .history-modal {
+  background: #ffffff;
+  border: 1px solid #e2e5eb;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.12);
+}
+
+.light .history-header {
+  border-bottom: 1px solid #e8ecf0;
+}
+
+.light .history-search-icon {
+  color: #4f46e5;
+}
+
+.light .history-input {
+  color: #1f2937;
+}
+
+.light .history-input::placeholder {
+  color: #9ca3af;
+}
+
+.light .history-count {
+  color: #9ca3af;
+}
+
+.light .history-close-btn {
+  color: #9ca3af;
+}
+
+.light .history-close-btn:hover {
+  color: #1f2937;
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.light .history-hints {
+  border-bottom: 1px solid #e8ecf0;
+  color: #9ca3af;
+}
+
+.light .history-kbd {
+  color: #6b7280;
+  background: #f3f4f6;
+  border: 1px solid #d1d5db;
+}
+
+.light .history-list {
+  background: #f9fafb;
+}
+
+.light .history-item {
+  border-bottom: 1px solid #f0f1f3;
+}
+
+.light .history-item:hover {
+  background: rgba(0, 0, 0, 0.01);
+}
+
+.light .history-item.active {
+  background: rgba(79, 70, 229, 0.05);
+}
+
+.light .history-item-icon {
+  color: #d1d5db;
+}
+
+.light .history-item.active .history-item-icon {
+  color: #4f46e5;
+}
+
+.light .history-command {
+  color: #374151;
+}
+
+.light .history-item.active .history-command {
+  color: #1f2937;
+}
+
+.light .history-highlight {
+  color: #d97706;
+  font-weight: 600;
+}
+
+.light .history-time {
+  color: #9ca3af;
+}
+
+.light .history-enter-icon {
+  color: #4f46e5;
+}
+
+.light .history-empty {
+  color: #9ca3af;
+}
+
+.light .history-drag-handle {
+  background: rgba(0, 0, 0, 0.01);
+  border-bottom: 1px solid #e8ecf0;
+}
+
+.light .history-drag-handle:hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.light .history-grip-icon {
+  color: #c0c5cc;
+}
+
+.light .history-drag-handle:hover .history-grip-icon {
+  color: #9ca3af;
+}
+
+.light .history-resize-icon {
+  color: #c0c5cc;
+}
+
+.light .history-resize-handle:hover .history-resize-icon {
+  color: #9ca3af;
+}
+
+.light .history-modal.history-pip {
+  border: 1px solid rgba(79, 70, 229, 0.25);
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.1), 0 0 0 1px rgba(79, 70, 229, 0.1);
+}
+
+.light .history-pip-label {
+  color: #9ca3af;
+}
+
+.light .history-pip-btn {
+  color: #9ca3af;
+}
+
+.light .history-pip-btn:hover {
+  color: #1f2937;
+  background: rgba(0, 0, 0, 0.05);
+}
+
 /* ─── Suggestion Popup ─── */
 
 .suggestion-popup {

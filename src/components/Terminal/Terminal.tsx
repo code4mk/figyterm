@@ -15,6 +15,7 @@ import { specRegistry } from "../../services/figy-spec-registry";
 import { isDragging } from "./SplitHandle";
 import { recordDirUsage, sortByRecency, setHomeDir } from "../../services/recent-dirs";
 import { Search, ChevronUp, ChevronDown, X } from "lucide-react";
+import { HistorySearch } from "./HistorySearch";
 
 const DARK_THEME: ITheme = {
   background: "#1a1d23",
@@ -186,6 +187,7 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
   const [searchQuery, setSearchQuery] = useState("");
   const [searchMatchCount, setSearchMatchCount] = useState<string>("");
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [showHistory, setShowHistory] = useState(false);
   settingsRef.current = settings;
   const theme = useThemeStore((s) => s.theme);
 
@@ -536,6 +538,11 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
         openSearch();
         return false;
       }
+      // Cmd+R: open history search
+      if (event.metaKey && event.key === "r" && event.type === "keydown") {
+        setShowHistory(true);
+        return false;
+      }
       // Ctrl+C / Cmd+C: copy if selection, otherwise SIGINT
       if ((event.ctrlKey || event.metaKey) && event.key === "c" && event.type === "keydown") {
         if (xterm.hasSelection()) {
@@ -801,6 +808,26 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
     }
   });
 
+  const handleHistorySelect = useCallback(async (command: string) => {
+    const sid = sessionIdRef.current;
+    const xterm = xtermRef.current;
+    if (!sid || !xterm) return;
+
+    try {
+      const encoder = new TextEncoder();
+      await invoke("write_terminal_session", {
+        sessionId: sid,
+        data: Array.from(encoder.encode("\x15")),
+      });
+      await invoke("write_terminal_session", {
+        sessionId: sid,
+        data: Array.from(encoder.encode(command)),
+      });
+    } catch { /* ignore */ }
+    inputBufferRef.current = command;
+    xterm.focus();
+  }, []);
+
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -890,6 +917,14 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
         anchorRef={containerRef}
         onSelect={acceptSuggestion}
         fontFamily={settings.fontFamily}
+      />
+      <HistorySearch
+        visible={showHistory && isActive}
+        onClose={() => {
+          setShowHistory(false);
+          xtermRef.current?.focus();
+        }}
+        onSelect={handleHistorySelect}
       />
     </div>
   );

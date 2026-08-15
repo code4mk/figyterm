@@ -141,3 +141,119 @@ pub fn list_path_completions(
 pub fn get_home_dir() -> String {
     std::env::var("HOME").unwrap_or_else(|_| String::from("/tmp"))
 }
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryEntry {
+    pub command: String,
+    pub timestamp: Option<u64>,
+}
+
+#[tauri::command]
+pub fn read_shell_history(max_entries: Option<usize>) -> Vec<HistoryEntry> {
+    let home = std::env::var("HOME").unwrap_or_default();
+    if home.is_empty() {
+        return vec![];
+    }
+
+    let limit = max_entries.unwrap_or(2000);
+
+    // Try zsh first, then bash
+    let zsh_path = PathBuf::from(&home).join(".zsh_history");
+    let bash_path = PathBuf::from(&home).join(".bash_history");
+
+    if zsh_path.exists() {
+        parse_zsh_history(&zsh_path, limit)
+    } else if bash_path.exists() {
+        parse_bash_history(&bash_path, limit)
+    } else {
+        vec![]
+    }
+}
+
+fn parse_zsh_history(path: &PathBuf, limit: usize) -> Vec<HistoryEntry> {
+    let data = match fs::read(path) {
+        Ok(d) => d,
+        Err(_) => return vec![],
+    };
+    let content = String::from_utf8_lossy(&data);
+
+    let mut entries: Vec<HistoryEntry> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    for line in content.lines().rev() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        let (timestamp, command) = if line.starts_with(": ") {
+            // Extended format: ": 1234567890:0;command here"
+            if let Some(semi) = line.find(';') {
+                let meta = &line[2..semi];
+                let ts = meta.split(':').next()
+                    .and_then(|s| s.trim().parse::<u64>().ok());
+                (ts, line[semi + 1..].to_string())
+            } else {
+                (None, line.to_string())
+            }
+        } else {
+            (None, line.to_string())
+        };
+
+        let cmd = command.trim().to_string();
+        if cmd.is_empty() || cmd.len() < 2 {
+            continue;
+        }
+
+        if seen.contains(&cmd) {
+            continue;
+        }
+        seen.insert(cmd.clone());
+
+        entries.push(HistoryEntry {
+            command: cmd,
+            timestamp,
+        });
+
+        if entries.len() >= limit {
+            break;
+        }
+    }
+
+    entries
+}
+
+fn parse_bash_history(path: &PathBuf, limit: usize) -> Vec<HistoryEntry> {
+    let data = match fs::read(path) {
+        Ok(d) => d,
+        Err(_) => return vec![],
+    };
+    let content = String::from_utf8_lossy(&data);
+
+    let mut entries: Vec<HistoryEntry> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    for line in content.lines().rev() {
+        let cmd = line.trim().to_string();
+        if cmd.is_empty() || cmd.len() < 2 || cmd.starts_with('#') {
+            continue;
+        }
+
+        if seen.contains(&cmd) {
+            continue;
+        }
+        seen.insert(cmd.clone());
+
+        entries.push(HistoryEntry {
+            command: cmd,
+            timestamp: None,
+        });
+
+        if entries.len() >= limit {
+            break;
+        }
+    }
+
+    entries
+}
