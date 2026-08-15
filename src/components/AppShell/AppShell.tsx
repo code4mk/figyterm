@@ -32,7 +32,7 @@ export function AppShell() {
   const [customTabNames, setCustomTabNames] = useState<Record<string, string>>({});
   const initialCreated = useRef(false);
 
-  const { addTab, removeTab, setActiveTab } = useTerminalStore();
+  const { addTab, removeTab, setActiveTab, reorderTabs } = useTerminalStore();
   const clearRefs = useRef<Map<string, React.MutableRefObject<(() => void) | null>>>(new Map());
   const focusRefs = useRef<Map<string, React.MutableRefObject<(() => void) | null>>>(new Map());
 
@@ -206,6 +206,37 @@ export function AppShell() {
     handleSwitchTab(tabs[prevIdx].id);
   }, [tabs, activeTabId, handleSwitchTab]);
 
+  const handleMoveTab = useCallback(
+    (tabId: string, direction: "left" | "right") => {
+      const idx = tabs.findIndex((t) => t.id === tabId);
+      if (idx < 0) return;
+      const newIdx = direction === "left" ? idx - 1 : idx + 1;
+      if (newIdx < 0 || newIdx >= tabs.length) return;
+      setTabs((prev) => {
+        const updated = [...prev];
+        const [moved] = updated.splice(idx, 1);
+        updated.splice(newIdx, 0, moved);
+        return updated;
+      });
+      reorderTabs(idx, newIdx);
+    },
+    [tabs, reorderTabs]
+  );
+
+  const handleReorderTabs = useCallback(
+    (fromIndex: number, toIndex: number) => {
+      if (fromIndex === toIndex) return;
+      setTabs((prev) => {
+        const updated = [...prev];
+        const [moved] = updated.splice(fromIndex, 1);
+        updated.splice(toIndex, 0, moved);
+        return updated;
+      });
+      reorderTabs(fromIndex, toIndex);
+    },
+    [reorderTabs]
+  );
+
   const handleClearTerminal = useCallback(() => {
     if (!activePaneId) return;
     const ref = clearRefs.current.get(activePaneId);
@@ -295,7 +326,8 @@ export function AppShell() {
           onTabClose={handleCloseTab}
           onNewTab={handleNewTab}
           onRenameTab={(id, name) => setCustomTabNames((prev) => ({ ...prev, [id]: name }))}
-          onDuplicateTab={handleNewTab}
+          onMoveTab={handleMoveTab}
+          onReorderTabs={handleReorderTabs}
         />
       </div>
       <div className="flex-1 relative overflow-hidden" onClick={focusActivePane}>

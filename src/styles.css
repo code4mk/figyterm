@@ -258,6 +258,127 @@
   border-color: rgba(79, 70, 229, 0.25);
 }
 
+/* ─── Tab Bar ─── */
+
+.tab-bar {
+  background: var(--ft-tab);
+}
+
+.tab-item {
+  color: #6e7681;
+  transition: all 0.1s ease;
+}
+
+.tab-item:hover {
+  color: #b0b8c4;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.tab-item.active {
+  background: var(--ft-bg);
+  color: #e6edf3;
+  z-index: 10;
+}
+
+.tab-item.dragging {
+  opacity: 0.4;
+}
+
+.tab-item.drop-target {
+  background: rgba(99, 102, 241, 0.06);
+}
+
+.drop-indicator {
+  background: #6366f1;
+}
+
+.tab-icon {
+  opacity: 0.4;
+}
+
+.tab-pane-count {
+  color: #6e7681;
+}
+
+.tab-action-btn {
+  color: #6e7681;
+}
+
+.tab-action-btn:hover {
+  color: #b0b8c4;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.tab-close-btn {
+  color: #6e7681;
+}
+
+.tab-close-btn:hover {
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.1);
+}
+
+.tab-new-btn {
+  color: #6e7681;
+}
+
+.tab-new-btn:hover {
+  color: #e6edf3;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.light .tab-item {
+  color: #9ca3af;
+}
+
+.light .tab-item:hover {
+  color: #374151;
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.light .tab-item.active {
+  color: #1f2937;
+}
+
+.light .tab-item.drop-target {
+  background: rgba(79, 70, 229, 0.04);
+}
+
+.light .tab-icon {
+  opacity: 0.4;
+}
+
+.light .tab-pane-count {
+  color: #9ca3af;
+}
+
+.light .tab-action-btn {
+  color: #9ca3af;
+}
+
+.light .tab-action-btn:hover {
+  color: #374151;
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.light .tab-close-btn {
+  color: #9ca3af;
+}
+
+.light .tab-close-btn:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.light .tab-new-btn {
+  color: #9ca3af;
+}
+
+.light .tab-new-btn:hover {
+  color: #1f2937;
+  background: rgba(0, 0, 0, 0.04);
+}
+
 /* ─── Terminal Search Bar ─── */
 
 .search-bar {

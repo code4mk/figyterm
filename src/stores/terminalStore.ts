@@ -8,6 +8,7 @@ interface TerminalStore {
   removeTab: (id: string) => void;
   setActiveTab: (id: string) => void;
   renameTab: (id: string, title: string) => void;
+  reorderTabs: (fromIndex: number, toIndex: number) => void;
   getActiveSession: () => TerminalSession | null;
 }
 
@@ -63,6 +64,15 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
         t.id === id ? { ...t, session: { ...t.session, title } } : t
       ),
     }));
+  },
+
+  reorderTabs: (fromIndex: number, toIndex: number) => {
+    set((state) => {
+      const newTabs = [...state.tabs];
+      const [moved] = newTabs.splice(fromIndex, 1);
+      newTabs.splice(toIndex, 0, moved);
+      return { tabs: newTabs };
+    });
   },
 
   getActiveSession: () => {
