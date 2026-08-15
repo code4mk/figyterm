@@ -141,7 +141,10 @@ async function resolveContext(input: string, cwd?: string): Promise<(ParsedConte
       });
       if (sub) {
         if ((sub as any).loadSpec && typeof (sub as any).loadSpec === "string") {
-          const loadedSpec = await specRegistry.getSpec((sub as any).loadSpec);
+          const specPath = (sub as any).loadSpec as string;
+          // Try loading as a sub-spec file (e.g., "aws/s3" -> ~/.figyterm/specs/aws/s3.ts)
+          const loadedSpec = await specRegistry.loadSubSpec(specPath)
+            || await specRegistry.getSpec(specPath);
           if (loadedSpec) {
             currentSpec = loadedSpec;
           } else {

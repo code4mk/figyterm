@@ -847,7 +847,8 @@ function SpecsTab() {
   async function loadInstalled() {
     try {
       const specs = await listInstalledSpecs();
-      setInstalled(specs);
+      // Only show root specs, not sub-specs (e.g., hide "aws/s3")
+      setInstalled(specs.filter((s) => !s.name.includes("/")));
     } catch {}
   }
 

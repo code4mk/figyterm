@@ -9,6 +9,9 @@
  * 2. At build time, they're bundled into the app
  * 3. At runtime, the registry resolves which spec to use based on the command
  * 4. The autocomplete engine queries the registry for suggestions
+ *
+ * Supports folder-style specs where a root spec (e.g., aws.ts) references
+ * sub-specs via loadSpec (e.g., loadSpec: "aws/s3" -> aws/s3.ts).
  */
 
 import { Figy } from "../types/figy";
@@ -62,6 +65,29 @@ class SpecRegistry {
     return null;
   }
 
+  /**
+   * Load a sub-spec by path (e.g., "aws/s3").
+   * Attempts to read from the user-installed specs directory.
+   */
+  async loadSubSpec(specPath: string): Promise<Figy.Spec | null> {
+    if (this.loadedCache.has(specPath)) {
+      return this.loadedCache.get(specPath)!;
+    }
+
+    try {
+      const content = await readSpecFile(specPath);
+      const spec = evaluateSpec(content) as Figy.Spec;
+      if (spec) {
+        this.loadedCache.set(specPath, spec);
+        return spec;
+      }
+    } catch {
+      // Sub-spec file not found or failed to evaluate
+    }
+
+    return null;
+  }
+
   hasSpec(commandName: string): boolean {
     return this.specs.has(commandName) || this.specLoaders.has(commandName) || this.loadedCache.has(commandName);
   }
@@ -84,6 +110,8 @@ class SpecRegistry {
     try {
       const installed = await listInstalledSpecs();
       for (const entry of installed) {
+        // Only register root specs (no slashes), sub-specs are loaded on demand
+        if (entry.name.includes("/")) continue;
         if (this.hasSpec(entry.name)) continue;
         this.registerLazySpec(entry.name, async () => {
           const content = await readSpecFile(entry.name);
