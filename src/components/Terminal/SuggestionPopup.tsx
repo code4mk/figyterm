@@ -35,7 +35,8 @@ export function SuggestionPopup({
   visible,
   anchorRef,
   onSelect,
-}: SuggestionPopupProps) {
+  fontFamily,
+}: SuggestionPopupProps & { fontFamily?: string }) {
   const popupRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const selectedElRef = useRef<HTMLDivElement>(null);
@@ -80,34 +81,33 @@ export function SuggestionPopup({
       className="fixed z-[200]"
       style={{ top: 0, left: 0 }}
     >
-      <div
-        className="w-[300px] max-h-[200px] bg-ft-elevated border border-ft-border rounded-xl overflow-hidden animate-slide-up shadow-xl"
-      >
+      <div className="suggestion-popup w-[300px] max-h-[220px] rounded-xl overflow-hidden animate-slide-up">
         {/* Header */}
-        <div className="flex items-center justify-between px-2.5 py-[5px] bg-ft-surface border-b border-ft-border-subtle">
+        <div className="suggestion-header flex items-center justify-between px-2.5 py-[6px]">
           <div className="flex items-center gap-1.5">
             <ChevronRight size={8} className="text-ft-accent" />
-            <span className="text-[9px] font-bold text-ft-text-secondary uppercase tracking-wider">
+            <span className="text-[9px] font-semibold text-ft-text-secondary uppercase tracking-wider">
               Suggestions
             </span>
-            <span className="text-[8px] text-ft-text-secondary/70">({items.length})</span>
+            <span className="text-[8px] text-ft-text-muted">
+              ({items.length})
+            </span>
           </div>
           <div className="flex items-center gap-1">
-            <kbd className="text-[7px] text-ft-text-secondary bg-ft-bg px-[3px] py-[1px] rounded border border-ft-border-subtle font-mono">↑↓</kbd>
-            <kbd className="text-[7px] text-ft-text-secondary bg-ft-bg px-[3px] py-[1px] rounded border border-ft-border-subtle font-mono">Tab</kbd>
+            <kbd className="suggestion-kbd">↑↓</kbd>
+            <kbd className="suggestion-kbd">Tab</kbd>
+            <kbd className="suggestion-kbd">↵</kbd>
           </div>
         </div>
 
         {/* Items */}
-        <div ref={listRef} className="overflow-y-auto max-h-[160px] py-0.5 px-0.5">
+        <div ref={listRef} className="overflow-y-auto max-h-[180px] py-0.5 px-0.5">
           {items.map((item, idx) => (
             <div
               key={item.name + idx}
               ref={idx === selectedIndex ? selectedElRef : null}
-              className={`flex items-center gap-2 px-2 py-[5px] mx-0.5 my-[1px] rounded-lg cursor-pointer transition-all duration-[50ms] ${
-                idx === selectedIndex
-                  ? "bg-ft-accent/[0.12] ring-1 ring-inset ring-ft-accent/25 text-ft-text"
-                  : "text-ft-text hover:bg-ft-surface"
+              className={`suggestion-item flex items-center gap-2 px-2 py-[5px] mx-0.5 my-[1px] rounded-lg cursor-pointer transition-all duration-75 ${
+                idx === selectedIndex ? "selected" : ""
               }`}
               onClick={() => onSelect(item)}
               onMouseDown={(e) => e.preventDefault()}
@@ -115,7 +115,10 @@ export function SuggestionPopup({
               <ItemIcon type={item.type} icon={item.icon} />
 
               <div className="flex-1 min-w-0">
-                <span className="text-[11px] font-medium truncate block">
+                <span
+                  className="suggestion-name text-[11px] font-medium truncate block"
+                  style={fontFamily ? { fontFamily } : undefined}
+                >
                   {item.name}{item.type === "folder" && <span className="opacity-30">/</span>}
                 </span>
                 {item.description && (
@@ -140,7 +143,7 @@ function ItemIcon({ type, icon }: { type: SuggestionItem["type"]; icon?: string 
 
   if (resolved) {
     return (
-      <div className={`${base} bg-ft-bg/60`}>
+      <div className={`${base} bg-ft-surface`}>
         <img
           src={resolved}
           alt=""
@@ -170,13 +173,13 @@ function ItemIcon({ type, icon }: { type: SuggestionItem["type"]; icon?: string 
 
 function bgForType(type: SuggestionItem["type"]): string {
   switch (type) {
-    case "folder": return "bg-blue-500/10 text-blue-400";
-    case "file": return "bg-gray-500/10 text-gray-400";
-    case "subcommand": return "bg-purple-500/10 text-purple-400";
-    case "option": return "bg-amber-500/10 text-amber-400";
-    case "arg": return "bg-emerald-500/10 text-emerald-400";
-    case "special": return "bg-pink-500/10 text-pink-400";
-    default: return "bg-gray-500/10 text-gray-400";
+    case "folder": return "icon-folder";
+    case "file": return "icon-file";
+    case "subcommand": return "icon-subcommand";
+    case "option": return "icon-option";
+    case "arg": return "icon-arg";
+    case "special": return "icon-special";
+    default: return "icon-file";
   }
 }
 
@@ -193,21 +196,21 @@ function DefaultTypeIcon({ type }: { type: SuggestionItem["type"] }) {
 }
 
 function TypeBadge({ type }: { type: SuggestionItem["type"] }) {
-  const labels: Record<string, { text: string; cls: string }> = {
-    folder: { text: "dir", cls: "text-blue-400/80" },
-    file: { text: "file", cls: "text-gray-400/80" },
-    subcommand: { text: "cmd", cls: "text-purple-400/80" },
-    option: { text: "opt", cls: "text-amber-400/80" },
-    arg: { text: "arg", cls: "text-emerald-400/80" },
-    special: { text: "misc", cls: "text-pink-400/80" },
+  const labels: Record<string, string> = {
+    folder: "dir",
+    file: "file",
+    subcommand: "cmd",
+    option: "opt",
+    arg: "arg",
+    special: "misc",
   };
 
-  const label = labels[type];
-  if (!label) return null;
+  const text = labels[type];
+  if (!text) return null;
 
   return (
-    <span className={`flex-shrink-0 text-[7px] font-bold uppercase tracking-wider ${label.cls}`}>
-      {label.text}
+    <span className={`flex-shrink-0 text-[7px] font-bold uppercase tracking-wider badge-${type}`}>
+      {text}
     </span>
   );
 }

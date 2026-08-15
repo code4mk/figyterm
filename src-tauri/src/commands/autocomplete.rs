@@ -20,9 +20,35 @@ fn expand_path(base_dir: &str, path: &str) -> PathBuf {
     if path.starts_with('/') {
         return PathBuf::from(path);
     }
-    // Relative path - resolve against base_dir
-    let base = expand_path("", base_dir);
+    if path.is_empty() {
+        return PathBuf::from(base_dir);
+    }
+    let base = if base_dir.starts_with('~') {
+        if let Ok(home) = std::env::var("HOME") {
+            PathBuf::from(base_dir.replacen('~', &home, 1))
+        } else {
+            PathBuf::from(base_dir)
+        }
+    } else if base_dir.is_empty() {
+        std::env::var("HOME").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from("."))
+    } else {
+        PathBuf::from(base_dir)
+    };
     base.join(path)
+}
+
+fn resolve_base(base_dir: &str) -> PathBuf {
+    if base_dir.starts_with('~') {
+        if let Ok(home) = std::env::var("HOME") {
+            return PathBuf::from(base_dir.replacen('~', &home, 1));
+        }
+    }
+    if base_dir.is_empty() {
+        return std::env::var("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("."));
+    }
+    PathBuf::from(base_dir)
 }
 
 #[tauri::command]
@@ -30,27 +56,14 @@ pub fn list_path_completions(
     base_dir: String,
     partial: String,
 ) -> Result<Vec<CompletionEntry>, String> {
-    let base = if base_dir.starts_with('~') {
-        if let Ok(home) = std::env::var("HOME") {
-            PathBuf::from(base_dir.replacen('~', &home, 1))
-        } else {
-            PathBuf::from(&base_dir)
-        }
-    } else if base_dir.is_empty() {
-        std::env::var("HOME").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from("."))
-    } else {
-        PathBuf::from(&base_dir)
-    };
+    let base = resolve_base(&base_dir);
 
     let (search_dir, prefix) = if partial.is_empty() {
-        // No partial - list base directory
         (base.clone(), String::new())
     } else if partial.ends_with('/') {
-        // Ends with / - list inside that directory
         let dir = expand_path(base.to_str().unwrap_or("."), &partial);
         (dir, String::new())
     } else if partial.contains('/') {
-        // Has slashes but doesn't end with one - split into dir + prefix
         let expanded = expand_path(base.to_str().unwrap_or("."), &partial);
         let parent = expanded.parent().unwrap_or(&base).to_path_buf();
         let file_prefix = expanded
@@ -59,15 +72,17 @@ pub fn list_path_completions(
             .unwrap_or_default();
         (parent, file_prefix)
     } else {
-        // Simple name - search in base directory
         (base.clone(), partial.clone())
     };
 
-    if !search_dir.exists() || !search_dir.is_dir() {
+    if !search_dir.is_dir() {
         return Ok(vec![]);
     }
 
-    let entries = fs::read_dir(&search_dir).map_err(|e| e.to_string())?;
+    let entries = match fs::read_dir(&search_dir) {
+        Ok(rd) => rd,
+        Err(_) => return Ok(vec![]),
+    };
 
     let prefix_lower = prefix.to_lowercase();
 
@@ -82,16 +97,13 @@ pub fn list_path_completions(
             continue;
         }
 
-        let metadata = match entry.metadata() {
-            Ok(m) => m,
-            Err(_) => continue,
-        };
-        let is_dir = metadata.is_dir();
+        let path = entry.path();
+        let is_dir = path.is_dir();
         let name_lower = name.to_lowercase();
 
         let item = CompletionEntry {
             name: name.clone(),
-            path: entry.path().to_string_lossy().to_string(),
+            path: path.to_string_lossy().to_string(),
             is_dir,
             is_hidden,
         };
@@ -121,7 +133,7 @@ pub fn list_path_completions(
 
     let mut results = prefix_matches;
     results.extend(contains_matches);
-    results.truncate(20);
+    results.truncate(30);
     Ok(results)
 }
 

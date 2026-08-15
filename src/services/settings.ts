@@ -3,6 +3,7 @@ export interface Settings {
   fontFamily: string;
   fontSize: number;
   lineHeight: number;
+  letterSpacing: number;
   cursorStyle: "block" | "underline" | "bar";
   cursorBlink: boolean;
   scrollback: number;
@@ -11,9 +12,10 @@ export interface Settings {
 
 const DEFAULT_SETTINGS: Settings = {
   theme: "dark",
-  fontFamily: "'Meslo LG S DZ for Powerline', 'MesloLGS NF', 'JetBrains Mono', Menlo, monospace",
-  fontSize: 13,
+  fontFamily: "Menlo, Monaco, 'Courier New', monospace",
+  fontSize: 14,
   lineHeight: 1.2,
+  letterSpacing: 0,
   cursorStyle: "bar",
   cursorBlink: true,
   scrollback: 10000,
@@ -26,7 +28,14 @@ export function loadSettings(): Settings {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
-      return { ...DEFAULT_SETTINGS, ...JSON.parse(stored) };
+      const parsed = JSON.parse(stored);
+      const merged = { ...DEFAULT_SETTINGS, ...parsed };
+      // Migrate: if letterSpacing was never explicitly set (missing or 0),
+      // apply the improved default for proper font rendering
+      if (!("letterSpacing" in parsed)) {
+        merged.letterSpacing = DEFAULT_SETTINGS.letterSpacing;
+      }
+      return merged;
     }
   } catch {
     // Fall through to default

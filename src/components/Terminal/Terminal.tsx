@@ -95,6 +95,76 @@ interface CompletionEntry {
 
 const PATH_COMMANDS = ["cd", "ls", "cat", "less", "more", "head", "tail", "vim", "nano", "code", "open", "cp", "mv", "rm", "mkdir", "touch", "chmod", "chown", "source", "bat"];
 
+/**
+ * Extract the last shell token respecting escape sequences and quotes.
+ * e.g. `cd My\ Documents/foo` → `My\ Documents/foo`
+ */
+/**
+ * Ensure fontFamily has proper CSS quoting and ends with 'monospace' fallback.
+ * xterm.js needs this for correct character measurement.
+ */
+function ensureMonospaceFallback(raw: string): string {
+  const parts = raw.split(",").map((p) => p.trim()).filter(Boolean);
+  // Ensure multi-word font names are quoted
+  const formatted = parts.map((p) => {
+    if (p === "monospace" || p === "serif" || p === "sans-serif") return p;
+    const unquoted = p.replace(/^['"]|['"]$/g, "");
+    return unquoted.includes(" ") ? `'${unquoted}'` : unquoted;
+  });
+  // Always end with monospace
+  if (!formatted.includes("monospace")) {
+    formatted.push("monospace");
+  }
+  return formatted.join(", ");
+}
+
+function extractLastToken(input: string): string {
+  let token = "";
+  let inSingle = false;
+  let inDouble = false;
+  let escaped = false;
+
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i];
+
+    if (escaped) {
+      token += "\\" + ch;
+      escaped = false;
+      continue;
+    }
+
+    if (ch === "\\" && !inSingle) {
+      escaped = true;
+      continue;
+    }
+
+    if (ch === "'" && !inDouble) {
+      inSingle = !inSingle;
+      token += ch;
+      continue;
+    }
+
+    if (ch === '"' && !inSingle) {
+      inDouble = !inDouble;
+      token += ch;
+      continue;
+    }
+
+    if (!inSingle && !inDouble && /\s/.test(ch)) {
+      token = "";
+      continue;
+    }
+
+    token += ch;
+  }
+  return token;
+}
+
+/** Unescape backslash-escaped chars for passing to filesystem (e.g. `My\ Doc` → `My Doc`) */
+function unescapeToken(token: string): string {
+  return token.replace(/\\(.)/g, "$1");
+}
+
 export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, clearRef, focusRef }: TerminalProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -106,6 +176,8 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
   const inputBufferRef = useRef("");
   const cwdRef = useRef("");
   const { settings } = useSettingsStore();
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
   const theme = useThemeStore((s) => s.theme);
 
   // Use REFS for autocomplete state so callbacks always have latest values
@@ -120,6 +192,10 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const updateUI = useCallback((items: SuggestionItem[], idx: number, show: boolean) => {
+    if (!show && debounceRef.current) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
     suggestionsRef.current = items;
     selectedIndexRef.current = idx;
     showRef.current = show;
@@ -179,16 +255,15 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
     debounceRef.current = setTimeout(async () => {
       const parts = trimmed.split(/\s+/);
       const command = parts[0].toLowerCase();
+      const lastToken = extractLastToken(trimmed);
+      const lastTokenUnescaped = unescapeToken(lastToken);
 
-      // Check if we have a Figy spec for this command
       const hasSpec = specRegistry.hasSpec(command);
 
       if (hasSpec && parts.length >= 1) {
-        // Use Figy autocomplete engine
         try {
           const figSuggestions = await getAutocompleteSuggestions(trimmed, cwdRef.current);
 
-          // For suggestions that are "file" or "folder" template types, fetch real paths
           const needsPathCompletion = figSuggestions.some(
             (s) => s.type === "file" || s.type === "folder"
           );
@@ -204,10 +279,9 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
             }));
 
           if (needsPathCompletion) {
-            const currentToken = parts[parts.length - 1] || "";
             const foldersOnly = figSuggestions.some((s) => s.type === "folder") &&
               !figSuggestions.some((s) => s.type === "file");
-            const pathItems = await fetchPathCompletions(currentToken);
+            const pathItems = await fetchPathCompletions(lastTokenUnescaped);
             const filtered = foldersOnly
               ? pathItems.filter((p) => p.type === "folder")
               : pathItems;
@@ -223,20 +297,15 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
           updateUI([], 0, false);
         }
       } else if (parts.length >= 2 && PATH_COMMANDS.includes(command)) {
-        // Fallback: path completion for known commands without a spec
-        const afterCommand = trimmed.slice(command.length).trimStart();
-        const args = afterCommand.split(/\s+/);
-        const partial = args[args.length - 1] || "";
-        const pathItems = await fetchPathCompletions(partial);
+        const pathItems = await fetchPathCompletions(lastTokenUnescaped);
         let items = command === "cd"
           ? pathItems.filter((p) => p.type === "folder")
           : pathItems;
 
-        // Add "current folder" indicator when browsing inside a directory
-        if (command === "cd" && partial.endsWith("/")) {
+        if (command === "cd" && lastTokenUnescaped.endsWith("/")) {
           const currentDirItem: SuggestionItem = {
             name: ".",
-            description: "? Select current folder",
+            description: "Select current folder",
             type: "folder",
           };
           items = [currentDirItem, ...items];
@@ -271,8 +340,7 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
 
     const input = inputBufferRef.current;
     const trimmed = input.trimStart();
-    const parts = trimmed.split(/\s+/);
-    const currentToken = parts[parts.length - 1] || "";
+    const currentToken = extractLastToken(trimmed);
     const encoder = new TextEncoder();
 
     if (item.type === "file" || item.type === "folder") {
@@ -280,10 +348,12 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
       const toDelete = lastSlash >= 0 ? currentToken.slice(lastSlash + 1) : currentToken;
 
       const backspaces = "\x7f".repeat(toDelete.length);
-      let completion = item.insertValue || item.name;
+      let rawName = item.insertValue || item.name;
 
-      // Right arrow: just complete the name, cursor at end. No trailing slash.
-      // Tab/Enter: append / for folders and show next level.
+      const needsEscape = /[ \t()'"`$!#&;|<>{}\[\]*?~]/.test(rawName);
+      const escaped = needsEscape ? rawName.replace(/([ \t()'"`$!#&;|<>{}\[\]*?~])/g, "\\$1") : rawName;
+
+      let completion = escaped;
       if (!inline && item.type === "folder") completion += "/";
 
       const toSend = backspaces + completion;
@@ -344,13 +414,17 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
     if (initStarted.current || !containerRef.current) return;
     initStarted.current = true;
 
+    const s = settingsRef.current;
+    const fontFamily = ensureMonospaceFallback(s.fontFamily);
+
     const xterm = new XTerm({
-      fontFamily: settings.fontFamily,
-      fontSize: settings.fontSize,
-      lineHeight: settings.lineHeight,
-      cursorStyle: settings.cursorStyle,
-      cursorBlink: settings.cursorBlink,
-      scrollback: settings.scrollback,
+      fontFamily,
+      fontSize: s.fontSize,
+      lineHeight: s.lineHeight,
+      letterSpacing: s.letterSpacing ?? 0,
+      cursorStyle: s.cursorStyle,
+      cursorBlink: s.cursorBlink,
+      scrollback: s.scrollback,
       theme: theme === "dark" ? DARK_THEME : LIGHT_THEME,
       allowProposedApi: true,
       drawBoldTextInBrightColors: true,
@@ -430,23 +504,9 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
           // Line continuation: pass through to shell, keep buffer context
           updateUI([], 0, false);
         } else if (isShowing && items.length > 0) {
-          const input = inputBufferRef.current.trimStart();
-          const parts = input.split(/\s+/);
-          const currentToken = parts[parts.length - 1] || "";
-          const selected = items[idx];
-          const selectedName = selected.name.toLowerCase();
-
-          if (currentToken.length > 0) {
-            if (selectedName.startsWith(currentToken.toLowerCase()) && selectedName !== currentToken.toLowerCase()) {
-              acceptSuggestion(selected);
-              return;
-            }
-          } else {
-            if (selected.type === "arg" || selected.type === "subcommand") {
-              acceptSuggestion(selected);
-              return;
-            }
-          }
+          // Popup open → Enter always picks the selected suggestion
+          acceptSuggestion(items[idx]);
+          return;
         }
         if (!trimmedInput.endsWith("\\")) {
           inputBufferRef.current = "";
@@ -461,8 +521,27 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
           updateUI([], 0, false);
         }
       } else if (data === "\x03") {
+        // Ctrl+C - cancel
         inputBufferRef.current = "";
         updateUI([], 0, false);
+      } else if (data === "\x15") {
+        // Ctrl+U - kill line (clear everything before cursor)
+        inputBufferRef.current = "";
+        updateUI([], 0, false);
+      } else if (data === "\x17") {
+        // Ctrl+W - kill word (remove last word)
+        const buf = inputBufferRef.current;
+        const trimmedEnd = buf.replace(/\s+$/, "");
+        const lastSpace = trimmedEnd.lastIndexOf(" ");
+        inputBufferRef.current = lastSpace >= 0 ? buf.slice(0, lastSpace + 1) : "";
+        if (inputBufferRef.current.trim()) {
+          triggerAutocomplete(inputBufferRef.current);
+        } else {
+          updateUI([], 0, false);
+        }
+      } else if (data === "\x01" || data === "\x05") {
+        // Ctrl+A / Ctrl+E - home / end — no buffer change, just close popup
+        if (isShowing) updateUI([], 0, false);
       } else if (data === "\x1b") {
         // Escape alone
         if (isShowing) {
@@ -590,6 +669,24 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
   }, [theme]);
 
   useEffect(() => {
+    if (!xtermRef.current) return;
+    const xterm = xtermRef.current;
+    const fontFamily = ensureMonospaceFallback(settings.fontFamily);
+    const changed =
+      xterm.options.fontFamily !== fontFamily ||
+      xterm.options.fontSize !== settings.fontSize ||
+      xterm.options.lineHeight !== settings.lineHeight ||
+      xterm.options.letterSpacing !== (settings.letterSpacing ?? 0);
+    if (changed) {
+      xterm.options.fontFamily = fontFamily;
+      xterm.options.fontSize = settings.fontSize;
+      xterm.options.lineHeight = settings.lineHeight;
+      xterm.options.letterSpacing = settings.letterSpacing ?? 0;
+      fitAddonRef.current?.fit();
+    }
+  }, [settings.fontFamily, settings.fontSize, settings.lineHeight, settings.letterSpacing]);
+
+  useEffect(() => {
     if (isActive && xtermRef.current) {
       fitAddonRef.current?.fit();
       xtermRef.current.focus();
@@ -646,6 +743,7 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
         visible={showSuggestions && isActive}
         anchorRef={containerRef}
         onSelect={acceptSuggestion}
+        fontFamily={settings.fontFamily}
       />
     </div>
   );

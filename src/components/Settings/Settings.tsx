@@ -297,13 +297,13 @@ source "${resolvedPath}"`, `${home}/.zshrc`],
             leaveFrom="opacity-100 scale-100"
             leaveTo="opacity-0 scale-95"
           >
-            <Dialog.Panel className="w-full max-w-2xl bg-ft-elevated border border-ft-border rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh]">
+            <Dialog.Panel className="settings-modal w-full max-w-2xl rounded-xl overflow-hidden flex flex-col max-h-[80vh]">
               {/* Header */}
-              <div className="flex items-center justify-between px-6 py-4 border-b border-ft-border-subtle shrink-0">
+              <div className="settings-header flex items-center justify-between px-6 py-4 shrink-0">
                 <Dialog.Title className="text-sm font-semibold text-ft-text">Settings</Dialog.Title>
                 <button
                   onClick={onClose}
-                  className="flex items-center justify-center w-7 h-7 rounded-md text-ft-text-muted hover:text-ft-text hover:bg-ft-bg transition-colors"
+                  className="flex items-center justify-center w-7 h-7 rounded-md text-ft-text-muted hover:text-ft-text hover:bg-ft-surface transition-colors"
                 >
                   <X size={14} />
                 </button>
@@ -312,15 +312,15 @@ source "${resolvedPath}"`, `${home}/.zshrc`],
               {/* Tabs + Content */}
               <div className="flex flex-1 min-h-0">
                 {/* Sidebar tabs */}
-                <div className="w-44 border-r border-ft-border-subtle bg-ft-surface/30 py-3 px-2 shrink-0">
+                <div className="settings-sidebar w-44 py-3 px-2 shrink-0">
                   {tabs.map((tab) => (
                     <button
                       key={tab.id}
                       onClick={() => setActiveTab(tab.id)}
                       className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all mb-0.5 ${
                         activeTab === tab.id
-                          ? "bg-ft-accent/10 text-ft-accent"
-                          : "text-ft-text-secondary hover:text-ft-text hover:bg-ft-bg/50"
+                          ? "active"
+                          : "text-ft-text-secondary hover:text-ft-text"
                       }`}
                     >
                       {tab.icon}
@@ -363,7 +363,7 @@ source "${resolvedPath}"`, `${home}/.zshrc`],
               </div>
 
               {/* Footer */}
-              <div className="flex items-center justify-between px-6 py-3 border-t border-ft-border-subtle bg-ft-surface/30 shrink-0">
+              <div className="settings-footer flex items-center justify-between px-6 py-3 shrink-0">
                 <button
                   onClick={resetSettings}
                   className="text-xs text-ft-text-muted hover:text-ft-text transition-colors"
@@ -420,10 +420,8 @@ function GeneralTab({
         <div className="grid grid-cols-2 gap-3">
           <button
             onClick={() => setTheme("dark")}
-            className={`flex items-center gap-2.5 px-4 py-3 rounded-lg text-xs font-medium transition-all ${
-              theme === "dark"
-                ? "bg-ft-accent/12 text-ft-accent border border-ft-accent/30 shadow-sm shadow-ft-accent/5"
-                : "bg-ft-bg border border-ft-border-subtle text-ft-text-secondary hover:text-ft-text hover:border-ft-border"
+            className={`settings-card flex items-center gap-2.5 px-4 py-3 text-xs font-medium transition-all ${
+              theme === "dark" ? "active" : "text-ft-text-secondary hover:text-ft-text"
             }`}
           >
             <Moon size={15} />
@@ -431,10 +429,8 @@ function GeneralTab({
           </button>
           <button
             onClick={() => setTheme("light")}
-            className={`flex items-center gap-2.5 px-4 py-3 rounded-lg text-xs font-medium transition-all ${
-              theme === "light"
-                ? "bg-ft-accent/12 text-ft-accent border border-ft-accent/30 shadow-sm shadow-ft-accent/5"
-                : "bg-ft-bg border border-ft-border-subtle text-ft-text-secondary hover:text-ft-text hover:border-ft-border"
+            className={`settings-card flex items-center gap-2.5 px-4 py-3 text-xs font-medium transition-all ${
+              theme === "light" ? "active" : "text-ft-text-secondary hover:text-ft-text"
             }`}
           >
             <Sun size={15} />
@@ -467,7 +463,8 @@ function TerminalTab({
               type="text"
               value={settings.fontFamily}
               onChange={(e) => updateSettings({ fontFamily: e.target.value })}
-              className="w-full bg-ft-bg border border-ft-border-subtle rounded-lg px-3 py-2 text-xs text-ft-text outline-none focus:border-ft-accent/50 transition-colors font-mono"
+              placeholder="e.g. JetBrains Mono, Menlo, monospace"
+              className="settings-input w-full rounded-lg px-3 py-2 text-xs font-mono"
             />
           </div>
 
@@ -480,7 +477,7 @@ function TerminalTab({
                 onChange={(e) => updateSettings({ fontSize: Number(e.target.value) })}
                 min={10}
                 max={24}
-                className="w-full bg-ft-bg border border-ft-border-subtle rounded-lg px-3 py-2 text-xs text-ft-text outline-none focus:border-ft-accent/50 transition-colors"
+                className="settings-input w-full rounded-lg px-3 py-2 text-xs"
               />
             </div>
             <div>
@@ -492,7 +489,19 @@ function TerminalTab({
                 min={1}
                 max={2.5}
                 step={0.1}
-                className="w-full bg-ft-bg border border-ft-border-subtle rounded-lg px-3 py-2 text-xs text-ft-text outline-none focus:border-ft-accent/50 transition-colors"
+                className="settings-input w-full rounded-lg px-3 py-2 text-xs"
+              />
+            </div>
+            <div>
+              <FieldLabel>Letter Spacing</FieldLabel>
+              <input
+                type="number"
+                value={settings.letterSpacing ?? 0}
+                onChange={(e) => updateSettings({ letterSpacing: Number(e.target.value) })}
+                min={-3}
+                max={5}
+                step={0.5}
+                className="settings-input w-full rounded-lg px-3 py-2 text-xs"
               />
             </div>
             <div>
@@ -504,7 +513,7 @@ function TerminalTab({
                 min={500}
                 max={50000}
                 step={500}
-                className="w-full bg-ft-bg border border-ft-border-subtle rounded-lg px-3 py-2 text-xs text-ft-text outline-none focus:border-ft-accent/50 transition-colors"
+                className="settings-input w-full rounded-lg px-3 py-2 text-xs"
               />
             </div>
           </div>
@@ -522,10 +531,8 @@ function TerminalTab({
                 <button
                   key={style}
                   onClick={() => updateSettings({ cursorStyle: style })}
-                  className={`px-3 py-2 rounded-lg text-xs font-medium transition-all ${
-                    settings.cursorStyle === style
-                      ? "bg-ft-accent/12 text-ft-accent border border-ft-accent/30"
-                      : "bg-ft-bg border border-ft-border-subtle text-ft-text-secondary hover:text-ft-text hover:border-ft-border"
+                  className={`settings-card px-3 py-2 text-xs font-medium transition-all ${
+                    settings.cursorStyle === style ? "active" : "text-ft-text-secondary hover:text-ft-text"
                   }`}
                 >
                   {style.charAt(0).toUpperCase() + style.slice(1)}
@@ -534,12 +541,12 @@ function TerminalTab({
             </div>
           </div>
 
-          <div className="flex items-center justify-between py-2 px-3 rounded-lg bg-ft-bg border border-ft-border-subtle">
-            <label className="text-xs font-medium text-ft-text-secondary">Cursor Blink</label>
+          <div className="settings-card flex items-center justify-between py-2.5 px-4">
+            <label className="text-xs font-medium text-ft-text">Cursor Blink</label>
             <button
               onClick={() => updateSettings({ cursorBlink: !settings.cursorBlink })}
-              className={`relative w-9 h-5 rounded-full transition-colors duration-200 ${
-                settings.cursorBlink ? "bg-ft-accent" : "bg-ft-border"
+              className={`toggle-switch relative w-9 h-5 rounded-full transition-colors duration-200 ${
+                settings.cursorBlink ? "active" : ""
               }`}
             >
               <div
@@ -589,22 +596,22 @@ function ThemeTab({
       {loadingThemes ? (
         <div className="text-xs text-ft-text-muted py-4 text-center">Loading themes...</div>
       ) : availableThemes.length === 0 ? (
-        <div className="text-xs text-ft-text-muted py-4 px-4 bg-ft-bg rounded-lg border border-ft-border-subtle text-center">
+        <div className="settings-card text-xs text-ft-text-muted py-4 px-4 text-center">
           oh-my-zsh not detected at ~/.oh-my-zsh
         </div>
       ) : (
         <>
           {/* Active theme badge */}
-          <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-ft-accent/8 border border-ft-accent/20">
-            <Check size={13} className="text-ft-accent" />
-            <span className="text-xs font-medium text-ft-accent">Active:</span>
+          <div className="active-badge flex items-center gap-2 px-4 py-2.5 rounded-lg">
+            <Check size={13} className="text-emerald-400" />
+            <span className="text-xs font-medium text-emerald-400">Active:</span>
             <span className="text-xs font-mono text-ft-text">
               {isCustomTheme ? `custom (${customThemePath.split("/").pop()})` : (zshTheme || "unknown")}
             </span>
           </div>
 
           {/* Custom theme path */}
-          <div className="p-4 rounded-lg border border-ft-border-subtle bg-ft-bg">
+          <div className="settings-card p-4">
             <FieldLabel>Custom Theme File</FieldLabel>
             <div className="flex gap-2 mt-1.5">
               <input
@@ -612,7 +619,7 @@ function ThemeTab({
                 value={customThemePath}
                 onChange={(e) => { setCustomThemePath(e.target.value); setCustomThemeError(""); }}
                 placeholder="~/.oh-my-zsh/custom/themes/my-theme.zsh-theme"
-                className="flex-1 bg-ft-elevated border border-ft-border-subtle rounded-lg px-3 py-2 text-xs text-ft-text font-mono outline-none focus:border-ft-accent/50 transition-colors placeholder:text-ft-text-muted"
+                className="settings-input flex-1 rounded-lg px-3 py-2 text-xs font-mono"
               />
               <button
                 onClick={applyCustomThemePath}
@@ -637,20 +644,18 @@ function ThemeTab({
           {customThemes.length > 0 && (
             <div>
               <FieldLabel>Custom Themes</FieldLabel>
-              <div className="mt-1.5 rounded-lg border border-ft-border-subtle bg-ft-bg overflow-hidden max-h-[120px] overflow-y-auto">
+              <div className="spec-list mt-1.5 overflow-hidden rounded-lg max-h-[120px] overflow-y-auto">
                 {customThemes.map((t) => (
                   <button
                     key={`custom-${t}`}
                     onClick={() => changeZshTheme(t, true)}
-                    className={`w-full flex items-center gap-2 px-3 py-2 text-left text-xs font-mono transition-colors hover:bg-ft-elevated ${
-                      t === zshTheme
-                        ? "text-ft-accent bg-ft-accent/5"
-                        : "text-ft-text-secondary"
+                    className={`spec-item w-full flex items-center gap-2 px-3 py-2 text-left text-xs font-mono transition-colors theme-list-item ${
+                      t === zshTheme ? "active" : ""
                     }`}
                   >
                     {t === zshTheme && <Check size={10} className="text-ft-accent shrink-0" />}
-                    <span className={t === zshTheme ? "font-medium" : ""}>{t}</span>
-                    <span className="ml-auto text-[9px] text-ft-text-muted px-1.5 py-0.5 rounded bg-ft-elevated">custom</span>
+                    <span className={t === zshTheme ? "font-medium text-ft-text" : "text-ft-text-secondary"}>{t}</span>
+                    <span className="ml-auto text-[9px] text-ft-text-muted/70 px-1.5 py-0.5 rounded custom-badge">custom</span>
                   </button>
                 ))}
               </div>
@@ -660,19 +665,17 @@ function ThemeTab({
           {/* Built-in theme list */}
           <div>
             <FieldLabel>Built-in Themes ({availableThemes.length})</FieldLabel>
-            <div className="mt-1.5 max-h-[200px] overflow-y-auto rounded-lg border border-ft-border-subtle bg-ft-bg">
+            <div className="spec-list mt-1.5 rounded-lg max-h-[200px] overflow-y-auto">
               {availableThemes.map((t) => (
                 <button
                   key={t}
                   onClick={() => changeZshTheme(t)}
-                  className={`w-full flex items-center gap-2 px-3 py-2 text-left text-xs font-mono transition-colors hover:bg-ft-elevated ${
-                    t === zshTheme && !isCustomTheme
-                      ? "text-ft-accent bg-ft-accent/5"
-                      : "text-ft-text-secondary"
+                  className={`spec-item w-full flex items-center gap-2 px-3 py-2 text-left text-xs font-mono transition-colors theme-list-item ${
+                    t === zshTheme && !isCustomTheme ? "active" : ""
                   }`}
                 >
                   {t === zshTheme && !isCustomTheme && <Check size={10} className="text-ft-accent shrink-0" />}
-                  <span className={t === zshTheme && !isCustomTheme ? "font-medium" : ""}>{t}</span>
+                  <span className={t === zshTheme && !isCustomTheme ? "font-medium text-ft-text" : "text-ft-text-secondary"}>{t}</span>
                 </button>
               ))}
             </div>
@@ -754,30 +757,30 @@ function ShortcutsTab() {
   return (
     <div className="space-y-5">
       <SectionHeader icon={<Keyboard size={13} />} title="Keyboard Shortcuts" />
-      <p className="text-xs text-ft-text-muted -mt-3">
+      <p className="text-xs text-ft-text-muted -mt-2">
         Quick reference for all available keyboard shortcuts.
       </p>
 
       {groups.map((group) => (
         <div key={group.title}>
           <div className="flex items-center gap-2 mb-2">
-            <span className="text-ft-text-muted">{group.icon}</span>
-            <span className="text-[11px] font-semibold text-ft-text uppercase tracking-wider">{group.title}</span>
+            <span className="section-icon opacity-70">{group.icon}</span>
+            <span className="text-[11px] font-semibold section-title uppercase tracking-wider">{group.title}</span>
           </div>
-          <div className="rounded-lg border border-ft-border-subtle bg-ft-bg overflow-hidden">
+          <div className="shortcut-group overflow-hidden rounded-lg">
             {group.shortcuts.map((shortcut, i) => (
               <div
                 key={i}
-                className={`flex items-center justify-between px-4 py-2.5 ${
-                  i < group.shortcuts.length - 1 ? "border-b border-ft-border-subtle/50" : ""
+                className={`shortcut-row flex items-center justify-between px-4 py-2.5 ${
+                  i < group.shortcuts.length - 1 ? "shortcut-divider" : ""
                 }`}
               >
-                <span className="text-xs text-ft-text-secondary">{shortcut.description}</span>
+                <span className="text-xs shortcut-desc">{shortcut.description}</span>
                 <div className="flex items-center gap-1">
                   {shortcut.keys.map((key, j) => (
                     <kbd
                       key={j}
-                      className="inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 text-[10px] font-medium text-ft-text bg-ft-elevated border border-ft-border-subtle rounded-md shadow-sm"
+                      className="shortcut-kbd inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 text-[10px] font-medium rounded-md"
                     >
                       {key}
                     </kbd>
@@ -797,15 +800,15 @@ function ShortcutsTab() {
 function SectionHeader({ icon, title }: { icon: React.ReactNode; title: string }) {
   return (
     <div className="flex items-center gap-2 mb-3">
-      <span className="text-ft-accent">{icon}</span>
-      <h3 className="text-xs font-semibold text-ft-text uppercase tracking-wider">{title}</h3>
+      <span className="section-icon">{icon}</span>
+      <h3 className="text-xs font-semibold section-title uppercase tracking-wider">{title}</h3>
     </div>
   );
 }
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
-    <label className="block text-[11px] font-medium text-ft-text-secondary mb-1">{children}</label>
+    <label className="block text-[11px] font-medium field-label mb-1.5">{children}</label>
   );
 }
 
@@ -897,12 +900,12 @@ function SpecsTab() {
   return (
     <div className="space-y-5">
       <SectionHeader icon={<Package size={13} />} title="Command Specs" />
-      <p className="text-xs text-ft-text-muted -mt-3">
-        Manage autocomplete specs. Built-in specs are always available. Install additional specs from the community repository.
+      <p className="text-xs text-ft-text-muted -mt-2">
+        Manage autocomplete specs. Built-in specs are always available.
       </p>
 
       {error && (
-        <div className="text-xs text-ft-error bg-ft-error/10 border border-ft-error/20 rounded-lg px-3 py-2">
+        <div className="text-xs text-red-400 bg-red-500/8 border border-red-500/15 rounded-lg px-3 py-2">
           {error}
         </div>
       )}
@@ -910,10 +913,10 @@ function SpecsTab() {
       {/* Built-in specs */}
       <div>
         <FieldLabel>Built-in ({builtinSpecs.length})</FieldLabel>
-        <div className="mt-1.5 rounded-lg border border-ft-border-subtle bg-ft-bg overflow-hidden">
-          <div className="grid grid-cols-2 gap-px bg-ft-border-subtle/30">
+        <div className="spec-list mt-1.5 overflow-hidden rounded-lg">
+          <div className="grid grid-cols-2">
             {builtinSpecs.map((name) => (
-              <div key={name} className="flex items-center gap-2 px-3 py-2 bg-ft-bg">
+              <div key={name} className="spec-item flex items-center gap-2 px-3 py-2.5">
                 <img
                   src={`/icons/${name}.png`}
                   alt=""
@@ -921,7 +924,7 @@ function SpecsTab() {
                   onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
                 />
                 <span className="text-xs font-mono text-ft-text">{name}</span>
-                <span className="ml-auto text-[8px] text-ft-accent/70 font-medium uppercase">built-in</span>
+                <span className="ml-auto text-[8px] text-emerald-400 font-semibold uppercase tracking-wide">built-in</span>
               </div>
             ))}
           </div>
@@ -932,9 +935,9 @@ function SpecsTab() {
       {installed.length > 0 && (
         <div>
           <FieldLabel>Installed ({installed.length})</FieldLabel>
-          <div className="mt-1.5 rounded-lg border border-ft-border-subtle bg-ft-bg overflow-hidden">
-            {installed.map((spec) => (
-              <div key={spec.name} className="flex items-center gap-2 px-3 py-2 border-b border-ft-border-subtle/50 last:border-0">
+          <div className="spec-list mt-1.5 overflow-hidden rounded-lg">
+            {installed.map((spec, i) => (
+              <div key={spec.name} className={`spec-item flex items-center gap-2 px-3 py-2.5 ${i < installed.length - 1 ? "spec-divider" : ""}`}>
                 <span className="text-xs font-mono text-ft-text">{spec.name}</span>
                 <span className="text-[9px] text-ft-text-muted ml-1">
                   {(spec.fileSize / 1024).toFixed(1)}KB
@@ -942,7 +945,7 @@ function SpecsTab() {
                 <button
                   onClick={() => handleRemove(spec.name)}
                   disabled={removing === spec.name}
-                  className="ml-auto flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-ft-error/80 hover:text-ft-error hover:bg-ft-error/10 rounded transition-colors"
+                  className="spec-remove-btn ml-auto flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded transition-colors"
                 >
                   {removing === spec.name ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={10} />}
                   Remove
@@ -976,21 +979,21 @@ function SpecsTab() {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search specs..."
-                className="w-full bg-ft-bg border border-ft-border-subtle rounded-lg pl-7 pr-3 py-1.5 text-xs text-ft-text outline-none focus:border-ft-accent/50 transition-colors placeholder:text-ft-text-muted"
+                className="settings-input w-full rounded-lg pl-7 pr-3 py-1.5 text-xs"
               />
             </div>
 
-            <div className="max-h-[240px] overflow-y-auto rounded-lg border border-ft-border-subtle bg-ft-bg">
+            <div className="spec-list max-h-[240px] overflow-y-auto rounded-lg">
               {categories.map((cat) => {
                 const catSpecs = filteredAvailable.filter((s) => s.category === cat);
                 if (catSpecs.length === 0) return null;
                 return (
                   <div key={cat}>
-                    <div className="px-3 py-1.5 bg-ft-surface/50 border-b border-ft-border-subtle/50">
-                      <span className="text-[9px] font-bold text-ft-text-muted uppercase tracking-wider">{cat}</span>
+                    <div className="spec-category-header px-3 py-1.5">
+                      <span className="text-[9px] font-bold uppercase tracking-wider">{cat}</span>
                     </div>
                     {catSpecs.map((spec) => (
-                      <div key={spec.name} className="flex items-center gap-2 px-3 py-2 border-b border-ft-border-subtle/30 last:border-0">
+                      <div key={spec.name} className="spec-item flex items-center gap-2 px-3 py-2 spec-divider last:border-0">
                         <div className="flex-1 min-w-0">
                           <span className="text-xs font-mono text-ft-text block">{spec.name}</span>
                           <span className="text-[9px] text-ft-text-muted block truncate">{spec.description}</span>
@@ -998,7 +1001,7 @@ function SpecsTab() {
                         <button
                           onClick={() => handleInstall(spec.name)}
                           disabled={installing === spec.name}
-                          className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-medium text-ft-accent bg-ft-accent/10 hover:bg-ft-accent/20 rounded-md transition-colors shrink-0"
+                          className="spec-install-btn flex items-center gap-1 px-2.5 py-1 text-[10px] font-medium rounded-md transition-colors shrink-0"
                         >
                           {installing === spec.name ? <Loader2 size={10} className="animate-spin" /> : <Download size={10} />}
                           Install
@@ -1018,7 +1021,7 @@ function SpecsTab() {
         )}
 
         {available.length === 0 && !loading && (
-          <div className="text-xs text-ft-text-muted bg-ft-bg rounded-lg border border-ft-border-subtle px-4 py-3 text-center">
+          <div className="settings-card text-xs text-ft-text-muted px-4 py-3 text-center">
             Click "Load Specs" to browse available autocomplete specs from the community repository.
           </div>
         )}

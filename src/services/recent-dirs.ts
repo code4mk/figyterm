@@ -16,13 +16,17 @@ export function setHomeDir(home: string) {
 
 function normalize(p: string): string {
   if (!p) return p;
-  if (p.startsWith("~/") && _homeDir) {
-    return _homeDir + p.slice(1);
+  let resolved = p;
+  if (resolved.startsWith("~/") && _homeDir) {
+    resolved = _homeDir + resolved.slice(1);
+  } else if (resolved === "~" && _homeDir) {
+    resolved = _homeDir;
   }
-  if (p === "~" && _homeDir) {
-    return _homeDir;
+  // Strip trailing slash for consistent comparison (unless root "/")
+  if (resolved.length > 1 && resolved.endsWith("/")) {
+    resolved = resolved.slice(0, -1);
   }
-  return p;
+  return resolved;
 }
 
 function load(): RecentEntry[] {
@@ -65,7 +69,6 @@ export async function seedFromHistory(): Promise<void> {
 
   try {
     const { invoke } = await import("@tauri-apps/api/core");
-    // Parse both zsh extended history (`: timestamp:0;cd dir`) and plain history (`cd dir`)
     const script = [
       "cat ~/.zsh_history 2>/dev/null | sed -n 's/^.*;//p' | grep -E '^cd ' | sed 's/^cd //'",
       "cat ~/.bash_history 2>/dev/null | grep -E '^cd ' | sed 's/^cd //'"
@@ -84,7 +87,6 @@ export async function seedFromHistory(): Promise<void> {
       for (const line of lines) {
         let dir = line.trim();
         if (!dir || dir === "." || dir === ".." || dir === "~" || dir === "-") continue;
-        // Remove surrounding quotes if present
         if ((dir.startsWith('"') && dir.endsWith('"')) || (dir.startsWith("'") && dir.endsWith("'"))) {
           dir = dir.slice(1, -1);
         }
@@ -104,9 +106,11 @@ export async function seedFromHistory(): Promise<void> {
       entries.sort((a, b) => b.count - a.count);
       save(entries);
     }
-  } catch {}
 
-  localStorage.setItem(SEEDED_KEY, "1");
+    localStorage.setItem(SEEDED_KEY, "1");
+  } catch {
+    // Don't mark as seeded on failure — will retry next launch
+  }
 }
 
 export function sortByRecency<T extends { path?: string; name?: string }>(
@@ -120,15 +124,18 @@ export function sortByRecency<T extends { path?: string; name?: string }>(
   const scoreMap = new Map<string, number>();
 
   for (const entry of entries) {
-    const score = entry.count * 10 + Math.max(0, 100 - (now - entry.lastUsed) / 3600000);
+    const age = (now - entry.lastUsed) / 3600000;
+    const score = entry.count * 10 + Math.max(0, 100 - age);
     scoreMap.set(entry.path, score);
   }
 
   const normParent = normalize(parentDir);
 
   return [...items].sort((a, b) => {
-    const pathA = a.path || (normParent ? `${normParent}/${a.name}` : a.name || "");
-    const pathB = b.path || (normParent ? `${normParent}/${b.name}` : b.name || "");
+    const rawA = a.path || (normParent ? `${normParent}/${a.name}` : a.name || "");
+    const rawB = b.path || (normParent ? `${normParent}/${b.name}` : b.name || "");
+    const pathA = normalize(rawA);
+    const pathB = normalize(rawB);
     const scoreA = scoreMap.get(pathA) || 0;
     const scoreB = scoreMap.get(pathB) || 0;
 
