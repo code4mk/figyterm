@@ -25,11 +25,13 @@ export function TabBar({ tabs, onTabClick, onTabClose, onNewTab, onRenameTab }: 
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (renameModal && inputRef.current) {
-      setTimeout(() => {
+    if (renameModal) {
+      // Wait for dialog transition to finish before focusing
+      const timer = setTimeout(() => {
         inputRef.current?.focus();
         inputRef.current?.select();
-      }, 50);
+      }, 200);
+      return () => clearTimeout(timer);
     }
   }, [renameModal]);
 
@@ -147,7 +149,7 @@ export function TabBar({ tabs, onTabClick, onTabClose, onNewTab, onRenameTab }: 
             leaveFrom="opacity-100"
             leaveTo="opacity-0"
           >
-            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" />
+            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" onMouseDown={(e) => e.stopPropagation()} onMouseUp={(e) => e.stopPropagation()} />
           </Transition.Child>
 
           <div className="fixed inset-0 flex items-center justify-center p-4">
@@ -160,7 +162,11 @@ export function TabBar({ tabs, onTabClick, onTabClose, onNewTab, onRenameTab }: 
               leaveFrom="opacity-100 scale-100"
               leaveTo="opacity-0 scale-95"
             >
-              <Dialog.Panel className="w-full max-w-sm rounded-xl bg-ft-elevated border border-ft-border shadow-2xl p-5">
+              <Dialog.Panel
+                className="w-full max-w-sm rounded-xl settings-modal shadow-2xl p-5"
+                onMouseDown={(e) => e.stopPropagation()}
+                onMouseUp={(e) => e.stopPropagation()}
+              >
                 <Dialog.Title className="text-sm font-semibold text-ft-text mb-3">
                   Rename Tab
                 </Dialog.Title>
@@ -171,11 +177,15 @@ export function TabBar({ tabs, onTabClick, onTabClose, onNewTab, onRenameTab }: 
                   value={renameValue}
                   onChange={(e) => setRenameValue(e.target.value)}
                   onKeyDown={(e) => {
+                    e.stopPropagation();
                     if (e.key === "Enter") submitRename();
                     if (e.key === "Escape") setRenameModal(null);
                   }}
+                  onPaste={(e) => e.stopPropagation()}
+                  onKeyUp={(e) => e.stopPropagation()}
                   placeholder="Tab name..."
-                  className="w-full px-3 py-2 rounded-lg bg-ft-bg border border-ft-border-subtle text-sm text-ft-text placeholder:text-ft-text-muted focus:outline-none focus:ring-2 focus:ring-ft-accent/50 focus:border-ft-accent"
+                  className="settings-input w-full rounded-lg px-3 py-2 text-sm"
+                  autoFocus
                 />
 
                 <div className="flex items-center justify-end gap-2 mt-4">

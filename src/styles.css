@@ -258,6 +258,70 @@
   border-color: rgba(79, 70, 229, 0.25);
 }
 
+/* ─── Terminal Search Bar ─── */
+
+.search-bar {
+  background: #1e2228;
+  border: 1px solid #353b44;
+  backdrop-filter: blur(8px);
+}
+
+.search-icon {
+  color: #6e7681;
+}
+
+.search-input {
+  color: #e6edf3;
+}
+
+.search-input::placeholder {
+  color: #5d636e;
+}
+
+.search-count {
+  color: #8b949e;
+}
+
+.search-nav-btn {
+  color: #8b949e;
+}
+
+.search-nav-btn:hover {
+  color: #e6edf3;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.light .search-bar {
+  background: #ffffff;
+  border: 1px solid #d4d8e0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.light .search-icon {
+  color: #9ca3af;
+}
+
+.light .search-input {
+  color: #1f2937;
+}
+
+.light .search-input::placeholder {
+  color: #9ca3af;
+}
+
+.light .search-count {
+  color: #6b7280;
+}
+
+.light .search-nav-btn {
+  color: #6b7280;
+}
+
+.light .search-nav-btn:hover {
+  color: #1f2937;
+  background: rgba(0, 0, 0, 0.04);
+}
+
 /* ─── Shortcuts Tab ─── */
 
 .shortcut-group {

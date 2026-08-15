@@ -2,6 +2,8 @@ import { useEffect, useCallback, useRef, useState } from "react";
 import { Terminal as XTerm, ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { SearchAddon } from "@xterm/addon-search";
+import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -12,6 +14,7 @@ import { getAutocompleteSuggestions } from "../../services/figy-autocomplete-eng
 import { specRegistry } from "../../services/figy-spec-registry";
 import { isDragging } from "./SplitHandle";
 import { recordDirUsage, sortByRecency, setHomeDir } from "../../services/recent-dirs";
+import { Search, ChevronUp, ChevronDown, X } from "lucide-react";
 
 const DARK_THEME: ITheme = {
   background: "#1a1d23",
@@ -170,6 +173,7 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const searchAddonRef = useRef<SearchAddon | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const unlistenRef = useRef<(() => void) | null>(null);
   const initStarted = useRef(false);
@@ -177,6 +181,11 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
   const cwdRef = useRef("");
   const { settings } = useSettingsStore();
   const settingsRef = useRef(settings);
+
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchMatchCount, setSearchMatchCount] = useState<string>("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
   settingsRef.current = settings;
   const theme = useThemeStore((s) => s.theme);
 
@@ -395,6 +404,65 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
     }
   }, [triggerAutocomplete, updateUI]);
 
+  const openSearch = useCallback(() => {
+    setShowSearch(true);
+    // Multiple focus attempts to beat any competing focus-restore logic
+    setTimeout(() => searchInputRef.current?.focus(), 50);
+    setTimeout(() => searchInputRef.current?.focus(), 150);
+  }, []);
+
+  const closeSearch = useCallback(() => {
+    setShowSearch(false);
+    setSearchQuery("");
+    setSearchMatchCount("");
+    searchAddonRef.current?.clearDecorations();
+    xtermRef.current?.focus();
+  }, []);
+
+  const doSearch = useCallback((query: string) => {
+    setSearchQuery(query);
+    if (!searchAddonRef.current) return;
+    if (!query) {
+      searchAddonRef.current.clearDecorations();
+      setSearchMatchCount("");
+      return;
+    }
+    searchAddonRef.current.findNext(query, { regex: false, caseSensitive: false, decorations: {
+      matchBackground: "#fbbf2450",
+      matchBorder: "#fbbf24",
+      matchOverviewRuler: "#fbbf24",
+      activeMatchBackground: "#f97316",
+      activeMatchBorder: "#f97316",
+      activeMatchColorOverviewRuler: "#f97316",
+    }});
+  }, []);
+
+  const searchNext = useCallback(() => {
+    if (searchAddonRef.current && searchQuery) {
+      searchAddonRef.current.findNext(searchQuery, { regex: false, caseSensitive: false, decorations: {
+        matchBackground: "#fbbf2450",
+        matchBorder: "#fbbf24",
+        matchOverviewRuler: "#fbbf24",
+        activeMatchBackground: "#f97316",
+        activeMatchBorder: "#f97316",
+        activeMatchColorOverviewRuler: "#f97316",
+      }});
+    }
+  }, [searchQuery]);
+
+  const searchPrev = useCallback(() => {
+    if (searchAddonRef.current && searchQuery) {
+      searchAddonRef.current.findPrevious(searchQuery, { regex: false, caseSensitive: false, decorations: {
+        matchBackground: "#fbbf2450",
+        matchBorder: "#fbbf24",
+        matchOverviewRuler: "#fbbf24",
+        activeMatchBackground: "#f97316",
+        activeMatchBorder: "#f97316",
+        activeMatchColorOverviewRuler: "#f97316",
+      }});
+    }
+  }, [searchQuery]);
+
   const clearTerminal = useCallback(() => {
     if (!xtermRef.current || !sessionIdRef.current) return;
     xtermRef.current.clear();
@@ -432,6 +500,8 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
     });
 
     const fitAddon = new FitAddon();
+    const searchAddon = new SearchAddon();
+    const unicode11Addon = new Unicode11Addon();
     const webLinksAddon = new WebLinksAddon((_event, uri) => {
       invoke("plugin:shell|open", { path: uri }).catch(() => {
         window.open(uri, "_blank");
@@ -439,17 +509,26 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
     });
 
     xterm.loadAddon(fitAddon);
+    xterm.loadAddon(searchAddon);
+    xterm.loadAddon(unicode11Addon);
     xterm.loadAddon(webLinksAddon);
+    xterm.unicode.activeVersion = "11";
     xterm.open(containerRef.current);
 
-    // Ctrl+C: copy if there's a selection, otherwise send SIGINT to PTY
+    searchAddonRef.current = searchAddon;
+
     xterm.attachCustomKeyEventHandler((event) => {
+      // Cmd+F / Ctrl+F: open search
+      if ((event.metaKey || event.ctrlKey) && event.key === "f" && event.type === "keydown") {
+        openSearch();
+        return false;
+      }
+      // Ctrl+C / Cmd+C: copy if selection, otherwise SIGINT
       if ((event.ctrlKey || event.metaKey) && event.key === "c" && event.type === "keydown") {
         if (xterm.hasSelection()) {
           navigator.clipboard.writeText(xterm.getSelection());
-          return false; // Prevent xterm from handling it
+          return false;
         }
-        // No selection ? let xterm send \x03 (SIGINT)
         return true;
       }
       if (event.metaKey && event.key === "v") {
@@ -460,6 +539,7 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
 
     xtermRef.current = xterm;
     fitAddonRef.current = fitAddon;
+    searchAddonRef.current = searchAddon;
 
     await new Promise((r) => setTimeout(r, 30));
     fitAddon.fit();
@@ -733,6 +813,52 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
       data-instance-id={instanceId}
       className="relative w-full h-full"
     >
+      {/* Search bar */}
+      {showSearch && (
+        <div
+          className="search-bar absolute top-2 right-3 z-50 flex items-center gap-1 px-2 py-1.5 rounded-lg shadow-lg"
+          onMouseDown={(e) => e.stopPropagation()}
+          onMouseUp={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <Search size={13} className="search-icon shrink-0" />
+          <input
+            ref={searchInputRef}
+            type="text"
+            value={searchQuery}
+            onChange={(e) => doSearch(e.target.value)}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === "Enter") {
+                e.preventDefault();
+                e.shiftKey ? searchPrev() : searchNext();
+              }
+              if (e.key === "Escape") {
+                e.preventDefault();
+                closeSearch();
+              }
+            }}
+            onKeyUp={(e) => e.stopPropagation()}
+            onPaste={(e) => e.stopPropagation()}
+            placeholder="Search..."
+            className="search-input bg-transparent outline-none text-xs w-40"
+            autoFocus
+          />
+          {searchMatchCount && (
+            <span className="text-[10px] search-count shrink-0">{searchMatchCount}</span>
+          )}
+          <button onClick={searchPrev} className="search-nav-btn p-0.5 rounded transition-colors" title="Previous (Shift+Enter)">
+            <ChevronUp size={14} />
+          </button>
+          <button onClick={searchNext} className="search-nav-btn p-0.5 rounded transition-colors" title="Next (Enter)">
+            <ChevronDown size={14} />
+          </button>
+          <button onClick={closeSearch} className="search-nav-btn p-0.5 rounded transition-colors" title="Close (Esc)">
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       <div
         ref={containerRef}
         className="w-full h-full"

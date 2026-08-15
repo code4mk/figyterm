@@ -723,6 +723,7 @@ function ShortcutsTab() {
       title: "Terminal",
       icon: <Command size={13} />,
       shortcuts: [
+        { keys: ["⌘", "F"], description: "Find in terminal" },
         { keys: ["⌘", "K"], description: "Clear terminal" },
         { keys: ["⌘", "C"], description: "Copy selection" },
         { keys: ["⌘", "V"], description: "Paste from clipboard" },
