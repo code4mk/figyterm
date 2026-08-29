@@ -30,6 +30,7 @@ pub fn run() {
             commands::specs::save_spec_icon,
             commands::specs::remove_spec,
             commands::specs::get_spec_icon_path,
+            commands::system::get_system_stats,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

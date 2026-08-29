@@ -8,6 +8,7 @@ export interface Settings {
   cursorBlink: boolean;
   scrollback: number;
   shell: string | null;
+  showSystemStats: boolean;
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -20,6 +21,7 @@ const DEFAULT_SETTINGS: Settings = {
   cursorBlink: true,
   scrollback: 10000,
   shell: null,
+  showSystemStats: true,
 };
 
 const STORAGE_KEY = "figy-term-settings";
