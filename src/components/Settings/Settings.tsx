@@ -556,6 +556,25 @@ function TerminalTab({
               />
             </button>
           </div>
+
+          <div className="settings-card flex items-center justify-between py-2.5 px-4">
+            <div>
+              <label className="text-xs font-medium text-ft-text">System Stats in Status Bar</label>
+              <p className="text-[10px] text-ft-text-muted mt-0.5">Show live CPU & memory usage</p>
+            </div>
+            <button
+              onClick={() => updateSettings({ showSystemStats: !settings.showSystemStats })}
+              className={`toggle-switch relative w-9 h-5 rounded-full transition-colors duration-200 ${
+                settings.showSystemStats ? "active" : ""
+              }`}
+            >
+              <div
+                className={`absolute top-[3px] left-[3px] w-[14px] h-[14px] rounded-full bg-white shadow-sm transition-transform duration-200 ${
+                  settings.showSystemStats ? "translate-x-[16px]" : ""
+                }`}
+              />
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -725,6 +744,7 @@ function ShortcutsTab() {
       shortcuts: [
         { keys: ["⌘", "F"], description: "Find in terminal" },
         { keys: ["⌘", "R"], description: "Search command history" },
+        { keys: ["⌘", "⇧", "M"], description: "System Monitor" },
         { keys: ["⌘", "K"], description: "Clear terminal" },
         { keys: ["⌘", "C"], description: "Copy selection" },
         { keys: ["⌘", "V"], description: "Paste from clipboard" },

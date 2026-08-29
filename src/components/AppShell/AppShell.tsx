@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { TabBar } from "../Terminal/TabBar";
 import { StatusBar } from "../Terminal/StatusBar";
+import { SystemMonitor } from "../Terminal/SystemMonitor";
 import { CommandPalette } from "../CommandPalette/CommandPalette";
 import { Settings } from "../Settings/Settings";
 import {
@@ -25,6 +26,7 @@ interface TabInstance {
 export function AppShell() {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [monitorOpen, setMonitorOpen] = useState(false);
   const [tabs, setTabs] = useState<TabInstance[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [activePaneId, setActivePaneId] = useState<string | null>(null);
@@ -259,6 +261,9 @@ export function AppShell() {
       } else if (isMod && e.key === ",") {
         e.preventDefault();
         setSettingsOpen(true);
+      } else if (isMod && e.shiftKey && (e.key === "M" || e.key === "m")) {
+        e.preventDefault();
+        setMonitorOpen((prev) => !prev);
       } else if (isMod && e.key === "d" && !e.shiftKey) {
         e.preventDefault();
         handleSplitPane("horizontal");
@@ -349,6 +354,7 @@ export function AppShell() {
           cwd={activePaneId ? (liveCwds[activePaneId] || activePaneSession?.session?.cwd || "") : ""}
           shell={activePaneSession?.session?.shell ?? ""}
           onOpenSettings={() => setSettingsOpen(true)}
+          onOpenMonitor={() => setMonitorOpen(true)}
         />
       </div>
       <CommandPalette
@@ -360,6 +366,10 @@ export function AppShell() {
         isOpen={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         activeSessionId={activePaneSession?.sessionId ?? null}
+      />
+      <SystemMonitor
+        visible={monitorOpen}
+        onClose={() => setMonitorOpen(false)}
       />
     </div>
   );
