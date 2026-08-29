@@ -1,1 +1,1 @@
-{"default":{"identifier":"default","description":"Default capabilities for the terminal app","local":true,"windows":["main"],"permissions":["core:default","shell:allow-open","core:event:default","core:event:allow-emit","core:event:allow-listen"]}}
+{"default":{"identifier":"default","description":"Default capabilities for the terminal app","local":true,"windows":["main"],"webviews":["main"],"permissions":["core:default","shell:allow-open","core:event:default","core:event:allow-emit","core:event:allow-listen"]}}
