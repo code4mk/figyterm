@@ -3,6 +3,7 @@
   "identifier": "default",
   "description": "Default capabilities for the terminal app",
   "windows": ["main"],
+  "webviews": ["main"],
   "permissions": [
     "core:default",
     "shell:allow-open",

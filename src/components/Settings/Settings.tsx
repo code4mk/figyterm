@@ -745,6 +745,7 @@ function ShortcutsTab() {
         { keys: ["⌘", "F"], description: "Find in terminal" },
         { keys: ["⌘", "R"], description: "Search command history" },
         { keys: ["⌘", "⇧", "M"], description: "System Monitor" },
+        { keys: ["⌘", "⇧", "B"], description: "Browser" },
         { keys: ["⌘", "K"], description: "Clear terminal" },
         { keys: ["⌘", "C"], description: "Copy selection" },
         { keys: ["⌘", "V"], description: "Paste from clipboard" },
