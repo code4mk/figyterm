@@ -29,6 +29,11 @@ Inspired by [Fig](https://fig.io) (now part of AWS), FigyTerm is an open-source 
 - **Spec-based Engine** — Compatible with Fig's spec format for community-driven command completions
 - **Split Panes** — Up to 4 resizable terminal panes per tab (Cmd+D / Cmd+Shift+D)
 - **Multiple Tabs** — Browser-style tab bar with drag-to-reorder and rename support
+- **Embedded Browser** — In-app browser modal with tabs, address bar, and back/forward/reload (`⌘⇧B`); uses a native child webview so real sites load (not an iframe)
+- **Command History Search** — Fuzzy-search past commands with picture-in-picture mode (`⌘R`)
+- **System Monitor** — Live CPU and memory charts in a draggable modal (`⌘⇧M`)
+- **Terminal Search** — Find text in the active pane (`⌘F`)
+- **Command Palette** — Quick launcher for common actions (`⌘⇧P`)
 - **Oh My Zsh Integration** — Real-time theme switching with full prompt rendering
 - **Dark & Light Mode** — Beautifully themed UI that adapts to your preference
 - **Recent Directory Ordering** — Frequently visited folders appear first in suggestions
@@ -135,6 +140,11 @@ After install:
 | `⌘ D` | Split pane horizontally |
 | `⌘ ⇧ D` | Split pane vertically |
 | `⌘ K` | Clear terminal |
+| `⌘ F` | Find in terminal |
+| `⌘ R` | Search command history |
+| `⌘ ⇧ B` | Open browser |
+| `⌘ ⇧ M` | System monitor |
+| `⌘ ⇧ P` | Command palette |
 | `⌘ ,` | Settings |
 | `⌘ 1-9` | Switch to tab N |
 | `⌘ ⇧ [` | Previous tab |
@@ -170,6 +180,7 @@ Adding a new spec is straightforward — see the [Spec Authoring Guide](docs/SPE
 │  ├── xterm.js (terminal rendering)         │
 │  ├── Autocomplete engine (spec-based)      │
 │  ├── Split panes (react-resizable-panels)  │
+│  ├── Browser modal (native child webview)  │
 │  └── Settings & theme management           │
 ├─────────────────────────────────────────────┤
 │  Tauri IPC (commands + events)             │
@@ -178,6 +189,7 @@ Adding a new spec is straightforward — see the [Spec Authoring Guide](docs/SPE
 │  ├── PTY session management                │
 │  ├── Path completion (filesystem)          │
 │  ├── Shell command execution               │
+│  ├── Browser webviews (multi-webview)      │
 │  └── Window management                     │
 └─────────────────────────────────────────────┘
 ```
@@ -218,9 +230,10 @@ figyterm/
 ├── src/                          # Frontend (React + TypeScript)
 │   ├── components/
 │   │   ├── AppShell/             # Main layout, tab & pane management
-│   │   ├── Terminal/             # Terminal, TabBar, SplitHandle, PaneContainer
-│   │   └── Settings/            # Settings modal (tabbed)
-│   ├── services/                 # Autocomplete engine, spec registry, recent dirs
+│   │   ├── Browser/              # Embedded browser modal
+│   │   ├── Terminal/             # Terminal, TabBar, HistorySearch, SystemMonitor
+│   │   └── Settings/             # Settings modal (tabbed)
+│   ├── services/                 # Autocomplete, browser IPC, spec registry
 │   ├── specs/                    # Command completion specs (git, docker, etc.)
 │   ├── stores/                   # Zustand stores (settings, theme)
 │   └── types/                    # TypeScript definitions (figy, terminal)
@@ -228,7 +241,9 @@ figyterm/
 │   └── src/
 │       ├── commands/             # Tauri IPC handlers
 │       │   ├── terminal.rs       # PTY session create/write/resize/close
-│       │   ├── autocomplete.rs   # Path completions
+│       │   ├── browser.rs        # Child webview lifecycle & navigation
+│       │   ├── autocomplete.rs   # Path completions & shell history
+│       │   ├── system.rs         # CPU/memory stats
 │       │   └── shell_exec.rs     # Shell command execution
 │       └── lib.rs                # App entry point
 ├── docs/                         # Documentation
@@ -248,7 +263,10 @@ figyterm/
 - [x] Dark/Light mode
 - [x] Recent directory ordering
 - [x] Clickable URLs
-- [ ] Command history search (Ctrl+R enhancement)
+- [x] Command history search (`⌘R`)
+- [x] Terminal search (`⌘F`)
+- [x] System monitor (`⌘⇧M`)
+- [x] Embedded browser with tabs (`⌘⇧B`)
 - [ ] Plugin system for custom specs
 - [ ] AI-powered command suggestions (local models)
 - [ ] Snippet management
