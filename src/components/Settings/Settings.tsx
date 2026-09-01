@@ -559,6 +559,25 @@ function TerminalTab({
 
           <div className="settings-card flex items-center justify-between py-2.5 px-4">
             <div>
+              <label className="text-xs font-medium text-ft-text">Suggestion Popup</label>
+              <p className="text-[10px] text-ft-text-muted mt-0.5">Show autocomplete suggestions while typing</p>
+            </div>
+            <button
+              onClick={() => updateSettings({ showSuggestionPopup: !settings.showSuggestionPopup })}
+              className={`toggle-switch relative w-9 h-5 rounded-full transition-colors duration-200 ${
+                settings.showSuggestionPopup ? "active" : ""
+              }`}
+            >
+              <div
+                className={`absolute top-[3px] left-[3px] w-[14px] h-[14px] rounded-full bg-white shadow-sm transition-transform duration-200 ${
+                  settings.showSuggestionPopup ? "translate-x-[16px]" : ""
+                }`}
+              />
+            </button>
+          </div>
+
+          <div className="settings-card flex items-center justify-between py-2.5 px-4">
+            <div>
               <label className="text-xs font-medium text-ft-text">System Stats in Status Bar</label>
               <p className="text-[10px] text-ft-text-muted mt-0.5">Show live CPU & memory usage</p>
             </div>
@@ -723,7 +742,8 @@ function ShortcutsTab() {
       icon: <TerminalIcon size={13} />,
       shortcuts: [
         { keys: ["⌘", "T"], description: "New tab" },
-        { keys: ["⌘", "W"], description: "Close active pane" },
+        { keys: ["⌘", "⇧", "T"], description: "New tab (same directory)" },
+        { keys: ["⌘", "⇧", "W"], description: "Close active pane" },
         { keys: ["⌘", "1-9"], description: "Switch to tab N" },
         { keys: ["⌘", "⇧", "["], description: "Previous tab" },
         { keys: ["⌘", "⇧", "]"], description: "Next tab" },
@@ -735,7 +755,7 @@ function ShortcutsTab() {
       shortcuts: [
         { keys: ["⌘", "D"], description: "Split pane horizontally" },
         { keys: ["⌘", "⇧", "D"], description: "Split pane vertically" },
-        { keys: ["⌘", "W"], description: "Close active pane" },
+        { keys: ["⌘", "⇧", "W"], description: "Close active pane" },
       ],
     },
     {

@@ -39,6 +39,26 @@ export function AppShell() {
   const { addTab, removeTab, setActiveTab, reorderTabs } = useTerminalStore();
   const clearRefs = useRef<Map<string, React.MutableRefObject<(() => void) | null>>>(new Map());
   const focusRefs = useRef<Map<string, React.MutableRefObject<(() => void) | null>>>(new Map());
+  const paneInitialCwds = useRef<Map<string, string>>(new Map());
+
+  const getActiveCwd = useCallback(() => {
+    if (!activePaneId || !activeTabId) return undefined;
+    const tab = tabs.find((t) => t.id === activeTabId);
+    const cwd = liveCwds[activePaneId] || tab?.sessions[activePaneId]?.session?.cwd;
+    return cwd || undefined;
+  }, [activePaneId, activeTabId, tabs, liveCwds]);
+
+  const setPaneInitialCwd = useCallback((paneId: string, cwd?: string) => {
+    if (cwd) {
+      paneInitialCwds.current.set(paneId, cwd);
+    } else {
+      paneInitialCwds.current.delete(paneId);
+    }
+  }, []);
+
+  const getPaneInitialCwd = useCallback((paneId: string) => {
+    return paneInitialCwds.current.get(paneId);
+  }, []);
 
   const focusActivePane = useCallback(() => {
     if (!activePaneId) return;
@@ -46,14 +66,23 @@ export function AppShell() {
     if (ref?.current) ref.current();
   }, [activePaneId]);
 
-  const handleNewTab = useCallback(() => {
+  const createTab = useCallback((cwd?: string) => {
     const tabId = crypto.randomUUID();
     const paneId = crypto.randomUUID();
     const paneTree: PaneNode = { type: "leaf", id: paneId };
+    setPaneInitialCwd(paneId, cwd);
     setTabs((prev) => [...prev, { id: tabId, paneTree, sessions: {} }]);
     setActiveTabId(tabId);
     setActivePaneId(paneId);
-  }, []);
+  }, [setPaneInitialCwd]);
+
+  const handleNewTab = useCallback(() => {
+    createTab();
+  }, [createTab]);
+
+  const handleNewTabInSameDir = useCallback(() => {
+    createTab(getActiveCwd());
+  }, [createTab, getActiveCwd]);
 
   const handleSessionCreated = useCallback(
     (paneId: string, session: TerminalSession) => {
@@ -120,6 +149,7 @@ export function AppShell() {
           removeTab(paneSession.sessionId);
         }
         clearRefs.current.delete(activePaneId);
+        paneInitialCwds.current.delete(activePaneId);
         return updated;
       }
 
@@ -135,6 +165,7 @@ export function AppShell() {
         removeTab(paneSession.sessionId);
       }
       clearRefs.current.delete(activePaneId);
+      paneInitialCwds.current.delete(activePaneId);
 
       const newSessions = { ...tab.sessions };
       delete newSessions[activePaneId];
@@ -153,7 +184,10 @@ export function AppShell() {
           Object.values(tab.sessions).forEach((s) => {
             if (s.sessionId) removeTab(s.sessionId);
           });
-          findLeafIds(tab.paneTree).forEach((id) => clearRefs.current.delete(id));
+          findLeafIds(tab.paneTree).forEach((id) => {
+            clearRefs.current.delete(id);
+            paneInitialCwds.current.delete(id);
+          });
         }
 
         const updated = prev.filter((t) => t.id !== tabId);
@@ -241,10 +275,13 @@ export function AppShell() {
     const handleKeyDown = (e: KeyboardEvent) => {
       const isMod = e.metaKey || e.ctrlKey;
 
-      if (isMod && e.key === "t" && !e.shiftKey) {
+      if (isMod && e.shiftKey && (e.key === "T" || e.key === "t")) {
+        e.preventDefault();
+        handleNewTabInSameDir();
+      } else if (isMod && e.key === "t" && !e.shiftKey) {
         e.preventDefault();
         handleNewTab();
-      } else if (isMod && e.key === "w") {
+      } else if (isMod && e.shiftKey && (e.key === "W" || e.key === "w")) {
         e.preventDefault();
         handleClosePane();
       } else if (isMod && e.key === "k") {
@@ -292,7 +329,7 @@ export function AppShell() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleNewTab, handleClosePane, handleClearTerminal, switchToNextTab, switchToPreviousTab, handleSplitPane, handleSwitchTab, tabs]);
+  }, [handleNewTab, handleNewTabInSameDir, handleClosePane, handleClearTerminal, switchToNextTab, switchToPreviousTab, handleSplitPane, handleSwitchTab, tabs]);
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
 
@@ -313,9 +350,10 @@ export function AppShell() {
 
   const commands = [
     { id: "new-terminal", label: "New Terminal", shortcut: "⌘T", action: handleNewTab },
+    { id: "new-terminal-same-dir", label: "New Terminal in Same Directory", shortcut: "⌘⇧T", action: handleNewTabInSameDir },
     { id: "split-right", label: "Split Right", shortcut: "⌘D", action: () => handleSplitPane("horizontal") },
     { id: "split-down", label: "Split Down", shortcut: "⌘⇧D", action: () => handleSplitPane("vertical") },
-    { id: "close-pane", label: "Close Pane", shortcut: "⌘W", action: handleClosePane },
+    { id: "close-pane", label: "Close Pane", shortcut: "⌘⇧W", action: handleClosePane },
     { id: "clear-terminal", label: "Clear Terminal", shortcut: "⌘K", action: handleClearTerminal },
     { id: "next-tab", label: "Next Tab", shortcut: "⌘Tab", action: switchToNextTab },
     { id: "prev-tab", label: "Previous Tab", shortcut: "⌘⇧Tab", action: switchToPreviousTab },
@@ -350,6 +388,7 @@ export function AppShell() {
               onPaneFocus={setActivePaneId}
               onSessionCreated={handleSessionCreated}
               onCwdChange={(paneId, cwd) => setLiveCwds((prev) => ({ ...prev, [paneId]: cwd }))}
+              getPaneInitialCwd={getPaneInitialCwd}
               clearRefs={clearRefs}
               focusRefs={focusRefs}
             />

@@ -136,7 +136,8 @@ After install:
 | Shortcut | Action |
 |----------|--------|
 | `⌘ T` | New tab |
-| `⌘ W` | Close active pane |
+| `⌘ ⇧ T` | New tab (same directory as active tab) |
+| `⌘ ⇧ W` | Close active pane |
 | `⌘ D` | Split pane horizontally |
 | `⌘ ⇧ D` | Split pane vertically |
 | `⌘ K` | Clear terminal |

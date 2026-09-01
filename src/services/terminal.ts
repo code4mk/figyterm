@@ -13,11 +13,13 @@ interface RawTerminalSession {
 
 export async function createTerminalSession(
   cols: number,
-  rows: number
+  rows: number,
+  cwd?: string
 ): Promise<TerminalSession> {
   const raw = await invoke<RawTerminalSession>("create_terminal_session", {
     cols,
     rows,
+    cwd: cwd ?? null,
   });
   return {
     id: raw.id,
