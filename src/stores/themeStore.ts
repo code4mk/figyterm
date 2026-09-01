@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { setBrowserTheme } from "../services/browser";
 
 type Theme = "dark" | "light";
 
@@ -34,6 +35,9 @@ function applyTheme(theme: Theme) {
   try {
     getCurrentWindow().setTheme(theme === "dark" ? "dark" : "light");
   } catch {}
+
+  // Keep embedded browser webviews in sync with the app theme.
+  setBrowserTheme(theme).catch(() => {});
 }
 
 const initialTheme = getInitialTheme();

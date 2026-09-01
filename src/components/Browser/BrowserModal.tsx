@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
+import { useThemeStore } from "../../stores/themeStore";
 import {
   ArrowLeft,
   ArrowRight,
@@ -31,6 +32,7 @@ import {
   reloadBrowser,
   setBrowserVisible,
   stopBrowser,
+  setBrowserTheme,
 } from "../../services/browser";
 
 interface BrowserModalProps {
@@ -53,6 +55,7 @@ export function BrowserModal({ visible, onClose }: BrowserModalProps) {
   const [editingAddress, setEditingAddress] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pipMode, setPipMode] = useState(false);
+  const theme = useThemeStore((s) => s.theme);
 
   // The native webview is repositioned over a one-way IPC hop, so it visibly lags a
   // modal that is being dragged or resized. It gets hidden for the duration instead.
@@ -81,7 +84,14 @@ export function BrowserModal({ visible, onClose }: BrowserModalProps) {
 
   const measure = useCallback(() => {
     const el = viewportRef.current;
-    return el ? rectToBounds(el.getBoundingClientRect()) : null;
+    if (!el) return null;
+    const rect = el.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) return null;
+    return rectToBounds(rect);
+  }, []);
+
+  const suppressContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
   }, []);
 
   const createTab = useCallback(
@@ -148,6 +158,11 @@ export function BrowserModal({ visible, onClose }: BrowserModalProps) {
   // --- Lifecycle -------------------------------------------------------------
 
   useEffect(() => {
+    if (!visible) return;
+    setBrowserTheme(theme).catch(() => {});
+  }, [visible, theme]);
+
+  useEffect(() => {
     if (!visible || tabs.length > 0 || creatingRef.current) return;
     creatingRef.current = true;
     const raf = requestAnimationFrame(() => {
@@ -197,6 +212,20 @@ export function BrowserModal({ visible, onClose }: BrowserModalProps) {
     };
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
+  }, [visible, activeTabId, interacting, measure]);
+
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!visible || !el) return;
+
+    const observer = new ResizeObserver(() => {
+      const bounds = measure();
+      if (bounds && activeTabId && !interacting) {
+        void setBrowserVisible(activeTabId, true, bounds).catch(() => {});
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
   }, [visible, activeTabId, interacting, measure]);
 
   useEffect(() => {
@@ -351,11 +380,13 @@ export function BrowserModal({ visible, onClose }: BrowserModalProps) {
       onClick={(e) => e.stopPropagation()}
       onKeyDown={handleModalKeyDown}
       onKeyUp={(e) => e.stopPropagation()}
+      onContextMenu={suppressContextMenu}
     >
       {/* Tab strip doubles as the drag handle, the way a real browser title bar does. */}
       <div
-        className="browser-tabstrip flex items-center gap-1 px-2 pt-1.5 pb-0 select-none cursor-grab active:cursor-grabbing"
+        className="browser-chrome browser-tabstrip flex items-center gap-1 px-2 pt-1.5 pb-0 select-none cursor-grab active:cursor-grabbing"
         onPointerDown={handleDragStart}
+        onContextMenu={suppressContextMenu}
       >
         <div className="flex items-end gap-1 flex-1 min-w-0 overflow-x-auto browser-tabstrip-scroll">
           {tabs.map((tab) => (
@@ -424,7 +455,10 @@ export function BrowserModal({ visible, onClose }: BrowserModalProps) {
       </div>
 
       {/* Toolbar */}
-      <div className="browser-toolbar relative flex items-center gap-1 px-2 py-1.5">
+      <div
+        className="browser-chrome browser-toolbar relative flex items-center gap-1 px-2 py-1.5"
+        onContextMenu={suppressContextMenu}
+      >
         <button
           className="browser-btn p-1.5 rounded"
           disabled={!activeTab?.canGoBack}
@@ -524,7 +558,10 @@ export function BrowserModal({ visible, onClose }: BrowserModalProps) {
         The resize grip lives in its own bar; anything placed over the viewport would be
         painted over by the native webview.
       */}
-      <div className="browser-statusbar flex items-center justify-between gap-2 px-2.5 h-[22px] shrink-0">
+      <div
+        className="browser-chrome browser-statusbar flex items-center justify-between gap-2 px-2.5 h-[22px] shrink-0"
+        onContextMenu={suppressContextMenu}
+      >
         <span className="browser-status-text text-[10px] truncate">
           {activeTab?.loading ? "Loading…" : activeTab ? hostLabel(activeTab.url) : ""}
         </span>

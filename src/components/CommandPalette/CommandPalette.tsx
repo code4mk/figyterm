@@ -13,6 +13,49 @@ interface CommandPaletteProps {
   commands: Command[];
 }
 
+const MODIFIER_KEYS = new Set(["⌘", "⇧", "⌥", "⌃"]);
+
+function parseShortcut(shortcut: string): string[] {
+  const keys: string[] = [];
+  let i = 0;
+
+  while (i < shortcut.length) {
+    const ch = shortcut[i];
+
+    if (MODIFIER_KEYS.has(ch)) {
+      keys.push(ch);
+      i += 1;
+      continue;
+    }
+
+    if (shortcut.slice(i, i + 3) === "Tab") {
+      keys.push("Tab");
+      i += 3;
+      continue;
+    }
+
+    keys.push(ch);
+    i += 1;
+  }
+
+  return keys;
+}
+
+function ShortcutKeys({ shortcut }: { shortcut: string }) {
+  return (
+    <div className="flex items-center gap-1 flex-shrink-0">
+      {parseShortcut(shortcut).map((key, index) => (
+        <kbd
+          key={`${key}-${index}`}
+          className="palette-kbd inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 text-[10px] font-medium rounded-md font-mono"
+        >
+          {key}
+        </kbd>
+      ))}
+    </div>
+  );
+}
+
 export function CommandPalette({ isOpen, onClose, commands }: CommandPaletteProps) {
   const [search, setSearch] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -78,7 +121,7 @@ export function CommandPalette({ isOpen, onClose, commands }: CommandPaletteProp
             placeholder="Type a command..."
             className="flex-1 bg-transparent text-ft-text text-sm placeholder-ft-text-muted outline-none"
           />
-          <kbd className="text-[10px] text-ft-text-muted bg-ft-bg px-1.5 py-0.5 rounded border border-ft-border-subtle font-mono">
+          <kbd className="palette-kbd inline-flex items-center justify-center h-[22px] px-1.5 text-[10px] font-medium rounded-md font-mono flex-shrink-0">
             ESC
           </kbd>
         </div>
@@ -86,7 +129,7 @@ export function CommandPalette({ isOpen, onClose, commands }: CommandPaletteProp
           {filtered.map((cmd, idx) => (
             <div
               key={cmd.id}
-              className={`flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-colors duration-100 ${
+              className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors duration-100 min-w-0 ${
                 idx === selectedIndex
                   ? "bg-ft-accent/10 text-ft-text"
                   : "text-ft-text-secondary hover:bg-ft-bg hover:text-ft-text"
@@ -97,12 +140,8 @@ export function CommandPalette({ isOpen, onClose, commands }: CommandPaletteProp
               }}
               onMouseEnter={() => setSelectedIndex(idx)}
             >
-              <span className="text-[13px]">{cmd.label}</span>
-              {cmd.shortcut && (
-                <kbd className="text-[10px] text-ft-text-muted font-mono bg-ft-bg border border-ft-border-subtle px-1.5 py-0.5 rounded">
-                  {cmd.shortcut}
-                </kbd>
-              )}
+              <span className="flex-1 min-w-0 text-[13px] truncate">{cmd.label}</span>
+              {cmd.shortcut && <ShortcutKeys shortcut={cmd.shortcut} />}
             </div>
           ))}
           {filtered.length === 0 && (

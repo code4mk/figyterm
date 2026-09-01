@@ -84,6 +84,10 @@ export function setBrowserZoom(tabId: string, factor: number): Promise<void> {
   return invoke("browser_set_zoom", { tabId, factor });
 }
 
+export function setBrowserTheme(theme: "light" | "dark"): Promise<void> {
+  return invoke("browser_set_theme", { theme });
+}
+
 export function onBrowserState(
   handler: (state: BrowserTabState) => void
 ): Promise<UnlistenFn> {

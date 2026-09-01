@@ -3,7 +3,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
-use tauri::webview::{NewWindowResponse, PageLoadEvent, WebviewBuilder};
+use tauri::webview::{NewWindowResponse, PageLoadEvent, WebviewBuilder, Color};
 use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Url, WebviewUrl, Window};
 
 /// Child webviews are addressed by label, so tab ids get a namespace to keep them
@@ -115,6 +115,154 @@ impl TabNav {
 #[derive(Default)]
 pub struct BrowserState {
     tabs: Mutex<HashMap<String, TabNav>>,
+    theme: Mutex<String>,
+}
+
+fn current_theme(state: &BrowserState) -> String {
+    state
+        .theme
+        .lock()
+        .map(|theme| theme.clone())
+        .unwrap_or_else(|poisoned| poisoned.into_inner().clone())
+}
+
+fn set_stored_theme(state: &BrowserState, theme: String) {
+    if let Ok(mut stored) = state.theme.lock() {
+        *stored = theme;
+    }
+}
+
+fn normalize_theme(theme: &str) -> &'static str {
+    if theme == "light" {
+        "light"
+    } else {
+        "dark"
+    }
+}
+
+fn color_scheme_init_script(theme: &str) -> String {
+    let theme = normalize_theme(theme);
+    format!(
+        r#"(function() {{
+  const apply = () => {{
+    const prefersDark = (window.__figyTheme || "{theme}") === "dark";
+    let style = document.getElementById("figy-color-scheme");
+    if (!style) {{
+      style = document.createElement("style");
+      style.id = "figy-color-scheme";
+      (document.documentElement || document.head || document.body).appendChild(style);
+    }}
+    style.textContent = ":root {{ color-scheme: " + (prefersDark ? "dark" : "light") + "; }}";
+  }};
+  window.__figyTheme = "{theme}";
+  window.__figyApplyColorScheme = apply;
+  apply();
+  if (!window.__figyMatchMediaPatched) {{
+    window.__figyMatchMediaPatched = true;
+    const original = window.matchMedia.bind(window);
+    window.matchMedia = function(query) {{
+      const result = original(query);
+      if (typeof query === "string" && query.includes("prefers-color-scheme")) {{
+        const prefersDark = (window.__figyTheme || "{theme}") === "dark";
+        const q = query.toLowerCase();
+        let matches = result.matches;
+        if (q.includes("dark")) matches = prefersDark;
+        else if (q.includes("light")) matches = !prefersDark;
+        return {{
+          media: query,
+          matches,
+          addListener: result.addListener?.bind(result),
+          removeListener: result.removeListener?.bind(result),
+          addEventListener: result.addEventListener?.bind(result),
+          removeEventListener: result.removeEventListener?.bind(result),
+          onchange: result.onchange,
+          dispatchEvent: result.dispatchEvent?.bind(result),
+        }};
+      }}
+      return result;
+    }};
+  }}
+}})();"#
+    )
+}
+
+fn theme_runtime_script(theme: &str) -> String {
+    let theme = normalize_theme(theme);
+    format!(
+        r#"window.__figyTheme = "{theme}";
+if (window.__figyApplyColorScheme) window.__figyApplyColorScheme();"#
+    )
+}
+
+#[cfg(target_os = "macos")]
+fn apply_native_webview_theme(view: &tauri::Webview, theme: &str) {
+    let dark = normalize_theme(theme) == "dark";
+    let _ = view.with_webview(move |platform| {
+        let ptr = platform.inner();
+        if ptr.is_null() {
+            return;
+        }
+
+        unsafe {
+            use objc2::msg_send;
+            use objc2::runtime::AnyObject;
+            use objc2_app_kit::{NSAppearance, NSAppearanceNameAqua, NSAppearanceNameDarkAqua};
+
+            let webview = ptr as *mut AnyObject;
+            let name = if dark {
+                NSAppearanceNameDarkAqua
+            } else {
+                NSAppearanceNameAqua
+            };
+            if let Some(appearance) = NSAppearance::appearanceNamed(name) {
+                let _: () = msg_send![webview, setAppearance: &*appearance];
+            }
+        }
+    });
+}
+
+#[cfg(not(target_os = "macos"))]
+fn apply_native_webview_theme(_view: &tauri::Webview, _theme: &str) {}
+
+/// Child WKWebViews default to autoresizing with the parent window, which makes them
+/// grow over the React browser chrome. Pin them to the explicit bounds we set instead.
+fn configure_child_webview(view: &tauri::Webview) {
+    let _ = view.with_webview(|platform| {
+        #[cfg(target_os = "macos")]
+        unsafe {
+            use objc2::msg_send;
+            use objc2::runtime::AnyObject;
+
+            let ptr = platform.inner();
+            if ptr.is_null() {
+                return;
+            }
+            let webview = ptr as *mut AnyObject;
+            let _: () = msg_send![webview, setAutoresizingMask: 0usize];
+        }
+    });
+}
+
+fn apply_webview_theme(view: &tauri::Webview, theme: &str) {
+    apply_native_webview_theme(view, theme);
+    let _ = view.eval(&theme_runtime_script(theme));
+}
+
+fn apply_theme_to_all_tabs(app: &AppHandle, theme: &str) {
+    let state = app.state::<BrowserState>();
+    set_stored_theme(&state, theme.to_string());
+
+    let tab_ids: Vec<String> = state
+        .tabs
+        .lock()
+        .map(|tabs| tabs.keys().cloned().collect())
+        .unwrap_or_default();
+
+    for tab_id in tab_ids {
+        if let Ok(view) = webview(app, &tab_id) {
+            apply_webview_theme(&view, theme);
+        }
+    }
 }
 
 fn label_for(tab_id: &str) -> String {
@@ -215,8 +363,11 @@ pub fn browser_open_tab(
         existing.navigate(target.clone()).map_err(|e| e.to_string())?;
         apply_bounds(&existing, bounds)?;
         existing.show().map_err(|e| e.to_string())?;
+        let theme = current_theme(&app.state::<BrowserState>());
+        apply_webview_theme(&existing, &theme);
     } else {
-        let builder = build_webview(&app, &label, &tab_id, target.clone());
+        let theme = current_theme(&app.state::<BrowserState>());
+        let builder = build_webview(&app, &label, &tab_id, target.clone(), &theme);
         window
             .add_child(
                 builder,
@@ -224,6 +375,10 @@ pub fn browser_open_tab(
                 LogicalSize::new(bounds.width.max(1.0), bounds.height.max(1.0)),
             )
             .map_err(|e| e.to_string())?;
+        if let Some(view) = app.get_webview(&label) {
+            configure_child_webview(&view);
+            apply_webview_theme(&view, &theme);
+        }
     }
 
     // The opening URL is itself the first history entry, so later navigations correctly
@@ -252,11 +407,21 @@ fn build_webview(
     label: &str,
     tab_id: &str,
     url: Url,
+    theme: &str,
 ) -> WebviewBuilder<tauri::Wry> {
+    let dark = normalize_theme(theme) == "dark";
+    let background = if dark {
+        Color(26, 29, 35, 255)
+    } else {
+        Color(255, 255, 255, 255)
+    };
+
     let mut builder = WebviewBuilder::new(label, WebviewUrl::External(url))
         .zoom_hotkeys_enabled(true)
         .enable_clipboard_access()
-        .disable_drag_drop_handler();
+        .disable_drag_drop_handler()
+        .background_color(background)
+        .initialization_script(color_scheme_init_script(theme));
 
     if let Some(agent) = USER_AGENT {
         builder = builder.user_agent(agent);
@@ -310,6 +475,7 @@ fn build_webview(
 }
 
 fn apply_bounds(view: &tauri::Webview, bounds: Bounds) -> Result<(), String> {
+    configure_child_webview(view);
     view.set_position(LogicalPosition::new(bounds.x, bounds.y))
         .map_err(|e| e.to_string())?;
     view.set_size(LogicalSize::new(
@@ -454,6 +620,13 @@ pub fn browser_focus(app: AppHandle, tab_id: String) -> Result<(), String> {
     webview(&app, &tab_id)?
         .set_focus()
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn browser_set_theme(app: AppHandle, theme: String) -> Result<(), String> {
+    let normalized = normalize_theme(&theme).to_string();
+    apply_theme_to_all_tabs(&app, &normalized);
+    Ok(())
 }
 
 #[tauri::command]
