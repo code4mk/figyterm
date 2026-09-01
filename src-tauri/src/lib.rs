@@ -1,6 +1,7 @@
 pub mod commands;
 pub mod filesystem;
 pub mod git;
+pub mod menu;
 pub mod state;
 pub mod terminal;
 
@@ -16,8 +17,13 @@ pub fn run() {
         .manage(AppState::new())
         .manage(BrowserState::default())
         .setup(|app| {
+            let menu = menu::build_app_menu(app.handle())?;
+            app.set_menu(menu)?;
             commands::browser::start_url_watcher(app.handle().clone());
             Ok(())
+        })
+        .on_menu_event(|app, event| {
+            menu::handle_menu_event(app, event);
         })
         .invoke_handler(tauri::generate_handler![
             commands::terminal::create_terminal_session,
@@ -49,6 +55,7 @@ pub fn run() {
             commands::browser::browser_stop,
             commands::browser::browser_focus,
             commands::browser::browser_set_zoom,
+            commands::browser::browser_set_theme,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

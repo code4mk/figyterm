@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { TabBar } from "../Terminal/TabBar";
 import { StatusBar } from "../Terminal/StatusBar";
 import { SystemMonitor } from "../Terminal/SystemMonitor";
@@ -270,6 +271,33 @@ export function AppShell() {
       handleNewTab();
     }
   }, [handleNewTab]);
+
+  useEffect(() => {
+    const unlisteners = [
+      listen("menu://new-tab", () => handleNewTab()),
+      listen("menu://new-tab-same-dir", () => handleNewTabInSameDir()),
+      listen("menu://split-right", () => handleSplitPane("horizontal")),
+      listen("menu://split-down", () => handleSplitPane("vertical")),
+      listen("menu://close-pane", () => handleClosePane()),
+      listen("menu://clear-terminal", () => handleClearTerminal()),
+      listen("menu://browser", () => setBrowserOpen((open) => !open)),
+      listen("menu://monitor", () => setMonitorOpen((open) => !open)),
+      listen("menu://command-palette", () => setCommandPaletteOpen((open) => !open)),
+      listen("menu://settings", () => setSettingsOpen(true)),
+    ];
+
+    return () => {
+      unlisteners.forEach((promise) => {
+        promise.then((unlisten) => unlisten()).catch(() => {});
+      });
+    };
+  }, [
+    handleNewTab,
+    handleNewTabInSameDir,
+    handleSplitPane,
+    handleClosePane,
+    handleClearTerminal,
+  ]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
