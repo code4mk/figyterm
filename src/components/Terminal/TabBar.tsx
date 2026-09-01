@@ -230,7 +230,7 @@ export function TabBar({ tabs, onTabClick, onTabClose, onNewTab, onRenameTab, on
                     <button
                       onClick={(e) => { e.stopPropagation(); onTabClose(tab.id); }}
                       className="tab-close-btn p-[2px] rounded transition-colors"
-                      title="Close tab (⌘W)"
+                      title="Close tab"
                     >
                       <X size={10} />
                     </button>

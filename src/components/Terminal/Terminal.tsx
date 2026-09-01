@@ -70,6 +70,7 @@ const LIGHT_THEME: ITheme = {
 interface TerminalProps {
   instanceId: string;
   isActive: boolean;
+  initialCwd?: string;
   onSessionCreated: (session: TerminalSession) => void;
   onCwdChange?: (cwd: string) => void;
   clearRef?: React.MutableRefObject<(() => void) | null>;
@@ -169,7 +170,7 @@ function unescapeToken(token: string): string {
   return token.replace(/\\(.)/g, "$1");
 }
 
-export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, clearRef, focusRef }: TerminalProps) {
+export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, onCwdChange, clearRef, focusRef }: TerminalProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
@@ -216,6 +217,12 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
     setShowSuggestions(show);
   }, []);
 
+  useEffect(() => {
+    if (!settings.showSuggestionPopup) {
+      updateUI([], 0, false);
+    }
+  }, [settings.showSuggestionPopup, updateUI]);
+
   const fetchPathCompletions = useCallback(async (partial: string): Promise<SuggestionItem[]> => {
     try {
       const entries = await invoke<CompletionEntry[]>("list_path_completions", {
@@ -237,6 +244,12 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
   }, []);
 
   const triggerAutocomplete = useCallback((input: string) => {
+    if (!settingsRef.current.showSuggestionPopup) {
+      if (debounceRef.current) { clearTimeout(debounceRef.current); debounceRef.current = null; }
+      updateUI([], 0, false);
+      return;
+    }
+
     const trimmed = input.trimStart();
     if (!trimmed) {
       if (debounceRef.current) { clearTimeout(debounceRef.current); debounceRef.current = null; }
@@ -736,7 +749,11 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
 
     // Create session
     try {
-      const raw = await invoke<RawTerminalSession>("create_terminal_session", { cols, rows });
+      const raw = await invoke<RawTerminalSession>("create_terminal_session", {
+        cols,
+        rows,
+        cwd: initialCwd || null,
+      });
       sessionIdRef.current = raw.id;
       cwdRef.current = raw.cwd;
       invoke<string>("get_home_dir").then((home) => setHomeDir(home)).catch(() => {});
@@ -913,7 +930,7 @@ export function Terminal({ instanceId, isActive, onSessionCreated, onCwdChange, 
       <SuggestionPopup
         items={suggestions}
         selectedIndex={selectedIndex}
-        visible={showSuggestions && isActive}
+        visible={showSuggestions && isActive && settings.showSuggestionPopup}
         anchorRef={containerRef}
         onSelect={acceptSuggestion}
         fontFamily={settings.fontFamily}

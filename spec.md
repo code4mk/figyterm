@@ -401,7 +401,7 @@ Required shortcuts:
 Cmd/Ctrl + T
     New terminal
 
-Cmd/Ctrl + W
+Cmd/Ctrl + Shift + W
     Close terminal
 
 Cmd/Ctrl + Shift + T

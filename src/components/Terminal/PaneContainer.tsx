@@ -71,6 +71,7 @@ interface PaneContainerProps {
   onPaneFocus: (paneId: string) => void;
   onSessionCreated: (paneId: string, session: TerminalSession) => void;
   onCwdChange: (paneId: string, cwd: string) => void;
+  getPaneInitialCwd?: (paneId: string) => string | undefined;
   clearRefs: React.MutableRefObject<Map<string, React.MutableRefObject<(() => void) | null>>>;
   focusRefs: React.MutableRefObject<Map<string, React.MutableRefObject<(() => void) | null>>>;
 }
@@ -81,6 +82,7 @@ export function PaneContainer({
   onPaneFocus,
   onSessionCreated,
   onCwdChange,
+  getPaneInitialCwd,
   clearRefs,
   focusRefs,
 }: PaneContainerProps) {
@@ -173,6 +175,7 @@ export function PaneContainer({
             <Terminal
               instanceId={paneId}
               isActive={true}
+              initialCwd={getPaneInitialCwd?.(paneId)}
               onSessionCreated={(session) => onSessionCreated(paneId, session)}
               onCwdChange={(cwd) => onCwdChange(paneId, cwd)}
               clearRef={clearRef}

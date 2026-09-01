@@ -41,16 +41,44 @@ fn get_default_cwd() -> String {
         .unwrap_or_else(|_| ".".to_string())
 }
 
+fn resolve_cwd(cwd: Option<String>) -> String {
+    let default = get_default_cwd();
+    let Some(raw) = cwd else {
+        return default;
+    };
+
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return default;
+    }
+
+    let expanded = if trimmed == "~" {
+        default.clone()
+    } else if let Some(rest) = trimmed.strip_prefix("~/") {
+        format!("{}/{}", default, rest)
+    } else {
+        trimmed.to_string()
+    };
+
+    let path = std::path::Path::new(&expanded);
+    if path.is_dir() {
+        expanded
+    } else {
+        default
+    }
+}
+
 #[tauri::command]
 pub fn create_terminal_session(
     app: AppHandle,
     state: State<'_, AppState>,
     cols: u16,
     rows: u16,
+    cwd: Option<String>,
 ) -> Result<TerminalSession, String> {
     let session_id = uuid::Uuid::new_v4().to_string();
     let shell = detect_shell();
-    let cwd = get_default_cwd();
+    let cwd = resolve_cwd(cwd);
 
     let app_clone = app.clone();
     let output_callback = std::sync::Arc::new(move |sid: String, data: Vec<u8>| {
