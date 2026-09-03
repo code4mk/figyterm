@@ -89,13 +89,23 @@ jobs:
           PRERELEASE: ${{ steps.meta.outputs.prerelease }}
         run: |
           TITLE="FigyTerm $TAG"
-          if gh release view "$TAG" >/dev/null 2>&1; then
+
+          # GET /releases/tags/{tag} only returns *published* releases, so it
+          # 404s on the draft we create here. The list endpoint does include
+          # drafts, so match on tag_name there instead.
+          find_release_id() {
+            gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+              --jq '.[] | select(.tag_name == env.TAG) | .id' | head -n1
+          }
+
+          ID=$(find_release_id)
+          if [ -n "$ID" ]; then
             # Re-run: force the body back in sync instead of leaving it stale.
-            gh release edit "$TAG" \
-              --title "$TITLE" \
-              --notes-file "$RUNNER_TEMP/notes.md" \
-              --draft=true \
-              --prerelease="$PRERELEASE"
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$ID" \
+              -F name="$TITLE" \
+              -F body=@"$RUNNER_TEMP/notes.md" \
+              -F draft=true \
+              -F prerelease="$PRERELEASE" >/dev/null
           else
             gh release create "$TAG" \
               --title "$TITLE" \
@@ -103,8 +113,14 @@ jobs:
               --draft \
               --prerelease="$PRERELEASE" \
               --target "$GITHUB_SHA"
+            ID=$(find_release_id)
           fi
-          ID=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq .id)
+
+          if [ -z "$ID" ]; then
+            echo "::error::Could not resolve a release id for tag $TAG"
+            exit 1
+          fi
+          echo "Release id for $TAG: $ID"
           echo "release_id=$ID" >> "$GITHUB_OUTPUT"
 
   build-macos:
@@ -187,9 +203,12 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.create-release.outputs.tag }}
           PRERELEASE: ${{ needs.create-release.outputs.prerelease }}
+          RELEASE_ID: ${{ needs.create-release.outputs.release_id }}
         run: |
-          if [ "$PRERELEASE" = "true" ]; then
-            gh release edit "$TAG" --draft=false
-          else
-            gh release edit "$TAG" --draft=false --latest
-          fi
+          # Address the release by id: it is still a draft at this point, and
+          # tag-based lookups do not resolve drafts.
+          if [ "$PRERELEASE" = "true" ]; then MAKE_LATEST=false; else MAKE_LATEST=true; fi
+          gh api --method PATCH "repos/$GH_REPO/releases/$RELEASE_ID" \
+            -F draft=false \
+            -f make_latest="$MAKE_LATEST" >/dev/null
+          echo "Published $TAG"
