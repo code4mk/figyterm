@@ -4,9 +4,111 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)build a release for, e.g. v0.1.0"
+        required: true
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
+  # Owns the release metadata. Runs once, before any build, so the body is
+  # written exactly once instead of being raced (and then skipped) by the
+  # build matrix: tauri-action never edits the title/body of a release that
+  # already exists.
+  create-release:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
+      release_id: ${{ steps.release.outputs.release_id }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve tag and version
+        id: meta
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          VERSION="${TAG#v}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Tag '$TAG' is not vMAJOR.MINOR.PATCH[-prerelease]"
+            exit 1
+          fi
+          # Anything with a pre-release suffix (v1.0.0-beta.1) ships as a prerelease.
+          if [[ "$VERSION" == *-* ]]; then PRERELEASE=true; else PRERELEASE=false; fi
+          {
+            echo "tag=$TAG"
+            echo "version=$VERSION"
+            echo "prerelease=$PRERELEASE"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Render release notes
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          cat > "$RUNNER_TEMP/notes.md" <<'NOTES'
+          ## FigyTerm v__VERSION__
+
+          ### Installation (macOS)
+
+          1. Download `FigyTerm___VERSION___aarch64.dmg` (Apple Silicon) or `FigyTerm___VERSION___x64.dmg` (Intel)
+          2. Open the `.dmg` file
+          3. Drag **FigyTerm** to your **Applications** folder
+          4. Launch FigyTerm from Applications
+
+          ### Troubleshooting
+
+          **"FigyTerm can't be opened because it is from an unidentified developer"**
+          Go to **System Settings > Privacy & Security** and click **Open Anyway**.
+
+          **"FigyTerm is damaged and can't be opened"**
+          Run in Terminal:
+          ```
+          xattr -cr /Applications/FigyTerm.app
+          ```
+
+          **Keychain access popup**
+          macOS may ask to access your keychain. Click **Allow** or **Always Allow**. This is normal for apps that interact with system credentials.
+
+          ### What's New
+          See [CHANGELOG](https://github.com/code4mk/figyterm/blob/main/CHANGELOG.md) for details.
+          NOTES
+          perl -pi -e 's/__VERSION__/$ENV{VERSION}/g' "$RUNNER_TEMP/notes.md"
+
+      - name: Create or update draft release
+        id: release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          PRERELEASE: ${{ steps.meta.outputs.prerelease }}
+        run: |
+          TITLE="FigyTerm $TAG"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            # Re-run: force the body back in sync instead of leaving it stale.
+            gh release edit "$TAG" \
+              --title "$TITLE" \
+              --notes-file "$RUNNER_TEMP/notes.md" \
+              --draft=true \
+              --prerelease="$PRERELEASE"
+          else
+            gh release create "$TAG" \
+              --title "$TITLE" \
+              --notes-file "$RUNNER_TEMP/notes.md" \
+              --draft \
+              --prerelease="$PRERELEASE" \
+              --target "$GITHUB_SHA"
+          fi
+          ID=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq .id)
+          echo "release_id=$ID" >> "$GITHUB_OUTPUT"
+
   build-macos:
+    needs: create-release
     permissions:
       contents: write
     strategy:
@@ -21,6 +123,28 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.create-release.outputs.tag }}
+
+      # The bundle version comes from tauri.conf.json, not from the tag, so
+      # without this every release would ship artifacts named after whatever
+      # version happens to be committed.
+      - name: Sync app version to ${{ needs.create-release.outputs.version }}
+        env:
+          VERSION: ${{ needs.create-release.outputs.version }}
+        run: |
+          node -e '
+            const fs = require("fs");
+            const version = process.env.VERSION;
+            for (const file of ["package.json", "src-tauri/tauri.conf.json"]) {
+              const json = JSON.parse(fs.readFileSync(file, "utf8"));
+              json.version = version;
+              fs.writeFileSync(file, JSON.stringify(json, null, 2) + "\n");
+            }
+          '
+          # Only the [package] version, which is the first `version =` in the file.
+          perl -pi -e 'if (!$done && s/^version = ".*"/version = "$ENV{VERSION}"/) { $done = 1 }' src-tauri/Cargo.toml
+          grep -m1 '^version' src-tauri/Cargo.toml
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -37,43 +161,35 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: "src-tauri -> target"
+          key: ${{ matrix.rust_target }}
 
       - name: Install frontend dependencies
         run: npm ci
 
       - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "FigyTerm ${{ github.ref_name }}"
-          releaseBody: |
-            ## FigyTerm ${{ github.ref_name }}
-
-            ### Installation (macOS)
-
-            1. Download `FigyTerm_x.x.x_aarch64.dmg` (Apple Silicon) or `FigyTerm_x.x.x_x64.dmg` (Intel)
-            2. Open the `.dmg` file
-            3. Drag **FigyTerm** to your **Applications** folder
-            4. Launch FigyTerm from Applications
-
-            ### Troubleshooting
-
-            **"FigyTerm can't be opened because it is from an unidentified developer"**
-            Go to **System Settings > Privacy & Security** and click **Open Anyway**.
-
-            **"FigyTerm is damaged and can't be opened"**
-            Run in Terminal:
-            ```
-            xattr -cr /Applications/FigyTerm.app
-            ```
-
-            **Keychain access popup**
-            macOS may ask to access your keychain. Click **Allow** or **Always Allow**. This is normal for apps that interact with system credentials.
-
-            ### What's New
-            See [CHANGELOG](https://github.com/code4mk/figyterm/blob/main/CHANGELOG.md) for details.
-          releaseDraft: false
-          prerelease: false
+          releaseId: ${{ needs.create-release.outputs.release_id }}
           args: ${{ matrix.args }}
+          uploadUpdaterJson: false
+
+  publish-release:
+    needs: [create-release, build-macos]
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Undraft release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.create-release.outputs.tag }}
+          PRERELEASE: ${{ needs.create-release.outputs.prerelease }}
+        run: |
+          if [ "$PRERELEASE" = "true" ]; then
+            gh release edit "$TAG" --draft=false
+          else
+            gh release edit "$TAG" --draft=false --latest
+          fi
