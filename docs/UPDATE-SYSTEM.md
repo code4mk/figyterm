@@ -485,9 +485,12 @@ secrets (`APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENT
 `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`) and `tauri-action` signs and notarizes
 automatically. The update system keeps working unchanged; only first install improves.
 
-**Design implication for now:** don't hardcode "unsigned" assumptions into the workflow.
-Keep the signing env block present but driven by optional secrets, so the build succeeds
-unsigned when they're absent and the eventual switch is a secret upload with no code change.
+**Design implication for now:** do *not* pre-wire the Apple signing env block "ready for
+later". This was tried and broke the release build: a referenced secret that doesn't
+exist still defines the variable as an empty string, and the bundler treats a *present*
+`APPLE_CERTIFICATE` as "sign this", then fails on `security import`. The env block and
+the secrets have to arrive together. See [`RELEASING.md`](./RELEASING.md) for the exact
+block to add and the failure signature.
 
 Possible funding routes if it becomes worth revisiting: GitHub Sponsors, or Apple's fee
 waiver for nonprofits/educational institutions (unlikely to apply here, but it exists).

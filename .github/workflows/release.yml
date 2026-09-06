@@ -197,15 +197,11 @@ jobs:
           # it only lets installed clients verify an update came from us.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # Apple signing is optional and currently unset; tauri-action builds
-          # unsigned when these are absent. Present so enabling notarization
-          # later is a secret upload rather than a workflow change.
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # No Apple signing vars here on purpose. A missing secret still sets
+          # the variable to an empty string, and the bundler treats a *present*
+          # APPLE_CERTIFICATE as "sign this", then fails on `security import`.
+          # To enable notarization later, add the block documented in
+          # docs/RELEASING.md — don't pre-wire it. See that doc before editing.
         with:
           releaseId: ${{ needs.create-release.outputs.release_id }}
           args: ${{ matrix.args }}
