@@ -10,6 +10,12 @@ export interface Settings {
   shell: string | null;
   showSuggestionPopup: boolean;
   showSystemStats: boolean;
+  autoCheckUpdates: boolean;
+  updateChannel: "stable" | "prerelease";
+  /** Epoch millis of the last successful check, or null if never checked. */
+  lastUpdateCheck: number | null;
+  /** Version the user dismissed, so the same update doesn't nag every launch. */
+  dismissedVersion: string | null;
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -24,6 +30,10 @@ const DEFAULT_SETTINGS: Settings = {
   shell: null,
   showSuggestionPopup: true,
   showSystemStats: false,
+  autoCheckUpdates: true,
+  updateChannel: "stable",
+  lastUpdateCheck: null,
+  dismissedVersion: null,
 };
 
 const STORAGE_KEY = "figy-term-settings";
