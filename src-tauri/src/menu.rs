@@ -1,5 +1,17 @@
 use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Emitter, Wry};
+use tauri_plugin_shell::ShellExt;
+
+pub const MENU_CHECK_UPDATES: &str = "app_check_updates";
+pub const MENU_HELP_DOCS: &str = "help_docs";
+pub const MENU_HELP_RELEASES: &str = "help_releases";
+pub const MENU_HELP_ISSUE: &str = "help_report_issue";
+pub const MENU_HELP_LICENSE: &str = "help_license";
+
+const URL_DOCS: &str = "https://github.com/code4mk/figyterm#readme";
+const URL_RELEASES: &str = "https://github.com/code4mk/figyterm/releases";
+const URL_ISSUE: &str = "https://github.com/code4mk/figyterm/issues/new";
+const URL_LICENSE: &str = "https://github.com/code4mk/figyterm/blob/main/LICENSE";
 
 pub const MENU_NEW_TAB: &str = "shell_new_tab";
 pub const MENU_NEW_TAB_SAME_DIR: &str = "shell_new_tab_same_dir";
@@ -22,6 +34,7 @@ const EVENT_BROWSER: &str = "menu://browser";
 const EVENT_MONITOR: &str = "menu://monitor";
 const EVENT_COMMAND_PALETTE: &str = "menu://command-palette";
 const EVENT_SETTINGS: &str = "menu://settings";
+const EVENT_CHECK_UPDATES: &str = "menu://check-updates";
 
 pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let pkg_info = app.package_info();
@@ -105,6 +118,34 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         Some("CmdOrCtrl+,"),
     )?;
 
+    // macOS convention puts this directly under "About", with no accelerator.
+    let check_updates = MenuItem::with_id(
+        app,
+        MENU_CHECK_UPDATES,
+        "Check for Updates…",
+        true,
+        None::<&str>,
+    )?;
+
+    let help_docs = MenuItem::with_id(
+        app,
+        MENU_HELP_DOCS,
+        "FigyTerm Documentation",
+        true,
+        None::<&str>,
+    )?;
+    let help_releases =
+        MenuItem::with_id(app, MENU_HELP_RELEASES, "Release Notes", true, None::<&str>)?;
+    let help_issue = MenuItem::with_id(
+        app,
+        MENU_HELP_ISSUE,
+        "Report an Issue…",
+        true,
+        None::<&str>,
+    )?;
+    let help_license =
+        MenuItem::with_id(app, MENU_HELP_LICENSE, "View License", true, None::<&str>)?;
+
     let sep1 = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
     let sep3 = PredefinedMenuItem::separator(app)?;
@@ -147,7 +188,24 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         ],
     )?;
 
-    let help_menu = Submenu::with_id(app, "help", "Help", true)?;
+    let help_menu = Submenu::with_id_and_items(
+        app,
+        "help",
+        "Help",
+        true,
+        &[
+            // On macOS this lives under the app menu instead, per platform convention.
+            #[cfg(not(target_os = "macos"))]
+            &check_updates,
+            #[cfg(not(target_os = "macos"))]
+            &PredefinedMenuItem::separator(app)?,
+            &help_docs,
+            &help_releases,
+            &PredefinedMenuItem::separator(app)?,
+            &help_issue,
+            &help_license,
+        ],
+    )?;
 
     let menu = Menu::with_items(
         app,
@@ -160,6 +218,7 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
                 true,
                 &[
                     &PredefinedMenuItem::about(app, None, Some(about_metadata))?,
+                    &check_updates,
                     &PredefinedMenuItem::separator(app)?,
                     &PredefinedMenuItem::services(app, None)?,
                     &PredefinedMenuItem::separator(app)?,
@@ -203,6 +262,27 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
 
 pub fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
     let id = event.id().as_ref();
+
+    // Help entries are pure "open a URL" actions; no need to round-trip
+    // through the frontend for them.
+    let external_url = match id {
+        MENU_HELP_DOCS => Some(URL_DOCS),
+        MENU_HELP_RELEASES => Some(URL_RELEASES),
+        MENU_HELP_ISSUE => Some(URL_ISSUE),
+        MENU_HELP_LICENSE => Some(URL_LICENSE),
+        _ => None,
+    };
+    if let Some(url) = external_url {
+        // Deprecated in favour of tauri-plugin-opener, but the frontend already
+        // opens external links through plugin-shell (see BrowserModal.tsx), so
+        // stay on one plugin until both sides migrate together.
+        #[allow(deprecated)]
+        if let Err(err) = app.shell().open(url, None) {
+            log::warn!("menu event '{id}' could not open '{url}': {err}");
+        }
+        return;
+    }
+
     let result = match id {
         MENU_NEW_TAB => app.emit(EVENT_NEW_TAB, ()),
         MENU_NEW_TAB_SAME_DIR => app.emit(EVENT_NEW_TAB_SAME_DIR, ()),
@@ -214,6 +294,7 @@ pub fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
         MENU_MONITOR => app.emit(EVENT_MONITOR, ()),
         MENU_COMMAND_PALETTE => app.emit(EVENT_COMMAND_PALETTE, ()),
         MENU_SETTINGS => app.emit(EVENT_SETTINGS, ()),
+        MENU_CHECK_UPDATES => app.emit(EVENT_CHECK_UPDATES, ()),
         _ => Ok(()),
     };
     if let Err(err) = result {

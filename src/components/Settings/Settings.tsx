@@ -17,7 +17,10 @@ import {
   RefreshCw,
   Search,
   Loader2,
+  ArrowUpCircle,
+  ExternalLink,
 } from "lucide-react";
+import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { invoke } from "@tauri-apps/api/core";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useThemeStore } from "../../stores/themeStore";
@@ -31,6 +34,13 @@ import {
   type InstalledSpec,
 } from "../../services/spec-store";
 import { specRegistry } from "../../services/figy-spec-registry";
+import {
+  checkForUpdates,
+  getCurrentVersion,
+  formatCheckedAt,
+  RELEASES_URL,
+  type UpdateInfo,
+} from "../../services/updater";
 
 interface SettingsProps {
   isOpen: boolean;
@@ -44,7 +54,7 @@ interface ShellCommandOutput {
   status: number;
 }
 
-type SettingsTab = "general" | "terminal" | "theme" | "shortcuts" | "specs";
+type SettingsTab = "general" | "terminal" | "theme" | "shortcuts" | "specs" | "updates";
 
 export function Settings({ isOpen, onClose, activeSessionId }: SettingsProps) {
   const { settings, updateSettings, resetSettings } = useSettingsStore();
@@ -270,6 +280,7 @@ source "${resolvedPath}"`, `${home}/.zshrc`],
     { id: "theme", label: "Theme", icon: <Palette size={14} /> },
     { id: "shortcuts", label: "Shortcuts", icon: <Keyboard size={14} /> },
     { id: "specs", label: "Specs", icon: <Package size={14} /> },
+    { id: "updates", label: "Updates", icon: <ArrowUpCircle size={14} /> },
   ];
 
   return (
@@ -359,6 +370,9 @@ source "${resolvedPath}"`, `${home}/.zshrc`],
                   )}
                   {activeTab === "shortcuts" && <ShortcutsTab />}
                   {activeTab === "specs" && <SpecsTab />}
+                  {activeTab === "updates" && (
+                    <UpdatesTab settings={settings} updateSettings={updateSettings} />
+                  )}
                 </div>
               </div>
 
@@ -865,6 +879,158 @@ interface TerminalPreviewProps {
   cursorBlink: boolean;
   theme: "dark" | "light";
   zshTheme: string;
+}
+
+/* ---------- Updates Tab ---------- */
+
+function UpdatesTab({
+  settings,
+  updateSettings,
+}: {
+  settings: SettingsType;
+  updateSettings: (partial: Partial<SettingsType>) => void;
+}) {
+  const [version, setVersion] = useState<string>("");
+  const [checking, setChecking] = useState(false);
+  const [result, setResult] = useState<UpdateInfo | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    getCurrentVersion()
+      .then(setVersion)
+      .catch(() => {});
+  }, []);
+
+  const runCheck = async () => {
+    setChecking(true);
+    setError(null);
+    try {
+      const info = await checkForUpdates(settings.updateChannel, true);
+      setResult(info);
+      updateSettings({ lastUpdateCheck: info.checkedAt });
+    } catch (e) {
+      setError(typeof e === "string" ? e : "Something went wrong.");
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Version */}
+      <div>
+        <SectionHeader icon={<ArrowUpCircle size={13} />} title="Version" />
+        <div className="settings-card flex items-center justify-between py-3 px-4">
+          <div>
+            <p className="text-xs font-medium text-ft-text">FigyTerm {version || "—"}</p>
+            <p className="text-[10px] text-ft-text-muted mt-0.5">
+              Last checked: {formatCheckedAt(settings.lastUpdateCheck)}
+            </p>
+          </div>
+          <button
+            onClick={runCheck}
+            disabled={checking}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-white bg-ft-accent rounded-lg hover:bg-ft-accent-hover transition-colors disabled:opacity-50"
+          >
+            {checking ? (
+              <Loader2 size={12} className="animate-spin" />
+            ) : (
+              <RefreshCw size={12} />
+            )}
+            Check Now
+          </button>
+        </div>
+
+        {error && (
+          <p className="text-[10px] text-red-400 mt-2 px-1">{error}</p>
+        )}
+
+        {!error && result && (
+          <p className="text-[10px] text-ft-text-muted mt-2 px-1">
+            {result.status === "update-available" &&
+              `FigyTerm ${result.latestVersion} is available.`}
+            {result.status === "up-to-date" && "You're running the latest version."}
+            {result.status === "dev-build" &&
+              `Development build — newer than the latest release (${result.latestVersion}).`}
+          </p>
+        )}
+      </div>
+
+      {/* Preferences */}
+      <div>
+        <SectionHeader icon={<RefreshCw size={13} />} title="Preferences" />
+        <div className="space-y-3">
+          <div className="settings-card flex items-center justify-between py-2.5 px-4">
+            <div>
+              <label className="text-xs font-medium text-ft-text">
+                Check Automatically
+              </label>
+              <p className="text-[10px] text-ft-text-muted mt-0.5">
+                Look for new versions once a day, in the background
+              </p>
+            </div>
+            <button
+              onClick={() =>
+                updateSettings({ autoCheckUpdates: !settings.autoCheckUpdates })
+              }
+              className={`toggle-switch relative w-9 h-5 rounded-full transition-colors duration-200 ${
+                settings.autoCheckUpdates ? "active" : ""
+              }`}
+            >
+              <div
+                className={`absolute top-[3px] left-[3px] w-[14px] h-[14px] rounded-full bg-white shadow-sm transition-transform duration-200 ${
+                  settings.autoCheckUpdates ? "translate-x-[16px]" : ""
+                }`}
+              />
+            </button>
+          </div>
+
+          <div>
+            <FieldLabel>Update Channel</FieldLabel>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => updateSettings({ updateChannel: "stable" })}
+                className={`settings-card flex flex-col items-start gap-0.5 px-4 py-3 text-left transition-all ${
+                  settings.updateChannel === "stable"
+                    ? "active"
+                    : "text-ft-text-secondary hover:text-ft-text"
+                }`}
+              >
+                <span className="text-xs font-medium">Stable</span>
+                <span className="text-[10px] text-ft-text-muted">
+                  Released versions only
+                </span>
+              </button>
+              <button
+                onClick={() => updateSettings({ updateChannel: "prerelease" })}
+                className={`settings-card flex flex-col items-start gap-0.5 px-4 py-3 text-left transition-all ${
+                  settings.updateChannel === "prerelease"
+                    ? "active"
+                    : "text-ft-text-secondary hover:text-ft-text"
+                }`}
+              >
+                <span className="text-xs font-medium">Pre-release</span>
+                <span className="text-[10px] text-ft-text-muted">
+                  Include betas — may be unstable
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* History */}
+      <div>
+        <button
+          onClick={() => openExternal(RELEASES_URL).catch(() => {})}
+          className="flex items-center gap-1.5 text-[11px] text-ft-text-muted hover:text-ft-text transition-colors"
+        >
+          <ExternalLink size={12} />
+          View all releases on GitHub
+        </button>
+      </div>
+    </div>
+  );
 }
 
 /* ---------- Specs Tab ---------- */

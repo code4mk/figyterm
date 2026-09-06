@@ -4,9 +4,11 @@ pub mod git;
 pub mod menu;
 pub mod state;
 pub mod terminal;
+pub mod updater;
 
 use commands::browser::BrowserState;
 use state::app_state::AppState;
+use updater::UpdaterState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -16,6 +18,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .manage(AppState::new())
         .manage(BrowserState::default())
+        .manage(UpdaterState::default())
         .setup(|app| {
             let menu = menu::build_app_menu(app.handle())?;
             app.set_menu(menu)?;
@@ -56,6 +59,8 @@ pub fn run() {
             commands::browser::browser_focus,
             commands::browser::browser_set_zoom,
             commands::browser::browser_set_theme,
+            updater::check_for_updates,
+            updater::get_current_version,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

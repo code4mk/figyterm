@@ -6,6 +6,9 @@ import { SystemMonitor } from "../Terminal/SystemMonitor";
 import { BrowserModal } from "../Browser/BrowserModal";
 import { CommandPalette } from "../CommandPalette/CommandPalette";
 import { Settings } from "../Settings/Settings";
+import { UpdateModal } from "../Updates/UpdateModal";
+import { UpdateToast } from "../Updates/UpdateToast";
+import { useUpdateCheck } from "../../hooks/useUpdateCheck";
 import {
   PaneContainer,
   PaneNode,
@@ -30,6 +33,7 @@ export function AppShell() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [monitorOpen, setMonitorOpen] = useState(false);
   const [browserOpen, setBrowserOpen] = useState(false);
+  const [updatesOpen, setUpdatesOpen] = useState(false);
   const [tabs, setTabs] = useState<TabInstance[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [activePaneId, setActivePaneId] = useState<string | null>(null);
@@ -38,6 +42,16 @@ export function AppShell() {
   const initialCreated = useRef(false);
 
   const { addTab, removeTab, setActiveTab, reorderTabs } = useTerminalStore();
+  const {
+    info: updateInfo,
+    loading: updateLoading,
+    error: updateError,
+    checkNow: checkForUpdatesNow,
+    toastVisible,
+    dismissToast,
+    hideToast,
+    updateAvailable,
+  } = useUpdateCheck();
   const clearRefs = useRef<Map<string, React.MutableRefObject<(() => void) | null>>>(new Map());
   const focusRefs = useRef<Map<string, React.MutableRefObject<(() => void) | null>>>(new Map());
   const paneInitialCwds = useRef<Map<string, string>>(new Map());
@@ -265,6 +279,12 @@ export function AppShell() {
     if (ref?.current) ref.current();
   }, [activePaneId]);
 
+  const handleOpenUpdates = useCallback(() => {
+    hideToast();
+    setUpdatesOpen(true);
+    checkForUpdatesNow();
+  }, [hideToast, checkForUpdatesNow]);
+
   useEffect(() => {
     if (!initialCreated.current) {
       initialCreated.current = true;
@@ -284,6 +304,7 @@ export function AppShell() {
       listen("menu://monitor", () => setMonitorOpen((open) => !open)),
       listen("menu://command-palette", () => setCommandPaletteOpen((open) => !open)),
       listen("menu://settings", () => setSettingsOpen(true)),
+      listen("menu://check-updates", () => handleOpenUpdates()),
     ];
 
     return () => {
@@ -297,6 +318,7 @@ export function AppShell() {
     handleSplitPane,
     handleClosePane,
     handleClearTerminal,
+    handleOpenUpdates,
   ]);
 
   useEffect(() => {
@@ -388,6 +410,7 @@ export function AppShell() {
     { id: "browser", label: "Open Browser", shortcut: "⌘⇧B", action: () => setBrowserOpen(true) },
     { id: "monitor", label: "System Monitor", shortcut: "⌘⇧M", action: () => setMonitorOpen(true) },
     { id: "settings", label: "Settings", shortcut: "⌘,", action: () => setSettingsOpen(true) },
+    { id: "check-updates", label: "Check for Updates", action: handleOpenUpdates },
   ];
 
   return (
@@ -429,6 +452,8 @@ export function AppShell() {
           shell={activePaneSession?.session?.shell ?? ""}
           onOpenSettings={() => setSettingsOpen(true)}
           onOpenMonitor={() => setMonitorOpen(true)}
+          updateAvailable={updateAvailable}
+          onOpenUpdates={handleOpenUpdates}
         />
       </div>
       <CommandPalette
@@ -448,6 +473,21 @@ export function AppShell() {
       <BrowserModal
         visible={browserOpen}
         onClose={() => setBrowserOpen(false)}
+      />
+      <UpdateModal
+        isOpen={updatesOpen}
+        onClose={() => setUpdatesOpen(false)}
+        info={updateInfo}
+        loading={updateLoading}
+        error={updateError}
+        onCheck={checkForUpdatesNow}
+        activeSessionId={activePaneSession?.sessionId ?? null}
+      />
+      <UpdateToast
+        visible={toastVisible && !updatesOpen}
+        version={updateInfo?.latestVersion ?? ""}
+        onView={handleOpenUpdates}
+        onDismiss={dismissToast}
       />
     </div>
   );

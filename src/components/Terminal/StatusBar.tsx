@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Terminal, Folder, Sun, Moon, Circle, Settings, Cpu, MemoryStick, Activity } from "lucide-react";
+import { Terminal, Folder, Sun, Moon, Circle, Settings, Cpu, MemoryStick, Activity, ArrowUpCircle } from "lucide-react";
 import { useThemeStore } from "../../stores/themeStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { invoke } from "@tauri-apps/api/core";
@@ -9,6 +9,8 @@ interface StatusBarProps {
   shell: string;
   onOpenSettings?: () => void;
   onOpenMonitor?: () => void;
+  updateAvailable?: boolean;
+  onOpenUpdates?: () => void;
 }
 
 export interface SystemStats {
@@ -37,7 +39,14 @@ function memColor(pct: number): string {
   return "text-ft-success";
 }
 
-export function StatusBar({ cwd, shell, onOpenSettings, onOpenMonitor }: StatusBarProps) {
+export function StatusBar({
+  cwd,
+  shell,
+  onOpenSettings,
+  onOpenMonitor,
+  updateAvailable,
+  onOpenUpdates,
+}: StatusBarProps) {
   const shellName = shell.split("/").pop() ?? shell;
   const { theme, toggleTheme } = useThemeStore();
   const { settings } = useSettingsStore();
@@ -103,6 +112,21 @@ export function StatusBar({ cwd, shell, onOpenSettings, onOpenMonitor }: StatusB
                 </span>
               </div>
             </div>
+            <div className="w-px h-3 bg-ft-border-subtle" />
+          </>
+        )}
+
+        {/* Update indicator — only present when there's something to act on */}
+        {updateAvailable && (
+          <>
+            <button
+              onClick={onOpenUpdates}
+              className="flex items-center gap-1 h-5 px-1.5 rounded hover:bg-ft-elevated transition-colors"
+              title="An update is available"
+            >
+              <ArrowUpCircle size={10} className="text-ft-accent" />
+              <span className="text-ft-accent">Update</span>
+            </button>
             <div className="w-px h-3 bg-ft-border-subtle" />
           </>
         )}
