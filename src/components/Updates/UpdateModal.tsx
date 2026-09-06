@@ -23,6 +23,14 @@ import {
   formatBytes,
   formatReleaseDate,
 } from "../../services/updater";
+import {
+  downloadAndInstallUpdate,
+  restartApp,
+  runningCommands,
+  NO_MANIFEST,
+  VERSION_MISMATCH,
+  type InstallProgress,
+} from "../../services/installer";
 
 interface UpdateModalProps {
   isOpen: boolean;
@@ -204,6 +212,18 @@ function ResultState({
   return <UpdateAvailable info={info} activeSessionId={activeSessionId} />;
 }
 
+type InstallPhase = "idle" | "confirm" | "downloading" | "installed" | "failed";
+
+function explainInstallFailure(message: string, version: string): string {
+  if (message === NO_MANIFEST) {
+    return `FigyTerm ${version} doesn't support one-click updates. Install it manually — after that, updates are automatic.`;
+  }
+  if (message === VERSION_MISMATCH) {
+    return `The updater offered a different version than the one shown here, so nothing was installed. Use the manual download to get ${version} specifically.`;
+  }
+  return `The update couldn't be installed automatically (${message}). You can install it manually instead.`;
+}
+
 function UpdateAvailable({
   info,
   activeSessionId,
@@ -212,6 +232,43 @@ function UpdateAvailable({
   activeSessionId?: string | null;
 }) {
   const released = formatReleaseDate(info.publishedAt);
+
+  const [phase, setPhase] = useState<InstallPhase>("idle");
+  const [progress, setProgress] = useState<InstallProgress | null>(null);
+  const [busyCommands, setBusyCommands] = useState<string[]>([]);
+  const [failure, setFailure] = useState<string | null>(null);
+  const [showManual, setShowManual] = useState(false);
+
+  const install = async () => {
+    setPhase("downloading");
+    setProgress(null);
+    setFailure(null);
+    try {
+      await downloadAndInstallUpdate(info.latestVersion, setProgress);
+      setPhase("installed");
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      setFailure(explainInstallFailure(message, info.latestVersion));
+      setPhase("failed");
+      setShowManual(true);
+    }
+  };
+
+  // Restarting kills every pane, so check for running commands first.
+  const startInstall = async () => {
+    const running = await runningCommands();
+    if (running.length > 0) {
+      setBusyCommands(running);
+      setPhase("confirm");
+      return;
+    }
+    install();
+  };
+
+  const percent =
+    progress && progress.total
+      ? Math.min(100, Math.round((progress.downloaded / progress.total) * 100))
+      : null;
 
   return (
     <div className="space-y-5">
@@ -239,34 +296,124 @@ function UpdateAvailable({
         </div>
       </div>
 
-      {/* Actions */}
-      <div className="flex items-center gap-2">
-        <button
-          onClick={() =>
-            openExternal(info.downloadUrl || info.releaseUrl).catch(() => {})
-          }
-          className="flex items-center gap-1.5 px-3.5 py-2 text-[11px] font-medium text-white bg-ft-accent rounded-lg hover:bg-ft-accent-hover transition-colors"
-        >
-          <Download size={13} />
-          {info.downloadUrl ? "Download" : "Get It on GitHub"}
-        </button>
-        <button
-          onClick={() => openExternal(info.releaseUrl).catch(() => {})}
-          className="flex items-center gap-1.5 px-3.5 py-2 text-[11px] font-medium text-ft-text-secondary hover:text-ft-text rounded-lg hover:bg-ft-elevated transition-colors"
-        >
-          <ExternalLink size={13} />
-          View on GitHub
-        </button>
-      </div>
-
-      {!info.downloadUrl && (
-        <p className="text-[10px] text-ft-text-muted -mt-2">
-          No installer matching this Mac was found on the release. The GitHub page
-          lists every available download.
-        </p>
+      {phase === "idle" && (
+        <div className="flex items-center gap-2">
+          <button
+            onClick={startInstall}
+            className="flex items-center gap-1.5 px-3.5 py-2 text-[11px] font-medium text-white bg-ft-accent rounded-lg hover:bg-ft-accent-hover transition-colors"
+          >
+            <Download size={13} />
+            Install Update
+          </button>
+          <button
+            onClick={() => openExternal(info.releaseUrl).catch(() => {})}
+            className="flex items-center gap-1.5 px-3.5 py-2 text-[11px] font-medium text-ft-text-secondary hover:text-ft-text rounded-lg hover:bg-ft-elevated transition-colors"
+          >
+            <ExternalLink size={13} />
+            View on GitHub
+          </button>
+        </div>
       )}
 
-      <InstallInstructions activeSessionId={activeSessionId} />
+      {phase === "confirm" && (
+        <div className="settings-card rounded-lg px-4 py-3 space-y-2.5">
+          <div className="flex items-start gap-2">
+            <AlertCircle size={14} className="text-yellow-400 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-[11px] font-medium text-ft-text">
+                Something is still running
+              </p>
+              <p className="text-[10px] text-ft-text-muted mt-1 leading-relaxed">
+                Installing restarts FigyTerm, which will end{" "}
+                <span className="font-mono text-ft-text-secondary">
+                  {busyCommands.join(", ")}
+                </span>
+                . Finish up first if you need to.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPhase("idle")}
+              className="px-3 py-1.5 text-[11px] font-medium text-white bg-ft-accent rounded-lg hover:bg-ft-accent-hover transition-colors"
+            >
+              Wait
+            </button>
+            <button
+              onClick={install}
+              className="px-3 py-1.5 text-[11px] font-medium text-ft-text-secondary hover:text-ft-text transition-colors"
+            >
+              Install Anyway
+            </button>
+          </div>
+        </div>
+      )}
+
+      {phase === "downloading" && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-[11px]">
+            <span className="text-ft-text-secondary">Downloading…</span>
+            <span className="text-ft-text-muted tabular-nums">
+              {percent !== null
+                ? `${percent}%`
+                : progress
+                ? formatBytes(progress.downloaded)
+                : ""}
+            </span>
+          </div>
+          <div className="h-1 rounded-full bg-ft-elevated overflow-hidden">
+            <div
+              className="h-full bg-ft-accent transition-all duration-200"
+              style={{ width: percent !== null ? `${percent}%` : "35%" }}
+            />
+          </div>
+        </div>
+      )}
+
+      {phase === "installed" && (
+        <div className="settings-card rounded-lg px-4 py-3">
+          <div className="flex items-start gap-2">
+            <Check size={14} className="text-ft-success shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              <p className="text-[11px] font-medium text-ft-text">
+                FigyTerm {info.latestVersion} is installed
+              </p>
+              <p className="text-[10px] text-ft-text-muted mt-1">
+                Restart to finish. Your open panes will close.
+              </p>
+              <button
+                onClick={() => restartApp().catch(() => {})}
+                className="mt-2.5 px-3 py-1.5 text-[11px] font-medium text-white bg-ft-accent rounded-lg hover:bg-ft-accent-hover transition-colors"
+              >
+                Restart Now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {phase === "failed" && failure && (
+        <div className="flex items-start gap-2">
+          <AlertCircle size={14} className="text-yellow-400 shrink-0 mt-0.5" />
+          <p className="text-[10px] text-ft-text-muted leading-relaxed">{failure}</p>
+        </div>
+      )}
+
+      {/* Manual install stays one click away, and opens itself if auto-install fails. */}
+      {phase !== "downloading" && phase !== "installed" && (
+        <div>
+          {!showManual ? (
+            <button
+              onClick={() => setShowManual(true)}
+              className="text-[10px] text-ft-text-muted hover:text-ft-text transition-colors"
+            >
+              Install manually instead
+            </button>
+          ) : (
+            <ManualInstall info={info} activeSessionId={activeSessionId} />
+          )}
+        </div>
+      )}
 
       {/* Release notes */}
       {info.releaseNotes.trim() && (
@@ -279,6 +426,35 @@ function UpdateAvailable({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function ManualInstall({
+  info,
+  activeSessionId,
+}: {
+  info: UpdateInfo;
+  activeSessionId?: string | null;
+}) {
+  return (
+    <div className="space-y-3">
+      <button
+        onClick={() => openExternal(info.downloadUrl || info.releaseUrl).catch(() => {})}
+        className="flex items-center gap-1.5 px-3.5 py-2 text-[11px] font-medium text-ft-text-secondary hover:text-ft-text rounded-lg bg-ft-elevated transition-colors"
+      >
+        <Download size={13} />
+        {info.downloadUrl ? "Download .dmg" : "Get It on GitHub"}
+      </button>
+
+      {!info.downloadUrl && (
+        <p className="text-[10px] text-ft-text-muted">
+          No installer matching this Mac was found on the release. The GitHub page
+          lists every available download.
+        </p>
+      )}
+
+      <InstallInstructions activeSessionId={activeSessionId} />
     </div>
   );
 }

@@ -261,6 +261,48 @@ pub fn get_current_version(app: AppHandle) -> String {
     app.package_info().version.to_string()
 }
 
+/// Relaunch into the version that was just installed. Diverges — it never
+/// returns to the caller.
+#[tauri::command]
+pub fn restart_app(app: AppHandle) {
+    app.restart();
+}
+
+/// Names of commands currently running in any terminal pane.
+///
+/// Installing an update relaunches the app, which kills every pane. Ending
+/// someone's in-flight `terraform apply` to install a point release is not a
+/// decision to make on their behalf, so the UI asks first when this is
+/// non-empty.
+#[tauri::command]
+pub fn running_foreground_commands(state: State<'_, crate::state::app_state::AppState>) -> Vec<String> {
+    let Ok(manager) = state.terminal_manager.lock() else {
+        return Vec::new();
+    };
+    let Some(mgr) = manager.as_ref() else {
+        return Vec::new();
+    };
+
+    let pids = mgr.foreground_pids();
+    if pids.is_empty() {
+        return Vec::new();
+    }
+
+    let mut system = sysinfo::System::new();
+    let to_refresh: Vec<sysinfo::Pid> = pids.iter().map(|p| sysinfo::Pid::from_u32(*p)).collect();
+    system.refresh_processes(sysinfo::ProcessesToUpdate::Some(&to_refresh), true);
+
+    let mut names: Vec<String> = to_refresh
+        .iter()
+        .filter_map(|pid| system.process(*pid))
+        .map(|proc| proc.name().to_string_lossy().to_string())
+        .collect();
+
+    names.sort();
+    names.dedup();
+    names
+}
+
 #[tauri::command]
 pub async fn check_for_updates(
     app: AppHandle,

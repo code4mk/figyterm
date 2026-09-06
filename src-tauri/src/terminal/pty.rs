@@ -9,6 +9,9 @@ pub struct PtyInstance {
     pub session: TerminalSession,
     pub master: Arc<Mutex<Box<dyn MasterPty + Send>>>,
     pub writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    /// PID of the login shell itself. When the tty's foreground process group
+    /// leader differs from this, the user is running something.
+    shell_pid: Option<u32>,
     shutdown: Arc<Mutex<bool>>,
 }
 
@@ -64,9 +67,14 @@ impl PtyInstance {
         // Suppress the '%' mark zsh shows when previous output lacks trailing newline
         cmd.env("PROMPT_EOL_MARK", "");
 
-        pair.slave
+        // The child handle is dropped as before (dropping it does not kill the
+        // process); only its pid is kept, to tell an idle prompt from a running
+        // command later.
+        let shell_pid = pair
+            .slave
             .spawn_command(cmd)
-            .map_err(|e| format!("Failed to spawn shell: {}", e))?;
+            .map_err(|e| format!("Failed to spawn shell: {}", e))?
+            .process_id();
 
         let writer = pair
             .master
@@ -120,8 +128,22 @@ impl PtyInstance {
             session,
             master: Arc::new(Mutex::new(pair.master)),
             writer: Arc::new(Mutex::new(writer)),
+            shell_pid,
             shutdown,
         })
+    }
+
+    /// PID of the tty's foreground process group when it is something other than
+    /// the shell sitting at its prompt — i.e. a command the user is running.
+    ///
+    /// `None` means idle (or undeterminable, which is treated as idle: a false
+    /// "busy" would block updating forever, while a false "idle" only costs the
+    /// user a confirmation they'd have clicked through anyway).
+    pub fn foreground_pid(&self) -> Option<u32> {
+        let shell_pid = self.shell_pid?;
+        let master = self.master.lock().ok()?;
+        let leader = master.process_group_leader()? as u32;
+        (leader != shell_pid).then_some(leader)
     }
 
     pub fn write(&self, data: &[u8]) -> Result<(), String> {
