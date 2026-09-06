@@ -64,18 +64,50 @@ jobs:
 
           ### Installation (macOS)
 
-          1. Download `FigyTerm___VERSION___aarch64.dmg` (Apple Silicon) or `FigyTerm___VERSION___x64.dmg` (Intel)
-          2. Open the `.dmg` file
-          3. Drag **FigyTerm** to your **Applications** folder
-          4. Launch FigyTerm from Applications
+          Two ways to install. Both give you the same app.
+
+          #### Option 1 — install script (recommended)
+
+          ```
+          curl -fsSL https://raw.githubusercontent.com/code4mk/figyterm/main/install.sh | sh
+          ```
+
+          One line, no security dialog, no `xattr` step. It picks the right build for
+          your Mac and installs to `/Applications`.
+
+          Why it's simpler: FigyTerm isn't code-signed with an Apple Developer ID, and
+          macOS quarantines anything downloaded by a **browser**. `curl` isn't a
+          browser, so this route avoids the problem rather than working around it.
+          [Read the script](https://github.com/code4mk/figyterm/blob/main/install.sh)
+          before running it.
+
+          #### Option 2 — download the .dmg manually
+
+          1. Download `FigyTerm___VERSION___aarch64.dmg` (Apple Silicon) or
+             `FigyTerm___VERSION___x64.dmg` (Intel)
+          2. Open the `.dmg` and drag **FigyTerm** into **Applications**
+          3. Clear the quarantine flag macOS added during the download:
+
+             ```
+             xattr -cr /Applications/FigyTerm.app
+             ```
+
+          4. Launch FigyTerm
+
+          Step 3 isn't optional — without it macOS reports *"FigyTerm is damaged and
+          can't be opened"*, which only means the app is unsigned.
+
+          Full details: [Installation guide](https://github.com/code4mk/figyterm/blob/main/docs/INSTALLATION.md)
 
           ### Troubleshooting
 
           **"FigyTerm can't be opened because it is from an unidentified developer"**
-          Go to **System Settings > Privacy & Security** and click **Open Anyway**.
+          Open **System Settings > Privacy & Security**, scroll down, and click
+          **Open Anyway**. On macOS 15 and later this is the only route — Apple removed
+          the old right-click > Open shortcut.
 
           **"FigyTerm is damaged and can't be opened"**
-          Run in Terminal:
+          The quarantine flag is still set. Run:
           ```
           xattr -cr /Applications/FigyTerm.app
           ```

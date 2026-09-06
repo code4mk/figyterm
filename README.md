@@ -42,23 +42,58 @@ Inspired by [Fig](https://fig.io) (now part of AWS), FigyTerm is an open-source 
 
 ## Installation
 
-### Download (macOS)
+macOS only. Two ways to install — see the
+[installation guide](docs/INSTALLATION.md) for the full details.
 
-1. Go to the [Releases](https://github.com/code4mk/figyterm/releases) page
-2. Download the `.dmg` file for your Mac:
-   - **Apple Silicon** (M1/M2/M3/M4): `FigyTerm_x.x.x_aarch64.dmg`
-   - **Intel**: `FigyTerm_x.x.x_x64.dmg`
-3. Open the `.dmg` file
-4. Drag **FigyTerm** to your **Applications** folder
-5. Launch from Applications
+Either way, **you only install once**: FigyTerm updates itself from then on.
 
-> **First launch:** macOS may show "FigyTerm can't be opened because it is from an unidentified developer." Go to **System Settings > Privacy & Security**, scroll down, and click **Open Anyway**.
+### Option 1 — install script (recommended)
 
-> **"FigyTerm" is damaged and can't be opened:** This happens because the app isn't code-signed. Run this in Terminal:
-> ```bash
-> xattr -cr /Applications/FigyTerm.app
-> ```
-> Then launch again.
+```bash
+curl -fsSL https://raw.githubusercontent.com/code4mk/figyterm/main/install.sh | sh
+```
+
+One line, no security dialog, no `xattr` step. It detects your Mac's architecture,
+downloads the right build, and installs to `/Applications`.
+
+[Read the script first](install.sh) — you should read anything you pipe to a shell. It
+touches a temp directory and `FigyTerm.app`, nothing else.
+
+### Option 2 — download the .dmg manually
+
+1. Download the build for your Mac from [Releases](https://github.com/code4mk/figyterm/releases):
+   `aarch64` for Apple Silicon, `x64` for Intel
+2. Open the `.dmg` and drag **FigyTerm** into **Applications**
+3. Clear the quarantine flag macOS added during the download:
+
+   ```bash
+   xattr -cr /Applications/FigyTerm.app
+   ```
+
+4. Launch FigyTerm
+
+Step 3 isn't optional — skip it and macOS says *"FigyTerm is damaged and can't be
+opened"*, which sounds alarming but only means the app is unsigned.
+
+If macOS still blocks it, open **System Settings → Privacy & Security**, scroll down,
+and click **Open Anyway**. (On macOS 15 and later this is the only way through — Apple
+removed the old right-click → Open shortcut.)
+
+<details>
+<summary>Why does Option 1 skip that step?</summary>
+
+FigyTerm isn't code-signed with an Apple Developer ID (it costs $99/year), so macOS
+quarantines it on download and refuses to open it until the flag is cleared.
+
+Quarantine is applied by the **downloading application** — browsers set it, `curl`
+doesn't. The script isn't bypassing a security check; it just isn't a browser, so the
+flag is never set in the first place. `xattr -cr` reaches the same end state after
+the fact.
+
+Either way it's a one-time thing: the built-in updater also downloads over HTTP rather
+than through a browser, so updates are never quarantined.
+
+</details>
 
 > **Keychain access popup:** macOS may ask to allow FigyTerm to access your keychain (for SSH keys, credentials, etc.). Click **Always Allow** or **Allow** to proceed. If you accidentally deny it, go to **Keychain Access > login** and update the access control for the relevant entry.
 

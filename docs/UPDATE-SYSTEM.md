@@ -1,6 +1,6 @@
 # FigyTerm Update System — Design & Implementation Plan
 
-**Status:** Phases 1–2 implemented. Phase 3 planned.
+**Status:** Phases 1–3 implemented.
 **Scope:** macOS only (Apple Silicon + Intel), distributed via GitHub Releases
 **Related:** `.github/workflows/release.yml`, `src-tauri/src/menu.rs`, `src/components/Settings/Settings.tsx`
 
@@ -610,15 +610,43 @@ is treated as idle — a false "busy" would block updating forever, while a fals
 auto-update, so v0.0.6 and earlier must install the first updater-enabled release
 by hand. The release-notes template says so.
 
-### Phase 3 — First install (unsigned-permanent)
-- [ ] `install.sh` — arch detect, curl download, mount, copy, `xattr -cr`, detach, launch
-- [ ] `trap`-based mount cleanup on failure; readable output (people will read it before piping)
-- [ ] Make `install.sh` the README's primary install method; DMG + `xattr` as alternative
-- [ ] Set `bundle.macOS.signingIdentity: "-"` for explicit ad-hoc signing; verify the
-      resulting Gatekeeper message on both arches
-- [ ] Align install wording across README / release notes / in-app modal, including the
+### Phase 3 — First install (unsigned-permanent) ✅ implemented
+- [x] `install.sh` — arch detect, curl download, mount, copy, `xattr -cr`, detach
+- [x] `trap`-based mount cleanup on failure; readable output (people will read it before piping)
+- [x] Make `install.sh` the README's primary install method; DMG + `xattr` as alternative
+- [x] Set `bundle.macOS.signingIdentity: "-"` for explicit ad-hoc signing
+- [x] Align install wording across README / release notes / in-app modal, including the
       macOS 15+ "System Settings → Open Anyway" path (no right-click → Open)
-- [ ] Custom DMG layout
-- [ ] `CHANGELOG.md`
-- [ ] Homebrew tap + cask (stretch; verify quarantine behaviour first)
-- [ ] Keep signing env optional in CI so notarization is a drop-in later
+- [x] `CHANGELOG.md`
+- [x] Signing env removed from CI rather than pre-wired (see §7.4 — pre-wiring broke the build)
+- [ ] Verify the Gatekeeper message on an **Intel** Mac (only tested on Apple Silicon)
+- [~] Custom DMG layout — **not done, deliberately.** Tauri's defaults are already a
+      correct drag-to-Applications layout (660×400, app at 180,170, Applications at
+      480,170). Without a designed background image, setting those explicitly is
+      no-op churn. Worth doing only alongside a real background asset.
+- [~] Homebrew tap — **not done.** Homebrew quarantines cask installs by default and
+      the cask-side opt-out was removed, so a tap may not even avoid the `xattr` step.
+      Needs verifying before it's worth promising anyone.
+
+**Verified on macOS (Apple Silicon), against the real v0.0.11 release:**
+
+- `install.sh` runs end-to-end and the installed bundle has **no `com.apple.quarantine`
+  attribute** — the premise the whole approach rests on.
+- Mount cleanup leaves nothing behind, including on the failure paths.
+- Ad-hoc signing measurably improved the bundle:
+
+  | | before | after |
+  |---|---|---|
+  | flags | `adhoc, linker-signed` | `adhoc, runtime` |
+  | `_CodeSignature` | absent | present |
+  | `codesign --verify --strict` | — | passes |
+  | `spctl` | *"no resources but signature indicates they must be present"* | plain `rejected` |
+
+  The malformed-seal complaint is what produced the *"FigyTerm is damaged"* wording.
+  It now reads as an unidentified developer instead, which is both accurate and far
+  less alarming. Hardened runtime came along with it, which notarization would require.
+
+**Design note — why the installer isn't a workaround.** With no Developer ID, quarantine
+cannot be *removed* from the browser path; it can only be *avoided* by not using a
+browser. That makes `curl | sh` the primary install route rather than a convenience,
+and the README is ordered accordingly.
