@@ -1,6 +1,6 @@
 # FigyTerm Update System — Design & Implementation Plan
 
-**Status:** Phase 1 implemented. Phases 2–3 planned.
+**Status:** Phases 1–2 implemented. Phase 3 planned.
 **Scope:** macOS only (Apple Silicon + Intel), distributed via GitHub Releases
 **Related:** `.github/workflows/release.yml`, `src-tauri/src/menu.rs`, `src/components/Settings/Settings.tsx`
 
@@ -568,17 +568,44 @@ waiver for nonprofits/educational institutions (unlikely to apply here, but it e
 - Release notes render to React elements with no HTML passthrough at all, so markup
   injection from a remote release body is structurally impossible.
 
-### Phase 2 — Auto-update
-- [ ] Generate + back up the minisign keypair
-- [ ] Add repo secrets
-- [ ] Add `tauri-plugin-updater`, `createUpdaterArtifacts`, `plugins.updater`, capability
-- [ ] Pass signing env to `tauri-action`
-- [ ] Add the `updater-manifest` job; keep `uploadUpdaterJson: false`
-- [ ] Download → progress → install → relaunch flow in the modal
-- [ ] Running-process guard before relaunch
-- [ ] Fallback to the Phase 1 manual flow on every failure path
-- [ ] **Verify on a real Mac:** no quarantine on updater-installed builds; detect
-      translocation / read-only bundle; test both architectures
+### Phase 2 — Auto-update ✅ implemented
+- [x] Generate the minisign keypair (`~/.tauri/figyterm.key`, mode 600, outside the repo)
+- [x] Add `tauri-plugin-updater`, `createUpdaterArtifacts`, `plugins.updater`, capability
+- [x] Pass signing env to `tauri-action`
+- [x] Add the `updater-manifest` job; keep `uploadUpdaterJson: false`
+- [x] Download → progress → install → relaunch flow in the modal
+- [x] Running-process guard before relaunch
+- [x] Fallback to the manual flow on every failure path
+- [ ] **Add the repo secrets** — `TAURI_SIGNING_PRIVATE_KEY` and
+      `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (empty). Until these exist the
+      `updater-manifest` job fails the release by design, rather than shipping a
+      release whose updater silently does nothing.
+- [ ] **Back up the private key** outside the machine. If it's lost, every
+      installed client stops accepting updates permanently.
+- [ ] **Verify on a real Mac after the first updater-enabled release:** an
+      updater-installed build carries no quarantine flag; both architectures
+      update; a translocated / read-only bundle falls back cleanly.
+
+**Files added:** `src/services/installer.ts`
+
+**Architecture:** discovery and install are deliberately separate. Discovery stays
+on the GitHub Releases API (Phase 1) because it yields rich release notes, dates,
+asset sizes and a prerelease flag — none of which `latest.json` carries. The
+updater plugin is used purely as the mechanism that swaps the bundle. That split
+is also what makes the fallback natural: if the plugin can't install (no manifest
+on old releases, `tauri dev`, a read-only bundle), the UI reveals the manual DMG
+path it already had.
+
+**Running-process guard:** `PtyInstance::foreground_pid()` compares the tty's
+foreground process group leader against the shell's own pid; when they differ the
+user is running something. `running_foreground_commands` resolves those pids to
+names via `sysinfo` so the warning can say *what* would be killed. Undeterminable
+is treated as idle — a false "busy" would block updating forever, while a false
+"idle" costs only a confirmation the user would have clicked through.
+
+**Bootstrapping:** only builds that already contain the updater plugin can
+auto-update, so v0.0.6 and earlier must install the first updater-enabled release
+by hand. The release-notes template says so.
 
 ### Phase 3 — First install (unsigned-permanent)
 - [ ] `install.sh` — arch detect, curl download, mount, copy, `xattr -cr`, detach, launch

@@ -78,6 +78,15 @@ impl TerminalManager {
         self.sessions.values().map(|pty| pty.session.clone()).collect()
     }
 
+    /// Foreground PIDs across every session — i.e. commands the user is
+    /// currently running. Empty means every pane is sitting at its prompt.
+    pub fn foreground_pids(&self) -> Vec<u32> {
+        self.sessions
+            .values()
+            .filter_map(|pty| pty.foreground_pid())
+            .collect()
+    }
+
     pub fn shutdown_all(&mut self) {
         log::info!("Shutting down all PTY sessions");
         let ids: Vec<String> = self.sessions.keys().cloned().collect();

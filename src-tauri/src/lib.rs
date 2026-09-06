@@ -16,6 +16,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState::new())
         .manage(BrowserState::default())
         .manage(UpdaterState::default())
@@ -61,6 +62,8 @@ pub fn run() {
             commands::browser::browser_set_theme,
             updater::check_for_updates,
             updater::get_current_version,
+            updater::running_foreground_commands,
+            updater::restart_app,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

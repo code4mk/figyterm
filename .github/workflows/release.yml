@@ -55,6 +55,13 @@ jobs:
           cat > "$RUNNER_TEMP/notes.md" <<'NOTES'
           ## FigyTerm v__VERSION__
 
+          ### Updating
+
+          FigyTerm updates itself from here on — it checks for new versions and
+          installs them in-app, with no Gatekeeper prompt and no `xattr` step.
+          If you're coming from **v0.0.6 or earlier**, this one install is manual;
+          after it, updates are automatic.
+
           ### Installation (macOS)
 
           1. Download `FigyTerm___VERSION___aarch64.dmg` (Apple Silicon) or `FigyTerm___VERSION___x64.dmg` (Intel)
@@ -186,13 +193,105 @@ jobs:
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Minisign keypair for the updater. Unrelated to Apple code signing —
+          # it only lets installed clients verify an update came from us.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Apple signing is optional and currently unset; tauri-action builds
+          # unsigned when these are absent. Present so enabling notarization
+          # later is a secret upload rather than a workflow change.
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           releaseId: ${{ needs.create-release.outputs.release_id }}
           args: ${{ matrix.args }}
+          # The manifest is written by the updater-manifest job instead. With a
+          # two-target matrix, letting both builds upload latest.json races:
+          # whichever finishes last overwrites the other's entry, producing an
+          # updater that silently 404s for one architecture.
           uploadUpdaterJson: false
 
-  publish-release:
+  # Composes latest.json once, after both architectures have uploaded their
+  # updater artifacts, so it always describes both.
+  updater-manifest:
     needs: [create-release, build-macos]
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Compose and upload latest.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.create-release.outputs.tag }}
+          VERSION: ${{ needs.create-release.outputs.version }}
+          RELEASE_ID: ${{ needs.create-release.outputs.release_id }}
+        run: |
+          set -euo pipefail
+
+          # The release is still a draft here, so it must be addressed by id.
+          gh api --paginate "repos/$GH_REPO/releases/$RELEASE_ID/assets?per_page=100" \
+            > assets.json
+
+          PLATFORMS='{}'
+
+          for ARCH in aarch64 x64; do
+            case "$ARCH" in
+              aarch64) PLATFORM=darwin-aarch64 ;;
+              x64)     PLATFORM=darwin-x86_64 ;;
+            esac
+
+            TARBALL="FigyTerm_${VERSION}_${ARCH}.app.tar.gz"
+            SIG_ID=$(jq -r --arg n "${TARBALL}.sig" \
+              '.[] | select(.name == $n) | .id' assets.json | head -n1)
+
+            if [ -z "$SIG_ID" ]; then
+              echo "::error::${TARBALL}.sig is missing from the release. Is TAURI_SIGNING_PRIVATE_KEY set?"
+              exit 1
+            fi
+
+            SIG=$(gh api -H "Accept: application/octet-stream" \
+              "repos/$GH_REPO/releases/assets/$SIG_ID")
+
+            # Public download URL, valid once the release is undrafted.
+            URL="https://github.com/$GH_REPO/releases/download/$TAG/$TARBALL"
+
+            PLATFORMS=$(jq \
+              --arg k "$PLATFORM" --arg s "$SIG" --arg u "$URL" \
+              '. + {($k): {signature: $s, url: $u}}' <<<"$PLATFORMS")
+          done
+
+          jq -n \
+            --arg v "$VERSION" \
+            --arg d "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --argjson p "$PLATFORMS" \
+            '{version: $v, notes: "See the release notes on GitHub.", pub_date: $d, platforms: $p}' \
+            > latest.json
+
+          cat latest.json
+
+          # Re-runs: drop the previous manifest so the upload doesn't collide.
+          OLD_ID=$(jq -r '.[] | select(.name == "latest.json") | .id' assets.json | head -n1)
+          if [ -n "$OLD_ID" ]; then
+            gh api --method DELETE "repos/$GH_REPO/releases/assets/$OLD_ID" >/dev/null
+          fi
+
+          curl -sSf -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data-binary @latest.json \
+            "https://uploads.github.com/repos/$GH_REPO/releases/$RELEASE_ID/assets?name=latest.json" \
+            >/dev/null
+
+          echo "Uploaded latest.json for $TAG"
+
+  publish-release:
+    needs: [create-release, build-macos, updater-manifest]
     permissions:
       contents: write
     runs-on: ubuntu-latest
