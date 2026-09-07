@@ -1,7 +1,8 @@
 # Installing FigyTerm
 
-macOS only, on both Apple Silicon and Intel. There are two ways to install, and they
-produce the same app — pick whichever you prefer.
+macOS on Apple Silicon and Intel, and Linux on x86_64.
+
+On **macOS** there are two ways to install, and they produce the same app:
 
 | | [Install script](#option-1--install-script) | [Manual .dmg](#option-2--manual-dmg) |
 |---|---|---|
@@ -10,7 +11,12 @@ produce the same app — pick whichever you prefer.
 | `xattr` needed | no | yes |
 | Picks your architecture | automatically | you choose |
 
-Whichever you use, **you only do it once** — FigyTerm updates itself from then on.
+On **Linux** there are three formats — see [Linux](#linux) below. The AppImage updates
+itself; a `.deb` or `.rpm` belongs to your package manager, so FigyTerm will tell you
+when a new version exists but leave installing it to you.
+
+Except for those distro packages, **you only install once** — FigyTerm updates itself
+from then on.
 
 ---
 
@@ -100,6 +106,67 @@ a Gatekeeper prompt or type `xattr` again.
 
 ---
 
+## Linux
+
+x86_64 only for now. Everything above about Gatekeeper, quarantine and `xattr` is
+macOS-specific and has no Linux equivalent — there's nothing to clear.
+
+### AppImage (recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/code4mk/figyterm/main/install-linux.sh | sh
+```
+
+The script downloads the AppImage, installs it to `~/.local/bin/figy-term`, and adds a
+desktop entry so it shows up in your app menu. As with any piped script,
+[read it first](../install-linux.sh) — it touches a temp directory, that install
+directory, and one `.desktop` file.
+
+By hand instead:
+
+```bash
+chmod +x FigyTerm_*_amd64.AppImage
+./FigyTerm_*_amd64.AppImage
+```
+
+This is the build to pick if you want the in-app updater: it's the only Linux format
+Tauri's updater can replace in place.
+
+### Debian, Ubuntu
+
+```bash
+sudo apt install ./FigyTerm_*_amd64.deb
+```
+
+### Fedora, RHEL
+
+```bash
+sudo dnf install ./FigyTerm-*-1.x86_64.rpm
+```
+
+### A blank or black window
+
+Some Nvidia and older Mesa drivers can't render WebKitGTK's DMA-BUF path, and the
+window comes up empty. Start it with the renderer disabled:
+
+```bash
+WEBKIT_DISABLE_DMABUF_RENDERER=1 figy-term
+```
+
+If that fixes it, make it permanent by adding the variable to the `Exec=` line of your
+`~/.local/share/applications/figy-term.desktop` entry.
+
+### Where things live
+
+| | |
+|---|---|
+| AppImage install | `~/.local/bin/figy-term` |
+| Desktop entry | `~/.local/share/applications/figy-term.desktop` |
+| Package install | `/usr/bin/figy-term` |
+| Settings and specs | `~/.figyterm/` |
+
+---
+
 ## Updating
 
 Nothing to do. FigyTerm checks for new versions in the background and offers to install
@@ -108,6 +175,11 @@ tab in Settings.
 
 Updates install in place and relaunch the app. If any terminal pane is running a
 command, FigyTerm names it and asks before restarting.
+
+The exception is a Linux `.deb` or `.rpm` install: those files are owned by your package
+manager, and FigyTerm won't rewrite files it doesn't own. It tells you a new version is
+out and points at the download; installing it stays with `apt`/`dnf`. The AppImage build
+has no such limit.
 
 To turn off automatic checks: **Settings → Updates → Check Automatically**.
 
@@ -130,25 +202,40 @@ problem — it only means the app has no Apple Developer ID signature.
 
 ## Uninstalling
 
+macOS:
+
 ```bash
 rm -rf /Applications/FigyTerm.app
-```
 
-To remove settings and installed autocomplete specs as well:
-
-```bash
+# Settings and installed autocomplete specs
 rm -rf ~/Library/Application\ Support/com.code4mk.figyterm
 rm -rf ~/Library/WebKit/com.code4mk.figyterm
 ```
 
-FigyTerm doesn't modify your shell config, so there's nothing to undo in `.zshrc`.
+Linux:
+
+```bash
+# AppImage install
+rm -f ~/.local/bin/figy-term ~/.local/share/applications/figy-term.desktop
+
+# Package install
+sudo apt remove figyterm     # or: sudo dnf remove figyterm
+
+# Settings and installed autocomplete specs
+rm -rf ~/.figyterm
+```
+
+FigyTerm doesn't modify your shell config, so there's nothing to undo in `.zshrc` or
+`.bashrc`.
 
 ---
 
 ## Building from source
 
-See the [README](../README.md#build-from-source). You'll need Rust, Node 20+, and the
-Xcode command line tools.
+See the [README](../README.md#build-from-source). You'll need Rust and Node 20+, plus
+the Xcode command line tools on macOS or the WebKitGTK development packages on Linux
+(`libwebkit2gtk-4.1-dev`, `libgtk-3-dev`, `librsvg2-dev`, `libxdo-dev`,
+`libayatana-appindicator3-dev`, `libssl-dev`, `patchelf`).
 
 Related: [`UPDATE-SYSTEM.md`](./UPDATE-SYSTEM.md) for how updates work internally, and
 [`RELEASING.md`](./RELEASING.md) for cutting a release.

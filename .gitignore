@@ -20,3 +20,5 @@ src-tauri/target/
 
 # Generated icon source
 app-icon.png
+
+frontend/*

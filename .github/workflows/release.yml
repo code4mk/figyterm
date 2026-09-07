@@ -97,6 +97,31 @@ jobs:
           Step 3 isn't optional — without it macOS reports *"FigyTerm is damaged and
           can't be opened"*, which only means the app is unsigned.
 
+          ### Installation (Linux)
+
+          Three formats, with one difference worth knowing.
+
+          **AppImage (recommended)** — runs on any distro, and updates itself:
+
+          ```
+          chmod +x FigyTerm___VERSION___amd64.AppImage
+          ./FigyTerm___VERSION___amd64.AppImage
+          ```
+
+          **Debian / Ubuntu:** `sudo apt install ./FigyTerm___VERSION___amd64.deb`
+          **Fedora / RHEL:** `sudo dnf install ./FigyTerm-__VERSION__-1.x86_64.rpm`
+
+          A `.deb` or `.rpm` install belongs to your package manager, so FigyTerm
+          won't replace its own files — it tells you a new version exists and leaves
+          the install to you. The AppImage is the one that updates in place.
+
+          If the window comes up blank — some Nvidia and older Mesa drivers do this
+          to WebKitGTK — start it with:
+
+          ```
+          WEBKIT_DISABLE_DMABUF_RENDERER=1 figyterm
+          ```
+
           Full details: [Installation guide](https://github.com/code4mk/figyterm/blob/main/docs/INSTALLATION.md)
 
           ### Troubleshooting
@@ -187,19 +212,7 @@ jobs:
       - name: Sync app version to ${{ needs.create-release.outputs.version }}
         env:
           VERSION: ${{ needs.create-release.outputs.version }}
-        run: |
-          node -e '
-            const fs = require("fs");
-            const version = process.env.VERSION;
-            for (const file of ["package.json", "src-tauri/tauri.conf.json"]) {
-              const json = JSON.parse(fs.readFileSync(file, "utf8"));
-              json.version = version;
-              fs.writeFileSync(file, JSON.stringify(json, null, 2) + "\n");
-            }
-          '
-          # Only the [package] version, which is the first `version =` in the file.
-          perl -pi -e 'if (!$done && s/^version = ".*"/version = "$ENV{VERSION}"/) { $done = 1 }' src-tauri/Cargo.toml
-          grep -m1 '^version' src-tauri/Cargo.toml
+        run: node scripts/sync-version.mjs
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -243,10 +256,81 @@ jobs:
           # updater that silently 404s for one architecture.
           uploadUpdaterJson: false
 
-  # Composes latest.json once, after both architectures have uploaded their
-  # updater artifacts, so it always describes both.
+  # Ubuntu 22.04 on purpose, not ubuntu-latest: the binary links against the
+  # builder's glibc, so building on 24.04 (glibc 2.39) would refuse to start on
+  # Debian 12 and Ubuntu 22.04. 22.04 ships glibc 2.35, which covers every
+  # currently supported distro.
+  build-linux:
+    needs: create-release
+    permissions:
+      contents: write
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.create-release.outputs.tag }}
+
+      - name: Sync app version to ${{ needs.create-release.outputs.version }}
+        env:
+          VERSION: ${{ needs.create-release.outputs.version }}
+        run: node scripts/sync-version.mjs
+
+      # WebKitGTK is the webview on Linux, and none of this is preinstalled.
+      # libfuse2 is for the bundler, not the app: appimagetool ships as an
+      # AppImage itself and needs FUSE to run.
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libxdo-dev \
+            build-essential \
+            curl wget file patchelf libfuse2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+          key: x86_64-unknown-linux-gnu
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Runners have no FUSE device, so appimagetool has to unpack itself
+          # instead of mounting. Without this the AppImage step fails outright.
+          APPIMAGE_EXTRACT_AND_RUN: 1
+        with:
+          releaseId: ${{ needs.create-release.outputs.release_id }}
+          args: --target x86_64-unknown-linux-gnu
+          # Same reason as the macOS job: the manifest is composed once, later.
+          uploadUpdaterJson: false
+
+  # Composes latest.json once, after every build has uploaded its updater
+  # artifacts, so it always describes all of them.
   updater-manifest:
-    needs: [create-release, build-macos]
+    needs: [create-release, build-macos, build-linux]
     permissions:
       contents: write
     runs-on: ubuntu-latest
@@ -268,18 +352,18 @@ jobs:
 
           PLATFORMS='{}'
 
-          for ARCH in aarch64 x64; do
-            case "$ARCH" in
-              aarch64) PLATFORM=darwin-aarch64 ;;
-              x64)     PLATFORM=darwin-x86_64 ;;
-            esac
+          # Adds one updater platform entry from the artifact's detached
+          # signature. Runs in the current shell, not a subshell, so it can
+          # accumulate into $PLATFORMS.
+          add_platform() {
+            PLATFORM="$1"
+            ARTIFACT="$2"
 
-            TARBALL="FigyTerm_${VERSION}_${ARCH}.app.tar.gz"
-            SIG_ID=$(jq -r --arg n "${TARBALL}.sig" \
+            SIG_ID=$(jq -r --arg n "${ARTIFACT}.sig" \
               '.[] | select(.name == $n) | .id' assets.json | head -n1)
 
             if [ -z "$SIG_ID" ]; then
-              echo "::error::${TARBALL}.sig is missing from the release. Is TAURI_SIGNING_PRIVATE_KEY set?"
+              echo "::error::${ARTIFACT}.sig is missing from the release. Is TAURI_SIGNING_PRIVATE_KEY set?"
               exit 1
             fi
 
@@ -287,12 +371,20 @@ jobs:
               "repos/$GH_REPO/releases/assets/$SIG_ID")
 
             # Public download URL, valid once the release is undrafted.
-            URL="https://github.com/$GH_REPO/releases/download/$TAG/$TARBALL"
+            URL="https://github.com/$GH_REPO/releases/download/$TAG/$ARTIFACT"
 
             PLATFORMS=$(jq \
               --arg k "$PLATFORM" --arg s "$SIG" --arg u "$URL" \
               '. + {($k): {signature: $s, url: $u}}' <<<"$PLATFORMS")
-          done
+          }
+
+          add_platform darwin-aarch64 "FigyTerm_${VERSION}_aarch64.app.tar.gz"
+          add_platform darwin-x86_64 "FigyTerm_${VERSION}_x64.app.tar.gz"
+
+          # Linux updates go through the AppImage, which the updater replaces in
+          # place. The .deb and .rpm are downloads only: their files belong to
+          # the package manager, so the app must never rewrite them.
+          add_platform linux-x86_64 "FigyTerm_${VERSION}_amd64.AppImage"
 
           jq -n \
             --arg v "$VERSION" \
@@ -319,7 +411,7 @@ jobs:
           echo "Uploaded latest.json for $TAG"
 
   publish-release:
-    needs: [create-release, build-macos, updater-manifest]
+    needs: [create-release, build-macos, build-linux, updater-manifest]
     permissions:
       contents: write
     runs-on: ubuntu-latest

@@ -16,6 +16,7 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { Markdown } from "./Markdown";
+import { isMac } from "../../services/platform";
 import {
   UpdateInfo,
   RELEASES_URL,
@@ -233,6 +234,10 @@ function UpdateAvailable({
 }) {
   const released = formatReleaseDate(info.publishedAt);
 
+  // A .deb/.rpm install can't replace its own files, so it never gets an
+  // Install button — only the download, and a pointer at the package manager.
+  const canSelfInstall = info.installMethod === "self-updating";
+
   const [phase, setPhase] = useState<InstallPhase>("idle");
   const [progress, setProgress] = useState<InstallProgress | null>(null);
   const [busyCommands, setBusyCommands] = useState<string[]>([]);
@@ -296,7 +301,42 @@ function UpdateAvailable({
         </div>
       </div>
 
-      {phase === "idle" && (
+      {phase === "idle" && !canSelfInstall && (
+        <div className="settings-card rounded-lg px-4 py-3 space-y-2.5">
+          <div className="flex items-start gap-2">
+            <AlertCircle size={14} className="text-yellow-400 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-[11px] font-medium text-ft-text">
+                This install is managed by your system
+              </p>
+              <p className="text-[10px] text-ft-text-muted mt-1 leading-relaxed">
+                FigyTerm was installed from a distro package, so its files belong
+                to your package manager and the app can't replace them. Update it
+                the way you installed it, or switch to the AppImage build — that
+                one updates itself.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => openExternal(info.downloadUrl || info.releaseUrl).catch(() => {})}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-white bg-ft-accent rounded-lg hover:bg-ft-accent-hover transition-colors"
+            >
+              <Download size={13} />
+              {info.downloadUrl ? "Download AppImage" : "Get It on GitHub"}
+            </button>
+            <button
+              onClick={() => openExternal(info.releaseUrl).catch(() => {})}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-ft-text-secondary hover:text-ft-text rounded-lg hover:bg-ft-elevated transition-colors"
+            >
+              <ExternalLink size={13} />
+              View on GitHub
+            </button>
+          </div>
+        </div>
+      )}
+
+      {phase === "idle" && canSelfInstall && (
         <div className="flex items-center gap-2">
           <button
             onClick={startInstall}
@@ -399,8 +439,10 @@ function UpdateAvailable({
         </div>
       )}
 
-      {/* Manual install stays one click away, and opens itself if auto-install fails. */}
-      {phase !== "downloading" && phase !== "installed" && (
+      {/* Manual install stays one click away, and opens itself if auto-install
+          fails. A managed install has no automatic path to fall back from — its
+          card above is already the manual one. */}
+      {canSelfInstall && phase !== "downloading" && phase !== "installed" && (
         <div>
           {!showManual ? (
             <button
@@ -444,19 +486,32 @@ function ManualInstall({
         className="flex items-center gap-1.5 px-3.5 py-2 text-[11px] font-medium text-ft-text-secondary hover:text-ft-text rounded-lg bg-ft-elevated transition-colors"
       >
         <Download size={13} />
-        {info.downloadUrl ? "Download .dmg" : "Get It on GitHub"}
+        {info.downloadUrl ? `Download ${bundleKind(info.assetName)}` : "Get It on GitHub"}
       </button>
 
       {!info.downloadUrl && (
         <p className="text-[10px] text-ft-text-muted">
-          No installer matching this Mac was found on the release. The GitHub page
-          lists every available download.
+          No installer matching this system was found on the release. The GitHub
+          page lists every available download.
         </p>
       )}
 
-      <InstallInstructions activeSessionId={activeSessionId} />
+      {isMac ? (
+        <InstallInstructions activeSessionId={activeSessionId} />
+      ) : (
+        <p className="text-[10px] text-ft-text-muted leading-relaxed">
+          Mark the downloaded AppImage executable (<span className="font-mono">chmod +x</span>)
+          and run it. Nothing else is needed — it carries its own dependencies, and
+          updates itself from then on.
+        </p>
+      )}
     </div>
   );
+}
+
+/** Names the download by what it actually is: `.dmg`, `.AppImage`, `.deb`. */
+function bundleKind(assetName: string | null): string {
+  return assetName?.match(/\.[A-Za-z]+$/)?.[0] ?? "installer";
 }
 
 /**

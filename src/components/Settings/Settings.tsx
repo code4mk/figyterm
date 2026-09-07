@@ -34,6 +34,8 @@ import {
   type InstalledSpec,
 } from "../../services/spec-store";
 import { specRegistry } from "../../services/figy-spec-registry";
+import { isMac } from "../../services/platform";
+import { MOD, SHORTCUTS, keys } from "../../services/shortcuts";
 import {
   checkForUpdates,
   getCurrentVersion,
@@ -755,34 +757,34 @@ function ShortcutsTab() {
       title: "Tabs",
       icon: <TerminalIcon size={13} />,
       shortcuts: [
-        { keys: ["⌘", "T"], description: "New tab" },
-        { keys: ["⌘", "⇧", "T"], description: "New tab (same directory)" },
-        { keys: ["⌘", "⇧", "W"], description: "Close active pane" },
-        { keys: ["⌘", "1-9"], description: "Switch to tab N" },
-        { keys: ["⌘", "⇧", "["], description: "Previous tab" },
-        { keys: ["⌘", "⇧", "]"], description: "Next tab" },
+        { keys: keys(SHORTCUTS.newTab), description: "New tab" },
+        { keys: keys(SHORTCUTS.newTabSameDir), description: "New tab (same directory)" },
+        { keys: keys(SHORTCUTS.closePane), description: "Close active pane" },
+        { keys: [MOD, "1-9"], description: "Switch to tab N" },
+        { keys: keys(SHORTCUTS.prevTab), description: "Previous tab" },
+        { keys: keys(SHORTCUTS.nextTab), description: "Next tab" },
       ],
     },
     {
       title: "Panes",
       icon: <SplitSquareHorizontal size={13} />,
       shortcuts: [
-        { keys: ["⌘", "D"], description: "Split pane horizontally" },
-        { keys: ["⌘", "⇧", "D"], description: "Split pane vertically" },
-        { keys: ["⌘", "⇧", "W"], description: "Close active pane" },
+        { keys: keys(SHORTCUTS.splitRight), description: "Split pane horizontally" },
+        { keys: keys(SHORTCUTS.splitDown), description: "Split pane vertically" },
+        { keys: keys(SHORTCUTS.closePane), description: "Close active pane" },
       ],
     },
     {
       title: "Terminal",
       icon: <Command size={13} />,
       shortcuts: [
-        { keys: ["⌘", "F"], description: "Find in terminal" },
-        { keys: ["⌘", "R"], description: "Search command history" },
-        { keys: ["⌘", "⇧", "M"], description: "System Monitor" },
-        { keys: ["⌘", "⇧", "B"], description: "Browser" },
-        { keys: ["⌘", "K"], description: "Clear terminal" },
-        { keys: ["⌘", "C"], description: "Copy selection" },
-        { keys: ["⌘", "V"], description: "Paste from clipboard" },
+        { keys: keys(SHORTCUTS.find), description: "Find in terminal" },
+        { keys: keys(SHORTCUTS.history), description: "Search command history" },
+        { keys: keys(SHORTCUTS.monitor), description: "System Monitor" },
+        { keys: keys(SHORTCUTS.browser), description: "Browser" },
+        { keys: keys(SHORTCUTS.clearTerminal), description: "Clear terminal" },
+        { keys: keys(SHORTCUTS.copy), description: "Copy selection" },
+        { keys: keys(SHORTCUTS.paste), description: "Paste from clipboard" },
         { keys: ["Ctrl", "C"], description: "Interrupt / cancel process" },
         { keys: ["Ctrl", "D"], description: "End of input (EOF)" },
         { keys: ["Ctrl", "Z"], description: "Suspend process" },
@@ -793,10 +795,17 @@ function ShortcutsTab() {
       title: "Application",
       icon: <Keyboard size={13} />,
       shortcuts: [
-        { keys: ["⌘", ","], description: "Open settings" },
-        { keys: ["⌘", "Q"], description: "Quit application" },
-        { keys: ["⌘", "M"], description: "Minimize window" },
-        { keys: ["⌘", "⇧", "F"], description: "Toggle fullscreen" },
+        { keys: keys(SHORTCUTS.settings), description: "Open settings" },
+        // Quit, minimise and fullscreen are macOS's own app-menu bindings. On
+        // other desktops the window manager owns them and the keys vary, so
+        // listing any specific one here would be a guess.
+        ...(isMac
+          ? [
+              { keys: ["⌘", "Q"], description: "Quit application" },
+              { keys: ["⌘", "M"], description: "Minimize window" },
+              { keys: ["⌘", "⇧", "F"], description: "Toggle fullscreen" },
+            ]
+          : []),
       ],
     },
     {

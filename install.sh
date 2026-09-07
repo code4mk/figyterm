@@ -45,7 +45,12 @@ die() { printf '\n\033[1;31mError:\033[0m %s\n' "$1" >&2; exit 1; }
 
 # --- Preflight ---------------------------------------------------------------
 
-[ "$(uname -s)" = "Darwin" ] || die "FigyTerm is macOS only (found $(uname -s))."
+if [ "$(uname -s)" = "Linux" ]; then
+  die "This installer is for macOS. On Linux, use:
+       curl -fsSL https://raw.githubusercontent.com/$REPO/main/install-linux.sh | sh"
+fi
+
+[ "$(uname -s)" = "Darwin" ] || die "FigyTerm supports macOS and Linux (found $(uname -s))."
 
 case "$(uname -m)" in
   arm64)  ARCH_SUFFIX="aarch64" ; ARCH_LABEL="Apple Silicon" ;;

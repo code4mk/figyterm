@@ -35,6 +35,41 @@ pub enum UpdateStatus {
     DevBuild,
 }
 
+/// Whether this particular install can be replaced in place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum InstallMethod {
+    /// Tauri's updater can swap the running bundle: a macOS `.app`, or a Linux
+    /// AppImage (the only Linux format the plugin supports).
+    SelfUpdating,
+    /// Something else owns this install — a distro package manager, or a binary
+    /// unpacked by hand. Writing to it would be wrong even where it's possible,
+    /// so the UI offers a download and stops there.
+    Managed,
+}
+
+/// How the running build was installed.
+///
+/// macOS only ever ships a `.app` bundle, so it is always self-updating. Linux
+/// is split: an AppImage sets `APPIMAGE` to its own path and can be replaced,
+/// while a `.deb`/`.rpm` install lives in `/usr/bin` under the package
+/// database's ownership and must be left to `apt`/`dnf`.
+fn install_method() -> InstallMethod {
+    #[cfg(target_os = "linux")]
+    {
+        if std::env::var_os("APPIMAGE").is_some() {
+            InstallMethod::SelfUpdating
+        } else {
+            InstallMethod::Managed
+        }
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        InstallMethod::SelfUpdating
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateInfo {
@@ -46,8 +81,10 @@ pub struct UpdateInfo {
     pub release_notes: String,
     pub release_url: String,
     pub published_at: Option<String>,
-    /// Download URL for the `.dmg` matching the running architecture, when one
-    /// can be identified unambiguously.
+    /// Whether the UI may offer a one-click install, or only a download link.
+    pub install_method: InstallMethod,
+    /// Download URL for the bundle matching the running platform and
+    /// architecture, when one can be identified unambiguously.
     pub download_url: Option<String>,
     pub download_size: Option<u64>,
     pub asset_name: Option<String>,
@@ -113,35 +150,55 @@ struct GhAsset {
     size: u64,
 }
 
+/// The bundle extension worth offering on this platform, lowercased.
+///
+/// Linux is AppImage-only on purpose. It is the one Linux format Tauri's updater
+/// can install, and the one that runs on any distro without a package manager —
+/// a `.deb` or `.rpm` is the package manager's business, not ours, so pointing
+/// someone at one from inside the app would be offering an install we can't
+/// complete.
+#[cfg(target_os = "macos")]
+const BUNDLE_EXT: &str = ".dmg";
+#[cfg(target_os = "linux")]
+const BUNDLE_EXT: &str = ".appimage";
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+const BUNDLE_EXT: &str = ".msi";
+
 /// Match on the asset-name suffix rather than reconstructing the expected
 /// filename, so a bundler naming change degrades to "no direct download link"
 /// instead of silently pointing at the wrong architecture.
-fn asset_for_current_arch(assets: &[GhAsset]) -> Option<&GhAsset> {
-    let suffixes: &[&str] = if cfg!(target_arch = "aarch64") {
-        &["aarch64.dmg", "arm64.dmg"]
+fn asset_for_current_target(assets: &[GhAsset]) -> Option<&GhAsset> {
+    // Bundlers disagree on how to spell an architecture — Tauri's macOS bundle
+    // says `aarch64`/`x64`, its Linux one uses Debian's `arm64`/`amd64` — so
+    // accept any of the spellings.
+    let arch_tokens: &[&str] = if cfg!(target_arch = "aarch64") {
+        &["aarch64", "arm64"]
     } else {
-        &["x64.dmg", "x86_64.dmg", "intel.dmg"]
+        &["x64", "x86_64", "amd64", "intel"]
     };
 
-    let dmgs: Vec<&GhAsset> = assets
+    let candidates: Vec<&GhAsset> = assets
         .iter()
-        .filter(|a| a.name.to_lowercase().ends_with(".dmg"))
+        .filter(|a| a.name.to_lowercase().ends_with(BUNDLE_EXT))
         .collect();
 
-    if let Some(matched) = dmgs
+    if let Some(matched) = candidates
         .iter()
         .find(|a| {
             let name = a.name.to_lowercase();
-            suffixes.iter().any(|s| name.ends_with(s))
+            arch_tokens
+                .iter()
+                .any(|token| name.ends_with(&format!("{token}{BUNDLE_EXT}")))
         })
         .copied()
     {
         return Some(matched);
     }
 
-    // A single-architecture release has nothing to disambiguate, so an unsuffixed
-    // lone .dmg is safe to offer. Two or more without a recognised suffix is not.
-    match dmgs.as_slice() {
+    // A single-architecture release has nothing to disambiguate, so a lone
+    // unsuffixed bundle is safe to offer. Two or more without a recognised
+    // suffix is not.
+    match candidates.as_slice() {
         [only] => Some(only),
         _ => None,
     }
@@ -238,7 +295,7 @@ fn build_info(current_raw: &str, release: GhRelease) -> Result<UpdateInfo, Strin
         Ordering::Less => UpdateStatus::DevBuild,
     };
 
-    let asset = asset_for_current_arch(&release.assets);
+    let asset = asset_for_current_target(&release.assets);
 
     Ok(UpdateInfo {
         status,
@@ -249,6 +306,7 @@ fn build_info(current_raw: &str, release: GhRelease) -> Result<UpdateInfo, Strin
         release_notes: release.body.unwrap_or_default(),
         release_url: release.html_url,
         published_at: release.published_at,
+        install_method: install_method(),
         download_url: asset.map(|a| a.browser_download_url.clone()),
         download_size: asset.map(|a| a.size),
         asset_name: asset.map(|a| a.name.clone()),
@@ -380,31 +438,75 @@ mod tests {
         assert!(build_info("not-a-version", release("v0.0.7", vec![])).is_err());
     }
 
-    #[test]
-    fn picks_the_dmg_for_this_architecture() {
-        let assets = vec![
-            asset("FigyTerm_0.0.7_aarch64.dmg"),
-            asset("FigyTerm_0.0.7_x64.dmg"),
-        ];
-        let picked = asset_for_current_arch(&assets).expect("an asset should match");
-        if cfg!(target_arch = "aarch64") {
-            assert_eq!(picked.name, "FigyTerm_0.0.7_aarch64.dmg");
+    /// Mixed case on purpose — the Linux bundler really does emit `.AppImage`,
+    /// and matching must not depend on the casing.
+    ///
+    /// Windows is not a shipping target; adding one means revisiting
+    /// `asset_for_current_target` (its `.msi` names carry a locale suffix) along
+    /// with these helpers.
+    fn bundle_ext() -> &'static str {
+        if cfg!(target_os = "linux") {
+            "AppImage"
         } else {
-            assert_eq!(picked.name, "FigyTerm_0.0.7_x64.dmg");
+            "dmg"
         }
     }
 
-    #[test]
-    fn a_lone_unsuffixed_dmg_is_offered_but_an_ambiguous_pair_is_not() {
-        let single = vec![asset("FigyTerm.dmg")];
-        assert!(asset_for_current_arch(&single).is_some());
-
-        let ambiguous = vec![asset("FigyTerm-one.dmg"), asset("FigyTerm-two.dmg")];
-        assert!(asset_for_current_arch(&ambiguous).is_none());
+    /// The architecture token this platform's bundler uses: Tauri writes
+    /// `aarch64`/`x64` for macOS and Debian's `arm64`/`amd64` for Linux.
+    fn arch_tokens() -> (&'static str, &'static str) {
+        if cfg!(target_os = "linux") {
+            ("arm64", "amd64")
+        } else {
+            ("aarch64", "x64")
+        }
     }
 
-    /// Guards the deserialisation against GitHub payload drift, using the real
-    /// asset names and field shape from the v0.0.6 release.
+    /// Both architectures for this platform, as a release carries them.
+    fn platform_assets(version: &str) -> Vec<GhAsset> {
+        let (arm, intel) = arch_tokens();
+        let ext = bundle_ext();
+        vec![
+            asset(&format!("FigyTerm_{version}_{arm}.{ext}")),
+            asset(&format!("FigyTerm_{version}_{intel}.{ext}")),
+        ]
+    }
+
+    /// The one of those the running build should select.
+    fn expected_asset(version: &str) -> String {
+        let (arm, intel) = arch_tokens();
+        let arch = if cfg!(target_arch = "aarch64") {
+            arm
+        } else {
+            intel
+        };
+        format!("FigyTerm_{version}_{arch}.{}", bundle_ext())
+    }
+
+    #[test]
+    fn picks_the_bundle_for_this_platform_and_architecture() {
+        let assets = platform_assets("0.0.7");
+        let picked = asset_for_current_target(&assets).expect("an asset should match");
+        assert_eq!(picked.name, expected_asset("0.0.7"));
+    }
+
+    #[test]
+    fn a_lone_unsuffixed_bundle_is_offered_but_an_ambiguous_pair_is_not() {
+        let ext = bundle_ext();
+
+        let single = vec![asset(&format!("FigyTerm.{ext}"))];
+        assert!(asset_for_current_target(&single).is_some());
+
+        let ambiguous = vec![
+            asset(&format!("FigyTerm-one.{ext}")),
+            asset(&format!("FigyTerm-two.{ext}")),
+        ];
+        assert!(asset_for_current_target(&ambiguous).is_none());
+    }
+
+    /// Guards the deserialisation against GitHub payload drift, using the field
+    /// shape of the v0.0.6 release plus the Linux artifacts a release carries
+    /// once the Linux job is in the pipeline.
     #[test]
     fn parses_a_real_github_release_payload() {
         // r###"…"### because the release body itself opens with `"##`.
@@ -419,7 +521,11 @@ mod tests {
                 {"name": "FigyTerm_0.0.6_aarch64.app.tar.gz", "browser_download_url": "https://example.test/a", "size": 7346876},
                 {"name": "FigyTerm_0.0.6_aarch64.dmg", "browser_download_url": "https://example.test/b", "size": 8068596},
                 {"name": "FigyTerm_0.0.6_x64.app.tar.gz", "browser_download_url": "https://example.test/c", "size": 7441989},
-                {"name": "FigyTerm_0.0.6_x64.dmg", "browser_download_url": "https://example.test/d", "size": 8156110}
+                {"name": "FigyTerm_0.0.6_x64.dmg", "browser_download_url": "https://example.test/d", "size": 8156110},
+                {"name": "FigyTerm_0.0.6_amd64.AppImage", "browser_download_url": "https://example.test/e", "size": 9231044},
+                {"name": "FigyTerm_0.0.6_arm64.AppImage", "browser_download_url": "https://example.test/f", "size": 9014377},
+                {"name": "FigyTerm_0.0.6_amd64.deb", "browser_download_url": "https://example.test/g", "size": 6720418},
+                {"name": "FigyTerm-0.0.6-1.x86_64.rpm", "browser_download_url": "https://example.test/h", "size": 6733901}
             ]
         }"###;
 
@@ -430,21 +536,47 @@ mod tests {
         assert_eq!(info.latest_version, "0.0.6");
         assert_eq!(info.published_at.as_deref(), Some("2026-09-03T06:53:20Z"));
 
-        // The .app.tar.gz artifacts must never be offered as the download.
-        let asset = info.asset_name.expect("a dmg should be selected");
-        assert!(asset.ends_with(".dmg"), "picked {asset}");
-        if cfg!(target_arch = "aarch64") {
-            assert_eq!(asset, "FigyTerm_0.0.6_aarch64.dmg");
-            assert_eq!(info.download_size, Some(8068596));
-        } else {
-            assert_eq!(asset, "FigyTerm_0.0.6_x64.dmg");
-            assert_eq!(info.download_size, Some(8156110));
-        }
+        // Neither the .app.tar.gz updater payloads nor the distro packages are
+        // ever offered as the download.
+        let expected = expected_asset("0.0.6");
+        assert_eq!(info.asset_name.as_deref(), Some(expected.as_str()));
+
+        // The size must come from the matching entry, not from the first asset.
+        let expected_size = match expected.as_str() {
+            "FigyTerm_0.0.6_aarch64.dmg" => 8068596,
+            "FigyTerm_0.0.6_x64.dmg" => 8156110,
+            "FigyTerm_0.0.6_arm64.AppImage" => 9014377,
+            "FigyTerm_0.0.6_amd64.AppImage" => 9231044,
+            other => panic!("no size fixture for {other}"),
+        };
+        assert_eq!(info.download_size, Some(expected_size));
     }
 
     #[test]
-    fn non_dmg_assets_are_ignored() {
-        let assets = vec![asset("FigyTerm_0.0.7.app.tar.gz"), asset("checksums.txt")];
-        assert!(asset_for_current_arch(&assets).is_none());
+    fn other_platforms_and_side_artifacts_are_ignored() {
+        // `.app.tar.gz` is the updater plugin's own payload, and `.deb`/`.rpm`
+        // belong to a package manager. Offering either as a download would be
+        // offering an install the app can't complete.
+        let assets = vec![
+            asset("FigyTerm_0.0.7.app.tar.gz"),
+            asset("FigyTerm_0.0.7_amd64.deb"),
+            asset("FigyTerm-0.0.7-1.x86_64.rpm"),
+            asset("checksums.txt"),
+        ];
+        assert!(asset_for_current_target(&assets).is_none());
+    }
+
+    #[test]
+    fn a_package_managed_install_never_claims_to_self_update() {
+        // On macOS every install is a .app bundle the updater can replace. On
+        // Linux only an AppImage can be, and `APPIMAGE` is how one identifies
+        // itself — the test asserts the invariant the UI depends on rather than
+        // mutating process-global env.
+        let method = install_method();
+        if cfg!(target_os = "linux") && std::env::var_os("APPIMAGE").is_none() {
+            assert_eq!(method, InstallMethod::Managed);
+        } else {
+            assert_eq!(method, InstallMethod::SelfUpdating);
+        }
     }
 }

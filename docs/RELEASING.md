@@ -31,15 +31,37 @@ creating a duplicate, and replaces `latest.json` instead of colliding with it.
 ## What the pipeline does
 
 ```
-create-release  →  build-macos (aarch64 + x64)  →  updater-manifest  →  publish-release
+create-release  →  build-macos (aarch64 + x64)  ┐
+                →  build-linux (x86_64)         ┴→  updater-manifest  →  publish-release
 ```
 
 | Job | Does |
 |-----|------|
 | `create-release` | Validates the tag, renders release notes, creates a **draft** release. Runs once so the body isn't raced by the build matrix. |
 | `build-macos` | Builds and bundles both architectures, uploads `.dmg` + `.app.tar.gz` + `.sig` to the draft. |
-| `updater-manifest` | Composes `latest.json` from both architectures' signatures and uploads it. |
+| `build-linux` | Builds on `ubuntu-22.04`, uploads `.AppImage` + `.sig`, `.deb` and `.rpm`. |
+| `updater-manifest` | Composes `latest.json` from every build's signatures and uploads it. |
 | `publish-release` | Undrafts. This is what makes the release visible and updatable. |
+
+Both build jobs run `scripts/sync-version.mjs` first, which rewrites `package.json`,
+`tauri.conf.json` and `Cargo.toml` from the tag. That's why the committed versions
+don't have to be correct.
+
+### Why `ubuntu-22.04` and not `ubuntu-latest`
+
+The binary links against the builder's glibc. Built on 24.04 (glibc 2.39) it refuses to
+start on Debian 12 or Ubuntu 22.04 with a `GLIBC_2.38 not found` error. 22.04 ships
+glibc 2.35, which covers every currently supported distro. Moving this forward drops
+users; do it deliberately, not by following the runner label.
+
+### Why Linux updates are AppImage-only
+
+`latest.json` carries `linux-x86_64` pointing at the AppImage, because that's the only
+Linux format Tauri's updater can replace in place. A `.deb` or `.rpm` install lives in
+`/usr/bin` and is owned by the package database — the app detects that case at runtime
+(via the `APPIMAGE` environment variable, which only a running AppImage sets) and
+offers a download instead of an install. See `install_method()` in
+`src-tauri/src/updater/mod.rs`.
 
 The release stays a **draft** until every job succeeds. A failure part-way leaves a
 draft release with partial assets — see [Recovering](#recovering-from-a-failed-run).
@@ -103,7 +125,11 @@ present-and-empty is exactly right. For `APPLE_CERTIFICATE`, present-and-empty i
 fatal. "Wire it up now, add the secret later" works for the first and breaks the
 second.
 
-### `FigyTerm_<version>_<arch>.app.tar.gz.sig is missing from the release`
+### `<artifact>.sig is missing from the release`
+
+Raised by `updater-manifest` for whichever artifact it couldn't find a signature for —
+`FigyTerm_<version>_<arch>.app.tar.gz` on macOS, `FigyTerm_<version>_amd64.AppImage` on
+Linux.
 
 **Cause:** `TAURI_SIGNING_PRIVATE_KEY` isn't set, so the bundler produced no updater
 signature.

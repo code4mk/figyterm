@@ -226,6 +226,13 @@ fn apply_native_webview_theme(_view: &tauri::Webview, _theme: &str) {}
 
 /// Child WKWebViews default to autoresizing with the parent window, which makes them
 /// grow over the React browser chrome. Pin them to the explicit bounds we set instead.
+///
+/// This is a macOS quirk: it's `NSView`'s autoresizing mask doing it. Under
+/// WebKitGTK the child sits in a fixed container that doesn't resize its
+/// children, so there should be nothing to undo — but that's reasoning, not a
+/// measurement. Resizing the window with the browser modal open is the check
+/// (see `docs/LINUX-TASKS.md`); if the webview creeps over the chrome there,
+/// this is where the GTK equivalent belongs.
 fn configure_child_webview(view: &tauri::Webview) {
     let _ = view.with_webview(|platform| {
         #[cfg(target_os = "macos")]
