@@ -650,3 +650,34 @@ by hand. The release-notes template says so.
 cannot be *removed* from the browser path; it can only be *avoided* by not using a
 browser. That makes `curl | sh` the primary install route rather than a convenience,
 and the README is ordered accordingly.
+
+---
+
+## 11. Linux — where the model forks
+
+Everything above describes macOS, where there is exactly one install shape (a `.app`
+bundle) and it can always be replaced. Linux has three, and only one of them can:
+
+| Format | Updates |
+|---|---|
+| AppImage | In place, same as macOS — Tauri's updater swaps the file |
+| `.deb` / `.rpm` | Discovery only: FigyTerm reports the new version and links the download |
+
+The reason is ownership, not capability. A package install puts the binary in `/usr/bin`
+and records it in the package database; rewriting it would need root and would leave
+`apt`/`dnf` describing a version that is no longer there. So the app detects its own
+install shape at startup — `install_method()` in `src-tauri/src/updater/mod.rs`, which
+reads the `APPIMAGE` environment variable that only a running AppImage sets — and
+`UpdateInfo.installMethod` carries the answer to the UI. On a managed install the modal
+never renders an Install button.
+
+Two smaller consequences:
+
+- **Asset matching.** `asset_for_current_target()` looks for `.AppImage` on Linux and
+  `.dmg` on macOS. The `.deb` and `.rpm` are deliberately not offered as downloads from
+  inside the app: pointing at one would be offering an install FigyTerm can't complete.
+- **`latest.json`.** The manifest's `linux-x86_64` entry points at the AppImage and its
+  signature. A package-managed install never reaches the updater endpoint at all.
+
+Nothing about Gatekeeper, quarantine or `xattr` applies on Linux — that entire section
+of this document is macOS-only.

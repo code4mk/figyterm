@@ -3,6 +3,7 @@ import { Terminal, Folder, Sun, Moon, Circle, Settings, Cpu, MemoryStick, Activi
 import { useThemeStore } from "../../stores/themeStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { invoke } from "@tauri-apps/api/core";
+import { SHORTCUTS, text } from "../../services/shortcuts";
 
 interface StatusBarProps {
   cwd: string;
@@ -135,7 +136,7 @@ export function StatusBar({
         <button
           onClick={onOpenMonitor}
           className="flex items-center gap-1 h-5 px-1.5 rounded hover:bg-ft-elevated transition-colors"
-          title="System Monitor (⌘⇧M)"
+          title={`System Monitor (${text(SHORTCUTS.monitor)})`}
         >
           <Activity size={10} className="text-ft-text-muted" />
         </button>
@@ -167,7 +168,7 @@ export function StatusBar({
         <button
           onClick={onOpenSettings}
           className="flex items-center justify-center w-5 h-5 rounded hover:bg-ft-elevated transition-colors"
-          title="Settings (⌘,)"
+          title={`Settings (${text(SHORTCUTS.settings)})`}
         >
           <Settings size={11} className="text-ft-text-muted hover:text-ft-text" />
         </button>

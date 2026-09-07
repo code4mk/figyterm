@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <strong>A modern, intelligent terminal for macOS with autocomplete superpowers.</strong>
+  <strong>A modern, intelligent terminal for macOS and Linux with autocomplete superpowers.</strong>
 </p>
 
 <p align="center">
@@ -42,12 +42,13 @@ Inspired by [Fig](https://fig.io) (now part of AWS), FigyTerm is an open-source 
 
 ## Installation
 
-macOS only. Two ways to install — see the
+macOS (Apple Silicon and Intel) and Linux (x86_64) — see the
 [installation guide](docs/INSTALLATION.md) for the full details.
 
-Either way, **you only install once**: FigyTerm updates itself from then on.
+**You only install once**: FigyTerm updates itself from then on. (The one exception is
+a Linux `.deb`/`.rpm`, which stays with your package manager.)
 
-### Option 1 — install script (recommended)
+### macOS — Option 1: install script (recommended)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/code4mk/figyterm/main/install.sh | sh
@@ -59,7 +60,7 @@ downloads the right build, and installs to `/Applications`.
 [Read the script first](install.sh) — you should read anything you pipe to a shell. It
 touches a temp directory and `FigyTerm.app`, nothing else.
 
-### Option 2 — download the .dmg manually
+### macOS — Option 2: download the .dmg manually
 
 1. Download the build for your Mac from [Releases](https://github.com/code4mk/figyterm/releases):
    `aarch64` for Apple Silicon, `x64` for Intel
@@ -78,6 +79,23 @@ opened"*, which sounds alarming but only means the app is unsigned.
 If macOS still blocks it, open **System Settings → Privacy & Security**, scroll down,
 and click **Open Anyway**. (On macOS 15 and later this is the only way through — Apple
 removed the old right-click → Open shortcut.)
+
+### Linux
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/code4mk/figyterm/main/install-linux.sh | sh
+```
+
+Installs the AppImage to `~/.local/bin` with a desktop entry.
+[Read the script first](install-linux.sh).
+
+Or take a package from [Releases](https://github.com/code4mk/figyterm/releases):
+`sudo apt install ./FigyTerm_*_amd64.deb`, `sudo dnf install ./FigyTerm-*.x86_64.rpm`.
+No Gatekeeper, no quarantine, no `xattr` — none of that exists here.
+
+The AppImage is the build that updates itself; a distro package is your package
+manager's to update. If the window comes up blank on Nvidia or older Mesa drivers, start
+it with `WEBKIT_DISABLE_DMABUF_RENDERER=1`.
 
 <details>
 <summary>Why does Option 1 skip that step?</summary>
@@ -168,28 +186,35 @@ After install:
 
 ## Keyboard Shortcuts
 
-| Shortcut | Action |
-|----------|--------|
-| `⌘ T` | New tab |
-| `⌘ ⇧ T` | New tab (same directory as active tab) |
-| `⌘ ⇧ W` | Close active pane |
-| `⌘ D` | Split pane horizontally |
-| `⌘ ⇧ D` | Split pane vertically |
-| `⌘ K` | Clear terminal |
-| `⌘ F` | Find in terminal |
-| `⌘ R` | Search command history |
-| `⌘ ⇧ B` | Open browser |
-| `⌘ ⇧ M` | System monitor |
-| `⌘ ⇧ P` | Command palette |
-| `⌘ ,` | Settings |
-| `⌘ 1-9` | Switch to tab N |
-| `⌘ ⇧ [` | Previous tab |
-| `⌘ ⇧ ]` | Next tab |
-| `Tab` | Accept autocomplete suggestion |
-| `↑ ↓` | Navigate suggestions |
-| `Esc` | Dismiss suggestions |
+| macOS | Linux | Action |
+|-------|-------|--------|
+| `⌘ T` | `Ctrl+Shift+T` | New tab |
+| `⌘ ⇧ T` | `Ctrl+Alt+T` | New tab (same directory as active tab) |
+| `⌘ ⇧ W` | `Ctrl+Shift+W` | Close active pane |
+| `⌘ D` | `Ctrl+Shift+D` | Split pane horizontally |
+| `⌘ ⇧ D` | `Ctrl+Alt+D` | Split pane vertically |
+| `⌘ K` | `Ctrl+Shift+K` | Clear terminal |
+| `⌘ F` | `Ctrl+Shift+F` | Find in terminal |
+| `⌘ R` | `Ctrl+Shift+R` | Search command history |
+| `⌘ C` | `Ctrl+Shift+C` | Copy selection |
+| `⌘ V` | `Ctrl+Shift+V` | Paste |
+| `⌘ ⇧ B` | `Ctrl+Shift+B` | Open browser |
+| `⌘ ⇧ M` | `Ctrl+Shift+M` | System monitor |
+| `⌘ ⇧ P` | `Ctrl+Shift+P` | Command palette |
+| `⌘ ,` | `Ctrl+,` | Settings |
+| `⌘ 1-9` | `Ctrl+1-9` | Switch to tab N |
+| `⌘ ⇧ [` | `Ctrl+Shift+[` | Previous tab |
+| `⌘ ⇧ ]` | `Ctrl+Shift+]` | Next tab |
+| `Tab` | `Tab` | Accept autocomplete suggestion |
+| `↑ ↓` | `↑ ↓` | Navigate suggestions |
+| `Esc` | `Esc` | Dismiss suggestions |
 
-Shell-native shortcuts (`Ctrl+C`, `Ctrl+D`, `Ctrl+Z`, `Ctrl+L`) pass through directly.
+Shell-native shortcuts (`Ctrl+C`, `Ctrl+D`, `Ctrl+Z`, `Ctrl+L`, `Ctrl+R`) pass through
+directly. That's why the Linux column uses `Ctrl+Shift` rather than plain `Ctrl`, the
+same as GNOME Terminal and Konsole: a bare `Ctrl`+letter belongs to the shell, and an
+app shortcut that took it would break the terminal it's wrapped around. The two chords
+that would collide (`Ctrl+Shift+T` and `Ctrl+Shift+D` are already taken) fall back to
+`Ctrl+Alt`.
 
 ## Supported Command Specs
 

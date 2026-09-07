@@ -3,7 +3,8 @@ import { useState, useEffect, useRef } from "react";
 interface Command {
   id: string;
   label: string;
-  shortcut?: string;
+  /** One entry per key chip, already spelled for this platform. */
+  shortcut?: string[];
   action: () => void;
 }
 
@@ -13,38 +14,12 @@ interface CommandPaletteProps {
   commands: Command[];
 }
 
-const MODIFIER_KEYS = new Set(["⌘", "⇧", "⌥", "⌃"]);
-
-function parseShortcut(shortcut: string): string[] {
-  const keys: string[] = [];
-  let i = 0;
-
-  while (i < shortcut.length) {
-    const ch = shortcut[i];
-
-    if (MODIFIER_KEYS.has(ch)) {
-      keys.push(ch);
-      i += 1;
-      continue;
-    }
-
-    if (shortcut.slice(i, i + 3) === "Tab") {
-      keys.push("Tab");
-      i += 3;
-      continue;
-    }
-
-    keys.push(ch);
-    i += 1;
-  }
-
-  return keys;
-}
-
-function ShortcutKeys({ shortcut }: { shortcut: string }) {
+// Keys arrive pre-split rather than packed into one string: a macOS shortcut can
+// be taken apart character by character, but `Ctrl+Shift+P` cannot.
+function ShortcutKeys({ keys }: { keys: string[] }) {
   return (
     <div className="flex items-center gap-1 flex-shrink-0">
-      {parseShortcut(shortcut).map((key, index) => (
+      {keys.map((key, index) => (
         <kbd
           key={`${key}-${index}`}
           className="palette-kbd inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 text-[10px] font-medium rounded-md font-mono"
@@ -141,7 +116,7 @@ export function CommandPalette({ isOpen, onClose, commands }: CommandPaletteProp
               onMouseEnter={() => setSelectedIndex(idx)}
             >
               <span className="flex-1 min-w-0 text-[13px] truncate">{cmd.label}</span>
-              {cmd.shortcut && <ShortcutKeys shortcut={cmd.shortcut} />}
+              {cmd.shortcut && <ShortcutKeys keys={cmd.shortcut} />}
             </div>
           ))}
           {filtered.length === 0 && (

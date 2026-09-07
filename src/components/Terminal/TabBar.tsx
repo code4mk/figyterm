@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, Fragment, useCallback } from "react";
 import { Dialog, Transition } from "@headlessui/react";
 import { TerminalSquare, X, Plus, Pencil, Columns2, ChevronLeft, ChevronRight } from "lucide-react";
+import { SHORTCUTS, text } from "../../services/shortcuts";
 
 interface Tab {
   id: string;
@@ -154,7 +155,7 @@ export function TabBar({ tabs, onTabClick, onTabClose, onNewTab, onRenameTab, on
               onClick={onPrevTab}
               disabled={!canPrev}
               className={`tab-nav-btn flex items-center justify-center w-5 h-5 rounded transition-colors ${!canPrev ? "opacity-25 cursor-default" : ""}`}
-              title="Previous Tab (⌘⇧[)"
+              title={`Previous Tab (${text(SHORTCUTS.prevTab)})`}
             >
               <ChevronLeft size={12} />
             </button>
@@ -162,7 +163,7 @@ export function TabBar({ tabs, onTabClick, onTabClose, onNewTab, onRenameTab, on
               onClick={onNextTab}
               disabled={!canNext}
               className={`tab-nav-btn flex items-center justify-center w-5 h-5 rounded transition-colors ${!canNext ? "opacity-25 cursor-default" : ""}`}
-              title="Next Tab (⌘⇧])"
+              title={`Next Tab (${text(SHORTCUTS.nextTab)})`}
             >
               <ChevronRight size={12} />
             </button>
@@ -250,7 +251,7 @@ export function TabBar({ tabs, onTabClick, onTabClose, onNewTab, onRenameTab, on
         <button
           onClick={onNewTab}
           className="tab-new-btn flex items-center justify-center w-7 h-[30px] ml-1 mb-[1px] rounded-md transition-all duration-100 flex-shrink-0 no-drag"
-          title="New Tab (⌘T)"
+          title={`New Tab (${text(SHORTCUTS.newTab)})`}
         >
           <Plus size={13} strokeWidth={2} />
         </button>

@@ -16,6 +16,8 @@ import { isDragging } from "./SplitHandle";
 import { recordDirUsage, sortByRecency, setHomeDir } from "../../services/recent-dirs";
 import { Search, ChevronUp, ChevronDown, X } from "lucide-react";
 import { HistorySearch } from "./HistorySearch";
+import { SHORTCUTS, matches } from "../../services/shortcuts";
+import { isMac } from "../../services/platform";
 
 const DARK_THEME: ITheme = {
   background: "#1a1d23",
@@ -506,6 +508,24 @@ export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, o
     if (clearRef) clearRef.current = clearTerminal;
   }, [clearRef, clearTerminal]);
 
+  /**
+   * Writes the clipboard straight to the PTY. Only needed off macOS, where the
+   * paste chord (Ctrl+Shift+V) isn't one the webview acts on by itself.
+   */
+  const pasteFromClipboard = useCallback(async () => {
+    if (!sessionIdRef.current) return;
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text) return;
+      await invoke("write_terminal_session", {
+        sessionId: sessionIdRef.current,
+        data: Array.from(new TextEncoder().encode(text)),
+      });
+    } catch {
+      // Clipboard access can be refused; nothing useful to say about it here.
+    }
+  }, []);
+
   const initTerminal = useCallback(async () => {
     if (initStarted.current || !containerRef.current) return;
     initStarted.current = true;
@@ -546,27 +566,40 @@ export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, o
     searchAddonRef.current = searchAddon;
 
     xterm.attachCustomKeyEventHandler((event) => {
-      // Cmd+F / Ctrl+F: open search
-      if ((event.metaKey || event.ctrlKey) && event.key === "f" && event.type === "keydown") {
+      if (event.type !== "keydown") return true;
+
+      if (matches(event, SHORTCUTS.find)) {
         openSearch();
         return false;
       }
-      // Cmd+R: open history search
-      if (event.metaKey && event.key === "r" && event.type === "keydown") {
+
+      if (matches(event, SHORTCUTS.history)) {
         setShowHistory(true);
         return false;
       }
-      // Ctrl+C / Cmd+C: copy if selection, otherwise SIGINT
-      if ((event.ctrlKey || event.metaKey) && event.key === "c" && event.type === "keydown") {
+
+      // Copy the selection, if there is one. Without one the chord means
+      // nothing to the app, so it falls through — which on macOS is how ⌃C
+      // still reaches the shell as SIGINT.
+      if (matches(event, SHORTCUTS.copy)) {
         if (xterm.hasSelection()) {
           navigator.clipboard.writeText(xterm.getSelection());
           return false;
         }
         return true;
       }
-      if (event.metaKey && event.key === "v") {
+
+      if (matches(event, SHORTCUTS.paste)) {
+        // macOS routes ⌘V through the webview's own paste handling. Ctrl+Shift+V
+        // is not a webview binding, so off macOS the paste has to be performed
+        // here or nothing happens at all.
+        if (!isMac) {
+          pasteFromClipboard();
+          return false;
+        }
         return true;
       }
+
       return true;
     });
 

@@ -36,6 +36,25 @@ const EVENT_COMMAND_PALETTE: &str = "menu://command-palette";
 const EVENT_SETTINGS: &str = "menu://settings";
 const EVENT_CHECK_UPDATES: &str = "menu://check-updates";
 
+/// An accelerator spelled for the platform it runs on.
+///
+/// macOS can give the app ⌘ and leave Ctrl to the shell. Nothing else has a ⌘,
+/// and a bare Ctrl+letter is already the shell's — Ctrl+C interrupts, Ctrl+D is
+/// EOF, Ctrl+K kills the line — so binding one in the menu would take it away
+/// from the terminal underneath. Off macOS the app uses Ctrl+Shift instead,
+/// exactly as GNOME Terminal and Konsole do, and Ctrl+Alt where a macOS ⌘X/⌘⇧X
+/// pair would otherwise collapse onto the same chord.
+///
+/// This mirrors `src/services/shortcuts.ts`, which spells the same bindings for
+/// the in-app handlers and the labels. Change one, change the other.
+fn accel(mac: &str, other: &str) -> Option<String> {
+    Some(if cfg!(target_os = "macos") {
+        mac.to_string()
+    } else {
+        other.to_string()
+    })
+}
+
 pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let pkg_info = app.package_info();
     let config = app.config();
@@ -52,70 +71,70 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         MENU_NEW_TAB,
         "New Tab",
         true,
-        Some("CmdOrCtrl+T"),
+        accel("CmdOrCtrl+T", "Ctrl+Shift+T"),
     )?;
     let new_tab_same_dir = MenuItem::with_id(
         app,
         MENU_NEW_TAB_SAME_DIR,
         "New Tab in Same Directory",
         true,
-        Some("CmdOrCtrl+Shift+T"),
+        accel("CmdOrCtrl+Shift+T", "Ctrl+Alt+T"),
     )?;
     let split_right = MenuItem::with_id(
         app,
         MENU_SPLIT_RIGHT,
         "Split Pane Right",
         true,
-        Some("CmdOrCtrl+D"),
+        accel("CmdOrCtrl+D", "Ctrl+Shift+D"),
     )?;
     let split_down = MenuItem::with_id(
         app,
         MENU_SPLIT_DOWN,
         "Split Pane Down",
         true,
-        Some("CmdOrCtrl+Shift+D"),
+        accel("CmdOrCtrl+Shift+D", "Ctrl+Alt+D"),
     )?;
     let close_pane = MenuItem::with_id(
         app,
         MENU_CLOSE_PANE,
         "Close Pane",
         true,
-        Some("CmdOrCtrl+Shift+W"),
+        accel("CmdOrCtrl+Shift+W", "Ctrl+Shift+W"),
     )?;
     let clear_terminal = MenuItem::with_id(
         app,
         MENU_CLEAR_TERMINAL,
         "Clear Terminal",
         true,
-        Some("CmdOrCtrl+K"),
+        accel("CmdOrCtrl+K", "Ctrl+Shift+K"),
     )?;
     let browser = MenuItem::with_id(
         app,
         MENU_BROWSER,
         "Browser",
         true,
-        Some("CmdOrCtrl+Shift+B"),
+        accel("CmdOrCtrl+Shift+B", "Ctrl+Shift+B"),
     )?;
     let monitor = MenuItem::with_id(
         app,
         MENU_MONITOR,
         "System Monitor",
         true,
-        Some("CmdOrCtrl+Shift+M"),
+        accel("CmdOrCtrl+Shift+M", "Ctrl+Shift+M"),
     )?;
     let command_palette = MenuItem::with_id(
         app,
         MENU_COMMAND_PALETTE,
         "Command Palette",
         true,
-        Some("CmdOrCtrl+Shift+P"),
+        accel("CmdOrCtrl+Shift+P", "Ctrl+Shift+P"),
     )?;
     let settings = MenuItem::with_id(
         app,
         MENU_SETTINGS,
         "Settings…",
         true,
-        Some("CmdOrCtrl+,"),
+        accel("CmdOrCtrl+,", "Ctrl+,"),
     )?;
 
     // macOS convention puts this directly under "About", with no accelerator.

@@ -19,8 +19,22 @@ import {
 } from "../Terminal/PaneContainer";
 import { useTerminalStore } from "../../stores/terminalStore";
 import { TerminalSession } from "../../types/terminal";
+import { SHORTCUTS, keys, matches } from "../../services/shortcuts";
+import { isMac } from "../../services/platform";
 
 const MAX_PANES_PER_TAB = 4;
+
+/**
+ * ⌘1-9 / Ctrl+1-9 jumps to a tab by position. It lives here rather than in the
+ * shortcut table because it's a range of keys, not one — but the modifier has to
+ * agree with the table: plain ⌘ on macOS, plain Ctrl elsewhere (digits are not
+ * something the shell claims, so they don't need Ctrl+Shift).
+ */
+function isTabNumber(event: KeyboardEvent): boolean {
+  const modifier = isMac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+  if (!modifier || event.shiftKey || event.altKey) return false;
+  return event.key >= "1" && event.key <= "9";
+}
 
 interface TabInstance {
   id: string;
@@ -323,52 +337,49 @@ export function AppShell() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const isMod = e.metaKey || e.ctrlKey;
-
-      if (isMod && e.shiftKey && (e.key === "T" || e.key === "t")) {
+      if (matches(e, SHORTCUTS.newTabSameDir)) {
         e.preventDefault();
         handleNewTabInSameDir();
-      } else if (isMod && e.key === "t" && !e.shiftKey) {
+      } else if (matches(e, SHORTCUTS.newTab)) {
         e.preventDefault();
         handleNewTab();
-      } else if (isMod && e.shiftKey && (e.key === "W" || e.key === "w")) {
+      } else if (matches(e, SHORTCUTS.closePane)) {
         e.preventDefault();
         handleClosePane();
-      } else if (isMod && e.key === "k") {
+      } else if (matches(e, SHORTCUTS.clearTerminal)) {
         e.preventDefault();
         handleClearTerminal();
-      } else if (isMod && e.shiftKey && (e.key === "P" || e.key === "p")) {
+      } else if (matches(e, SHORTCUTS.commandPalette)) {
         e.preventDefault();
         setCommandPaletteOpen((open) => !open);
-      } else if (isMod && e.key === "Tab") {
-        e.preventDefault();
-        if (e.shiftKey) {
-          switchToPreviousTab();
-        } else {
-          switchToNextTab();
-        }
-      } else if (isMod && e.key === ",") {
-        e.preventDefault();
-        setSettingsOpen(true);
-      } else if (isMod && e.shiftKey && (e.key === "M" || e.key === "m")) {
-        e.preventDefault();
-        setMonitorOpen((prev) => !prev);
-      } else if (isMod && e.shiftKey && (e.key === "B" || e.key === "b")) {
-        e.preventDefault();
-        setBrowserOpen((prev) => !prev);
-      } else if (isMod && e.key === "d" && !e.shiftKey) {
-        e.preventDefault();
-        handleSplitPane("horizontal");
-      } else if (isMod && e.shiftKey && (e.key === "D" || e.key === "d")) {
-        e.preventDefault();
-        handleSplitPane("vertical");
-      } else if (isMod && e.shiftKey && e.key === "[") {
+      } else if (matches(e, SHORTCUTS.cycleTabBack)) {
         e.preventDefault();
         switchToPreviousTab();
-      } else if (isMod && e.shiftKey && e.key === "]") {
+      } else if (matches(e, SHORTCUTS.cycleTab)) {
         e.preventDefault();
         switchToNextTab();
-      } else if (isMod && !e.shiftKey && e.key >= "1" && e.key <= "9") {
+      } else if (matches(e, SHORTCUTS.settings)) {
+        e.preventDefault();
+        setSettingsOpen(true);
+      } else if (matches(e, SHORTCUTS.monitor)) {
+        e.preventDefault();
+        setMonitorOpen((prev) => !prev);
+      } else if (matches(e, SHORTCUTS.browser)) {
+        e.preventDefault();
+        setBrowserOpen((prev) => !prev);
+      } else if (matches(e, SHORTCUTS.splitDown)) {
+        e.preventDefault();
+        handleSplitPane("vertical");
+      } else if (matches(e, SHORTCUTS.splitRight)) {
+        e.preventDefault();
+        handleSplitPane("horizontal");
+      } else if (matches(e, SHORTCUTS.prevTab)) {
+        e.preventDefault();
+        switchToPreviousTab();
+      } else if (matches(e, SHORTCUTS.nextTab)) {
+        e.preventDefault();
+        switchToNextTab();
+      } else if (isTabNumber(e)) {
         e.preventDefault();
         const tabNum = parseInt(e.key, 10) - 1;
         if (tabNum < tabs.length) {
@@ -399,17 +410,17 @@ export function AppShell() {
   const activePaneSession = activeTab?.sessions[activePaneId || ""];
 
   const commands = [
-    { id: "new-terminal", label: "New Terminal", shortcut: "⌘T", action: handleNewTab },
-    { id: "new-terminal-same-dir", label: "New Terminal in Same Directory", shortcut: "⌘⇧T", action: handleNewTabInSameDir },
-    { id: "split-right", label: "Split Right", shortcut: "⌘D", action: () => handleSplitPane("horizontal") },
-    { id: "split-down", label: "Split Down", shortcut: "⌘⇧D", action: () => handleSplitPane("vertical") },
-    { id: "close-pane", label: "Close Pane", shortcut: "⌘⇧W", action: handleClosePane },
-    { id: "clear-terminal", label: "Clear Terminal", shortcut: "⌘K", action: handleClearTerminal },
-    { id: "next-tab", label: "Next Tab", shortcut: "⌘Tab", action: switchToNextTab },
-    { id: "prev-tab", label: "Previous Tab", shortcut: "⌘⇧Tab", action: switchToPreviousTab },
-    { id: "browser", label: "Open Browser", shortcut: "⌘⇧B", action: () => setBrowserOpen(true) },
-    { id: "monitor", label: "System Monitor", shortcut: "⌘⇧M", action: () => setMonitorOpen(true) },
-    { id: "settings", label: "Settings", shortcut: "⌘,", action: () => setSettingsOpen(true) },
+    { id: "new-terminal", label: "New Terminal", shortcut: keys(SHORTCUTS.newTab), action: handleNewTab },
+    { id: "new-terminal-same-dir", label: "New Terminal in Same Directory", shortcut: keys(SHORTCUTS.newTabSameDir), action: handleNewTabInSameDir },
+    { id: "split-right", label: "Split Right", shortcut: keys(SHORTCUTS.splitRight), action: () => handleSplitPane("horizontal") },
+    { id: "split-down", label: "Split Down", shortcut: keys(SHORTCUTS.splitDown), action: () => handleSplitPane("vertical") },
+    { id: "close-pane", label: "Close Pane", shortcut: keys(SHORTCUTS.closePane), action: handleClosePane },
+    { id: "clear-terminal", label: "Clear Terminal", shortcut: keys(SHORTCUTS.clearTerminal), action: handleClearTerminal },
+    { id: "next-tab", label: "Next Tab", shortcut: keys(SHORTCUTS.cycleTab), action: switchToNextTab },
+    { id: "prev-tab", label: "Previous Tab", shortcut: keys(SHORTCUTS.cycleTabBack), action: switchToPreviousTab },
+    { id: "browser", label: "Open Browser", shortcut: keys(SHORTCUTS.browser), action: () => setBrowserOpen(true) },
+    { id: "monitor", label: "System Monitor", shortcut: keys(SHORTCUTS.monitor), action: () => setMonitorOpen(true) },
+    { id: "settings", label: "Settings", shortcut: keys(SHORTCUTS.settings), action: () => setSettingsOpen(true) },
     { id: "check-updates", label: "Check for Updates", action: handleOpenUpdates },
   ];
 

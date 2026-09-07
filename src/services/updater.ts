@@ -8,6 +8,15 @@ export type UpdateStatus =
   /** Installed version is newer than any release — a local dev build, not an error. */
   | "dev-build";
 
+/**
+ * Whether this install can replace itself.
+ *
+ * A macOS `.app` and a Linux AppImage can; a `.deb`/`.rpm` install cannot — its
+ * files are in `/usr` and belong to the package database, so the app must leave
+ * them to `apt`/`dnf` and offer nothing more than a download.
+ */
+export type InstallMethod = "self-updating" | "managed";
+
 export interface UpdateInfo {
   status: UpdateStatus;
   currentVersion: string;
@@ -17,6 +26,7 @@ export interface UpdateInfo {
   releaseNotes: string;
   releaseUrl: string;
   publishedAt: string | null;
+  installMethod: InstallMethod;
   downloadUrl: string | null;
   downloadSize: number | null;
   assetName: string | null;
@@ -24,6 +34,8 @@ export interface UpdateInfo {
 }
 
 export const RELEASES_URL = "https://github.com/code4mk/figyterm/releases";
+
+/** macOS only: clears the quarantine flag a browser download leaves behind. */
 export const XATTR_COMMAND = "xattr -cr /Applications/FigyTerm.app";
 
 /**

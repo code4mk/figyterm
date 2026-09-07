@@ -5,6 +5,60 @@ use std::thread;
 
 use super::session::{SessionStatus, TerminalSession};
 
+/// Variables inherited verbatim by the login shell when they are set.
+///
+/// The spawn below clears the environment on purpose, to match how Terminal.app
+/// starts a shell. On macOS nothing is lost — the window server and launchd are
+/// reachable without any of this. On Linux these variables *are* the session:
+/// clear them and the shell can no longer find the display, the session bus or
+/// the user runtime dir, so `xdg-open`, GUI editors, clipboard tools,
+/// `notify-send` and `systemctl --user` all fail inside FigyTerm while working
+/// in every other terminal.
+#[cfg(target_os = "linux")]
+const SESSION_PASSTHROUGH: &[&str] = &[
+    "DISPLAY",
+    "WAYLAND_DISPLAY",
+    "XAUTHORITY",
+    "XDG_RUNTIME_DIR",
+    "XDG_SESSION_TYPE",
+    "XDG_SESSION_CLASS",
+    "XDG_CURRENT_DESKTOP",
+    "XDG_DATA_DIRS",
+    "XDG_CONFIG_DIRS",
+    "DBUS_SESSION_BUS_ADDRESS",
+];
+
+#[cfg(not(target_os = "linux"))]
+const SESSION_PASSTHROUGH: &[&str] = &[];
+
+/// The PATH a login shell starts with. User config is sourced afterwards and can
+/// extend it, so this only has to cover the system defaults.
+///
+/// Linux additionally keeps whatever the desktop session already had: Nix,
+/// Homebrew-on-Linux and distro-specific prefixes all live there and no fixed
+/// list can predict them. macOS doesn't need the same treatment — its login
+/// shell runs `path_helper`, which rebuilds PATH from `/etc/paths` regardless.
+fn build_path(home: &str) -> String {
+    let mut path = String::from("/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin");
+
+    #[cfg(not(target_os = "macos"))]
+    path.push_str(":/usr/games");
+
+    path.push_str(&format!(":{}/.local/bin", home));
+
+    #[cfg(not(target_os = "macos"))]
+    if let Ok(inherited) = std::env::var("PATH") {
+        for entry in inherited.split(':').filter(|entry| !entry.is_empty()) {
+            if !path.split(':').any(|existing| existing == entry) {
+                path.push(':');
+                path.push_str(entry);
+            }
+        }
+    }
+
+    path
+}
+
 pub struct PtyInstance {
     pub session: TerminalSession,
     pub master: Arc<Mutex<Box<dyn MasterPty + Send>>>,
@@ -47,17 +101,11 @@ impl PtyInstance {
         let user = std::env::var("USER").unwrap_or_else(|_| "user".to_string());
         let lang = std::env::var("LANG").unwrap_or_else(|_| "en_US.UTF-8".to_string());
 
-        // Build a clean PATH from system defaults
-        let default_path = format!(
-            "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:{}/.local/bin",
-            home
-        );
-
         cmd.env_clear();
         cmd.env("HOME", &home);
         cmd.env("USER", &user);
         cmd.env("SHELL", &shell);
-        cmd.env("PATH", &default_path);
+        cmd.env("PATH", build_path(&home));
         cmd.env("LANG", &lang);
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
@@ -66,6 +114,12 @@ impl PtyInstance {
         cmd.env("TMPDIR", std::env::var("TMPDIR").unwrap_or_else(|_| "/tmp".to_string()));
         // Suppress the '%' mark zsh shows when previous output lacks trailing newline
         cmd.env("PROMPT_EOL_MARK", "");
+
+        for key in SESSION_PASSTHROUGH {
+            if let Ok(value) = std::env::var(key) {
+                cmd.env(key, value);
+            }
+        }
 
         // The child handle is dropped as before (dropping it does not kill the
         // process); only its pid is kept, to tell an idle prompt from a running
