@@ -20,7 +20,7 @@ import {
 import { useTerminalStore } from "../../stores/terminalStore";
 import { TerminalSession } from "../../types/terminal";
 import { SHORTCUTS, keys, matches } from "../../services/shortcuts";
-import { isMac } from "../../services/platform";
+import { isMac, EMBEDDED_BROWSER_SUPPORTED } from "../../services/platform";
 
 const MAX_PANES_PER_TAB = 4;
 
@@ -364,7 +364,7 @@ export function AppShell() {
       } else if (matches(e, SHORTCUTS.monitor)) {
         e.preventDefault();
         setMonitorOpen((prev) => !prev);
-      } else if (matches(e, SHORTCUTS.browser)) {
+      } else if (EMBEDDED_BROWSER_SUPPORTED && matches(e, SHORTCUTS.browser)) {
         e.preventDefault();
         setBrowserOpen((prev) => !prev);
       } else if (matches(e, SHORTCUTS.splitDown)) {
@@ -418,7 +418,10 @@ export function AppShell() {
     { id: "clear-terminal", label: "Clear Terminal", shortcut: keys(SHORTCUTS.clearTerminal), action: handleClearTerminal },
     { id: "next-tab", label: "Next Tab", shortcut: keys(SHORTCUTS.cycleTab), action: switchToNextTab },
     { id: "prev-tab", label: "Previous Tab", shortcut: keys(SHORTCUTS.cycleTabBack), action: switchToPreviousTab },
-    { id: "browser", label: "Open Browser", shortcut: keys(SHORTCUTS.browser), action: () => setBrowserOpen(true) },
+    // Absent on Linux, where the embedded browser can't be positioned at all.
+    ...(EMBEDDED_BROWSER_SUPPORTED
+      ? [{ id: "browser", label: "Open Browser", shortcut: keys(SHORTCUTS.browser), action: () => setBrowserOpen(true) }]
+      : []),
     { id: "monitor", label: "System Monitor", shortcut: keys(SHORTCUTS.monitor), action: () => setMonitorOpen(true) },
     { id: "settings", label: "Settings", shortcut: keys(SHORTCUTS.settings), action: () => setSettingsOpen(true) },
     { id: "check-updates", label: "Check for Updates", action: handleOpenUpdates },
@@ -481,10 +484,12 @@ export function AppShell() {
         visible={monitorOpen}
         onClose={() => setMonitorOpen(false)}
       />
-      <BrowserModal
-        visible={browserOpen}
-        onClose={() => setBrowserOpen(false)}
-      />
+      {EMBEDDED_BROWSER_SUPPORTED && (
+        <BrowserModal
+          visible={browserOpen}
+          onClose={() => setBrowserOpen(false)}
+        />
+      )}
       <UpdateModal
         isOpen={updatesOpen}
         onClose={() => setUpdatesOpen(false)}

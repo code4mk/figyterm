@@ -172,6 +172,51 @@ function unescapeToken(token: string): string {
   return token.replace(/\\(.)/g, "$1");
 }
 
+/** OSC — window titles and OSC 7, terminated by BEL or ST. */
+const OSC_SEQUENCE = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
+/** CSI — colours, cursor moves, erases. */
+const CSI_SEQUENCE = /\x1b\[[0-9;?]*[a-zA-Z]/g;
+/** Anything left over: lone ESC, BEL, and other C0 bytes that aren't \t \n \r. */
+const CONTROL_BYTE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g;
+
+/**
+ * Reads the working directory out of a chunk of terminal output.
+ *
+ * Two sources, most trustworthy first:
+ *
+ * 1. **OSC 7**, where the shell states its cwd outright. Unambiguous — and what
+ *    `pty.rs` asks bash to emit, so on Linux this is normally the one that hits.
+ * 2. **The prompt, scraped.** The fallback for shells that don't report, and it
+ *    only works on text with the escape sequences removed. Scraping the raw
+ *    bytes is what produced `~\x1b[01;32mubuntu@ubuntu\x1b[00m…` as a "path" on
+ *    Ubuntu: bash's default PS1 there sets a window title *and* colours the
+ *    prompt, so the greedy character class ran straight through both. That bad
+ *    path then broke `cd` completion too, since it's the base directory the
+ *    filesystem suggestions are resolved against.
+ *
+ * Returns null when the chunk says nothing about the directory, which is the
+ * common case — most output isn't a prompt.
+ */
+function parseCwd(chunk: string): string | null {
+  const osc7 = chunk.match(/\x1b\]7;file:\/\/[^/]*([^\x07\x1b]+)/);
+  if (osc7) {
+    try {
+      // Shells percent-encode non-ASCII paths here, as VTE's own helper does.
+      return decodeURIComponent(osc7[1]);
+    } catch {
+      return osc7[1];
+    }
+  }
+
+  const plain = chunk
+    .replace(OSC_SEQUENCE, "")
+    .replace(CSI_SEQUENCE, "")
+    .replace(CONTROL_BYTE, "");
+
+  const prompt = plain.match(/[:\s](~[^\s\]]*|\/[^\s\]]*)\s*[\]$%#>]\s*$/m);
+  return prompt ? prompt[1] : null;
+}
+
 export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, onCwdChange, clearRef, focusRef }: TerminalProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -622,11 +667,7 @@ export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, o
         const text = new TextDecoder().decode(data);
 
         // Track CWD
-        let newCwd = "";
-        const osc7 = text.match(/\x1b\]7;file:\/\/[^/]*([^\x07\x1b]+)/);
-        if (osc7) newCwd = osc7[1];
-        const promptCwd = text.match(/[:\s](~[^\s\]]*|\/[^\s\]]*)\s*[\]$%#>]\s*$/m);
-        if (promptCwd) newCwd = promptCwd[1];
+        const newCwd = parseCwd(text);
         if (newCwd && newCwd !== cwdRef.current) {
           cwdRef.current = newCwd;
           recordDirUsage(newCwd);

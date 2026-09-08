@@ -14,6 +14,19 @@ export function setHomeDir(home: string) {
   _homeDir = home;
 }
 
+/**
+ * `/home/ubuntu/src` → `~/src`, for display. The inverse of `normalize` below.
+ *
+ * Shells that report their directory over OSC 7 send an absolute path, while a
+ * scraped zsh prompt already reads `~/src`. Collapsing here keeps the status bar
+ * looking the same either way.
+ */
+export function collapseHome(path: string): string {
+  if (!path || !_homeDir) return path;
+  if (path === _homeDir) return "~";
+  return path.startsWith(`${_homeDir}/`) ? `~${path.slice(_homeDir.length)}` : path;
+}
+
 function normalize(p: string): string {
   if (!p) return p;
   let resolved = p;

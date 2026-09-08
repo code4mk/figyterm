@@ -235,6 +235,10 @@ fn apply_native_webview_theme(_view: &tauri::Webview, _theme: &str) {}
 /// this is where the GTK equivalent belongs.
 fn configure_child_webview(view: &tauri::Webview) {
     let _ = view.with_webview(|platform| {
+        // Nothing to undo off macOS; see the note above.
+        #[cfg(not(target_os = "macos"))]
+        let _ = platform;
+
         #[cfg(target_os = "macos")]
         unsafe {
             use objc2::msg_send;

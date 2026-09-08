@@ -56,8 +56,14 @@ fn accel(mac: &str, other: &str) -> Option<String> {
 }
 
 pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
+    // These three feed the app submenu and its About item, which exist only on
+    // macOS — elsewhere they'd be unused bindings, and the Linux build would
+    // warn about every one of them.
+    #[cfg(target_os = "macos")]
     let pkg_info = app.package_info();
+    #[cfg(target_os = "macos")]
     let config = app.config();
+    #[cfg(target_os = "macos")]
     let about_metadata = tauri::menu::AboutMetadata {
         name: Some(pkg_info.name.clone()),
         version: Some(pkg_info.version.to_string()),
@@ -108,6 +114,12 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         true,
         accel("CmdOrCtrl+K", "Ctrl+Shift+K"),
     )?;
+    // No Browser entry on Linux. The modal draws a native child webview under
+    // React chrome, and child webviews can't be positioned on GTK — the site
+    // lands outside the modal entirely. Upstream, still open:
+    // https://github.com/tauri-apps/tauri/issues/10420. Mirrored by
+    // EMBEDDED_BROWSER_SUPPORTED in src/services/platform.ts.
+    #[cfg(not(target_os = "linux"))]
     let browser = MenuItem::with_id(
         app,
         MENU_BROWSER,
@@ -185,6 +197,7 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
             &sep2,
             &clear_terminal,
             &sep3,
+            #[cfg(not(target_os = "linux"))]
             &browser,
             &monitor,
             &sep4,

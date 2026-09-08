@@ -121,6 +121,26 @@ impl PtyInstance {
             }
         }
 
+        // Ask bash to state its working directory outright, rather than leaving
+        // the UI to scrape it back out of the prompt.
+        //
+        // bash imports PROMPT_COMMAND from the environment and runs it before
+        // each prompt, which is how VTE's own shell integration does this. It's
+        // bash-only on purpose: zsh has no PROMPT_COMMAND (it needs a `precmd`
+        // defined in shell code, which would mean writing to the user's config),
+        // and macOS's default zsh prompt scrapes cleanly already. Ubuntu's bash
+        // is where scraping actually fell over — its default PS1 sets a window
+        // title *and* colours the prompt.
+        //
+        // A user whose own config sets PROMPT_COMMAND replaces this; the UI's
+        // prompt-scraping fallback still covers that case.
+        if shell.rsplit('/').next() == Some("bash") {
+            cmd.env(
+                "PROMPT_COMMAND",
+                r#"printf '\033]7;file://%s%s\033\\' "${HOSTNAME:-}" "$PWD""#,
+            );
+        }
+
         // The child handle is dropped as before (dropping it does not kill the
         // process); only its pid is kept, to tell an idle prompt from a running
         // command later.

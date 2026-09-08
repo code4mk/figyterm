@@ -29,10 +29,9 @@ Linux machine · `[ ]` todo
       resize its children, so there should be nothing to undo. Reasoned, not
       measured — the comment at `src-tauri/src/commands/browser.rs` records what
       to look for.
-- [ ] **Runtime spike on Linux** — open the browser modal, resize the window,
-      play a video. Confirms the child webview clips under the React chrome
-      rather than growing over it. This is the one item that could still change
-      the plan; if it fails, ship Linux with the modal hidden rather than broken.
+- [x] **Runtime spike on Linux** — done, and it failed: the site rendered
+      outside the modal entirely. Cause is upstream (see §8), and the modal is
+      now hidden on Linux.
 
 ## 3. Updater
 
@@ -112,7 +111,35 @@ Linux machine · `[ ]` todo
 - [x] **Release notes template** — the workflow's rendered notes now include
       Linux install instructions.
 
-## 8. Verification
+## 8. Found on Ubuntu 22.04 (first real run)
+
+- [x] **Status-bar path showed escape codes** — the footer read
+      `~\x1b[01;32mubuntu@ubuntu\x1b[00m…`. cwd was scraped from the raw PTY
+      stream, and Ubuntu's default bash PS1 sets a window title *and* colours the
+      prompt, so the path pattern ran straight through both. `parseCwd()` in
+      `Terminal.tsx` now strips OSC/CSI before scraping and prefers OSC 7.
+- [x] **`cd ` offered no completions** — same root cause, not a second bug: the
+      bad cwd was the base directory path suggestions resolve against, so
+      `list_path_completions` errored and the popup stayed empty.
+- [x] **bash now reports its directory** — `pty.rs` exports a `PROMPT_COMMAND`
+      that emits OSC 7, so Linux no longer depends on scraping at all. Verified
+      against bash on a PTY: it runs the inherited value and re-emits on `cd`.
+      A user config that sets its own `PROMPT_COMMAND` replaces it, which is what
+      the scraping fallback is still there for.
+- [x] **Embedded browser renders outside the modal** — the chrome drew in the
+      right place but the site was positioned below the window, ignoring the
+      bounds we set. Not our bug and not fixable here:
+      [tauri#10420](https://github.com/tauri-apps/tauri/issues/10420) — child
+      webview positioning is broken on Linux/GTK, still open. wry places a child
+      webview as a separate X11 window and moves it with `gtk_window.move_()`,
+      which doesn't land in parent-relative coordinates.
+      **Resolution:** hidden on Linux rather than shipped broken —
+      `EMBEDDED_BROWSER_SUPPORTED` in `src/services/platform.ts` gates the
+      modal, the palette entry, the shortcut and the settings row, and
+      `menu.rs` drops the menu item. Revisit when that issue closes; the
+      `#[cfg]`/flag pair is the only thing to remove.
+
+## 9. Verification
 
 - [x] **macOS regression pass** — `cargo check`, `cargo test --lib`, `tsc
       --noEmit` and `npm run build` all clean after the changes.
