@@ -151,7 +151,9 @@ pub struct PtyInstance {
     pub master: Arc<Mutex<Box<dyn MasterPty + Send>>>,
     pub writer: Arc<Mutex<Box<dyn Write + Send>>>,
     /// PID of the login shell itself. When the tty's foreground process group
-    /// leader differs from this, the user is running something.
+    /// leader differs from this, the user is running something. Unread on
+    /// Windows, where there are no process groups to compare it against.
+    #[cfg_attr(windows, allow(dead_code))]
     shell_pid: Option<u32>,
     shutdown: Arc<Mutex<bool>>,
 }
@@ -257,11 +259,26 @@ impl PtyInstance {
     /// `None` means idle (or undeterminable, which is treated as idle: a false
     /// "busy" would block updating forever, while a false "idle" only costs the
     /// user a confirmation they'd have clicked through anyway).
+    #[cfg(unix)]
     pub fn foreground_pid(&self) -> Option<u32> {
         let shell_pid = self.shell_pid?;
         let master = self.master.lock().ok()?;
         let leader = master.process_group_leader()? as u32;
         (leader != shell_pid).then_some(leader)
+    }
+
+    /// Always `None` on Windows.
+    ///
+    /// The question doesn't exist there: ConPTY has no process groups, and
+    /// `portable-pty` reflects that by declaring `process_group_leader` only
+    /// under `#[cfg(unix)]` — so this isn't a stub for something unimplemented,
+    /// it's the whole answer the platform can give.
+    ///
+    /// Callers read `None` as idle, which errs the safe way: the update flow
+    /// simply won't name a running command before restarting.
+    #[cfg(windows)]
+    pub fn foreground_pid(&self) -> Option<u32> {
+        None
     }
 
     pub fn write(&self, data: &[u8]) -> Result<(), String> {

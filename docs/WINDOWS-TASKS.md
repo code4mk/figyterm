@@ -9,8 +9,17 @@ Windows · `[ ]` todo
 Everything below marked `[x]` was written and type-checked, but **nothing has run
 on Windows**. The Rust Windows branches were compiled for
 `x86_64-pc-windows-msvc` in isolation (the full crate can't cross-check here —
-`ring` needs a Windows C toolchain), and the path logic is covered by unit tests
-that deliberately run on any host. §8 is the part that still needs a real box.
+`ring`, via the updater plugin, needs a Windows C toolchain), and the path logic
+is covered by unit tests that deliberately run on any host. §8 is the part that
+still needs a real box.
+
+That isolation has a known blind spot, and it has already cost one round trip:
+it checks the code *this port wrote*, not pre-existing code that the Windows
+target newly compiles. `foreground_pid()` calling a `#[cfg(unix)]` trait method
+was found by a real Windows build, not by anything here. A crate-wide audit for
+other unix-only APIs (`std::os::unix`, `libc`, `nix`, `PermissionsExt`, …) came
+back empty, so that was the only one — but the first real build is still the
+authority.
 
 ---
 
@@ -83,8 +92,9 @@ that deliberately run on any host. §8 is the part that still needs a real box.
       table (it shares Linux's `Ctrl+Shift` scheme).
 - [x] **`RELEASING.md`** — the Windows job and which artifact the updater uses.
 - [x] **Document the degradations** — the "a command is running" guard can't fire
-      on Windows (ConPTY has no process groups, so `foreground_pid()` always
-      returns `None`, which reads as idle).
+      on Windows: ConPTY has no process groups, and `portable-pty` declares
+      `process_group_leader` under `#[cfg(unix)]`, so `foreground_pid()` is
+      `#[cfg]`-split and returns `None` there. Callers read that as idle.
 
 ## 8. Verification
 
