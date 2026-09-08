@@ -913,6 +913,7 @@ name = "figy-term"
 version = "0.1.0"
 dependencies = [
  "env_logger",
+ "gtk",
  "log",
  "objc2",
  "objc2-app-kit",
@@ -927,6 +928,7 @@ dependencies = [
  "tauri-plugin-shell",
  "tauri-plugin-updater",
  "uuid",
+ "webkit2gtk",
 ]
 
 [[package]]

@@ -487,13 +487,23 @@ fn build_webview(
 
 fn apply_bounds(view: &tauri::Webview, bounds: Bounds) -> Result<(), String> {
     configure_child_webview(view);
-    view.set_position(LogicalPosition::new(bounds.x, bounds.y))
-        .map_err(|e| e.to_string())?;
-    view.set_size(LogicalSize::new(
-        bounds.width.max(1.0),
-        bounds.height.max(1.0),
-    ))
-    .map_err(|e| e.to_string())
+
+    // On Linux these two are no-ops — a child webview is parented to the
+    // window's vertical box, which ignores coordinates — so positioning goes
+    // through our own GtkFixed instead. See `browser_layout`.
+    #[cfg(target_os = "linux")]
+    return super::browser_layout::place(view, bounds);
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        view.set_position(LogicalPosition::new(bounds.x, bounds.y))
+            .map_err(|e| e.to_string())?;
+        view.set_size(LogicalSize::new(
+            bounds.width.max(1.0),
+            bounds.height.max(1.0),
+        ))
+        .map_err(|e| e.to_string())
+    }
 }
 
 #[tauri::command]

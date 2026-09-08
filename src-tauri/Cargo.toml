@@ -31,3 +31,11 @@ tauri-plugin-updater = "2"
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = ["NSAppearance"] }
+
+# For positioning the browser's child webviews, which Tauri can't do on GTK.
+# Versions and features match what tauri pulls in, so cargo unifies these onto
+# the same crates instead of building a second, incompatible set of bindings.
+# Check these still agree on every tauri upgrade.
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = { version = "0.18", features = ["v3_24"] }
+webkit2gtk = { version = "2", features = ["v2_40"] }

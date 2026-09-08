@@ -29,7 +29,7 @@ Inspired by [Fig](https://fig.io) (now part of AWS), FigyTerm is an open-source 
 - **Spec-based Engine** — Compatible with Fig's spec format for community-driven command completions
 - **Split Panes** — Up to 4 resizable terminal panes per tab (Cmd+D / Cmd+Shift+D)
 - **Multiple Tabs** — Browser-style tab bar with drag-to-reorder and rename support
-- **Embedded Browser** — In-app browser modal with tabs, address bar, and back/forward/reload (`⌘⇧B`); uses a native child webview so real sites load (not an iframe). **macOS only** — child webviews can't be positioned on Linux/GTK ([tauri#10420](https://github.com/tauri-apps/tauri/issues/10420)), so the feature is hidden there rather than shipped broken
+- **Embedded Browser** — In-app browser modal with tabs, address bar, and back/forward/reload (`⌘⇧B`); uses a native child webview so real sites load (not an iframe). On Linux it's positioned through a `gtk::Fixed` of our own, since Tauri can't place child webviews on GTK ([tauri#10420](https://github.com/tauri-apps/tauri/issues/10420))
 - **Command History Search** — Fuzzy-search past commands with picture-in-picture mode (`⌘R`)
 - **System Monitor** — Live CPU and memory charts in a draggable modal (`⌘⇧M`)
 - **Terminal Search** — Find text in the active pane (`⌘F`)
@@ -198,7 +198,7 @@ After install:
 | `⌘ R` | `Ctrl+Shift+R` | Search command history |
 | `⌘ C` | `Ctrl+Shift+C` | Copy selection |
 | `⌘ V` | `Ctrl+Shift+V` | Paste |
-| `⌘ ⇧ B` | — | Open browser (macOS only, see Features) |
+| `⌘ ⇧ B` | `Ctrl+Shift+B` | Open browser |
 | `⌘ ⇧ M` | `Ctrl+Shift+M` | System monitor |
 | `⌘ ⇧ P` | `Ctrl+Shift+P` | Command palette |
 | `⌘ ,` | `Ctrl+,` | Settings |

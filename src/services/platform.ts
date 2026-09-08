@@ -24,14 +24,16 @@ export const isMac = platform === "mac";
 export const isLinux = platform === "linux";
 
 /**
- * Whether the in-app browser can be offered at all.
+ * Whether the in-app browser can be offered.
  *
- * It draws a native child webview underneath React chrome, and child webviews
- * can't be positioned on Linux/GTK: wry creates one as a separate X11 window and
- * moves it with `gtk_window.move_()`, which doesn't land in parent-relative
- * coordinates, so the site renders outside the modal entirely. That's upstream —
- * https://github.com/tauri-apps/tauri/issues/10420, open — and not something the
- * app can work around, so Linux hides the feature rather than advertising a
- * broken one. Revisit when that issue closes.
+ * It draws a native child webview underneath React chrome. Tauri can't position
+ * one of those on GTK — it parents them to the window's vertical box, so they
+ * stack instead of floating and `set_bounds` does nothing
+ * (https://github.com/tauri-apps/tauri/issues/10420). `browser_layout.rs` builds
+ * the container Linux needs, so the feature works on both platforms.
+ *
+ * Kept as a single switch rather than deleted: flip it to `!isLinux` to hide the
+ * browser everywhere it isn't wanted, without hunting down the menu item, the
+ * palette entry, the shortcut and the settings row.
  */
-export const EMBEDDED_BROWSER_SUPPORTED = !isLinux;
+export const EMBEDDED_BROWSER_SUPPORTED = true;
