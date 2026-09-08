@@ -22,9 +22,31 @@ Tags must be `vMAJOR.MINOR.PATCH` with an optional prerelease suffix
 (`v1.0.0-beta.1`). Anything with a suffix ships as a GitHub prerelease and is
 excluded from the updater's "latest" endpoint.
 
-To rebuild an existing tag, use **Actions → Release → Run workflow** and enter the
-tag. The workflow is re-run safe: it PATCHes the existing release rather than
-creating a duplicate, and replaces `latest.json` instead of colliding with it.
+To rebuild an existing tag, use **Actions → Release → Run workflow**, enter the tag,
+and pick a platform from **Which platform to build** (`all`, `macos`, `linux`,
+`windows`). The workflow is re-run safe: it PATCHes the existing release rather than
+creating a duplicate, and replaces `latest.json` instead of colliding with it. A
+single-platform rebuild still refreshes the manifest and undrafts — the tail jobs run
+after a skipped build, just not after a failed one.
+
+### The builds compile the tag, not the branch
+
+This is the one thing to internalise about a manual re-run, and it has already cost two
+builds. `workflow_dispatch` takes the *workflow file* from the branch you dispatch from,
+but every build job does `checkout` with `ref: <tag>`. So you can dispatch a workflow
+that contains a fix and still compile tagged code that doesn't — the build fails on a
+bug you already fixed, at a line number that no longer exists.
+
+If a tag is behind, move it:
+
+```bash
+git tag -f v0.1.0 <commit-or-branch>
+git push -f origin v0.1.0
+```
+
+Then re-run. The `Report the commit that will be built` step prints the tag's commit and
+subject into the job summary before anything compiles, so a stale tag is visible in the
+first few seconds rather than inferred from a compiler error.
 
 ---
 
