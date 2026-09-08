@@ -4,6 +4,7 @@ import { useThemeStore } from "../../stores/themeStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { invoke } from "@tauri-apps/api/core";
 import { SHORTCUTS, text } from "../../services/shortcuts";
+import { collapseHome } from "../../services/recent-dirs";
 
 interface StatusBarProps {
   cwd: string;
@@ -51,7 +52,7 @@ export function StatusBar({
   const shellName = shell.split("/").pop() ?? shell;
   const { theme, toggleTheme } = useThemeStore();
   const { settings } = useSettingsStore();
-  const displayCwd = cwd || "~";
+  const displayCwd = collapseHome(cwd) || "~";
 
   const [stats, setStats] = useState<SystemStats | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);

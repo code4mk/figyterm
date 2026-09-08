@@ -34,7 +34,7 @@ import {
   type InstalledSpec,
 } from "../../services/spec-store";
 import { specRegistry } from "../../services/figy-spec-registry";
-import { isMac } from "../../services/platform";
+import { isMac, EMBEDDED_BROWSER_SUPPORTED } from "../../services/platform";
 import { MOD, SHORTCUTS, keys } from "../../services/shortcuts";
 import {
   checkForUpdates,
@@ -781,7 +781,9 @@ function ShortcutsTab() {
         { keys: keys(SHORTCUTS.find), description: "Find in terminal" },
         { keys: keys(SHORTCUTS.history), description: "Search command history" },
         { keys: keys(SHORTCUTS.monitor), description: "System Monitor" },
-        { keys: keys(SHORTCUTS.browser), description: "Browser" },
+        ...(EMBEDDED_BROWSER_SUPPORTED
+          ? [{ keys: keys(SHORTCUTS.browser), description: "Browser" }]
+          : []),
         { keys: keys(SHORTCUTS.clearTerminal), description: "Clear terminal" },
         { keys: keys(SHORTCUTS.copy), description: "Copy selection" },
         { keys: keys(SHORTCUTS.paste), description: "Paste from clipboard" },
