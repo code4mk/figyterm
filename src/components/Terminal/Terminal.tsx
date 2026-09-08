@@ -172,6 +172,49 @@ function unescapeToken(token: string): string {
   return token.replace(/\\(.)/g, "$1");
 }
 
+const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+/**
+ * Waits until `el` has actually been laid out.
+ *
+ * xterm measures one character cell from a probe element the moment it opens,
+ * and a container with no layout yet measures as zero. Everything downstream
+ * then quietly misbehaves: `FitAddon.proposeDimensions()` bails out on a zero
+ * cell, so `fit()` does nothing and the shell is started at the fallback 80x24,
+ * and the DOM renderer positions the cursor at `column * cellWidth` — which is
+ * 0 for every column, parking the cursor at the left edge on top of the prompt.
+ *
+ * A new tab or pane can easily mount a frame or two before its container has a
+ * size, so wait for the real thing instead of guessing with a fixed delay: this
+ * used to be a flat 30ms, which macOS won and a software-rendered Linux VM lost.
+ *
+ * Gives up after `frames` so a container that genuinely never gets a size (a
+ * pane closed while starting up) can't hang initialisation.
+ */
+async function waitForLayout(el: HTMLElement, frames = 60): Promise<void> {
+  for (let remaining = frames; remaining > 0; remaining--) {
+    if (el.clientWidth > 0 && el.clientHeight > 0) return;
+    await nextFrame();
+  }
+}
+
+/**
+ * The terminal's size in cells, retried across a few frames.
+ *
+ * Even with a laid-out container the first measurement can come back empty, and
+ * silently accepting the 80x24 fallback leaves the shell disagreeing with the
+ * display about how wide the window is.
+ */
+async function measureDimensions(fit: FitAddon, attempts = 5) {
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const dims = fit.proposeDimensions();
+    if (dims && dims.cols > 0 && dims.rows > 0) return dims;
+    await nextFrame();
+    fit.fit();
+  }
+  return undefined;
+}
+
 /** OSC — window titles and OSC 7, terminated by BEL or ST. */
 const OSC_SEQUENCE = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
 /** CSI — colours, cursor moves, erases. */
@@ -554,6 +597,21 @@ export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, o
   }, [clearRef, clearTerminal]);
 
   /**
+   * Re-fits the terminal to its container and repaints it.
+   *
+   * `FitAddon.fit()` skips the resize when the cell count hasn't changed — and
+   * so skips the repaint with it. A pane whose first render used a stale
+   * character measurement would keep drawing its cursor at the wrong offset
+   * until something else happened to redraw the row, so ask for the redraw.
+   */
+  const refit = useCallback(() => {
+    const xterm = xtermRef.current;
+    if (!xterm || !fitAddonRef.current) return;
+    fitAddonRef.current.fit();
+    xterm.refresh(0, xterm.rows - 1);
+  }, []);
+
+  /**
    * Writes the clipboard straight to the PTY. Only needed off macOS, where the
    * paste chord (Ctrl+Shift+V) isn't one the webview acts on by itself.
    */
@@ -572,7 +630,8 @@ export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, o
   }, []);
 
   const initTerminal = useCallback(async () => {
-    if (initStarted.current || !containerRef.current) return;
+    const container = containerRef.current;
+    if (initStarted.current || !container) return;
     initStarted.current = true;
 
     const s = settingsRef.current;
@@ -606,7 +665,11 @@ export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, o
     xterm.loadAddon(unicode11Addon);
     xterm.loadAddon(webLinksAddon);
     xterm.unicode.activeVersion = "11";
-    xterm.open(containerRef.current);
+
+    // Open into a container that already has a size, so the very first
+    // character measurement is a real one. See `waitForLayout`.
+    await waitForLayout(container);
+    xterm.open(container);
 
     searchAddonRef.current = searchAddon;
 
@@ -652,10 +715,14 @@ export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, o
     fitAddonRef.current = fitAddon;
     searchAddonRef.current = searchAddon;
 
-    await new Promise((r) => setTimeout(r, 30));
     fitAddon.fit();
 
-    const dims = fitAddon.proposeDimensions();
+    const dims = await measureDimensions(fitAddon);
+    if (!dims) {
+      // 80x24 keeps the shell usable, but it won't match the window, so say so
+      // rather than leaving a mystery to debug from a screenshot.
+      console.warn("Terminal: could not measure the container; falling back to 80x24");
+    }
     const cols = dims?.cols ?? 80;
     const rows = dims?.rows ?? 24;
 
@@ -880,16 +947,18 @@ export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, o
       xterm.options.fontSize = settings.fontSize;
       xterm.options.lineHeight = settings.lineHeight;
       xterm.options.letterSpacing = settings.letterSpacing ?? 0;
-      fitAddonRef.current?.fit();
+      // A font change moves every cell boundary, so this one needs the repaint
+      // as much as the resize does.
+      refit();
     }
-  }, [settings.fontFamily, settings.fontSize, settings.lineHeight, settings.letterSpacing]);
+  }, [settings.fontFamily, settings.fontSize, settings.lineHeight, settings.letterSpacing, refit]);
 
   useEffect(() => {
     if (isActive && xtermRef.current) {
-      fitAddonRef.current?.fit();
+      refit();
       xtermRef.current.focus();
     }
-  }, [isActive]);
+  }, [isActive, refit]);
 
   useEffect(() => {
     if (focusRef) {
@@ -923,27 +992,21 @@ export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, o
     const el = containerRef.current;
     if (!el) return;
 
-    const doFit = () => {
-      if (fitAddonRef.current && xtermRef.current) {
-        fitAddonRef.current.fit();
-      }
-    };
-
     const observer = new ResizeObserver(() => {
       if (!isDragging()) {
-        doFit();
+        refit();
       }
     });
     observer.observe(el);
 
-    const onDragEnd = () => doFit();
+    const onDragEnd = () => refit();
     window.addEventListener("pane-drag-end", onDragEnd);
 
     return () => {
       observer.disconnect();
       window.removeEventListener("pane-drag-end", onDragEnd);
     };
-  }, []);
+  }, [refit]);
 
   return (
     <div
