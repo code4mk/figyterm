@@ -114,12 +114,6 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         true,
         accel("CmdOrCtrl+K", "Ctrl+Shift+K"),
     )?;
-    // No Browser entry on Linux. The modal draws a native child webview under
-    // React chrome, and child webviews can't be positioned on GTK — the site
-    // lands outside the modal entirely. Upstream, still open:
-    // https://github.com/tauri-apps/tauri/issues/10420. Mirrored by
-    // EMBEDDED_BROWSER_SUPPORTED in src/services/platform.ts.
-    #[cfg(not(target_os = "linux"))]
     let browser = MenuItem::with_id(
         app,
         MENU_BROWSER,
@@ -197,7 +191,6 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
             &sep2,
             &clear_terminal,
             &sep3,
-            #[cfg(not(target_os = "linux"))]
             &browser,
             &monitor,
             &sep4,

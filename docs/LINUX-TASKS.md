@@ -126,24 +126,51 @@ Linux machine · `[ ]` todo
       against bash on a PTY: it runs the inherited value and re-emits on `cd`.
       A user config that sets its own `PROMPT_COMMAND` replaces it, which is what
       the scraping fallback is still there for.
-- [x] **Embedded browser renders outside the modal** — the chrome drew in the
-      right place but the site was positioned below the window, ignoring the
-      bounds we set. Not our bug and not fixable here:
-      [tauri#10420](https://github.com/tauri-apps/tauri/issues/10420) — child
-      webview positioning is broken on Linux/GTK, still open. wry places a child
-      webview as a separate X11 window and moves it with `gtk_window.move_()`,
-      which doesn't land in parent-relative coordinates.
-      **Resolution:** hidden on Linux rather than shipped broken —
-      `EMBEDDED_BROWSER_SUPPORTED` in `src/services/platform.ts` gates the
-      modal, the palette entry, the shortcut and the settings row, and
-      `menu.rs` drops the menu item. Revisit when that issue closes; the
-      `#[cfg]`/flag pair is the only thing to remove.
+- [~] **Embedded browser renders outside the modal** — the chrome drew in the
+      right place but the site was stacked below the window, ignoring the bounds.
+      Upstream: [tauri#10420](https://github.com/tauri-apps/tauri/issues/10420),
+      open.
+
+      **Root cause.** Tauri parents a child webview to the window's *vertical*
+      `gtk::Box` (`build_gtk(window.default_vbox())`), so GTK divides the window
+      between the app webview and each browser view — hence "stacked" — and
+      `set_bounds` does nothing, because wry only repositions a webview whose
+      parent is a `gtk::Fixed`. (My first reading of this blamed wry's separate
+      X11 child window; that's `new_as_child`, which Tauri doesn't use here.)
+
+      **Fix, in `src-tauri/src/commands/browser_layout.rs`.** Build the container
+      ourselves, in the shape of wry's own `gtk_multiwebview` example: one
+      `gtk::Fixed` filling the window, the app's webview moved into it at (0, 0),
+      browser views added after it so they draw on top. Positioning goes through
+      `gtk::Fixed::move_`, not a bare `size_allocate` — the container re-allocates
+      children back to their put-coordinate on the next layout pass, so an
+      allocation alone holds only until the first resize (this is also what the
+      open [wry#1745](https://github.com/tauri-apps/wry/pull/1745) fixes). A
+      `size-allocate` handler keeps the app's webview filling the container, since
+      `GtkFixed` never resizes its children.
+
+      No fork, no `[patch.crates-io]`: `Window::default_vbox()` is public API and
+      `PlatformWebview::inner()` hands over the `webkit2gtk::WebView`, so this is
+      all in our own tree on stock Tauri 2.11.5.
+
+      **Verified as far as macOS allows** — the GTK logic type-checks against the
+      real gtk 0.18.2 / webkit2gtk 2.0.2 for `x86_64-unknown-linux-gnu`, with zero
+      errors. **Not run yet.** Needs a pass in the VM; see §9.
 
 ## 9. Verification
 
 - [x] **macOS regression pass** — `cargo check`, `cargo test --lib`, `tsc
       --noEmit` and `npm run build` all clean after the changes.
 - [ ] **Ubuntu 22.04** — glibc floor, GNOME/Wayland. First real run.
+- [ ] **Browser modal on Linux** — the one thing that has never run. In order:
+      does the site appear *inside* the modal's content area; does it hold
+      position across a window resize (this is what the `move_` vs
+      `size_allocate` distinction decides); does the app UI still resize normally
+      after its webview was moved into the `GtkFixed`; do clicks and typing reach
+      the site; does closing the modal hide it; do multiple tabs switch cleanly.
+      If the app webview survives being reparented but flickers on first open,
+      that's expected and cosmetic. `EMBEDDED_BROWSER_SUPPORTED = !isLinux` in
+      `src/services/platform.ts` is the one-line way back out.
 - [ ] **Fedora** — recent WebKitGTK.
 - [ ] **A tiling WM** — window sizing and decorations.
 - [ ] **Tag a prerelease** — exercises `build-linux` end to end and proves
