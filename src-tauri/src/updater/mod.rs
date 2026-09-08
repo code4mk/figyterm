@@ -161,8 +161,15 @@ struct GhAsset {
 const BUNDLE_EXT: &str = ".dmg";
 #[cfg(target_os = "linux")]
 const BUNDLE_EXT: &str = ".appimage";
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-const BUNDLE_EXT: &str = ".msi";
+/// Windows takes the NSIS installer rather than the MSI: it installs per-user
+/// without administrator rights, and it's the artifact the updater replaces in
+/// place. The MSI is published alongside for enterprise deployment, where the
+/// package should be managed by whatever pushed it — the same reasoning that
+/// keeps `.deb`/`.rpm` out of the Linux match.
+#[cfg(target_os = "windows")]
+const BUNDLE_EXT: &str = ".exe";
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+const BUNDLE_EXT: &str = ".dmg";
 
 /// Match on the asset-name suffix rather than reconstructing the expected
 /// filename, so a bundler naming change degrades to "no direct download link"
@@ -182,13 +189,17 @@ fn asset_for_current_target(assets: &[GhAsset]) -> Option<&GhAsset> {
         .filter(|a| a.name.to_lowercase().ends_with(BUNDLE_EXT))
         .collect();
 
+    // The token can sit anywhere in the name, not just immediately before the
+    // extension: Tauri writes `…_x64-setup.exe` for NSIS and `…_x64_en-US.msi`
+    // for WiX, so anchoring to the end would only ever match the Unix bundles.
+    // No token is a substring of another architecture's spelling — `x64` doesn't
+    // occur in `arm64` or `x86_64`, `amd64` doesn't occur in either — so a plain
+    // containment check can't cross-match.
     if let Some(matched) = candidates
         .iter()
         .find(|a| {
             let name = a.name.to_lowercase();
-            arch_tokens
-                .iter()
-                .any(|token| name.ends_with(&format!("{token}{BUNDLE_EXT}")))
+            arch_tokens.iter().any(|token| name.contains(token))
         })
         .copied()
     {
@@ -440,47 +451,54 @@ mod tests {
 
     /// Mixed case on purpose — the Linux bundler really does emit `.AppImage`,
     /// and matching must not depend on the casing.
-    ///
-    /// Windows is not a shipping target; adding one means revisiting
-    /// `asset_for_current_target` (its `.msi` names carry a locale suffix) along
-    /// with these helpers.
     fn bundle_ext() -> &'static str {
         if cfg!(target_os = "linux") {
             "AppImage"
+        } else if cfg!(target_os = "windows") {
+            "exe"
         } else {
             "dmg"
         }
     }
 
-    /// The architecture token this platform's bundler uses: Tauri writes
-    /// `aarch64`/`x64` for macOS and Debian's `arm64`/`amd64` for Linux.
-    fn arch_tokens() -> (&'static str, &'static str) {
+    /// The two architecture builds this platform's bundler emits, spelled the way
+    /// it actually spells them: `aarch64`/`x64` with `.dmg` on macOS, Debian's
+    /// `arm64`/`amd64` with `.AppImage` on Linux, and `arm64`/`x64` with NSIS's
+    /// `-setup.exe` on Windows — where the architecture is *not* the last thing
+    /// before the extension.
+    fn platform_asset_names(version: &str) -> (String, String) {
         if cfg!(target_os = "linux") {
-            ("arm64", "amd64")
+            (
+                format!("FigyTerm_{version}_arm64.AppImage"),
+                format!("FigyTerm_{version}_amd64.AppImage"),
+            )
+        } else if cfg!(target_os = "windows") {
+            (
+                format!("FigyTerm_{version}_arm64-setup.exe"),
+                format!("FigyTerm_{version}_x64-setup.exe"),
+            )
         } else {
-            ("aarch64", "x64")
+            (
+                format!("FigyTerm_{version}_aarch64.dmg"),
+                format!("FigyTerm_{version}_x64.dmg"),
+            )
         }
     }
 
     /// Both architectures for this platform, as a release carries them.
     fn platform_assets(version: &str) -> Vec<GhAsset> {
-        let (arm, intel) = arch_tokens();
-        let ext = bundle_ext();
-        vec![
-            asset(&format!("FigyTerm_{version}_{arm}.{ext}")),
-            asset(&format!("FigyTerm_{version}_{intel}.{ext}")),
-        ]
+        let (arm, intel) = platform_asset_names(version);
+        vec![asset(&arm), asset(&intel)]
     }
 
     /// The one of those the running build should select.
     fn expected_asset(version: &str) -> String {
-        let (arm, intel) = arch_tokens();
-        let arch = if cfg!(target_arch = "aarch64") {
+        let (arm, intel) = platform_asset_names(version);
+        if cfg!(target_arch = "aarch64") {
             arm
         } else {
             intel
-        };
-        format!("FigyTerm_{version}_{arch}.{}", bundle_ext())
+        }
     }
 
     #[test]
@@ -525,7 +543,10 @@ mod tests {
                 {"name": "FigyTerm_0.0.6_amd64.AppImage", "browser_download_url": "https://example.test/e", "size": 9231044},
                 {"name": "FigyTerm_0.0.6_arm64.AppImage", "browser_download_url": "https://example.test/f", "size": 9014377},
                 {"name": "FigyTerm_0.0.6_amd64.deb", "browser_download_url": "https://example.test/g", "size": 6720418},
-                {"name": "FigyTerm-0.0.6-1.x86_64.rpm", "browser_download_url": "https://example.test/h", "size": 6733901}
+                {"name": "FigyTerm-0.0.6-1.x86_64.rpm", "browser_download_url": "https://example.test/h", "size": 6733901},
+                {"name": "FigyTerm_0.0.6_x64-setup.exe", "browser_download_url": "https://example.test/i", "size": 3814522},
+                {"name": "FigyTerm_0.0.6_arm64-setup.exe", "browser_download_url": "https://example.test/j", "size": 3699108},
+                {"name": "FigyTerm_0.0.6_x64_en-US.msi", "browser_download_url": "https://example.test/k", "size": 5120044}
             ]
         }"###;
 
@@ -547,6 +568,8 @@ mod tests {
             "FigyTerm_0.0.6_x64.dmg" => 8156110,
             "FigyTerm_0.0.6_arm64.AppImage" => 9014377,
             "FigyTerm_0.0.6_amd64.AppImage" => 9231044,
+            "FigyTerm_0.0.6_x64-setup.exe" => 3814522,
+            "FigyTerm_0.0.6_arm64-setup.exe" => 3699108,
             other => panic!("no size fixture for {other}"),
         };
         assert_eq!(info.download_size, Some(expected_size));
@@ -554,13 +577,15 @@ mod tests {
 
     #[test]
     fn other_platforms_and_side_artifacts_are_ignored() {
-        // `.app.tar.gz` is the updater plugin's own payload, and `.deb`/`.rpm`
-        // belong to a package manager. Offering either as a download would be
-        // offering an install the app can't complete.
+        // `.app.tar.gz` is the updater plugin's own payload, `.deb`/`.rpm` belong
+        // to a package manager, and the `.msi` belongs to whatever deployed it.
+        // Offering any of them would be offering an install the app can't
+        // complete.
         let assets = vec![
             asset("FigyTerm_0.0.7.app.tar.gz"),
             asset("FigyTerm_0.0.7_amd64.deb"),
             asset("FigyTerm-0.0.7-1.x86_64.rpm"),
+            asset("FigyTerm_0.0.7_x64_en-US.msi"),
             asset("checksums.txt"),
         ];
         assert!(asset_for_current_target(&assets).is_none());

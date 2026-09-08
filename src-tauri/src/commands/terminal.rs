@@ -9,6 +9,20 @@ struct TerminalOutput {
     data: Vec<u8>,
 }
 
+/// Finds an executable on `PATH`, the way a shell would.
+///
+/// Not the `which` crate: this only has to answer "is this on PATH", it runs
+/// before any shell exists, and `split_paths` already knows that Windows
+/// separates with `;`. Callers pass the full filename, so `PATHEXT` doesn't
+/// come into it.
+#[cfg(target_os = "windows")]
+fn which(program: &str) -> Option<std::path::PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path)
+        .map(|dir| dir.join(program))
+        .find(|candidate| candidate.is_file())
+}
+
 fn detect_shell() -> String {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
@@ -24,10 +38,18 @@ fn detect_shell() -> String {
     }
     #[cfg(target_os = "windows")]
     {
-        if let Ok(ps) = std::env::var("COMSPEC") {
-            return ps;
+        // Preference order, not availability order: COMSPEC is always set and
+        // always points at cmd.exe, so reading it first would hand every
+        // developer the one shell they least likely want. PowerShell 7 (`pwsh`)
+        // is a separate install from the bundled Windows PowerShell 5.1, and
+        // both are found via PATH rather than a fixed location, since 7 installs
+        // per-user or per-machine and 5.1 moves with the system root.
+        for shell in &["pwsh.exe", "powershell.exe"] {
+            if which(shell).is_some() {
+                return shell.to_string();
+            }
         }
-        "powershell.exe".to_string()
+        std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_string())
     }
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     {

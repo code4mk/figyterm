@@ -179,6 +179,19 @@ const CSI_SEQUENCE = /\x1b\[[0-9;?]*[a-zA-Z]/g;
 /** Anything left over: lone ESC, BEL, and other C0 bytes that aren't \t \n \r. */
 const CONTROL_BYTE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g;
 
+/** A POSIX prompt ending in one of `] $ % # >`, e.g. `ubuntu@ubuntu:~$ `. */
+const POSIX_PROMPT = /[:\s](~[^\s\]]*|\/[^\s\]]*)\s*[\]$%#>]\s*$/m;
+
+/**
+ * A Windows prompt: `PS C:\Users\me>` from PowerShell, `C:\Users\me>` from cmd.
+ *
+ * Tried after the POSIX pattern rather than instead of it. Neither can match the
+ * other — a drive letter doesn't start with `~` or `/`, and a POSIX path has no
+ * `X:\` — so both can be attempted on every platform, which keeps `parseCwd`
+ * pure and testable anywhere.
+ */
+const WINDOWS_PROMPT = /([A-Za-z]:\\[^\r\n>]*?)\s*>\s*$/m;
+
 /**
  * Reads the working directory out of a chunk of terminal output.
  *
@@ -193,6 +206,10 @@ const CONTROL_BYTE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g;
  *    prompt, so the greedy character class ran straight through both. That bad
  *    path then broke `cd` completion too, since it's the base directory the
  *    filesystem suggestions are resolved against.
+ *
+ *    Windows only ever reaches this branch: neither PowerShell nor cmd emits
+ *    OSC 7, and PowerShell has no `PROMPT_COMMAND` to make it with the way bash
+ *    does, so a drive-letter prompt is the whole signal there.
  *
  * Returns null when the chunk says nothing about the directory, which is the
  * common case — most output isn't a prompt.
@@ -213,8 +230,11 @@ function parseCwd(chunk: string): string | null {
     .replace(CSI_SEQUENCE, "")
     .replace(CONTROL_BYTE, "");
 
-  const prompt = plain.match(/[:\s](~[^\s\]]*|\/[^\s\]]*)\s*[\]$%#>]\s*$/m);
-  return prompt ? prompt[1] : null;
+  const posix = plain.match(POSIX_PROMPT);
+  if (posix) return posix[1];
+
+  const windows = plain.match(WINDOWS_PROMPT);
+  return windows ? windows[1] : null;
 }
 
 export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, onCwdChange, clearRef, focusRef }: TerminalProps) {

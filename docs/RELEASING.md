@@ -32,7 +32,8 @@ creating a duplicate, and replaces `latest.json` instead of colliding with it.
 
 ```
 create-release  →  build-macos (aarch64 + x64)  ┐
-                →  build-linux (x86_64)         ┴→  updater-manifest  →  publish-release
+                →  build-linux (x86_64)         ┼→  updater-manifest  →  publish-release
+                →  build-windows (x64)          ┘
 ```
 
 | Job | Does |
@@ -40,10 +41,11 @@ create-release  →  build-macos (aarch64 + x64)  ┐
 | `create-release` | Validates the tag, renders release notes, creates a **draft** release. Runs once so the body isn't raced by the build matrix. |
 | `build-macos` | Builds and bundles both architectures, uploads `.dmg` + `.app.tar.gz` + `.sig` to the draft. |
 | `build-linux` | Builds on `ubuntu-22.04`, uploads `.AppImage` + `.sig`, `.deb` and `.rpm`. |
+| `build-windows` | Builds on `windows-latest`, uploads `-setup.exe` + `.sig` and the `.msi`. |
 | `updater-manifest` | Composes `latest.json` from every build's signatures and uploads it. |
 | `publish-release` | Undrafts. This is what makes the release visible and updatable. |
 
-Both build jobs run `scripts/sync-version.mjs` first, which rewrites `package.json`,
+Every build job runs `scripts/sync-version.mjs` first, which rewrites `package.json`,
 `tauri.conf.json` and `Cargo.toml` from the tag. That's why the committed versions
 don't have to be correct.
 
@@ -53,6 +55,20 @@ The binary links against the builder's glibc. Built on 24.04 (glibc 2.39) it ref
 start on Debian 12 or Ubuntu 22.04 with a `GLIBC_2.38 not found` error. 22.04 ships
 glibc 2.35, which covers every currently supported distro. Moving this forward drops
 users; do it deliberately, not by following the runner label.
+
+### Why Windows updates go through the NSIS installer
+
+`latest.json` points `windows-x86_64` at `-setup.exe`, not the `.msi`. The NSIS
+installer is per-user and needs no elevation, so the updater can replace it without a
+UAC prompt. The MSI is published for Group Policy / Intune deployment and is
+deliberately left alone: a per-machine managed install belongs to whatever pushed it,
+the same reasoning that keeps `.deb`/`.rpm` out of the Linux path.
+
+Windows installers are unsigned, which means SmartScreen shows *"Windows protected your
+PC"* on first run. That's a warning, not a block — see `INSTALLATION.md`. There is no
+signing block pre-wired in the workflow, for the same reason there's none for Apple: a
+missing secret still sets the variable, and the bundler treats a present certificate as
+"sign this" and then fails.
 
 ### Why Linux updates are AppImage-only
 
@@ -129,7 +145,7 @@ second.
 
 Raised by `updater-manifest` for whichever artifact it couldn't find a signature for —
 `FigyTerm_<version>_<arch>.app.tar.gz` on macOS, `FigyTerm_<version>_amd64.AppImage` on
-Linux.
+Linux, `FigyTerm_<version>_x64-setup.exe` on Windows.
 
 **Cause:** `TAURI_SIGNING_PRIVATE_KEY` isn't set, so the bundler produced no updater
 signature.

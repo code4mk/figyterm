@@ -34,7 +34,11 @@ import {
   type InstalledSpec,
 } from "../../services/spec-store";
 import { specRegistry } from "../../services/figy-spec-registry";
-import { isMac, EMBEDDED_BROWSER_SUPPORTED } from "../../services/platform";
+import {
+  isMac,
+  EMBEDDED_BROWSER_SUPPORTED,
+  OH_MY_ZSH_SUPPORTED,
+} from "../../services/platform";
 import { MOD, SHORTCUTS, keys } from "../../services/shortcuts";
 import {
   checkForUpdates,
@@ -72,7 +76,7 @@ export function Settings({ isOpen, onClose, activeSessionId }: SettingsProps) {
   const [isCustomTheme, setIsCustomTheme] = useState(false);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || !OH_MY_ZSH_SUPPORTED) return;
     loadOhMyZshThemes();
   }, [isOpen]);
 
@@ -643,6 +647,19 @@ function ThemeTab({
   applyCustomThemePath: () => void;
   changeZshTheme: (theme: string, isCustom?: boolean) => void;
 }) {
+  if (!OH_MY_ZSH_SUPPORTED) {
+    return (
+      <div className="space-y-5">
+        <SectionHeader icon={<Palette size={13} />} title="Shell Theme" />
+        <div className="settings-card text-xs text-ft-text-muted py-4 px-4 text-center">
+          Oh My Zsh themes are a zsh feature, so there's nothing to configure
+          here on Windows. PowerShell's equivalent is Oh My Posh, which FigyTerm
+          doesn't manage yet.
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-5">
       <SectionHeader icon={<Palette size={13} />} title="Oh My Zsh Theme" />
