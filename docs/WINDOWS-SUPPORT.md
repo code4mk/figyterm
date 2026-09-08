@@ -141,10 +141,13 @@ by accident, and it breaks the moment an NSIS `.exe` is published alongside it.
 
 - **"A command is running" check.** `PtyInstance::foreground_pid()` compares the
   tty's foreground process group against the shell's pid. ConPTY has no process
-  groups, so this returns `None` — which the code already treats as idle. The
-  practical effect is that the confirmation before restarting to install an
-  update won't fire on Windows. Safe direction (a missed prompt, not a wrong
-  action), but it should be documented rather than discovered.
+  groups at all, and `portable-pty` reflects that by declaring
+  `process_group_leader` only under `#[cfg(unix)]` — so this is a *compile*
+  error on Windows, not a method that returns `None`. `foreground_pid` is now
+  two implementations, and the Windows one returns `None`, which callers already
+  read as idle. The practical effect is that the confirmation before restarting
+  to install an update won't fire on Windows: a missed prompt rather than a
+  wrong action.
 - **Spec storage.** `~/.figyterm` becomes `%USERPROFILE%\.figyterm`, which works
   but isn't idiomatic — `%APPDATA%\figyterm` is. Same call as the XDG question on
   Linux, and the same answer: low priority.
