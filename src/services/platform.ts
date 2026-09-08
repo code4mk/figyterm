@@ -37,3 +37,13 @@ export const isLinux = platform === "linux";
  * palette entry, the shortcut and the settings row.
  */
 export const EMBEDDED_BROWSER_SUPPORTED = true;
+
+/**
+ * Whether the Oh My Zsh theme picker can work here.
+ *
+ * It reads and rewrites `~/.zshrc` by shelling out to `sh -c`, `grep`, `ls` and
+ * `sed -i` — none of which exist on Windows, where the shell is PowerShell and
+ * the equivalent would be Oh My Posh. Porting it is a feature, not a port task,
+ * so Windows hides the section rather than showing one that can't work.
+ */
+export const OH_MY_ZSH_SUPPORTED = platform !== "windows";

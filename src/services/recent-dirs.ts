@@ -24,7 +24,11 @@ export function setHomeDir(home: string) {
 export function collapseHome(path: string): string {
   if (!path || !_homeDir) return path;
   if (path === _homeDir) return "~";
-  return path.startsWith(`${_homeDir}/`) ? `~${path.slice(_homeDir.length)}` : path;
+  // Either separator: Windows home is `C:\Users\me` and its children arrive
+  // with backslashes.
+  const next = path.charAt(_homeDir.length);
+  const inHome = path.startsWith(_homeDir) && (next === "/" || next === "\\");
+  return inHome ? `~${path.slice(_homeDir.length)}` : path;
 }
 
 function normalize(p: string): string {

@@ -5,9 +5,21 @@ use std::thread;
 
 use super::session::{SessionStatus, TerminalSession};
 
+/// Arguments that make the shell re-read the user's profile, so a new tab
+/// behaves like a freshly opened terminal.
+///
+/// Windows has no equivalent: PowerShell loads its profile unconditionally and
+/// `cmd.exe -l` means nothing, so passing `-l` there would just be an unknown
+/// argument to the one program that has to start for anything to work.
+#[cfg(not(target_os = "windows"))]
+const LOGIN_ARGS: &[&str] = &["-l"];
+
+#[cfg(target_os = "windows")]
+const LOGIN_ARGS: &[&str] = &[];
+
 /// Variables inherited verbatim by the login shell when they are set.
 ///
-/// The spawn below clears the environment on purpose, to match how Terminal.app
+/// The POSIX spawn clears the environment on purpose, to match how Terminal.app
 /// starts a shell. On macOS nothing is lost — the window server and launchd are
 /// reachable without any of this. On Linux these variables *are* the session:
 /// clear them and the shell can no longer find the display, the session bus or
@@ -28,8 +40,80 @@ const SESSION_PASSTHROUGH: &[&str] = &[
     "DBUS_SESSION_BUS_ADDRESS",
 ];
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(all(not(target_os = "linux"), not(target_os = "windows")))]
 const SESSION_PASSTHROUGH: &[&str] = &[];
+
+/// Builds the child shell's environment.
+///
+/// Two implementations rather than one threaded with `#[cfg]`s, because the two
+/// models are opposites: POSIX starts from nothing and adds back what a shell
+/// needs, while Windows must start from the inherited environment and keep
+/// nearly all of it.
+#[cfg(not(target_os = "windows"))]
+fn configure_environment(cmd: &mut CommandBuilder, shell: &str) {
+    // Start with a clean environment like Terminal.app does.
+    // Only pass essential vars — the login shell will source user config.
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let user = std::env::var("USER").unwrap_or_else(|_| "user".to_string());
+    let lang = std::env::var("LANG").unwrap_or_else(|_| "en_US.UTF-8".to_string());
+
+    cmd.env_clear();
+    cmd.env("HOME", &home);
+    cmd.env("USER", &user);
+    cmd.env("SHELL", shell);
+    cmd.env("PATH", build_path(&home));
+    cmd.env("LANG", &lang);
+    cmd.env("TERM", "xterm-256color");
+    cmd.env("COLORTERM", "truecolor");
+    cmd.env("TERM_PROGRAM", "Figyterm");
+    cmd.env("LOGNAME", &user);
+    cmd.env(
+        "TMPDIR",
+        std::env::var("TMPDIR").unwrap_or_else(|_| "/tmp".to_string()),
+    );
+    // Suppress the '%' mark zsh shows when previous output lacks trailing newline
+    cmd.env("PROMPT_EOL_MARK", "");
+
+    for key in SESSION_PASSTHROUGH {
+        if let Ok(value) = std::env::var(key) {
+            cmd.env(key, value);
+        }
+    }
+
+    // Ask bash to state its working directory outright, rather than leaving
+    // the UI to scrape it back out of the prompt.
+    //
+    // bash imports PROMPT_COMMAND from the environment and runs it before
+    // each prompt, which is how VTE's own shell integration does this. It's
+    // bash-only on purpose: zsh has no PROMPT_COMMAND (it needs a `precmd`
+    // defined in shell code, which would mean writing to the user's config),
+    // and macOS's default zsh prompt scrapes cleanly already. Ubuntu's bash
+    // is where scraping actually fell over — its default PS1 sets a window
+    // title *and* colours the prompt.
+    //
+    // A user whose own config sets PROMPT_COMMAND replaces this; the UI's
+    // prompt-scraping fallback still covers that case.
+    if shell.rsplit('/').next() == Some("bash") {
+        cmd.env(
+            "PROMPT_COMMAND",
+            r#"printf '\033]7;file://%s%s\033\\' "${HOSTNAME:-}" "$PWD""#,
+        );
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn configure_environment(cmd: &mut CommandBuilder, _shell: &str) {
+    // Deliberately no `env_clear()`. A Windows process started without
+    // SYSTEMROOT/windir frequently fails outright, and PATHEXT, COMSPEC,
+    // USERPROFILE, APPDATA, LOCALAPPDATA and TEMP are all load-bearing for
+    // ordinary commands. There is also no "the login shell will rebuild this"
+    // step to rely on the way `path_helper` and `/etc/profile` provide on
+    // POSIX — so the inherited environment *is* the environment, and this only
+    // layers on what identifies the terminal.
+    cmd.env("TERM", "xterm-256color");
+    cmd.env("COLORTERM", "truecolor");
+    cmd.env("TERM_PROGRAM", "Figyterm");
+}
 
 /// The PATH a login shell starts with. User config is sourced afterwards and can
 /// extend it, so this only has to cover the system defaults.
@@ -38,6 +122,9 @@ const SESSION_PASSTHROUGH: &[&str] = &[];
 /// Homebrew-on-Linux and distro-specific prefixes all live there and no fixed
 /// list can predict them. macOS doesn't need the same treatment — its login
 /// shell runs `path_helper`, which rebuilds PATH from `/etc/paths` regardless.
+///
+/// POSIX-only: Windows inherits its PATH rather than being handed one.
+#[cfg(not(target_os = "windows"))]
 fn build_path(home: &str) -> String {
     let mut path = String::from("/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin");
 
@@ -92,54 +179,11 @@ impl PtyInstance {
             .map_err(|e| format!("Failed to open PTY: {}", e))?;
 
         let mut cmd = CommandBuilder::new(&shell);
-        cmd.args(&["-l"]);
+        for arg in LOGIN_ARGS {
+            cmd.arg(arg);
+        }
         cmd.cwd(&cwd);
-
-        // Start with a clean environment like Terminal.app does.
-        // Only pass essential vars — the login shell will source user config.
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-        let user = std::env::var("USER").unwrap_or_else(|_| "user".to_string());
-        let lang = std::env::var("LANG").unwrap_or_else(|_| "en_US.UTF-8".to_string());
-
-        cmd.env_clear();
-        cmd.env("HOME", &home);
-        cmd.env("USER", &user);
-        cmd.env("SHELL", &shell);
-        cmd.env("PATH", build_path(&home));
-        cmd.env("LANG", &lang);
-        cmd.env("TERM", "xterm-256color");
-        cmd.env("COLORTERM", "truecolor");
-        cmd.env("TERM_PROGRAM", "Figyterm");
-        cmd.env("LOGNAME", &user);
-        cmd.env("TMPDIR", std::env::var("TMPDIR").unwrap_or_else(|_| "/tmp".to_string()));
-        // Suppress the '%' mark zsh shows when previous output lacks trailing newline
-        cmd.env("PROMPT_EOL_MARK", "");
-
-        for key in SESSION_PASSTHROUGH {
-            if let Ok(value) = std::env::var(key) {
-                cmd.env(key, value);
-            }
-        }
-
-        // Ask bash to state its working directory outright, rather than leaving
-        // the UI to scrape it back out of the prompt.
-        //
-        // bash imports PROMPT_COMMAND from the environment and runs it before
-        // each prompt, which is how VTE's own shell integration does this. It's
-        // bash-only on purpose: zsh has no PROMPT_COMMAND (it needs a `precmd`
-        // defined in shell code, which would mean writing to the user's config),
-        // and macOS's default zsh prompt scrapes cleanly already. Ubuntu's bash
-        // is where scraping actually fell over — its default PS1 sets a window
-        // title *and* colours the prompt.
-        //
-        // A user whose own config sets PROMPT_COMMAND replaces this; the UI's
-        // prompt-scraping fallback still covers that case.
-        if shell.rsplit('/').next() == Some("bash") {
-            cmd.env(
-                "PROMPT_COMMAND",
-                r#"printf '\033]7;file://%s%s\033\\' "${HOSTNAME:-}" "$PWD""#,
-            );
-        }
+        configure_environment(&mut cmd, &shell);
 
         // The child handle is dropped as before (dropping it does not kill the
         // process); only its pid is kept, to tell an idle prompt from a running

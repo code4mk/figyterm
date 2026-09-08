@@ -1,6 +1,6 @@
 # Installing FigyTerm
 
-macOS on Apple Silicon and Intel, and Linux on x86_64.
+macOS on Apple Silicon and Intel, Linux on x86_64, and Windows on x64.
 
 On **macOS** there are two ways to install, and they produce the same app:
 
@@ -15,7 +15,10 @@ On **Linux** there are three formats — see [Linux](#linux) below. The AppImage
 itself; a `.deb` or `.rpm` belongs to your package manager, so FigyTerm will tell you
 when a new version exists but leave installing it to you.
 
-Except for those distro packages, **you only install once** — FigyTerm updates itself
+On **Windows** there are two — see [Windows](#windows) below. The `-setup.exe` updates
+itself; the `.msi` is for managed deployment and doesn't.
+
+Except for those managed packages, **you only install once** — FigyTerm updates itself
 from then on.
 
 ---
@@ -167,6 +170,53 @@ If that fixes it, make it permanent by adding the variable to the `Exec=` line o
 
 ---
 
+## Windows
+
+x64 only for now. Nothing about Gatekeeper, quarantine or `xattr` applies here — those
+are macOS problems. Windows has its own, and it's SmartScreen.
+
+### The installer (recommended)
+
+Download `FigyTerm_<version>_x64-setup.exe` and run it. It's an NSIS installer: it
+installs for the current user under `%LOCALAPPDATA%\FigyTerm`, needs no administrator
+rights, adds a Start Menu entry, and is the build the in-app updater can replace.
+
+### "Windows protected your PC"
+
+Expected, and it means exactly one thing: the installer isn't code-signed.
+
+1. Click **More info**
+2. Click **Run anyway**
+
+There's no way to avoid the prompt from our side yet. Unlike macOS there's no flag to
+clear and no `curl` loophole — SmartScreen builds reputation per binary as downloads
+accumulate, and a standard code-signing certificate doesn't grant it instantly (only an
+EV certificate does, at a price that isn't justified yet).
+
+### The MSI
+
+`FigyTerm_<version>_x64_en-US.msi` is published for deployment via Group Policy or
+Intune. It installs per-machine and **does not self-update** — a managed install stays
+managed by whatever pushed it. FigyTerm will report that a new version exists and leave
+the install alone.
+
+### Which shell it runs
+
+PowerShell 7 (`pwsh.exe`) if it's on `PATH`, otherwise Windows PowerShell
+(`powershell.exe`), otherwise `cmd.exe`. Command history comes from PSReadLine, so
+`cmd.exe` sessions have none — that's a cmd limitation, not a FigyTerm one.
+
+### Where things live
+
+| | |
+|---|---|
+| Installer install | `%LOCALAPPDATA%\FigyTerm` |
+| MSI install | `%PROGRAMFILES%\FigyTerm` |
+| Settings and specs | `%USERPROFILE%\.figyterm` |
+| History read from | `%APPDATA%\Microsoft\Windows\PowerShell\PSReadLine` |
+
+---
+
 ## Updating
 
 Nothing to do. FigyTerm checks for new versions in the background and offers to install
@@ -225,8 +275,18 @@ sudo apt remove figyterm     # or: sudo dnf remove figyterm
 rm -rf ~/.figyterm
 ```
 
-FigyTerm doesn't modify your shell config, so there's nothing to undo in `.zshrc` or
-`.bashrc`.
+Windows:
+
+```powershell
+# Installer install: use Settings > Apps, or
+& "$env:LOCALAPPDATA\FigyTerm\uninstall.exe"
+
+# Settings and installed autocomplete specs
+Remove-Item -Recurse "$env:USERPROFILE\.figyterm"
+```
+
+FigyTerm doesn't modify your shell config, so there's nothing to undo in `.zshrc`,
+`.bashrc` or your PowerShell profile.
 
 ---
 

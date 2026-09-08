@@ -50,7 +50,8 @@ if [ "$(uname -s)" = "Linux" ]; then
        curl -fsSL https://raw.githubusercontent.com/$REPO/main/install-linux.sh | sh"
 fi
 
-[ "$(uname -s)" = "Darwin" ] || die "FigyTerm supports macOS and Linux (found $(uname -s))."
+[ "$(uname -s)" = "Darwin" ] || die "This installer is for macOS (found $(uname -s)).
+       On Windows, download the .exe installer from the releases page."
 
 case "$(uname -m)" in
   arm64)  ARCH_SUFFIX="aarch64" ; ARCH_LABEL="Apple Silicon" ;;

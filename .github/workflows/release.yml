@@ -122,6 +122,21 @@ jobs:
           WEBKIT_DISABLE_DMABUF_RENDERER=1 figyterm
           ```
 
+          ### Installation (Windows)
+
+          Download `FigyTerm___VERSION___x64-setup.exe` and run it. It installs for
+          the current user, needs no administrator rights, and updates itself from
+          then on.
+
+          Windows will show **"Windows protected your PC"** the first time, because
+          the installer isn't code-signed. Click **More info**, then **Run anyway**.
+          There's no way around this yet: unlike macOS there's no flag to clear,
+          and reputation accrues per binary as downloads accumulate.
+
+          `FigyTerm___VERSION___x64_en-US.msi` is also published for deployment via
+          Group Policy or Intune. It does *not* self-update — a managed install
+          stays managed by whatever pushed it.
+
           Full details: [Installation guide](https://github.com/code4mk/figyterm/blob/main/docs/INSTALLATION.md)
 
           ### Troubleshooting
@@ -327,10 +342,62 @@ jobs:
           # Same reason as the macOS job: the manifest is composed once, later.
           uploadUpdaterJson: false
 
+  build-windows:
+    needs: create-release
+    permissions:
+      contents: write
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.create-release.outputs.tag }}
+
+      - name: Sync app version to ${{ needs.create-release.outputs.version }}
+        env:
+          VERSION: ${{ needs.create-release.outputs.version }}
+        run: node scripts/sync-version.mjs
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+          key: x86_64-pc-windows-msvc
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # No Windows code-signing vars here, for the same reason there are none
+          # for Apple: an empty secret still sets the variable, and the bundler
+          # treats a *present* certificate as "sign this" and then fails. An
+          # unsigned installer works — SmartScreen warns, it doesn't refuse.
+        with:
+          releaseId: ${{ needs.create-release.outputs.release_id }}
+          args: --target x86_64-pc-windows-msvc
+          # Same reason as the other two jobs: the manifest is composed once.
+          uploadUpdaterJson: false
+
   # Composes latest.json once, after every build has uploaded its updater
   # artifacts, so it always describes all of them.
   updater-manifest:
-    needs: [create-release, build-macos, build-linux]
+    needs: [create-release, build-macos, build-linux, build-windows]
     permissions:
       contents: write
     runs-on: ubuntu-latest
@@ -386,6 +453,11 @@ jobs:
           # the package manager, so the app must never rewrite them.
           add_platform linux-x86_64 "FigyTerm_${VERSION}_amd64.AppImage"
 
+          # Windows updates go through the NSIS installer, which can install
+          # per-user without administrator rights. The .msi ships alongside for
+          # enterprise deployment and is left to whatever pushed it.
+          add_platform windows-x86_64 "FigyTerm_${VERSION}_x64-setup.exe"
+
           jq -n \
             --arg v "$VERSION" \
             --arg d "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
@@ -411,7 +483,7 @@ jobs:
           echo "Uploaded latest.json for $TAG"
 
   publish-release:
-    needs: [create-release, build-macos, build-linux, updater-manifest]
+    needs: [create-release, build-macos, build-linux, build-windows, updater-manifest]
     permissions:
       contents: write
     runs-on: ubuntu-latest

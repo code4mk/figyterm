@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <strong>A modern, intelligent terminal for macOS and Linux with autocomplete superpowers.</strong>
+  <strong>A modern, intelligent terminal for macOS, Linux and Windows with autocomplete superpowers.</strong>
 </p>
 
 <p align="center">
@@ -42,11 +42,12 @@ Inspired by [Fig](https://fig.io) (now part of AWS), FigyTerm is an open-source 
 
 ## Installation
 
-macOS (Apple Silicon and Intel) and Linux (x86_64) — see the
+macOS (Apple Silicon and Intel), Linux (x86_64) and Windows (x64) — see the
 [installation guide](docs/INSTALLATION.md) for the full details.
 
-**You only install once**: FigyTerm updates itself from then on. (The one exception is
-a Linux `.deb`/`.rpm`, which stays with your package manager.)
+**You only install once**: FigyTerm updates itself from then on. The exceptions are the
+packages meant to be managed by something else — a Linux `.deb`/`.rpm` and the Windows
+`.msi` — which stay with whatever installed them.
 
 ### macOS — Option 1: install script (recommended)
 
@@ -97,6 +98,19 @@ The AppImage is the build that updates itself; a distro package is your package
 manager's to update. If the window comes up blank on Nvidia or older Mesa drivers, start
 it with `WEBKIT_DISABLE_DMABUF_RENDERER=1`.
 
+### Windows
+
+Download `FigyTerm_*_x64-setup.exe` from [Releases](https://github.com/code4mk/figyterm/releases)
+and run it. It installs for the current user, needs no administrator rights, and updates
+itself from then on.
+
+Windows shows **"Windows protected your PC"** the first time, because the installer
+isn't code-signed — click **More info**, then **Run anyway**. There's no equivalent of
+the macOS `curl` trick here: reputation accrues per binary as downloads accumulate.
+
+An `.msi` is also published for Group Policy or Intune deployment. It doesn't
+self-update, on purpose — a managed install stays managed.
+
 <details>
 <summary>Why does Option 1 skip that step?</summary>
 
@@ -133,7 +147,9 @@ The built `.app` and `.dmg` will be in `src-tauri/target/release/bundle/macos/`.
 | [Node.js](https://nodejs.org/) | 18+ |
 | [Rust](https://rustup.rs/) | 1.86+ |
 | [Tauri CLI](https://v2.tauri.app/start/prerequisites/) | 2.x |
-| Xcode Command Line Tools | `xcode-select --install` |
+| Xcode Command Line Tools (macOS) | `xcode-select --install` |
+| WebKitGTK dev packages (Linux) | see [INSTALLATION.md](docs/INSTALLATION.md#building-from-source) |
+| MSVC build tools + WebView2 (Windows) | Visual Studio 2022 C++ workload |
 
 ## Recommended Setup
 
@@ -186,8 +202,8 @@ After install:
 
 ## Keyboard Shortcuts
 
-| macOS | Linux | Action |
-|-------|-------|--------|
+| macOS | Linux / Windows | Action |
+|-------|----------------|--------|
 | `⌘ T` | `Ctrl+Shift+T` | New tab |
 | `⌘ ⇧ T` | `Ctrl+Alt+T` | New tab (same directory as active tab) |
 | `⌘ ⇧ W` | `Ctrl+Shift+W` | Close active pane |
@@ -210,8 +226,8 @@ After install:
 | `Esc` | `Esc` | Dismiss suggestions |
 
 Shell-native shortcuts (`Ctrl+C`, `Ctrl+D`, `Ctrl+Z`, `Ctrl+L`, `Ctrl+R`) pass through
-directly. That's why the Linux column uses `Ctrl+Shift` rather than plain `Ctrl`, the
-same as GNOME Terminal and Konsole: a bare `Ctrl`+letter belongs to the shell, and an
+directly. That's why the second column uses `Ctrl+Shift` rather than plain `Ctrl`, the
+same as GNOME Terminal, Konsole and Windows Terminal: a bare `Ctrl`+letter belongs to the shell, and an
 app shortcut that took it would break the terminal it's wrapped around. The two chords
 that would collide (`Ctrl+Shift+T` and `Ctrl+Shift+D` are already taken) fall back to
 `Ctrl+Alt`.
