@@ -13,7 +13,11 @@ pub struct SystemStats {
     pub memory_percent: f32,
 }
 
-#[tauri::command]
+/// `async` so the poll doesn't tick on the main thread. Refreshing CPU figures
+/// reads performance counters, which is cheap on macOS and distinctly less so
+/// on Windows — and this runs on a timer for as long as the monitor is open.
+/// The `Mutex` already made it safe to call from anywhere.
+#[tauri::command(async)]
 pub fn get_system_stats() -> SystemStats {
     let mut guard = SYSTEM.lock().unwrap();
     let sys = guard.get_or_insert_with(|| {

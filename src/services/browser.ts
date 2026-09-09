@@ -28,12 +28,38 @@ interface ClosedPayload {
   tabId: string;
 }
 
+/**
+ * Creating a child webview is the one call here that can fail by never
+ * answering rather than by returning an error: it hands off to the platform's
+ * own webview engine, which on Windows means WebView2 spinning a nested message
+ * pump. When that doesn't come back, the modal used to sit on "No page loaded"
+ * forever with nothing to show for it.
+ *
+ * Generous, because a cold WebView2 environment on a slow or virtualised
+ * machine genuinely can take several seconds to come up.
+ */
+const OPEN_TIMEOUT_MS = 15_000;
+
 export function openBrowserTab(
   tabId: string,
   url: string,
   bounds: BrowserBounds
 ): Promise<BrowserTabState> {
-  return invoke<BrowserTabState>("browser_open_tab", { tabId, url, bounds });
+  const open = invoke<BrowserTabState>("browser_open_tab", { tabId, url, bounds });
+
+  return new Promise<BrowserTabState>((resolve, reject) => {
+    const timer = setTimeout(
+      () =>
+        reject(
+          new Error(
+            `the webview did not open within ${OPEN_TIMEOUT_MS / 1000}s — ` +
+              "the platform's browser engine did not respond"
+          )
+        ),
+      OPEN_TIMEOUT_MS
+    );
+    open.then(resolve, reject).finally(() => clearTimeout(timer));
+  });
 }
 
 export function closeBrowserTab(tabId: string): Promise<void> {

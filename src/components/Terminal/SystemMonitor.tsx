@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { X, PictureInPicture2, Maximize2, Cpu, MemoryStick, HardDrive } from "lucide-react";
 import Chart from "react-apexcharts";
 import { useThemeStore } from "../../stores/themeStore";
+import { OverlayPortal } from "../Overlay/OverlayPortal";
 
 interface SystemStats {
   cpuUsage: number;
@@ -315,16 +316,18 @@ export function SystemMonitor({ visible, onClose }: SystemMonitorProps) {
     </div>
   );
 
-  if (pipMode) return modal;
+  if (pipMode) return <OverlayPortal>{modal}</OverlayPortal>;
 
   return (
-    <div
-      className="fixed inset-0 z-[250] flex items-start justify-center pt-[10vh]"
-      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
-      onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Escape") onClose(); }}
-      onKeyUp={(e) => e.stopPropagation()}
-    >
-      {modal}
-    </div>
+    <OverlayPortal>
+      <div
+        className="fixed inset-0 z-[250] flex items-start justify-center pt-[10vh]"
+        onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
+        onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Escape") onClose(); }}
+        onKeyUp={(e) => e.stopPropagation()}
+      >
+        {modal}
+      </div>
+    </OverlayPortal>
   );
 }

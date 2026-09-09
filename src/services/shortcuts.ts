@@ -15,7 +15,11 @@ import { isMac } from "./platform";
  * instead. Keys the shell never claims — `,`, digits, Tab — stay on plain Ctrl.
  *
  * The native menu carries its own copy of these accelerators, in
- * `src-tauri/src/menu.rs`. Change one, change the other.
+ * `src-tauri/src/menu.rs`. Change one, change the other — except on Windows,
+ * where the menu registers none of them and this table is the only handler.
+ * `TranslateAcceleratorW` runs before the message reaches WebView2 there, so an
+ * accelerator in the menu doesn't share the chord with the webview, it takes
+ * it. `menu.rs` explains what that costs.
  */
 
 interface Combo {

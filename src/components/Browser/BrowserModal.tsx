@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useThemeStore } from "../../stores/themeStore";
+import { OverlayPortal } from "../Overlay/OverlayPortal";
 import {
   ArrowLeft,
   ArrowRight,
@@ -94,10 +95,27 @@ export function BrowserModal({ visible, onClose }: BrowserModalProps) {
     e.preventDefault();
   }, []);
 
+  /**
+   * Waits for the reserved viewport to have a size, then opens a tab in it.
+   *
+   * The measurement can legitimately come back empty on the frame the modal
+   * first renders. It used to return early there and say nothing, which left
+   * the modal sitting on "No page loaded" with no tab, no error and no way
+   * forward — clicking "+" measured the same zero rect and gave up just as
+   * quietly. A few animation frames is all it takes, and if the rect is still
+   * empty after that it's a real fault worth showing.
+   */
   const createTab = useCallback(
     async (url: string) => {
-      const bounds = measure();
-      if (!bounds) return;
+      let bounds = measure();
+      for (let attempt = 0; !bounds && attempt < 10; attempt++) {
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        bounds = measure();
+      }
+      if (!bounds) {
+        setError("The browser viewport has no size yet — try reopening the browser.");
+        return;
+      }
 
       const tabId = crypto.randomUUID();
       try {
@@ -106,6 +124,9 @@ export function BrowserModal({ visible, onClose }: BrowserModalProps) {
         setActiveTabId(tabId);
         setError(null);
       } catch (e) {
+        // Also logged: the message is the only clue to a webview that the
+        // platform refused to create, and the error bar truncates.
+        console.error("browser: could not open a tab", e);
         setError(String(e));
       }
     },
@@ -326,12 +347,18 @@ export function BrowserModal({ visible, onClose }: BrowserModalProps) {
   const submitAddress = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
-      if (!activeTabId) return;
       addressRef.current?.blur();
       setEditingAddress(false);
+      // With no tab there is nothing to navigate, and returning here is what
+      // made the address bar look broken: type a URL, press Enter, nothing.
+      // Opening a tab on the typed address is what the user asked for anyway.
+      if (!activeTabId) {
+        void createTab(draft);
+        return;
+      }
       void navigateBrowser(activeTabId, draft).catch((err) => setError(String(err)));
     },
-    [activeTabId, draft]
+    [activeTabId, draft, createTab]
   );
 
   const handleModalKeyDown = useCallback(
@@ -517,10 +544,21 @@ export function BrowserModal({ visible, onClose }: BrowserModalProps) {
           </div>
         </form>
 
+        {/*
+          Stays enabled with no tab open, on whatever is in the address bar:
+          when the embedded webview can't be created at all, handing the URL to
+          the system browser is the only way out of the modal that still works.
+        */}
         <button
           className="browser-btn p-1.5 rounded"
-          disabled={!activeTab?.url}
-          onClick={() => activeTab?.url && void openExternal(activeTab.url).catch(() => {})}
+          disabled={!activeTab?.url && !draft.trim()}
+          onClick={() => {
+            const typed = activeTab?.url || draft.trim();
+            if (!typed) return;
+            // The address bar takes bare hosts; the system opener does not.
+            const url = /^[a-z][a-z0-9+.-]*:/i.test(typed) ? typed : `https://${typed}`;
+            void openExternal(url).catch(() => {});
+          }}
           title="Open in default browser"
           aria-label="Open in default browser"
         >
@@ -588,19 +626,21 @@ export function BrowserModal({ visible, onClose }: BrowserModalProps) {
     </div>
   );
 
-  if (pipMode) return modal;
+  if (pipMode) return <OverlayPortal>{modal}</OverlayPortal>;
 
   return (
-    <div
-      className="fixed inset-0 z-[250] flex items-start justify-center pt-[6vh]"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-      onKeyDown={(e) => e.stopPropagation()}
-      onKeyUp={(e) => e.stopPropagation()}
-    >
-      {modal}
-    </div>
+    <OverlayPortal>
+      <div
+        className="fixed inset-0 z-[250] flex items-start justify-center pt-[6vh]"
+        onMouseDown={(e) => {
+          if (e.target === e.currentTarget) onClose();
+        }}
+        onKeyDown={(e) => e.stopPropagation()}
+        onKeyUp={(e) => e.stopPropagation()}
+      >
+        {modal}
+      </div>
+    </OverlayPortal>
   );
 }
 

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Search, Clock, CornerDownLeft, X, PictureInPicture2, Maximize2 } from "lucide-react";
+import { OverlayPortal } from "../Overlay/OverlayPortal";
 
 interface HistoryEntry {
   command: string;
@@ -425,18 +426,20 @@ export function HistorySearch({ visible, onClose, onSelect }: HistorySearchProps
 
   // PiP mode: no backdrop, terminal is fully interactive
   if (pipMode) {
-    return modal;
+    return <OverlayPortal>{modal}</OverlayPortal>;
   }
 
   // Normal mode: centered with backdrop
   return (
-    <div
-      className="fixed inset-0 z-[250] flex items-start justify-center pt-[12vh]"
-      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
-      onKeyDown={(e) => e.stopPropagation()}
-      onKeyUp={(e) => e.stopPropagation()}
-    >
-      {modal}
-    </div>
+    <OverlayPortal>
+      <div
+        className="fixed inset-0 z-[250] flex items-start justify-center pt-[12vh]"
+        onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
+        onKeyDown={(e) => e.stopPropagation()}
+        onKeyUp={(e) => e.stopPropagation()}
+      >
+        {modal}
+      </div>
+    </OverlayPortal>
   );
 }

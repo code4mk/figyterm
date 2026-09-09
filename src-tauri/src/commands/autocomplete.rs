@@ -98,7 +98,10 @@ fn resolve_base(base_dir: &str) -> PathBuf {
     PathBuf::from(base_dir)
 }
 
-#[tauri::command]
+/// `async` so a directory listing never runs on the main thread: this fires on
+/// every keystroke, and `read_dir` against a slow disk, a network share or a
+/// mapped drive takes as long as it takes.
+#[tauri::command(async)]
 pub fn list_path_completions(
     base_dir: String,
     partial: String,
@@ -215,7 +218,9 @@ fn windows_history_path() -> Option<PathBuf> {
     )
 }
 
-#[tauri::command]
+/// `async` for the same reason: this reads and parses a history file that can
+/// run to thousands of lines.
+#[tauri::command(async)]
 pub fn read_shell_history(max_entries: Option<usize>) -> Vec<HistoryEntry> {
     let limit = max_entries.unwrap_or(2000);
 

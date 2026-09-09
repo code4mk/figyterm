@@ -17,7 +17,17 @@ import { recordDirUsage, sortByRecency, setHomeDir } from "../../services/recent
 import { Search, ChevronUp, ChevronDown, X } from "lucide-react";
 import { HistorySearch } from "./HistorySearch";
 import { SHORTCUTS, matches } from "../../services/shortcuts";
-import { isMac } from "../../services/platform";
+import { isMac, platform } from "../../services/platform";
+import {
+  BACKSLASH_ESCAPES,
+  PATH_SEP,
+  ShellFlavor,
+  endsWithSeparator,
+  quotePath,
+  shellFlavor,
+  splitPath,
+  unquotePath,
+} from "../../services/paths";
 
 const DARK_THEME: ITheme = {
   background: "#1a1d23",
@@ -69,6 +79,26 @@ const LIGHT_THEME: ITheme = {
   brightWhite: "#ffffff",
 };
 
+/**
+ * How hard xterm works to keep foreground text legible against the background.
+ *
+ * `1` means "don't interfere", which is right for the dark theme: every colour
+ * in it was picked against `#1a1d23` and already stands out.
+ *
+ * The light theme can't be left alone. ANSI white is `#f8f9fb` there and bright
+ * white is `#ffffff` — the background and lighter than the background — so a
+ * shell that prints a filename in white (which PowerShell does, for every entry
+ * `Get-ChildItem` lists that isn't a directory) draws it invisibly. Rather than
+ * darken `white` itself, which would also darken `\e[47m` *backgrounds*, this
+ * asks xterm for a WCAG AA foreground and lets it adjust only the text.
+ */
+const DARK_MIN_CONTRAST = 1;
+const LIGHT_MIN_CONTRAST = 4.5;
+
+function minimumContrastFor(theme: string): number {
+  return theme === "dark" ? DARK_MIN_CONTRAST : LIGHT_MIN_CONTRAST;
+}
+
 interface TerminalProps {
   instanceId: string;
   isActive: boolean;
@@ -100,7 +130,25 @@ interface CompletionEntry {
   isHidden: boolean;
 }
 
-const PATH_COMMANDS = ["cd", "ls", "cat", "less", "more", "head", "tail", "vim", "nano", "code", "open", "cp", "mv", "rm", "mkdir", "touch", "chmod", "chown", "source", "bat"];
+const POSIX_PATH_COMMANDS = ["cd", "ls", "cat", "less", "more", "head", "tail", "vim", "nano", "code", "open", "cp", "mv", "rm", "mkdir", "touch", "chmod", "chown", "source", "bat"];
+
+/**
+ * The same list for a Windows shell. PowerShell aliases most of the POSIX
+ * names (`ls`, `cat`, `cp`, `mv`, `rm`), so those stay useful and are kept —
+ * these are the ones it doesn't, plus the cmd built-ins and the two editors
+ * anyone actually reaches for.
+ */
+const WINDOWS_PATH_COMMANDS = [
+  "dir", "type", "del", "erase", "copy", "move", "ren", "rename", "md", "rd", "rmdir",
+  "pushd", "popd", "start", "notepad", "explorer", "where",
+  "set-location", "get-childitem", "get-content", "new-item", "remove-item",
+  "copy-item", "move-item", "rename-item", "test-path", "resolve-path", "push-location",
+];
+
+const PATH_COMMANDS =
+  platform === "windows"
+    ? [...POSIX_PATH_COMMANDS, ...WINDOWS_PATH_COMMANDS]
+    : POSIX_PATH_COMMANDS;
 
 /**
  * Extract the last shell token respecting escape sequences and quotes.
@@ -140,7 +188,9 @@ function extractLastToken(input: string): string {
       continue;
     }
 
-    if (ch === "\\" && !inSingle) {
+    // On Windows a backslash is the path separator, never an escape — treating
+    // it as one turns `D:\Users` into a token the filesystem has never heard of.
+    if (ch === "\\" && !inSingle && BACKSLASH_ESCAPES) {
       escaped = true;
       continue;
     }
@@ -167,10 +217,12 @@ function extractLastToken(input: string): string {
   return token;
 }
 
-/** Unescape backslash-escaped chars for passing to filesystem (e.g. `My\ Doc` → `My Doc`) */
-function unescapeToken(token: string): string {
-  return token.replace(/\\(.)/g, "$1");
-}
+/**
+ * Turn a command-line token back into a plain path for the filesystem —
+ * `My\ Doc` → `My Doc` on POSIX, `'My Doc'` → `My Doc` on Windows. See
+ * `services/paths.ts` for why the two can't share one rule.
+ */
+const unescapeToken = unquotePath;
 
 /** OSC — window titles and OSC 7, terminated by BEL or ST. */
 const OSC_SEQUENCE = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
@@ -244,6 +296,11 @@ export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, o
   const fitAddonRef = useRef<FitAddon | null>(null);
   const searchAddonRef = useRef<SearchAddon | null>(null);
   const sessionIdRef = useRef<string | null>(null);
+  /**
+   * How this pane's shell quotes a path. Set once the session reports which
+   * shell it started; until then the platform default is the right guess.
+   */
+  const shellFlavorRef = useRef<ShellFlavor>(shellFlavor(""));
   const unlistenRef = useRef<(() => void) | null>(null);
   const initStarted = useRef(false);
   const inputBufferRef = useRef("");
@@ -329,7 +386,7 @@ export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, o
     let inDouble = false;
     for (let i = 0; i < trimmed.length; i++) {
       const ch = trimmed[i];
-      if (ch === "\\" && i + 1 < trimmed.length) { i++; continue; }
+      if (ch === "\\" && BACKSLASH_ESCAPES && i + 1 < trimmed.length) { i++; continue; }
       if (ch === "'" && !inDouble) inSingle = !inSingle;
       if (ch === '"' && !inSingle) inDouble = !inDouble;
     }
@@ -339,8 +396,10 @@ export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, o
       return;
     }
 
-    // Don't suggest when input ends with \ (line continuation)
-    if (trimmed.endsWith("\\")) {
+    // Don't suggest when input ends with \ (line continuation). On Windows
+    // that trailing backslash is a path separator and the most interesting
+    // moment to suggest, so the check doesn't apply there.
+    if (BACKSLASH_ESCAPES && trimmed.endsWith("\\")) {
       if (debounceRef.current) { clearTimeout(debounceRef.current); debounceRef.current = null; }
       updateUI([], 0, false);
       return;
@@ -406,7 +465,7 @@ export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, o
           ? pathItems.filter((p) => p.type === "folder")
           : pathItems;
 
-        if (command === "cd" && lastTokenUnescaped.endsWith("/")) {
+        if (command === "cd" && endsWithSeparator(lastTokenUnescaped)) {
           const currentDirItem: SuggestionItem = {
             name: ".",
             description: "Select current folder",
@@ -429,12 +488,25 @@ export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, o
   const acceptSuggestion = useCallback((item: SuggestionItem, inline = false) => {
     if (!xtermRef.current || !sessionIdRef.current) return;
 
-    // "Select current folder" ? remove trailing slash, send Enter to execute cd
+    const input = inputBufferRef.current;
+    const trimmed = input.trimStart();
+    const currentToken = extractLastToken(trimmed);
+    const encoder = new TextEncoder();
+    const flavor = shellFlavorRef.current;
+
+    // "Select current folder" — drop the trailing separator and run the `cd`.
     if (item.name === ".") {
-      const encoder = new TextEncoder();
+      // A POSIX token ends in a bare `/`, so one backspace is the whole edit. A
+      // Windows one is quoted (`'D:\a b\'`) and the last character is the
+      // closing quote, so the token has to be rewritten rather than trimmed.
+      let edit = "\x7f\r";
+      if (flavor !== "posix") {
+        const path = unquotePath(currentToken).replace(/[\\/]+$/, "");
+        edit = "\x7f".repeat(currentToken.length) + quotePath(path, flavor) + "\r";
+      }
       invoke("write_terminal_session", {
         sessionId: sessionIdRef.current,
-        data: Array.from(encoder.encode("\x7f\r")),
+        data: Array.from(encoder.encode(edit)),
       });
       inputBufferRef.current = "";
       updateUI([], 0, false);
@@ -442,33 +514,37 @@ export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, o
       return;
     }
 
-    const input = inputBufferRef.current;
-    const trimmed = input.trimStart();
-    const currentToken = extractLastToken(trimmed);
-    const encoder = new TextEncoder();
-
     if (item.type === "file" || item.type === "folder") {
-      const lastSlash = currentToken.lastIndexOf("/");
-      const toDelete = lastSlash >= 0 ? currentToken.slice(lastSlash + 1) : currentToken;
+      const rawName = item.insertValue || item.name;
 
-      const backspaces = "\x7f".repeat(toDelete.length);
-      let rawName = item.insertValue || item.name;
+      // How much of the line to take back, and what to put in its place.
+      let toDelete: number;
+      let completion: string;
+      let newToken: string;
 
-      const needsEscape = /[ \t()'"`$!#&;|<>{}\[\]*?~]/.test(rawName);
-      const escaped = needsEscape ? rawName.replace(/([ \t()'"`$!#&;|<>{}\[\]*?~])/g, "\\$1") : rawName;
+      if (flavor === "posix") {
+        // Escape the new segment and leave the directory prefix untouched.
+        const { dir, leaf } = splitPath(currentToken);
+        toDelete = leaf.length;
+        completion = quotePath(rawName, flavor) + (!inline && item.type === "folder" ? PATH_SEP : "");
+        newToken = dir + completion;
+      } else {
+        // Windows quotes a path as a whole, so the whole token is rewritten:
+        // the quotes belong at the ends, not around one segment in the middle.
+        const { dir } = splitPath(unquotePath(currentToken));
+        const full = dir + rawName + (!inline && item.type === "folder" ? PATH_SEP : "");
+        toDelete = currentToken.length;
+        completion = quotePath(full, flavor);
+        newToken = completion;
+      }
 
-      let completion = escaped;
-      if (!inline && item.type === "folder") completion += "/";
-
-      const toSend = backspaces + completion;
+      const toSend = "\x7f".repeat(toDelete) + completion;
       invoke("write_terminal_session", {
         sessionId: sessionIdRef.current,
         data: Array.from(encoder.encode(toSend)),
       });
 
-      const basePath = lastSlash >= 0 ? currentToken.slice(0, lastSlash + 1) : "";
-      const newPartial = basePath + completion;
-      inputBufferRef.current = input.slice(0, input.length - currentToken.length) + newPartial;
+      inputBufferRef.current = input.slice(0, input.length - currentToken.length) + newToken;
 
       updateUI([], 0, false);
       xtermRef.current.focus();
@@ -591,6 +667,33 @@ export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, o
     }
   }, []);
 
+  const copySelection = useCallback(async () => {
+    const xterm = xtermRef.current;
+    if (!xterm?.hasSelection()) return;
+    try {
+      await navigator.clipboard.writeText(xterm.getSelection());
+    } catch {
+      // As above.
+    }
+  }, []);
+
+  /**
+   * Off macOS the Edit menu's Copy and Paste are our own items rather than the
+   * webview's built-ins, because the built-in ones come welded to Ctrl+C and
+   * Ctrl+V — see `menu.rs`. They arrive as events, and the focused pane is the
+   * one that should act on them.
+   */
+  useEffect(() => {
+    if (!isActive) return;
+    const pending = [
+      listen("menu://copy", () => void copySelection()),
+      listen("menu://paste", () => void pasteFromClipboard()),
+    ];
+    return () => {
+      pending.forEach((p) => p.then((off) => off()).catch(() => {}));
+    };
+  }, [isActive, copySelection, pasteFromClipboard]);
+
   const initTerminal = useCallback(async () => {
     if (initStarted.current || !containerRef.current) return;
     initStarted.current = true;
@@ -609,7 +712,7 @@ export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, o
       theme: theme === "dark" ? DARK_THEME : LIGHT_THEME,
       allowProposedApi: true,
       drawBoldTextInBrightColors: true,
-      minimumContrastRatio: 1,
+      minimumContrastRatio: minimumContrastFor(theme),
     });
 
     const fitAddon = new FitAddon();
@@ -707,7 +810,10 @@ export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, o
 
       if (data === "\r" || data === "\n" || data === "\x1bOM") {
         const trimmedInput = inputBufferRef.current.trimEnd();
-        if (trimmedInput.endsWith("\\")) {
+        // A trailing backslash continues the line — except on Windows, where
+        // it is just the separator on a directory the user is about to enter.
+        const continuation = BACKSLASH_ESCAPES && trimmedInput.endsWith("\\");
+        if (continuation) {
           updateUI([], 0, false);
         } else if (isShowing && items.length > 0) {
           const selected = items[idx];
@@ -718,7 +824,7 @@ export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, o
             return;
           }
         }
-        if (!trimmedInput.endsWith("\\")) {
+        if (!continuation) {
           inputBufferRef.current = "";
         }
         updateUI([], 0, false);
@@ -849,6 +955,7 @@ export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, o
         cwd: initialCwd || null,
       });
       sessionIdRef.current = raw.id;
+      shellFlavorRef.current = shellFlavor(raw.shell);
       cwdRef.current = raw.cwd;
       invoke<string>("get_home_dir").then((home) => setHomeDir(home)).catch(() => {});
 
@@ -883,6 +990,7 @@ export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, o
   useEffect(() => {
     if (xtermRef.current) {
       xtermRef.current.options.theme = theme === "dark" ? DARK_THEME : LIGHT_THEME;
+      xtermRef.current.options.minimumContrastRatio = minimumContrastFor(theme);
     }
   }, [theme]);
 

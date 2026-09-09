@@ -23,6 +23,8 @@ pub const MENU_BROWSER: &str = "shell_browser";
 pub const MENU_MONITOR: &str = "shell_monitor";
 pub const MENU_COMMAND_PALETTE: &str = "shell_command_palette";
 pub const MENU_SETTINGS: &str = "shell_settings";
+pub const MENU_COPY: &str = "edit_copy";
+pub const MENU_PASTE: &str = "edit_paste";
 
 const EVENT_NEW_TAB: &str = "menu://new-tab";
 const EVENT_NEW_TAB_SAME_DIR: &str = "menu://new-tab-same-dir";
@@ -35,6 +37,8 @@ const EVENT_MONITOR: &str = "menu://monitor";
 const EVENT_COMMAND_PALETTE: &str = "menu://command-palette";
 const EVENT_SETTINGS: &str = "menu://settings";
 const EVENT_CHECK_UPDATES: &str = "menu://check-updates";
+const EVENT_COPY: &str = "menu://copy";
+const EVENT_PASTE: &str = "menu://paste";
 
 /// An accelerator spelled for the platform it runs on.
 ///
@@ -45,14 +49,40 @@ const EVENT_CHECK_UPDATES: &str = "menu://check-updates";
 /// exactly as GNOME Terminal and Konsole do, and Ctrl+Alt where a macOS ⌘X/⌘⇧X
 /// pair would otherwise collapse onto the same chord.
 ///
+/// **Windows registers none of them.** Tauri installs a message hook that runs
+/// `TranslateAcceleratorW` over every menu accelerator before tao dispatches
+/// the message, and returning "translated" stops the dispatch dead — so a key
+/// that matches an accelerator never reaches WebView2, and `WM_COMMAND` goes to
+/// whichever HWND had focus. When that's the webview's own child window rather
+/// than the frame, muda never sees the command either and the keystroke is
+/// simply lost. `src/services/shortcuts.ts` implements every one of these in
+/// the webview already, so on Windows the accelerator is dropped and the chord
+/// is shown as label text instead (see `hint`), leaving the key free to arrive.
+///
 /// This mirrors `src/services/shortcuts.ts`, which spells the same bindings for
 /// the in-app handlers and the labels. Change one, change the other.
 fn accel(mac: &str, other: &str) -> Option<String> {
+    if cfg!(target_os = "windows") {
+        return None;
+    }
     Some(if cfg!(target_os = "macos") {
         mac.to_string()
     } else {
         other.to_string()
     })
+}
+
+/// A menu item's text, with the shortcut appended where the accelerator was
+/// dropped.
+///
+/// A tab in a Win32 menu string right-aligns everything after it — the standard
+/// way a shortcut hint is drawn — and unlike an accelerator it claims no key.
+fn label(text: &str, hint: &str) -> String {
+    if cfg!(target_os = "windows") {
+        format!("{text}\t{hint}")
+    } else {
+        text.to_string()
+    }
 }
 
 pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
@@ -75,70 +105,70 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let new_tab = MenuItem::with_id(
         app,
         MENU_NEW_TAB,
-        "New Tab",
+        label("New Tab", "Ctrl+Shift+T"),
         true,
         accel("CmdOrCtrl+T", "Ctrl+Shift+T"),
     )?;
     let new_tab_same_dir = MenuItem::with_id(
         app,
         MENU_NEW_TAB_SAME_DIR,
-        "New Tab in Same Directory",
+        label("New Tab in Same Directory", "Ctrl+Alt+T"),
         true,
         accel("CmdOrCtrl+Shift+T", "Ctrl+Alt+T"),
     )?;
     let split_right = MenuItem::with_id(
         app,
         MENU_SPLIT_RIGHT,
-        "Split Pane Right",
+        label("Split Pane Right", "Ctrl+Shift+D"),
         true,
         accel("CmdOrCtrl+D", "Ctrl+Shift+D"),
     )?;
     let split_down = MenuItem::with_id(
         app,
         MENU_SPLIT_DOWN,
-        "Split Pane Down",
+        label("Split Pane Down", "Ctrl+Alt+D"),
         true,
         accel("CmdOrCtrl+Shift+D", "Ctrl+Alt+D"),
     )?;
     let close_pane = MenuItem::with_id(
         app,
         MENU_CLOSE_PANE,
-        "Close Pane",
+        label("Close Pane", "Ctrl+Shift+W"),
         true,
         accel("CmdOrCtrl+Shift+W", "Ctrl+Shift+W"),
     )?;
     let clear_terminal = MenuItem::with_id(
         app,
         MENU_CLEAR_TERMINAL,
-        "Clear Terminal",
+        label("Clear Terminal", "Ctrl+Shift+K"),
         true,
         accel("CmdOrCtrl+K", "Ctrl+Shift+K"),
     )?;
     let browser = MenuItem::with_id(
         app,
         MENU_BROWSER,
-        "Browser",
+        label("Browser", "Ctrl+Shift+B"),
         true,
         accel("CmdOrCtrl+Shift+B", "Ctrl+Shift+B"),
     )?;
     let monitor = MenuItem::with_id(
         app,
         MENU_MONITOR,
-        "System Monitor",
+        label("System Monitor", "Ctrl+Shift+M"),
         true,
         accel("CmdOrCtrl+Shift+M", "Ctrl+Shift+M"),
     )?;
     let command_palette = MenuItem::with_id(
         app,
         MENU_COMMAND_PALETTE,
-        "Command Palette",
+        label("Command Palette", "Ctrl+Shift+P"),
         true,
         accel("CmdOrCtrl+Shift+P", "Ctrl+Shift+P"),
     )?;
     let settings = MenuItem::with_id(
         app,
         MENU_SETTINGS,
-        "Settings…",
+        label("Settings…", "Ctrl+,"),
         true,
         accel("CmdOrCtrl+,", "Ctrl+,"),
     )?;
@@ -171,6 +201,30 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let help_license =
         MenuItem::with_id(app, MENU_HELP_LICENSE, "View License", true, None::<&str>)?;
 
+    // Off macOS the Edit menu is built by hand rather than from
+    // `PredefinedMenuItem`, whose accelerators are fixed at CmdOrCtrl and so
+    // resolve to the bare Ctrl chords the shell needs for itself: Ctrl+C
+    // (SIGINT), Ctrl+V, Ctrl+X, Ctrl+A (start of line), Ctrl+Z and Ctrl+Y
+    // (PSReadLine's undo and yank). A menu that owns those is a menu that has
+    // taken interrupt away from the terminal, so only Copy and Paste survive,
+    // on the app's own Ctrl+Shift chords, routed to the focused pane.
+    #[cfg(not(target_os = "macos"))]
+    let copy_item = MenuItem::with_id(
+        app,
+        MENU_COPY,
+        label("Copy", "Ctrl+Shift+C"),
+        true,
+        accel("CmdOrCtrl+C", "Ctrl+Shift+C"),
+    )?;
+    #[cfg(not(target_os = "macos"))]
+    let paste_item = MenuItem::with_id(
+        app,
+        MENU_PASTE,
+        label("Paste", "Ctrl+Shift+V"),
+        true,
+        accel("CmdOrCtrl+V", "Ctrl+Shift+V"),
+    )?;
+
     let sep1 = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
     let sep3 = PredefinedMenuItem::separator(app)?;
@@ -199,13 +253,19 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         ],
     )?;
 
+    // `PredefinedMenuItem::minimize` carries CmdOrCtrl+M, and off macOS that is
+    // Ctrl+M — which is carriage return. A menu that holds it swallows every
+    // Enter the user presses, so the item is macOS-only. Maximize has no
+    // accelerator but goes with it; both are a click away on the title bar.
     let window_menu = Submenu::with_id_and_items(
         app,
         "window",
         "Window",
         true,
         &[
+            #[cfg(target_os = "macos")]
             &PredefinedMenuItem::minimize(app, None)?,
+            #[cfg(target_os = "macos")]
             &PredefinedMenuItem::maximize(app, None)?,
             #[cfg(target_os = "macos")]
             &PredefinedMenuItem::separator(app)?,
@@ -254,6 +314,7 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
                 ],
             )?,
             &shell_menu,
+            #[cfg(target_os = "macos")]
             &Submenu::with_id_and_items(
                 app,
                 "edit",
@@ -269,6 +330,8 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
                     &PredefinedMenuItem::select_all(app, None)?,
                 ],
             )?,
+            #[cfg(not(target_os = "macos"))]
+            &Submenu::with_id_and_items(app, "edit", "Edit", true, &[&copy_item, &paste_item])?,
             #[cfg(target_os = "macos")]
             &Submenu::with_id_and_items(
                 app,
@@ -320,6 +383,8 @@ pub fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
         MENU_COMMAND_PALETTE => app.emit(EVENT_COMMAND_PALETTE, ()),
         MENU_SETTINGS => app.emit(EVENT_SETTINGS, ()),
         MENU_CHECK_UPDATES => app.emit(EVENT_CHECK_UPDATES, ()),
+        MENU_COPY => app.emit(EVENT_COPY, ()),
+        MENU_PASTE => app.emit(EVENT_PASTE, ()),
         _ => Ok(()),
     };
     if let Err(err) = result {
