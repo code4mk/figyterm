@@ -1,8 +1,10 @@
 import { useRef, useEffect, useState, useCallback } from "react";
 import { Panel, Group } from "react-resizable-panels";
+import { X } from "lucide-react";
 import { Terminal } from "./Terminal";
 import { SplitHandle } from "./SplitHandle";
 import { TerminalSession } from "../../types/terminal";
+import { SHORTCUTS, text } from "../../services/shortcuts";
 
 export type PaneNode =
   | { type: "leaf"; id: string }
@@ -69,6 +71,7 @@ interface PaneContainerProps {
   paneTree: PaneNode;
   activePaneId: string | null;
   onPaneFocus: (paneId: string) => void;
+  onPaneClose: (paneId: string) => void;
   onSessionCreated: (paneId: string, session: TerminalSession) => void;
   onCwdChange: (paneId: string, cwd: string) => void;
   getPaneInitialCwd?: (paneId: string) => string | undefined;
@@ -80,6 +83,7 @@ export function PaneContainer({
   paneTree,
   activePaneId,
   onPaneFocus,
+  onPaneClose,
   onSessionCreated,
   onCwdChange,
   getPaneInitialCwd,
@@ -89,8 +93,10 @@ export function PaneContainer({
   const containerRef = useRef<HTMLDivElement>(null);
   const slotRefsMap = useRef<Map<string, HTMLDivElement>>(new Map());
   const [slotRects, setSlotRects] = useState<Record<string, SlotRect>>({});
+  const [hoveredPaneId, setHoveredPaneId] = useState<string | null>(null);
   const leafIds = findLeafIds(paneTree);
   const hasSiblings = leafIds.length > 1;
+  const closeHint = `Close pane (${text(SHORTCUTS.closePane)})`;
 
   const measureSlots = useCallback(() => {
     const container = containerRef.current;
@@ -171,6 +177,8 @@ export function PaneContainer({
                 : { top: 0, left: 0, width: 0, height: 0, opacity: 0 }
             }
             onMouseDown={() => onPaneFocus(paneId)}
+            onMouseEnter={() => setHoveredPaneId(paneId)}
+            onMouseLeave={() => setHoveredPaneId((id) => (id === paneId ? null : id))}
           >
             <Terminal
               instanceId={paneId}
@@ -181,6 +189,37 @@ export function PaneContainer({
               clearRef={clearRef}
               focusRef={focusRef}
             />
+
+            {/*
+              A pane is only closable while it has a sibling — the last one is
+              the tab, and the tab bar closes that. Dimmed until the pointer is
+              in the pane, so four panes don't put four bright buttons over the
+              output; the tooltip carries the keybinding, so the button teaches
+              the chord rather than replacing it.
+            */}
+            {hasSiblings && (
+              <button
+                className={`pane-close-btn absolute top-1 right-1 z-30 p-[3px] rounded transition-opacity ${
+                  hoveredPaneId === paneId ? "opacity-100" : "opacity-40"
+                }`}
+                title={closeHint}
+                aria-label={closeHint}
+                tabIndex={-1}
+                /* Don't let the press reach the pane: focusing then closing
+                   would move the keyboard into a pane that's about to vanish,
+                   and xterm would start a selection under the cursor. */
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onPaneClose(paneId);
+                }}
+              >
+                <X size={11} />
+              </button>
+            )}
           </div>
         );
       })}

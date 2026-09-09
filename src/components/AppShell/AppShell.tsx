@@ -164,60 +164,76 @@ export function AppShell() {
     [activeTabId, activePaneId]
   );
 
-  const handleClosePane = useCallback(() => {
-    if (!activeTabId || !activePaneId) return;
+  /**
+   * Close one pane of the active tab.
+   *
+   * The keybinding, the menu and the palette close whichever pane has focus and
+   * pass nothing; a pane's own close button names itself, because the pane the
+   * pointer is over is not necessarily the pane the keyboard is in.
+   */
+  const handleClosePane = useCallback(
+    (paneId?: string) => {
+      const targetPaneId = paneId ?? activePaneId;
+      if (!activeTabId || !targetPaneId) return;
 
-    setTabs((prev) => {
-      const tab = prev.find((t) => t.id === activeTabId);
-      if (!tab) return prev;
+      setTabs((prev) => {
+        const tab = prev.find((t) => t.id === activeTabId);
+        if (!tab) return prev;
 
-      const paneCount = countPanes(tab.paneTree);
-      if (paneCount <= 1) {
-        // Last pane — close the entire tab
-        const updated = prev.filter((t) => t.id !== activeTabId);
-        if (updated.length > 0) {
-          const idx = prev.findIndex((t) => t.id === activeTabId);
-          const newIdx = Math.min(idx, updated.length - 1);
-          setActiveTabId(updated[newIdx].id);
-          const newLeafs = findLeafIds(updated[newIdx].paneTree);
-          setActivePaneId(newLeafs[0] || null);
-        } else {
-          setActiveTabId(null);
-          setActivePaneId(null);
+        const forgetPane = () => {
+          const paneSession = tab.sessions[targetPaneId];
+          if (paneSession?.sessionId) {
+            removeTab(paneSession.sessionId);
+          }
+          clearRefs.current.delete(targetPaneId);
+          focusRefs.current.delete(targetPaneId);
+          paneInitialCwds.current.delete(targetPaneId);
+        };
+
+        const paneCount = countPanes(tab.paneTree);
+        if (paneCount <= 1) {
+          // Last pane — close the entire tab
+          const updated = prev.filter((t) => t.id !== activeTabId);
+          if (updated.length > 0) {
+            const idx = prev.findIndex((t) => t.id === activeTabId);
+            const newIdx = Math.min(idx, updated.length - 1);
+            setActiveTabId(updated[newIdx].id);
+            const newLeafs = findLeafIds(updated[newIdx].paneTree);
+            setActivePaneId(newLeafs[0] || null);
+          } else {
+            setActiveTabId(null);
+            setActivePaneId(null);
+          }
+
+          forgetPane();
+          return updated;
         }
 
-        // Clean up session
-        const paneSession = tab.sessions[activePaneId];
-        if (paneSession?.sessionId) {
-          removeTab(paneSession.sessionId);
+        // Remove one pane from the tree
+        const newTree = removePane(tab.paneTree, targetPaneId);
+        if (!newTree) return prev;
+
+        // Closing a pane the keyboard isn't in leaves focus where it is.
+        if (targetPaneId === activePaneId) {
+          const survivor = findLeafIds(newTree)[0] || null;
+          setActivePaneId(survivor);
+          if (survivor) {
+            requestAnimationFrame(() => focusRefs.current.get(survivor)?.current?.());
+          }
         }
-        clearRefs.current.delete(activePaneId);
-        paneInitialCwds.current.delete(activePaneId);
-        return updated;
-      }
 
-      // Remove one pane from the tree
-      const newTree = removePane(tab.paneTree, activePaneId);
-      if (!newTree) return prev;
+        forgetPane();
 
-      const remainingLeafs = findLeafIds(newTree);
-      setActivePaneId(remainingLeafs[0] || null);
+        const newSessions = { ...tab.sessions };
+        delete newSessions[targetPaneId];
 
-      const paneSession = tab.sessions[activePaneId];
-      if (paneSession?.sessionId) {
-        removeTab(paneSession.sessionId);
-      }
-      clearRefs.current.delete(activePaneId);
-      paneInitialCwds.current.delete(activePaneId);
-
-      const newSessions = { ...tab.sessions };
-      delete newSessions[activePaneId];
-
-      return prev.map((t) =>
-        t.id === activeTabId ? { ...t, paneTree: newTree, sessions: newSessions } : t
-      );
-    });
-  }, [activeTabId, activePaneId, removeTab]);
+        return prev.map((t) =>
+          t.id === activeTabId ? { ...t, paneTree: newTree, sessions: newSessions } : t
+        );
+      });
+    },
+    [activeTabId, activePaneId, removeTab]
+  );
 
   const handleCloseTab = useCallback(
     (tabId: string) => {
@@ -484,6 +500,7 @@ export function AppShell() {
               paneTree={tab.paneTree}
               activePaneId={tab.id === activeTabId ? activePaneId : null}
               onPaneFocus={setActivePaneId}
+              onPaneClose={handleClosePane}
               onSessionCreated={handleSessionCreated}
               onCwdChange={(paneId, cwd) => setLiveCwds((prev) => ({ ...prev, [paneId]: cwd }))}
               getPaneInitialCwd={getPaneInitialCwd}

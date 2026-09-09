@@ -481,6 +481,34 @@
   background: rgba(0, 0, 0, 0.04);
 }
 
+/* ─── Pane Close Button ─── */
+
+/*
+ * This one sits on top of terminal output rather than in any chrome of its
+ * own, so unlike `.tab-close-btn` it carries its own backdrop — without it the
+ * glyph disappears into whatever text happens to be in the corner.
+ */
+.pane-close-btn {
+  color: #8b949e;
+  background: rgba(30, 34, 40, 0.85);
+  backdrop-filter: blur(4px);
+}
+
+.pane-close-btn:hover {
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.15);
+}
+
+.light .pane-close-btn {
+  color: #6b7280;
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.light .pane-close-btn:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.12);
+}
+
 /* ─── Command Palette ─── */
 
 .palette-kbd {
