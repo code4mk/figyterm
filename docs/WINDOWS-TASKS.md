@@ -187,7 +187,27 @@ it turned up, and what was done:
       exist only on macOS, so Windows fell through to Courier New. Defaults are
       per-platform now (Cascadia Mono on Windows, DejaVu Sans Mono on Linux).
 
-- [~] **The embedded browser opens no tab.** "No page loaded", `0 tabs`, `+`
+- [x] **The embedded browser was placed with the wrong scale factor.** Once it
+      opened (below), the page drew up and to the left of the modal and
+      overlapped its toolbar. Measured off the report screenshot, the webview
+      rect was a uniform **0.8775** of the reserved viewport — 938/1069 across,
+      523/596 down, the same figure in both axes — and its position scaled about
+      the window origin by the same amount, so the two rects share an origin and
+      differ only by a factor.
+
+      That factor is the whole bug. The bounds went over as CSS pixels and
+      something had to turn them into device pixels; wry's `set_bounds` derives
+      its own from `hwnd_dpi` on the child container HWND, and that disagreed by
+      14% with the factor WebView2 had actually laid the page out at.
+
+      `Bounds` now carries the app webview's own `devicePixelRatio` and the rect
+      is converted here, going over as `PhysicalPosition`/`PhysicalSize` so no
+      platform layer re-derives anything. The number cannot disagree with the
+      layout when it comes from the webview that produced the layout. Linux is
+      untouched — `browser_layout` places widgets in GTK's logical units, not
+      device pixels, so that path keeps the CSS rect.
+
+- [x] **The embedded browser opened no tab.** "No page loaded", `0 tabs`, `+`
       does nothing, and the address bar does nothing. The screenshot pins down
       more than it looks: no error bar means `browser_open_tab` never *rejected*
       either, so the call is not failing, it is not answering.
@@ -212,17 +232,12 @@ it turned up, and what was done:
          `webview2_com::wait_with_pump`, a reentrant `GetMessage`/`DispatchMessage`
          loop, now started from the middle of another message's handler. This is
          the hypothesis for the non-answer, and the async path is the one every
-         other caller of `add_child` already uses. **Unverified.**
+         other caller of `add_child` already uses.
 
-      If it still hangs, `RUST_LOG=debug` will show `browser: opening
-      'figy-browser-…'` with nothing after it, which places the stall inside
-      `add_child` rather than anywhere in this crate.
-
-      Worth knowing for the next round: the box it was reported on is a
-      browser-streamed cloud Windows trial (apponfly) running as
-      Administrator — a virtualised GPU and an elevated process are both things
-      WebView2 is fussy about, so reproducing on ordinary hardware is the first
-      thing to try.
+      **Confirmed.** The next Windows run opened google.com in a tab, which
+      makes (4) the answer: the build was deadlocking against the message pump
+      it was nested inside. The remaining fault was where the page was *drawn*,
+      which is the entry above.
 
 - [x] **Modals dead to hover, focus and clicks.** Reported as all three at once,
       on every kind of modal, intermittently. All three together is the tell:

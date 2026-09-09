@@ -23,6 +23,7 @@ pub const MENU_BROWSER: &str = "shell_browser";
 pub const MENU_MONITOR: &str = "shell_monitor";
 pub const MENU_COMMAND_PALETTE: &str = "shell_command_palette";
 pub const MENU_SETTINGS: &str = "shell_settings";
+pub const MENU_TOGGLE_THEME: &str = "shell_toggle_theme";
 pub const MENU_COPY: &str = "edit_copy";
 pub const MENU_PASTE: &str = "edit_paste";
 
@@ -36,6 +37,7 @@ const EVENT_BROWSER: &str = "menu://browser";
 const EVENT_MONITOR: &str = "menu://monitor";
 const EVENT_COMMAND_PALETTE: &str = "menu://command-palette";
 const EVENT_SETTINGS: &str = "menu://settings";
+const EVENT_TOGGLE_THEME: &str = "menu://toggle-theme";
 const EVENT_CHECK_UPDATES: &str = "menu://check-updates";
 const EVENT_COPY: &str = "menu://copy";
 const EVENT_PASTE: &str = "menu://paste";
@@ -165,6 +167,13 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         true,
         accel("CmdOrCtrl+Shift+P", "Ctrl+Shift+P"),
     )?;
+    let toggle_theme = MenuItem::with_id(
+        app,
+        MENU_TOGGLE_THEME,
+        label("Toggle Light/Dark Theme", "Ctrl+Shift+L"),
+        true,
+        accel("CmdOrCtrl+Shift+L", "Ctrl+Shift+L"),
+    )?;
     let settings = MenuItem::with_id(
         app,
         MENU_SETTINGS,
@@ -247,6 +256,7 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
             &sep3,
             &browser,
             &monitor,
+            &toggle_theme,
             &sep4,
             &command_palette,
             &settings,
@@ -382,6 +392,7 @@ pub fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
         MENU_MONITOR => app.emit(EVENT_MONITOR, ()),
         MENU_COMMAND_PALETTE => app.emit(EVENT_COMMAND_PALETTE, ()),
         MENU_SETTINGS => app.emit(EVENT_SETTINGS, ()),
+        MENU_TOGGLE_THEME => app.emit(EVENT_TOGGLE_THEME, ()),
         MENU_CHECK_UPDATES => app.emit(EVENT_CHECK_UPDATES, ()),
         MENU_COPY => app.emit(EVENT_COPY, ()),
         MENU_PASTE => app.emit(EVENT_PASTE, ()),

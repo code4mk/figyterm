@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { listen, emit } from "@tauri-apps/api/event";
 import { TabBar } from "../Terminal/TabBar";
 import { StatusBar } from "../Terminal/StatusBar";
 import { SystemMonitor } from "../Terminal/SystemMonitor";
@@ -18,6 +18,7 @@ import {
   removePane,
 } from "../Terminal/PaneContainer";
 import { useTerminalStore } from "../../stores/terminalStore";
+import { useThemeStore } from "../../stores/themeStore";
 import { TerminalSession } from "../../types/terminal";
 import { SHORTCUTS, keys, matches } from "../../services/shortcuts";
 import { isMac, EMBEDDED_BROWSER_SUPPORTED } from "../../services/platform";
@@ -56,6 +57,19 @@ export function AppShell() {
   const initialCreated = useRef(false);
 
   const { addTab, removeTab, setActiveTab, reorderTabs } = useTerminalStore();
+  const toggleTheme = useThemeStore((s) => s.toggleTheme);
+
+  /**
+   * Asks the focused pane to do something only it can do.
+   *
+   * The palette lives up here and the terminals are several levels down, each
+   * owning its own xterm instance; rather than thread a ref per action through
+   * `PaneContainer`, these go out as the same events the native menu sends and
+   * the active pane picks them up (see `Terminal.tsx`).
+   */
+  const askActivePane = useCallback((action: "copy" | "paste" | "find" | "history") => {
+    void emit(`menu://${action}`);
+  }, []);
   const {
     info: updateInfo,
     loading: updateLoading,
@@ -318,6 +332,7 @@ export function AppShell() {
       listen("menu://monitor", () => setMonitorOpen((open) => !open)),
       listen("menu://command-palette", () => setCommandPaletteOpen((open) => !open)),
       listen("menu://settings", () => setSettingsOpen(true)),
+      listen("menu://toggle-theme", () => toggleTheme()),
       listen("menu://check-updates", () => handleOpenUpdates()),
     ];
 
@@ -333,6 +348,7 @@ export function AppShell() {
     handleClosePane,
     handleClearTerminal,
     handleOpenUpdates,
+    toggleTheme,
   ]);
 
   useEffect(() => {
@@ -358,6 +374,9 @@ export function AppShell() {
       } else if (matches(e, SHORTCUTS.cycleTab)) {
         e.preventDefault();
         switchToNextTab();
+      } else if (matches(e, SHORTCUTS.toggleTheme)) {
+        e.preventDefault();
+        toggleTheme();
       } else if (matches(e, SHORTCUTS.settings)) {
         e.preventDefault();
         setSettingsOpen(true);
@@ -390,7 +409,7 @@ export function AppShell() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleNewTab, handleNewTabInSameDir, handleClosePane, handleClearTerminal, switchToNextTab, switchToPreviousTab, handleSplitPane, handleSwitchTab, tabs]);
+  }, [handleNewTab, handleNewTabInSameDir, handleClosePane, handleClearTerminal, switchToNextTab, switchToPreviousTab, handleSplitPane, handleSwitchTab, tabs, toggleTheme]);
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
 
@@ -409,16 +428,30 @@ export function AppShell() {
 
   const activePaneSession = activeTab?.sessions[activePaneId || ""];
 
+  /**
+   * Every action the app has, in one list.
+   *
+   * The palette is the answer to "what can this thing do" — and to "the
+   * shortcut for that is different on my other machine" — so anything reachable
+   * by a chord is reachable here, spelled for whichever platform is running.
+   * The four that operate on a single pane go out as events, because the pane
+   * that should handle them is the focused one; see `askActivePane`.
+   */
   const commands = [
     { id: "new-terminal", label: "New Terminal", shortcut: keys(SHORTCUTS.newTab), action: handleNewTab },
     { id: "new-terminal-same-dir", label: "New Terminal in Same Directory", shortcut: keys(SHORTCUTS.newTabSameDir), action: handleNewTabInSameDir },
     { id: "split-right", label: "Split Right", shortcut: keys(SHORTCUTS.splitRight), action: () => handleSplitPane("horizontal") },
     { id: "split-down", label: "Split Down", shortcut: keys(SHORTCUTS.splitDown), action: () => handleSplitPane("vertical") },
     { id: "close-pane", label: "Close Pane", shortcut: keys(SHORTCUTS.closePane), action: handleClosePane },
-    { id: "clear-terminal", label: "Clear Terminal", shortcut: keys(SHORTCUTS.clearTerminal), action: handleClearTerminal },
     { id: "next-tab", label: "Next Tab", shortcut: keys(SHORTCUTS.cycleTab), action: switchToNextTab },
     { id: "prev-tab", label: "Previous Tab", shortcut: keys(SHORTCUTS.cycleTabBack), action: switchToPreviousTab },
-    // Absent on Linux, where the embedded browser can't be positioned at all.
+    { id: "clear-terminal", label: "Clear Terminal", shortcut: keys(SHORTCUTS.clearTerminal), action: handleClearTerminal },
+    { id: "find", label: "Find in Terminal", shortcut: keys(SHORTCUTS.find), action: () => askActivePane("find") },
+    { id: "history", label: "Search Command History", shortcut: keys(SHORTCUTS.history), action: () => askActivePane("history") },
+    { id: "copy", label: "Copy Selection", shortcut: keys(SHORTCUTS.copy), action: () => askActivePane("copy") },
+    { id: "paste", label: "Paste", shortcut: keys(SHORTCUTS.paste), action: () => askActivePane("paste") },
+    { id: "toggle-theme", label: "Toggle Light/Dark Theme", shortcut: keys(SHORTCUTS.toggleTheme), action: toggleTheme },
+    // Absent only where the embedded browser can't be positioned at all.
     ...(EMBEDDED_BROWSER_SUPPORTED
       ? [{ id: "browser", label: "Open Browser", shortcut: keys(SHORTCUTS.browser), action: () => setBrowserOpen(true) }]
       : []),

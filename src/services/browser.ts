@@ -8,6 +8,18 @@ export interface BrowserBounds {
   y: number;
   width: number;
   height: number;
+  /**
+   * Device pixels per CSS pixel, as the app's own webview reports it.
+   *
+   * The rect above is CSS pixels, and something has to turn those into the
+   * device pixels a native child webview is placed in. Letting the Rust side
+   * work it out from the window handle is what put the browser 12% adrift on
+   * Windows: wry's `set_bounds` derives its factor from `hwnd_dpi`, and that
+   * disagreed with the factor WebView2 had actually laid the page out at. The
+   * two cannot disagree if the number comes from the same webview that produced
+   * the rect.
+   */
+  scale: number;
 }
 
 export interface BrowserTabState {
@@ -138,6 +150,9 @@ export function rectToBounds(rect: DOMRect): BrowserBounds {
     y: Math.round(rect.top),
     width: Math.max(1, Math.round(rect.width)),
     height: Math.max(1, Math.round(rect.height)),
+    // `|| 1` because a devicePixelRatio of 0 would collapse the webview to
+    // nothing; no browser reports that, but neither does anything guarantee it.
+    scale: window.devicePixelRatio || 1,
   };
 }
 

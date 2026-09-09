@@ -678,21 +678,24 @@ export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, o
   }, []);
 
   /**
-   * Off macOS the Edit menu's Copy and Paste are our own items rather than the
-   * webview's built-ins, because the built-in ones come welded to Ctrl+C and
-   * Ctrl+V — see `menu.rs`. They arrive as events, and the focused pane is the
-   * one that should act on them.
+   * The four pane-scoped actions that can also be invoked from outside the
+   * pane — the Edit menu off macOS (whose built-in Copy and Paste come welded
+   * to Ctrl+C and Ctrl+V, see `menu.rs`) and the command palette, which has no
+   * other way to reach a terminal. They arrive as events; the focused pane is
+   * the one that should act.
    */
   useEffect(() => {
     if (!isActive) return;
     const pending = [
       listen("menu://copy", () => void copySelection()),
       listen("menu://paste", () => void pasteFromClipboard()),
+      listen("menu://find", () => openSearch()),
+      listen("menu://history", () => setShowHistory(true)),
     ];
     return () => {
       pending.forEach((p) => p.then((off) => off()).catch(() => {}));
     };
-  }, [isActive, copySelection, pasteFromClipboard]);
+  }, [isActive, copySelection, pasteFromClipboard, openSearch]);
 
   const initTerminal = useCallback(async () => {
     if (initStarted.current || !containerRef.current) return;
