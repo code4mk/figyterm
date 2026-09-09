@@ -180,6 +180,15 @@ async function resolveContext(input: string, cwd?: string): Promise<(ParsedConte
   };
 }
 
+/** Backs `Generator.readFile`. Absent or unreadable answers null, not an error. */
+async function readProjectFile(cwd: string, name: string): Promise<string | null> {
+  try {
+    return await invoke<string | null>("read_project_file", { baseDir: cwd, name });
+  } catch {
+    return null;
+  }
+}
+
 async function executeShellCommand(
   input: Figy.ExecuteShellCommandInput
 ): Promise<Figy.ExecuteShellCommandOutput> {
@@ -217,6 +226,32 @@ async function resolveGenerator(
         });
       }
     }
+  }
+
+  if (generator.readFile) {
+    const name =
+      typeof generator.readFile === "function"
+        ? generator.readFile(tokens)
+        : generator.readFile;
+
+    if (name) {
+      const text = await readProjectFile(cwd ?? "", name);
+      if (text && generator.postProcess) {
+        for (const s of generator.postProcess(text, tokens)) {
+          if (!s) continue;
+          suggestions.push({
+            name: Array.isArray(s.name) ? s.name[0] : s.name,
+            displayName: s.displayName,
+            description: s.description,
+            type: "arg",
+            icon: s.icon,
+            insertValue: s.insertValue,
+            priority: s.priority ?? 50,
+          });
+        }
+      }
+    }
+    return suggestions;
   }
 
   if (generator.script) {

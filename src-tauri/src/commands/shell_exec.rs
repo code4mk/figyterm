@@ -1,6 +1,60 @@
 use serde::Serialize;
 use std::process::Command;
 
+/// Finds what `command` actually names on disk, the way a shell would.
+///
+/// `CreateProcessW` — and so `std::process::Command` — searches PATH for the
+/// name and for the name plus `.exe`, and stops there. It does not consult
+/// `PATHEXT`. Every Node tool installs its entry point as a `.cmd` shim
+/// (`pnpm.cmd`, `npm.cmd`, `yarn.cmd`), so spawning `pnpm` fails with "program
+/// not found" and the generator behind `pnpm run <tab>` silently returns
+/// nothing. Resolving the name here and handing `Command` a full path is what
+/// closes the gap; Rust knows how to run a `.bat`/`.cmd` from there, and since
+/// 1.77.2 escapes the arguments safely when it does.
+///
+/// `None` means nothing matched, in which case the bare name is passed through
+/// so the error the caller gets is the ordinary one.
+#[cfg(target_os = "windows")]
+fn resolve_program(command: &str) -> Option<std::path::PathBuf> {
+    use std::path::{Path, PathBuf};
+
+    // An explicit path is already an answer, give or take the extension.
+    let has_separator = command.contains('\\') || command.contains('/');
+
+    let extensions: Vec<String> = std::env::var("PATHEXT")
+        .unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_string())
+        .split(';')
+        .filter(|ext| !ext.is_empty())
+        .map(|ext| ext.to_string())
+        .collect();
+
+    // A name that already carries one of those extensions is used as written.
+    let already_extended = Path::new(command)
+        .extension()
+        .map(|ext| {
+            let ext = format!(".{}", ext.to_string_lossy());
+            extensions.iter().any(|known| known.eq_ignore_ascii_case(&ext))
+        })
+        .unwrap_or(false);
+
+    let candidates = |dir: &Path| -> Option<PathBuf> {
+        if already_extended {
+            let direct = dir.join(command);
+            return direct.is_file().then_some(direct);
+        }
+        extensions.iter().find_map(|ext| {
+            let candidate = dir.join(format!("{command}{ext}"));
+            candidate.is_file().then_some(candidate)
+        })
+    };
+
+    if has_separator {
+        return candidates(Path::new(""));
+    }
+
+    std::env::split_paths(&std::env::var_os("PATH")?).find_map(|dir| candidates(&dir))
+}
+
 /// Prefixes prepended when the inherited PATH looks truncated. `/opt/homebrew`
 /// only exists on Apple Silicon macOS, so it stays out of the Linux list rather
 /// than sitting there as a dead entry.
@@ -32,7 +86,12 @@ pub fn execute_shell_command(
     args: Vec<String>,
     cwd: Option<String>,
 ) -> Result<ShellCommandOutput, String> {
-    let mut cmd = Command::new(&command);
+    #[cfg(target_os = "windows")]
+    let program = resolve_program(&command).unwrap_or_else(|| command.clone().into());
+    #[cfg(not(target_os = "windows"))]
+    let program = command.clone();
+
+    let mut cmd = Command::new(program);
     cmd.args(&args);
 
     // Without this every one of those generator calls flashes a console window

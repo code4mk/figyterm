@@ -2,7 +2,9 @@
 // Shim for pnpm spec generators
 
 export const npmScriptsGenerator: Figy.Generator = {
-  script: ["cat", "package.json"],
+  // Read rather than `cat package.json`: `cat` is not a program on Windows,
+  // so this generator produced nothing there and `pnpm run <tab>` came up empty.
+  readFile: "package.json",
   postProcess: (out) => {
     try {
       const pkg = JSON.parse(out);
@@ -18,11 +20,10 @@ export const npmScriptsGenerator: Figy.Generator = {
   },
 };
 
+// Registry search isn't wired up; `postProcess` has always returned nothing.
+// It used to spawn `echo` to get there, which is a process per keystroke for an
+// empty answer — and not even a program on Windows.
 export const npmSearchGenerator: Figy.Generator = {
-  script: (tokens) => {
-    const query = tokens[tokens.length - 1];
-    if (!query || query.length < 2) return [];
-    return ["echo", ""];
-  },
+  script: () => [],
   postProcess: () => [],
 };

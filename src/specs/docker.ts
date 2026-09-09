@@ -345,7 +345,9 @@ const sharedCommands: Record<string, Figy.Subcommand> = {
             trigger: function () {
               return true;
             },
-            script: function (context) {
+            // Read the Dockerfile rather than `grep` it — `grep` is not a
+            // program on Windows, so build targets never completed there.
+            readFile: function (context) {
               let fileFlagIndex, dockerfilePath;
               if (context.includes("-f")) {
                 fileFlagIndex = context.indexOf("-f");
@@ -357,16 +359,18 @@ const sharedCommands: Record<string, Figy.Subcommand> = {
                 dockerfilePath = "Dockerfile";
               }
 
-              return ["grep", "-iE", "FROM.*AS", dockerfilePath];
+              return dockerfilePath ?? "Dockerfile";
             },
             postProcess: function (out) {
-              // This just searches the Dockerfile for the alias name after AS,
-              // and due to the grep above, will only match lines where FROM and AS
-              // are on the same line. This could certainly be made more robust
-              // down the line.
+              // This just searches the Dockerfile for the alias name after AS.
+              // Only lines where FROM and AS are on the same line match, as
+              // before. This could certainly be made more robust down the line.
               const imageNameRegexp = /(?:[aA][sS]\s+)([\w:.-]+)/;
               return out
                 .split("\n")
+                // The `grep -iE 'FROM.*AS'` this replaced did the narrowing;
+                // without it a `RUN … as …` line would look like a stage name.
+                .filter((i) => /^\s*FROM\b/i.test(i))
                 .map((i) => {
                   const result = imageNameRegexp.exec(i);
                   if (result) {

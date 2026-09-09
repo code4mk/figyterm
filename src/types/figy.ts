@@ -64,6 +64,17 @@ export namespace Figy {
   ) => Promise<ExecuteShellCommandOutput>;
 
   export interface Generator {
+    /**
+     * Read a file from the working directory and hand its text to
+     * `postProcess`, instead of running a program to print it.
+     *
+     * `cat package.json` was how the npm, pnpm and yarn script generators got
+     * their data, and `bash -c 'awk …'` was how uv's did. None of `cat`, `bash`
+     * or `awk` is a program on Windows, so those generators returned nothing
+     * there and `pnpm run <tab>` offered no scripts. Reading the file outright
+     * is also a subprocess fewer on every platform, on every keystroke.
+     */
+    readFile?: string | ((tokens: string[]) => string | null);
     script?: string[] | ((tokens: string[]) => string[]);
     postProcess?: (out: string, tokens: string[]) => Suggestion[];
     splitOn?: string;

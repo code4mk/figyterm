@@ -1,68 +1,79 @@
 // @ts-nocheck
 // ////////////////////////////////////////////////////////////////// Generators //////////////////////////////////////////////////////////////////
 
+// `pyproject.toml`, read and picked apart here rather than through
+// `bash -c 'awk …'` and `python3`. None of bash, awk or python3 is a program on
+// Windows, so both generators below returned nothing there. Only two shapes are
+// needed, and reading the file is a subprocess fewer on every platform.
+
+/** The `dependencies = [ … ]` array, as bare distribution names. */
+function pyprojectDependencies(toml: string): string[] {
+  const open = toml.search(/^\s*dependencies\s*=\s*\[/m);
+  if (open < 0) return [];
+
+  // Walk to the bracket that closes the array rather than to the first `]` in
+  // the file: an extras marker (`pydantic[email]`) carries a pair of its own,
+  // and stopping there truncates the list at the first dependency that has one.
+  let depth = 0;
+  let quote = "";
+  let end = toml.length;
+  for (let i = toml.indexOf("[", open); i < toml.length; i++) {
+    const ch = toml[i];
+    if (quote) {
+      if (ch === quote) quote = "";
+      continue;
+    }
+    if (ch === '"' || ch === "'") quote = ch;
+    else if (ch === "[") depth++;
+    else if (ch === "]" && --depth === 0) {
+      end = i;
+      break;
+    }
+  }
+
+  return [...toml.slice(open, end).matchAll(/"([^"]*)"|'([^']*)'/g)]
+    // Strip whatever version constraint or extras marker follows the name.
+    .map((m) => (m[1] ?? m[2]).trim().split(/[<>=!~;[\s]/)[0])
+    .filter(Boolean);
+}
+
+/** The `name = "target"` pairs under a `[…]` table, in file order. */
+function tomlTable(toml: string, table: string): [string, string][] {
+  const header = new RegExp(`^\\s*\\[${table.replace(/\./g, "\\.")}\\]\\s*$`, "m");
+  const found = toml.match(header);
+  if (!found?.index) return [];
+
+  const body = toml.slice(found.index + found[0].length);
+  const next = body.search(/^\s*\[/m);
+  const entries: [string, string][] = [];
+
+  for (const line of (next < 0 ? body : body.slice(0, next)).split("\n")) {
+    const pair = line.match(/^\s*["']?([\w.-]+)["']?\s*=\s*["']([^"']*)["']/);
+    if (pair) entries.push([pair[1], pair[2]]);
+  }
+  return entries;
+}
+
 const dependenciesGenerator: Figy.Generator = {
-  script: {
-    command: "bash",
-    args: [
-      "-c",
-      'awk \'/dependencies = \\[/ {f=1; next} /\\]/ {f=0} f && /"/ {line = $0; gsub(/^[ \\t]*"/, "", line); sub(/>=.*$/, "", line); gsub(/",?$/, "", line); print line}\' pyproject.toml',
-    ],
-  },
-  postProcess: (out) => {
-    return out.split("\n").map((line) => {
-      return {
-        name: line,
-        description: "Dependency",
-        icon: "📦",
-        priority: 80,
-      };
-    });
-  },
+  readFile: "pyproject.toml",
+  postProcess: (out) =>
+    pyprojectDependencies(out).map((name) => ({
+      name,
+      description: "Dependency",
+      icon: "📦",
+      priority: 80,
+    })),
 };
 
 const commandGenerator: Figy.Generator = {
-  script: {
-    command: "bash",
-    args: [
-      "-c",
-      `python3 -c "
-import tomllib, json, pathlib
-p = pathlib.Path('pyproject.toml')
-if p.exists():
-    data = tomllib.loads(p.read_text())
-    scripts = data.get('project', {}).get('scripts', {})
-    for name, cmd in scripts.items():
-        print(json.dumps({'name': name, 'cmd': cmd}))
-" 2>/dev/null || cat pyproject.toml 2>/dev/null | grep -A100 '\\[project.scripts\\]' | tail -n+2 | grep -B100 '\\[' | head -n-1 | sed 's/[[:space:]]*=.*//' | sed 's/^[[:space:]]*//'`,
-    ],
-  },
-  postProcess: (out) => {
-    const suggestions: Figy.Suggestion[] = [];
-    for (const line of out.split("\n")) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      try {
-        const parsed = JSON.parse(trimmed);
-        suggestions.push({
-          name: parsed.name,
-          description: parsed.cmd,
-          icon: "⚡",
-          priority: 80,
-        });
-      } catch {
-        if (trimmed && !trimmed.startsWith("[")) {
-          suggestions.push({
-            name: trimmed,
-            description: "Script",
-            icon: "⚡",
-            priority: 80,
-          });
-        }
-      }
-    }
-    return suggestions;
-  },
+  readFile: "pyproject.toml",
+  postProcess: (out) =>
+    tomlTable(out, "project.scripts").map(([name, target]) => ({
+      name,
+      description: target,
+      icon: "⚡",
+      priority: 80,
+    })),
 };
 
 // ////////////////////////////////////////////////////////////////// Options //////////////////////////////////////////////////////////////////

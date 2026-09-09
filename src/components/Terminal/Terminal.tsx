@@ -224,6 +224,33 @@ function extractLastToken(input: string): string {
  */
 const unescapeToken = unquotePath;
 
+/**
+ * The keystrokes that turn what's typed into the completion.
+ *
+ * A completion nearly always *extends* the token it was matched against — `dev`
+ * onto `d`, `run` onto `run` — and then the edit is the remainder and nothing
+ * else. Deleting the token and retyping it whole gets to the same place only if
+ * the delete count is right, and it often isn't: `inputBufferRef` is this app's
+ * guess at the line the shell is holding, built from the keys the user pressed,
+ * and anything the shell does on its own puts the two out of step — its own Tab
+ * completion, zsh-autosuggestions accepting a ghost, history expansion, a
+ * bracketed paste. Delete two characters of a four-character `pnpm` and retype
+ * the whole token and the line reads `pnpnpm`, with the stray `pn` sitting
+ * before the cursor where no amount of backspace will reach it.
+ *
+ * Typing only the remainder can't do that: it never claims to know what is
+ * already on the line, so it can't be wrong about it.
+ *
+ * Backspaces stay as the fallback for a suggestion that doesn't extend the
+ * token — a case-insensitive or substring match — where there is no way to get
+ * from one to the other by typing forwards.
+ */
+function completionEdit(typed: string, completion: string): string {
+  return completion.startsWith(typed)
+    ? completion.slice(typed.length)
+    : "\x7f".repeat(typed.length) + completion;
+}
+
 /** OSC — window titles and OSC 7, terminated by BEL or ST. */
 const OSC_SEQUENCE = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
 /** CSI — colours, cursor moves, erases. */
@@ -517,15 +544,15 @@ export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, o
     if (item.type === "file" || item.type === "folder") {
       const rawName = item.insertValue || item.name;
 
-      // How much of the line to take back, and what to put in its place.
-      let toDelete: number;
+      // The part of the line being replaced, and what replaces it.
+      let replacing: string;
       let completion: string;
       let newToken: string;
 
       if (flavor === "posix") {
         // Escape the new segment and leave the directory prefix untouched.
         const { dir, leaf } = splitPath(currentToken);
-        toDelete = leaf.length;
+        replacing = leaf;
         completion = quotePath(rawName, flavor) + (!inline && item.type === "folder" ? PATH_SEP : "");
         newToken = dir + completion;
       } else {
@@ -533,12 +560,12 @@ export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, o
         // the quotes belong at the ends, not around one segment in the middle.
         const { dir } = splitPath(unquotePath(currentToken));
         const full = dir + rawName + (!inline && item.type === "folder" ? PATH_SEP : "");
-        toDelete = currentToken.length;
+        replacing = currentToken;
         completion = quotePath(full, flavor);
         newToken = completion;
       }
 
-      const toSend = "\x7f".repeat(toDelete) + completion;
+      const toSend = completionEdit(replacing, completion);
       invoke("write_terminal_session", {
         sessionId: sessionIdRef.current,
         data: Array.from(encoder.encode(toSend)),
@@ -555,10 +582,9 @@ export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, o
       }
     } else {
       // Spec-based completion (subcommand, option, arg)
-      const backspaces = "\x7f".repeat(currentToken.length);
       const completion = (item.insertValue || item.name) + (inline ? "" : " ");
 
-      const toSend = backspaces + completion;
+      const toSend = completionEdit(currentToken, completion);
       invoke("write_terminal_session", {
         sessionId: sessionIdRef.current,
         data: Array.from(encoder.encode(toSend)),
@@ -822,7 +848,21 @@ export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, o
           const selected = items[idx];
           // Enter skips only --options/-flags; accepts everything else (files, folders, subcommands, args)
           const isOption = selected.type === "option" || (selected.name && /^-/.test(selected.name));
-          if (!isOption) {
+
+          // Enter runs, Tab completes — so Enter only accepts a suggestion the
+          // user has actually narrowed down to. Two ways it used to accept one
+          // they had not asked for:
+          //
+          //  - Nothing typed to complete. `docker ` opens a list of all fifty
+          //    subcommands with the first selected, and accepting the popup
+          //    re-opens it, so `docker system ` offered `prune` next. Enter
+          //    meant "run this", and inserted a word instead.
+          //  - Already typed in full. The engine offers `run` for `pnpm run`,
+          //    so the first Enter was spent adding a space and the command only
+          //    went on the second.
+          const typed = extractLastToken(inputBufferRef.current.trimStart());
+          const completes = typed.length > 0 && (selected.insertValue || selected.name) !== typed;
+          if (!isOption && completes) {
             acceptSuggestion(selected);
             return;
           }
