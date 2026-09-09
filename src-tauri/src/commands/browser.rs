@@ -4,7 +4,9 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use tauri::webview::{NewWindowResponse, PageLoadEvent, WebviewBuilder, Color};
-use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Url, WebviewUrl, Window};
+use tauri::{
+    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Url, WebviewUrl, Window,
+};
 
 /// Child webviews are addressed by label, so tab ids get a namespace to keep them
 /// from ever colliding with the app's own `main` webview.
@@ -30,12 +32,42 @@ const USER_AGENT: Option<&str> = Some(
 #[cfg(not(target_os = "macos"))]
 const USER_AGENT: Option<&str> = None;
 
+/// Where the browser's child webview goes, as the React chrome measured it.
+///
+/// The rect is CSS pixels and `scale` is the webview's own `devicePixelRatio`,
+/// so `rect * scale` is device pixels in the window's client space — which is
+/// what a child webview is positioned in. See `physical_*` below for why the
+/// conversion is done here rather than left to the platform layer.
 #[derive(Debug, Clone, Copy, Deserialize)]
 pub struct Bounds {
     pub x: f64,
     pub y: f64,
     pub width: f64,
     pub height: f64,
+    pub scale: f64,
+}
+
+impl Bounds {
+    fn factor(&self) -> f64 {
+        if self.scale > 0.0 {
+            self.scale
+        } else {
+            1.0
+        }
+    }
+
+    fn physical_position(&self) -> PhysicalPosition<i32> {
+        let scale = self.factor();
+        PhysicalPosition::new((self.x * scale).round() as i32, (self.y * scale).round() as i32)
+    }
+
+    fn physical_size(&self) -> PhysicalSize<u32> {
+        let scale = self.factor();
+        PhysicalSize::new(
+            (self.width * scale).round().max(1.0) as u32,
+            (self.height * scale).round().max(1.0) as u32,
+        )
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -393,11 +425,7 @@ pub fn browser_open_tab(
         let theme = current_theme(&app.state::<BrowserState>());
         let builder = build_webview(&app, &label, &tab_id, target.clone(), &theme);
         window
-            .add_child(
-                builder,
-                LogicalPosition::new(bounds.x, bounds.y),
-                LogicalSize::new(bounds.width.max(1.0), bounds.height.max(1.0)),
-            )
+            .add_child(builder, bounds.physical_position(), bounds.physical_size())
             .map_err(|e| {
                 log::error!("browser: could not create the webview for '{label}': {e}");
                 e.to_string()
@@ -511,19 +539,18 @@ fn apply_bounds(view: &tauri::Webview, bounds: Bounds) -> Result<(), String> {
 
     // On Linux these two are no-ops — a child webview is parented to the
     // window's vertical box, which ignores coordinates — so positioning goes
-    // through our own GtkFixed instead. See `browser_layout`.
+    // through our own GtkFixed instead. See `browser_layout`. GTK works in its
+    // own logical units, not device pixels, so that path keeps the CSS rect.
     #[cfg(target_os = "linux")]
     return super::browser_layout::place(view, bounds);
 
+    // Device pixels rather than logical ones on purpose: see `Bounds`.
     #[cfg(not(target_os = "linux"))]
     {
-        view.set_position(LogicalPosition::new(bounds.x, bounds.y))
+        view.set_position(bounds.physical_position())
             .map_err(|e| e.to_string())?;
-        view.set_size(LogicalSize::new(
-            bounds.width.max(1.0),
-            bounds.height.max(1.0),
-        ))
-        .map_err(|e| e.to_string())
+        view.set_size(bounds.physical_size())
+            .map_err(|e| e.to_string())
     }
 }
 

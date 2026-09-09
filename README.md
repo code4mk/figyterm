@@ -33,9 +33,9 @@ Inspired by [Fig](https://fig.io) (now part of AWS), FigyTerm is an open-source 
 - **Command History Search** — Fuzzy-search past commands with picture-in-picture mode (`⌘R`)
 - **System Monitor** — Live CPU and memory charts in a draggable modal (`⌘⇧M`)
 - **Terminal Search** — Find text in the active pane (`⌘F`)
-- **Command Palette** — Quick launcher for common actions (`⌘⇧P`)
+- **Command Palette** — Every action the app has, searchable, each spelled for the platform you're on (`⌘⇧P`)
 - **Oh My Zsh Integration** — Real-time theme switching with full prompt rendering
-- **Dark & Light Mode** — Beautifully themed UI that adapts to your preference
+- **Dark & Light Mode** — Beautifully themed UI that adapts to your preference (`⌘⇧L`)
 - **Recent Directory Ordering** — Frequently visited folders appear first in suggestions
 - **Clickable URLs** — Links in terminal output open in your default browser
 - **Native Performance** — Rust PTY backend with zero-latency input
@@ -216,6 +216,7 @@ After install:
 | `⌘ V` | `Ctrl+Shift+V` | Paste |
 | `⌘ ⇧ B` | `Ctrl+Shift+B` | Open browser |
 | `⌘ ⇧ M` | `Ctrl+Shift+M` | System monitor |
+| `⌘ ⇧ L` | `Ctrl+Shift+L` | Toggle light/dark theme |
 | `⌘ ⇧ P` | `Ctrl+Shift+P` | Command palette |
 | `⌘ ,` | `Ctrl+,` | Settings |
 | `⌘ 1-9` | `Ctrl+1-9` | Switch to tab N |

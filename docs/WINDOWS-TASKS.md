@@ -183,11 +183,71 @@ it turned up, and what was done:
       `CREATE_NO_WINDOW`, without which every one of those calls flashes a
       console window.
 
+- [x] **Spec generators returned nothing.** `pnpm run <tab>` offered no scripts,
+      `uv` no dependencies, and so on — everywhere the completion has to *ask
+      the project* something rather than read it off the spec. Two separate
+      causes, both about what counts as a program.
+
+      **1. POSIX text utilities aren't programs on Windows.** The npm, pnpm and
+      yarn script generators ran `cat package.json`; uv's ran
+      `bash -c 'awk …'` and a `python3` heredoc; docker's build-target one ran
+      `grep -iE 'FROM.*AS' Dockerfile`. None of `cat`, `bash`, `awk`, `python3`
+      or `grep` exists there — PowerShell's `cat` is an alias, not an
+      executable, and `CreateProcessW` only launches executables — so each
+      returned nothing and the generator fell silent.
+
+      None of them wanted a subprocess in the first place; they wanted the
+      contents of a file. `Generator.readFile` now says so directly, backed by
+      `read_project_file`, and the four generators use it. Windows gets working
+      completion and every platform gets one process fewer per keystroke. The
+      command takes a bare file name resolved against the pane's directory, not
+      a path — covered by a test.
+
+      **2. Node tools are `.cmd` shims.** `pnpm`, `npm` and `yarn` install as
+      `pnpm.cmd` and friends, and `CreateProcessW` — so `std::process::Command`
+      — searches PATH for the name and for name + `.exe` and stops. It does not
+      consult `PATHEXT`, so `Command::new("pnpm")` fails outright. Anything
+      calling a Node tool was affected, not just the specs shipped here.
+      `resolve_program` in `shell_exec.rs` now does the PATHEXT walk and hands
+      `Command` a full path; Rust runs a `.bat`/`.cmd` from there itself, and
+      has escaped the arguments safely when doing so since 1.77.2.
+
+      Two dead spawns went with them: `npmSearchGenerator` ran `echo` for an
+      answer its `postProcess` always discarded, and `seedFromHistory` ran a
+      four-program `sh -c` pipeline at every launch that could only fail on
+      Windows — and, because a failure deliberately doesn't mark the seed done,
+      failed again on the next one. That now goes through `read_shell_history`,
+      which already knows about PSReadLine.
+
+      Still POSIX-only, deliberately: `brew`'s generators shell out to `bash`
+      and `sed`. Homebrew doesn't run on Windows, so there is nothing there for
+      them to complete.
+
 - [x] **Courier New.** The default font stack led with Menlo and Monaco, which
       exist only on macOS, so Windows fell through to Courier New. Defaults are
       per-platform now (Cascadia Mono on Windows, DejaVu Sans Mono on Linux).
 
-- [~] **The embedded browser opens no tab.** "No page loaded", `0 tabs`, `+`
+- [x] **The embedded browser was placed with the wrong scale factor.** Once it
+      opened (below), the page drew up and to the left of the modal and
+      overlapped its toolbar. Measured off the report screenshot, the webview
+      rect was a uniform **0.8775** of the reserved viewport — 938/1069 across,
+      523/596 down, the same figure in both axes — and its position scaled about
+      the window origin by the same amount, so the two rects share an origin and
+      differ only by a factor.
+
+      That factor is the whole bug. The bounds went over as CSS pixels and
+      something had to turn them into device pixels; wry's `set_bounds` derives
+      its own from `hwnd_dpi` on the child container HWND, and that disagreed by
+      14% with the factor WebView2 had actually laid the page out at.
+
+      `Bounds` now carries the app webview's own `devicePixelRatio` and the rect
+      is converted here, going over as `PhysicalPosition`/`PhysicalSize` so no
+      platform layer re-derives anything. The number cannot disagree with the
+      layout when it comes from the webview that produced the layout. Linux is
+      untouched — `browser_layout` places widgets in GTK's logical units, not
+      device pixels, so that path keeps the CSS rect.
+
+- [x] **The embedded browser opened no tab.** "No page loaded", `0 tabs`, `+`
       does nothing, and the address bar does nothing. The screenshot pins down
       more than it looks: no error bar means `browser_open_tab` never *rejected*
       either, so the call is not failing, it is not answering.
@@ -212,17 +272,12 @@ it turned up, and what was done:
          `webview2_com::wait_with_pump`, a reentrant `GetMessage`/`DispatchMessage`
          loop, now started from the middle of another message's handler. This is
          the hypothesis for the non-answer, and the async path is the one every
-         other caller of `add_child` already uses. **Unverified.**
+         other caller of `add_child` already uses.
 
-      If it still hangs, `RUST_LOG=debug` will show `browser: opening
-      'figy-browser-…'` with nothing after it, which places the stall inside
-      `add_child` rather than anywhere in this crate.
-
-      Worth knowing for the next round: the box it was reported on is a
-      browser-streamed cloud Windows trial (apponfly) running as
-      Administrator — a virtualised GPU and an elevated process are both things
-      WebView2 is fussy about, so reproducing on ordinary hardware is the first
-      thing to try.
+      **Confirmed.** The next Windows run opened google.com in a tab, which
+      makes (4) the answer: the build was deadlocking against the message pump
+      it was nested inside. The remaining fault was where the page was *drawn*,
+      which is the entry above.
 
 - [x] **Modals dead to hover, focus and clicks.** Reported as all three at once,
       on every kind of modal, intermittently. All three together is the tell:
@@ -278,3 +333,40 @@ it turned up, and what was done:
    third timing profile.
 5. **A prerelease tag**, to exercise `build-windows` end to end and confirm
    `latest.json` carries `windows-x86_64`.
+
+---
+
+## Not Windows: stray characters left on the command line
+
+Reported on macOS — `pnpm run dev` typed, `pnpnpm run dev` on screen, and the
+leading `pn` beyond the reach of backspace.
+
+`acceptSuggestion` used to apply every completion as
+`"\x7f".repeat(token.length) + completion`: delete what it believes is there,
+then retype it. That is only correct while `inputBufferRef` — this app's guess
+at the line, accumulated from the keys the user pressed — still matches what the
+shell is actually holding. It stops matching the moment the shell edits the line
+by itself: its own Tab completion, zsh-autosuggestions accepting a ghost,
+history expansion, a bracketed paste. Delete two characters of a four-character
+`pnpm` and retype the whole token and the line reads `pnpnpm` — and the stray
+`pn` is unreachable because the shell's buffer never had it.
+
+Completions almost always *extend* the token they matched, so `completionEdit`
+now sends the remainder and nothing else: `ev` for `d` → `dev`, a bare space for
+`run` → `run`. Typing forwards can't corrupt what it never claims to know.
+Backspaces remain the fallback for a substring or case-insensitive match, where
+there is no forward path from one to the other.
+
+Enter also accepted suggestions nobody asked for. Enter runs and Tab completes,
+so Enter now only accepts one the user has actually narrowed down to:
+
+- **Nothing typed to complete.** `docker ` opens a list of all fifty
+  subcommands with the first selected, and accepting a suggestion re-opens the
+  popup, so `docker system ` then offered `prune`. Enter meant "run this" and
+  inserted a word instead.
+- **Already typed in full.** The engine offers `run` for `pnpm run`, so the
+  first Enter was spent adding a space and the command only went on the second.
+
+That is also where the stray `df` in a `dfdocker` report came from: `df` is a
+real suggestion — `docker system df` — inserted by an Enter that was meant to
+run the line.

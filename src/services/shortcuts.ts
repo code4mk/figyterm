@@ -69,6 +69,9 @@ export const SHORTCUTS = define({
   paste: { key: "v", label: "V", mac: MOD_ONLY, other: CTRL_SHIFT },
   prevTab: { code: "BracketLeft", label: "[", mac: MOD_SHIFT, other: CTRL_SHIFT },
   nextTab: { code: "BracketRight", label: "]", mac: MOD_SHIFT, other: CTRL_SHIFT },
+  // `L` for light/dark. Nothing else claims it: the shell's own Ctrl+L clears
+  // the screen, and this is Ctrl+Shift+L.
+  toggleTheme: { key: "l", label: "L", mac: MOD_SHIFT, other: CTRL_SHIFT },
   settings: { key: ",", label: ",", mac: MOD_ONLY, other: CTRL },
   cycleTab: { key: "tab", label: "Tab", mac: MOD_ONLY, other: CTRL },
   cycleTabBack: { key: "tab", label: "Tab", mac: MOD_SHIFT, other: CTRL_SHIFT },

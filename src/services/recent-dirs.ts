@@ -39,8 +39,10 @@ function normalize(p: string): string {
   } else if (resolved === "~" && _homeDir) {
     resolved = _homeDir;
   }
-  // Strip trailing slash for consistent comparison (unless root "/")
-  if (resolved.length > 1 && resolved.endsWith("/")) {
+  // Strip a trailing separator for consistent comparison — either separator,
+  // since a Windows path arrives with backslashes — but never turn a root
+  // (`/`, `C:\`) into something shorter than itself.
+  if (resolved.length > 1 && /[/\\]$/.test(resolved) && !/^[A-Za-z]:[/\\]$/.test(resolved)) {
     resolved = resolved.slice(0, -1);
   }
   return resolved;
@@ -81,48 +83,51 @@ export function recordDirUsage(dirPath: string) {
 
 const SEEDED_KEY = "figyterm-recent-dirs-seeded";
 
+/**
+ * Warms the recent-directory list from the shell's own history.
+ *
+ * This used to be a `sh -c 'cat ~/.zsh_history | sed | grep | sed'` pipeline,
+ * which is four programs Windows doesn't have — so it failed there on every
+ * launch, and because a failure deliberately doesn't mark the seed as done, it
+ * failed again on the next one. `read_shell_history` already knows where each
+ * platform keeps its history, PSReadLine's included, and hands back parsed
+ * commands; picking the `cd`s out of those is the whole job.
+ */
 export async function seedFromHistory(): Promise<void> {
   if (localStorage.getItem(SEEDED_KEY)) return;
 
   try {
     const { invoke } = await import("@tauri-apps/api/core");
-    const script = [
-      "cat ~/.zsh_history 2>/dev/null | sed -n 's/^.*;//p' | grep -E '^cd ' | sed 's/^cd //'",
-      "cat ~/.bash_history 2>/dev/null | grep -E '^cd ' | sed 's/^cd //'"
-    ].join(" ; ");
-
-    const result = await invoke<{ stdout: string; status: number }>("execute_shell_command", {
-      command: "sh",
-      args: ["-c", script],
-      cwd: null,
+    const history = await invoke<{ command: string }[]>("read_shell_history", {
+      maxEntries: 2000,
     });
 
-    if (result.stdout && result.stdout.trim()) {
-      const lines = result.stdout.trim().split("\n");
-      const dirCount = new Map<string, number>();
+    const dirCount = new Map<string, number>();
 
-      for (const line of lines) {
-        let dir = line.trim();
-        if (!dir || dir === "." || dir === ".." || dir === "~" || dir === "-") continue;
-        if ((dir.startsWith('"') && dir.endsWith('"')) || (dir.startsWith("'") && dir.endsWith("'"))) {
-          dir = dir.slice(1, -1);
-        }
-        const abs = normalize(dir);
-        if (!abs) continue;
-        dirCount.set(abs, (dirCount.get(abs) || 0) + 1);
+    for (const entry of history) {
+      const command = entry.command.trim();
+      if (!/^cd\s+\S/.test(command)) continue;
+
+      let dir = command.replace(/^cd\s+/, "").trim();
+      if (!dir || dir === "." || dir === ".." || dir === "~" || dir === "-") continue;
+      if ((dir.startsWith('"') && dir.endsWith('"')) || (dir.startsWith("'") && dir.endsWith("'"))) {
+        dir = dir.slice(1, -1);
       }
-
-      const entries = load();
-      const now = Date.now();
-
-      for (const [path, count] of dirCount) {
-        if (entries.find((e) => e.path === path)) continue;
-        entries.push({ path, count: Math.min(count, 20), lastUsed: now - 3600000 });
-      }
-
-      entries.sort((a, b) => b.count - a.count);
-      save(entries);
+      const abs = normalize(dir);
+      if (!abs) continue;
+      dirCount.set(abs, (dirCount.get(abs) || 0) + 1);
     }
+
+    const entries = load();
+    const now = Date.now();
+
+    for (const [path, count] of dirCount) {
+      if (entries.find((e) => e.path === path)) continue;
+      entries.push({ path, count: Math.min(count, 20), lastUsed: now - 3600000 });
+    }
+
+    entries.sort((a, b) => b.count - a.count);
+    save(entries);
 
     localStorage.setItem(SEEDED_KEY, "1");
   } catch {

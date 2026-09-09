@@ -187,6 +187,34 @@ pub fn list_path_completions(
     Ok(results)
 }
 
+/// Reads a project file for a spec generator — `package.json`, `pyproject.toml`
+/// and their like.
+///
+/// `name` is a bare file name resolved against `base_dir`, never a path: a
+/// generator's job is to describe the project it is completing in, and any
+/// separator in the name means something has gone wrong rather than that the
+/// caller meant to read elsewhere.
+///
+/// Absent, unreadable and too-large files all answer `None`. A generator has
+/// nothing to say about a project without a manifest, and that is not an error
+/// worth surfacing while someone is mid-keystroke.
+#[tauri::command(async)]
+pub fn read_project_file(base_dir: String, name: String) -> Option<String> {
+    /// Generously more than any manifest, and small enough that a mistaken
+    /// name can't pull a disk image through the IPC channel.
+    const MAX_BYTES: u64 = 4 * 1024 * 1024;
+
+    if name.is_empty() || name.contains(SEPARATORS) || name.contains("..") {
+        return None;
+    }
+
+    let path = resolve_base(&base_dir).join(&name);
+    if fs::metadata(&path).map(|m| m.len()).unwrap_or(u64::MAX) > MAX_BYTES {
+        return None;
+    }
+    fs::read_to_string(path).ok()
+}
+
 #[tauri::command]
 pub fn get_home_dir() -> String {
     // Via the filesystem helper, which knows Windows keeps this in USERPROFILE.
@@ -419,5 +447,44 @@ mod tests {
     #[test]
     fn an_empty_base_falls_back_to_home() {
         assert_eq!(resolve_base(""), home_path());
+    }
+
+    /// A generator names a file in the project it is completing in. Anything
+    /// that could reach outside it is a bug in the spec, not a shorthand.
+    #[test]
+    fn a_project_file_name_cannot_escape_its_directory() {
+        for escape in [
+            "../secrets",
+            "..",
+            "sub/package.json",
+            "/etc/passwd",
+            "",
+        ] {
+            assert_eq!(
+                read_project_file(".".into(), escape.into()),
+                None,
+                "should be refused: {escape}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_project_file_is_read_from_the_base_directory() {
+        let dir = std::env::temp_dir().join("figyterm-read-project-file");
+        let _ = fs::create_dir_all(&dir);
+        let path = dir.join("package.json");
+        fs::write(&path, r#"{"scripts":{"dev":"vite"}}"#).unwrap();
+
+        assert_eq!(
+            read_project_file(dir.to_string_lossy().to_string(), "package.json".into()),
+            Some(r#"{"scripts":{"dev":"vite"}}"#.to_string())
+        );
+        // A project without the manifest is silence, not an error.
+        assert_eq!(
+            read_project_file(dir.to_string_lossy().to_string(), "pyproject.toml".into()),
+            None
+        );
+
+        let _ = fs::remove_file(&path);
     }
 }

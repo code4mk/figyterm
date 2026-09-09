@@ -2,7 +2,8 @@
 // Shim for pnpm spec generators
 
 export const dependenciesGenerator: Figy.Generator = {
-  script: ["cat", "package.json"],
+  // See `npmScriptsGenerator` — `cat` is not a program on Windows.
+  readFile: "package.json",
   postProcess: (out) => {
     try {
       const pkg = JSON.parse(out);

@@ -814,6 +814,8 @@ function ShortcutsTab() {
       title: "Application",
       icon: <Keyboard size={13} />,
       shortcuts: [
+        { keys: keys(SHORTCUTS.commandPalette), description: "Command palette" },
+        { keys: keys(SHORTCUTS.toggleTheme), description: "Toggle light/dark theme" },
         { keys: keys(SHORTCUTS.settings), description: "Open settings" },
         // Quit, minimise and fullscreen are macOS's own app-menu bindings. On
         // other desktops the window manager owns them and the keys vary, so

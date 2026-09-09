@@ -560,15 +560,15 @@ export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, o
     if (item.type === "file" || item.type === "folder") {
       const rawName = item.insertValue || item.name;
 
-      // How much of the line to take back, and what to put in its place.
-      let toDelete: number;
+      // The part of the line being replaced, and what replaces it.
+      let replacing: string;
       let completion: string;
       let newToken: string;
 
       if (flavor === "posix") {
         // Escape the new segment and leave the directory prefix untouched.
         const { dir, leaf } = splitPath(currentToken);
-        toDelete = leaf.length;
+        replacing = leaf;
         completion = quotePath(rawName, flavor) + (!inline && item.type === "folder" ? PATH_SEP : "");
         newToken = dir + completion;
       } else {
@@ -576,12 +576,12 @@ export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, o
         // the quotes belong at the ends, not around one segment in the middle.
         const { dir } = splitPath(unquotePath(currentToken));
         const full = dir + rawName + (!inline && item.type === "folder" ? PATH_SEP : "");
-        toDelete = currentToken.length;
+        replacing = currentToken;
         completion = quotePath(full, flavor);
         newToken = completion;
       }
 
-      const toSend = "\x7f".repeat(toDelete) + completion;
+      const toSend = completionEdit(replacing, completion);
       invoke("write_terminal_session", {
         sessionId: sessionIdRef.current,
         data: Array.from(encoder.encode(toSend)),
@@ -598,10 +598,9 @@ export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, o
       }
     } else {
       // Spec-based completion (subcommand, option, arg)
-      const backspaces = "\x7f".repeat(currentToken.length);
       const completion = (item.insertValue || item.name) + (inline ? "" : " ");
 
-      const toSend = backspaces + completion;
+      const toSend = completionEdit(currentToken, completion);
       invoke("write_terminal_session", {
         sessionId: sessionIdRef.current,
         data: Array.from(encoder.encode(toSend)),
@@ -736,21 +735,24 @@ export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, o
   }, []);
 
   /**
-   * Off macOS the Edit menu's Copy and Paste are our own items rather than the
-   * webview's built-ins, because the built-in ones come welded to Ctrl+C and
-   * Ctrl+V — see `menu.rs`. They arrive as events, and the focused pane is the
-   * one that should act on them.
+   * The four pane-scoped actions that can also be invoked from outside the
+   * pane — the Edit menu off macOS (whose built-in Copy and Paste come welded
+   * to Ctrl+C and Ctrl+V, see `menu.rs`) and the command palette, which has no
+   * other way to reach a terminal. They arrive as events; the focused pane is
+   * the one that should act.
    */
   useEffect(() => {
     if (!isActive) return;
     const pending = [
       listen("menu://copy", () => void copySelection()),
       listen("menu://paste", () => void pasteFromClipboard()),
+      listen("menu://find", () => openSearch()),
+      listen("menu://history", () => setShowHistory(true)),
     ];
     return () => {
       pending.forEach((p) => p.then((off) => off()).catch(() => {}));
     };
-  }, [isActive, copySelection, pasteFromClipboard]);
+  }, [isActive, copySelection, pasteFromClipboard, openSearch]);
 
   const initTerminal = useCallback(async () => {
     const container = containerRef.current;
@@ -886,7 +888,21 @@ export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, o
           const selected = items[idx];
           // Enter skips only --options/-flags; accepts everything else (files, folders, subcommands, args)
           const isOption = selected.type === "option" || (selected.name && /^-/.test(selected.name));
-          if (!isOption) {
+
+          // Enter runs, Tab completes — so Enter only accepts a suggestion the
+          // user has actually narrowed down to. Two ways it used to accept one
+          // they had not asked for:
+          //
+          //  - Nothing typed to complete. `docker ` opens a list of all fifty
+          //    subcommands with the first selected, and accepting the popup
+          //    re-opens it, so `docker system ` offered `prune` next. Enter
+          //    meant "run this", and inserted a word instead.
+          //  - Already typed in full. The engine offers `run` for `pnpm run`,
+          //    so the first Enter was spent adding a space and the command only
+          //    went on the second.
+          const typed = extractLastToken(inputBufferRef.current.trimStart());
+          const completes = typed.length > 0 && (selected.insertValue || selected.name) !== typed;
+          if (!isOption && completes) {
             acceptSuggestion(selected);
             return;
           }
