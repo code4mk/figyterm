@@ -9,6 +9,16 @@ on:
       tag:
         description: "Existing tag to (re)build a release for, e.g. v0.1.0"
         required: true
+      targets:
+        description: "Which platform to build (the tag decides *what* is built — move it first if it's behind)"
+        type: choice
+        required: true
+        default: all
+        options:
+          - all
+          - macos
+          - linux
+          - windows
 
 concurrency:
   group: release-${{ github.ref_name }}
@@ -29,7 +39,12 @@ jobs:
       prerelease: ${{ steps.meta.outputs.prerelease }}
       release_id: ${{ steps.release.outputs.release_id }}
     steps:
+      # Full history and every ref. The default shallow single-ref clone can
+      # resolve neither the tag being built nor how far it trails the default
+      # branch, which is what the report step below needs.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Resolve tag and version
         id: meta
@@ -47,6 +62,59 @@ jobs:
             echo "version=$VERSION"
             echo "prerelease=$PRERELEASE"
           } >> "$GITHUB_OUTPUT"
+
+      # The build jobs check out the *tag*, not the branch this was dispatched
+      # from. Those are easy to confuse on a manual re-run — you can dispatch a
+      # workflow that contains a fix and still build tagged code that doesn't —
+      # so state the commit up front rather than leaving it to be inferred from
+      # a compiler error's line numbers.
+      - name: Report the commit that will be built
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          if ! SHA=$(git rev-parse --verify "refs/tags/$TAG^{commit}" 2>/dev/null); then
+            echo "::error::Tag $TAG does not exist. Create it first, or fix the input."
+            exit 1
+          fi
+          SUBJECT=$(git log -1 --format=%s "$SHA")
+
+          # A tag that trails the default branch is the single most likely reason
+          # for a build failing on something already fixed. Say so loudly, but
+          # don't fail: rebuilding a deliberately old tag is legitimate.
+          DEFAULT_BRANCH="origin/${{ github.event.repository.default_branch }}"
+          BEHIND=""
+          if git rev-parse --verify --quiet "$DEFAULT_BRANCH" >/dev/null; then
+            COUNT=$(git rev-list --count "$SHA..$DEFAULT_BRANCH" 2>/dev/null || echo 0)
+            if [ "$COUNT" -gt 0 ]; then
+              BEHIND="$COUNT"
+              echo "::warning title=Tag is behind $DEFAULT_BRANCH::$TAG points at ${SHA:0:12}, which is $COUNT commit(s) behind $DEFAULT_BRANCH. The builds compile the tag, so anything fixed since then is NOT in this build. Move the tag if that isn't what you want."
+            fi
+          fi
+
+          {
+            echo "### Building \`$TAG\`"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Commit | \`${SHA:0:12}\` |"
+            echo "| Subject | $SUBJECT |"
+            echo "| Workflow from | \`${{ github.ref_name }}\` |"
+            if [ -n "$BEHIND" ]; then
+              echo "| :warning: Behind \`$DEFAULT_BRANCH\` by | **$BEHIND commit(s)** |"
+            fi
+            echo
+            echo "The builds compile **the tag**, not the branch this was dispatched from."
+            if [ -n "$BEHIND" ]; then
+              echo
+              echo "This tag is behind, so fixes merged since \`${SHA:0:12}\` are **not**"
+              echo "in this build. To move it:"
+              echo
+              echo '```'
+              echo "git tag -f $TAG $DEFAULT_BRANCH && git push -f origin $TAG"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Building $TAG at $SHA — $SUBJECT"
 
       - name: Render release notes
         env:
@@ -204,6 +272,12 @@ jobs:
 
   build-macos:
     needs: create-release
+    # Skipped when a dispatch asked for a different platform. A tag push has no
+    # inputs at all, so that case falls through to building everything.
+    if: >-
+      github.event_name != 'workflow_dispatch'
+      || inputs.targets == 'all'
+      || inputs.targets == 'macos'
     permissions:
       contents: write
     strategy:
@@ -277,6 +351,12 @@ jobs:
   # currently supported distro.
   build-linux:
     needs: create-release
+    # Skipped when a dispatch asked for a different platform. A tag push has no
+    # inputs at all, so that case falls through to building everything.
+    if: >-
+      github.event_name != 'workflow_dispatch'
+      || inputs.targets == 'all'
+      || inputs.targets == 'linux'
     permissions:
       contents: write
     runs-on: ubuntu-22.04
@@ -344,6 +424,12 @@ jobs:
 
   build-windows:
     needs: create-release
+    # Skipped when a dispatch asked for a different platform. A tag push has no
+    # inputs at all, so that case falls through to building everything.
+    if: >-
+      github.event_name != 'workflow_dispatch'
+      || inputs.targets == 'all'
+      || inputs.targets == 'windows'
     permissions:
       contents: write
     runs-on: windows-latest
@@ -398,6 +484,10 @@ jobs:
   # artifacts, so it always describes all of them.
   updater-manifest:
     needs: [create-release, build-macos, build-linux, build-windows]
+    # Runs after a partial build too: `needs` on a skipped job would
+    # otherwise skip this as well, and a one-platform rebuild still has to
+    # refresh the manifest and undraft. A genuine build failure still stops it.
+    if: ${{ !cancelled() && !contains(needs.*.result, 'failure') }}
     permissions:
       contents: write
     runs-on: ubuntu-latest
@@ -484,6 +574,10 @@ jobs:
 
   publish-release:
     needs: [create-release, build-macos, build-linux, build-windows, updater-manifest]
+    # Runs after a partial build too: `needs` on a skipped job would
+    # otherwise skip this as well, and a one-platform rebuild still has to
+    # refresh the manifest and undraft. A genuine build failure still stops it.
+    if: ${{ !cancelled() && !contains(needs.*.result, 'failure') }}
     permissions:
       contents: write
     runs-on: ubuntu-latest

@@ -8,7 +8,28 @@ pub mod updater;
 
 use commands::browser::BrowserState;
 use state::app_state::AppState;
+use tauri::{AppHandle, Manager, RunEvent};
 use updater::UpdaterState;
+
+/// Ends every shell before the process goes away.
+///
+/// Nothing else does. On POSIX that was survivable by accident: the process
+/// exits, the kernel closes the pty, the shell takes SIGHUP and follows. Windows
+/// has no hangup and no parent-child lifetime link, so a shell left running when
+/// FigyTerm quit simply kept running — an orphaned `powershell.exe` per tab,
+/// still attached to a pseudoconsole with no owner.
+///
+/// `PtyInstance::shutdown` is what does the work; this only makes sure it is
+/// reached. It must not block: see the note on `PtyInstance::drop`.
+fn shutdown_terminals(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let Ok(mut manager) = state.terminal_manager.lock() else {
+        return;
+    };
+    if let Some(manager) = manager.as_mut() {
+        manager.shutdown_all();
+    }
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -65,6 +86,14 @@ pub fn run() {
             updater::running_foreground_commands,
             updater::restart_app,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        .run(|app, event| {
+            // `Exit` rather than `ExitRequested`: by here every window is gone
+            // and nothing can veto the quit, so it is the last point at which
+            // the shells are still ours to close.
+            if matches!(event, RunEvent::Exit) {
+                shutdown_terminals(app);
+            }
+        });
 }

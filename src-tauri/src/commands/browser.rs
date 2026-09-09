@@ -357,7 +357,19 @@ fn resolve_input(input: &str) -> Result<Url, String> {
     Url::parse_with_params(SEARCH_ENDPOINT, &[("q", trimmed)]).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+/// Opens a browser tab as a child webview.
+///
+/// `async` so it does not run on the main thread. `Window::add_child` always
+/// posts the build onto the main thread and blocks until it finishes, and
+/// `send_user_message` short-circuits a main-thread caller by running the work
+/// inline — so from a synchronous command the whole creation happens *nested
+/// inside* the IPC dispatch that asked for it. On Windows that nesting is a
+/// reentrant `GetMessage`/`DispatchMessage` pump (`webview2_com::wait_with_pump`)
+/// started from the middle of another message's handler, which is the kind of
+/// place a WebView2 environment callback can fail to arrive at all. Off the main
+/// thread the build is queued to the event loop and runs from a clean stack,
+/// which is the path every non-main-thread caller of `add_child` already takes.
+#[tauri::command(async)]
 pub fn browser_open_tab(
     app: AppHandle,
     window: Window,
@@ -367,6 +379,7 @@ pub fn browser_open_tab(
 ) -> Result<BrowserTabState, String> {
     let target = resolve_input(&url)?;
     let label = label_for(&tab_id);
+    log::debug!("browser: opening '{label}' at {target}");
 
     // Reuse an existing webview so a stale tab id (e.g. after a dev reload) recovers
     // instead of failing on a duplicate label.
@@ -385,10 +398,18 @@ pub fn browser_open_tab(
                 LogicalPosition::new(bounds.x, bounds.y),
                 LogicalSize::new(bounds.width.max(1.0), bounds.height.max(1.0)),
             )
-            .map_err(|e| e.to_string())?;
-        if let Some(view) = app.get_webview(&label) {
-            configure_child_webview(&view);
-            apply_webview_theme(&view, &theme);
+            .map_err(|e| {
+                log::error!("browser: could not create the webview for '{label}': {e}");
+                e.to_string()
+            })?;
+        match app.get_webview(&label) {
+            Some(view) => {
+                configure_child_webview(&view);
+                apply_webview_theme(&view, &theme);
+            }
+            // `add_child` said it succeeded but the webview isn't registered —
+            // worth saying out loud rather than returning a tab that isn't there.
+            None => return Err(format!("the webview '{label}' was created but is not registered")),
         }
     }
 
@@ -657,7 +678,9 @@ pub fn browser_set_zoom(app: AppHandle, tab_id: String, factor: f64) -> Result<(
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+/// `async` for the same reason as `browser_open_tab`: closing a webview also
+/// round-trips through the main thread and waits for the answer.
+#[tauri::command(async)]
 pub fn browser_close_tab(app: AppHandle, tab_id: String) -> Result<(), String> {
     if let Some(view) = app.get_webview(&label_for(&tab_id)) {
         view.close().map_err(|e| e.to_string())?;
@@ -727,7 +750,7 @@ fn expire_pending_nav(app: &AppHandle, tab_id: &str) {
 }
 
 /// Tears down every browser webview. Used when the modal closes or the app shuts down.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn browser_close_all(app: AppHandle) -> Result<(), String> {
     let labels: Vec<String> = app
         .webviews()

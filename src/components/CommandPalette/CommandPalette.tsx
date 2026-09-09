@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { OverlayPortal } from "../Overlay/OverlayPortal";
 
 interface Command {
   id: string;
@@ -78,7 +79,7 @@ export function CommandPalette({ isOpen, onClose, commands }: CommandPaletteProp
 
   if (!isOpen) return null;
 
-  return (
+  const palette = (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[18vh]">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div className="relative w-full max-w-[480px] bg-ft-elevated border border-ft-border rounded-xl shadow-elevated overflow-hidden animate-fade-in">
@@ -128,4 +129,6 @@ export function CommandPalette({ isOpen, onClose, commands }: CommandPaletteProp
       </div>
     </div>
   );
+
+  return <OverlayPortal>{palette}</OverlayPortal>;
 }

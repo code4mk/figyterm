@@ -18,7 +18,15 @@ pub struct ShellCommandOutput {
     pub status: i32,
 }
 
-#[tauri::command]
+/// `async` so the subprocess is not spawned and waited for on the main thread.
+///
+/// This is the busiest command in the app — every autocomplete spec generator
+/// goes through it, on a 120ms debounce while the user types — and a
+/// synchronous command runs on the UI thread. Spawning a process costs
+/// microseconds on POSIX and tens of milliseconds on Windows, and a command
+/// that stalls (a `git` call against a disconnected network drive, say) stalls
+/// the whole window with it, close button included.
+#[tauri::command(async)]
 pub fn execute_shell_command(
     command: String,
     args: Vec<String>,
@@ -26,6 +34,15 @@ pub fn execute_shell_command(
 ) -> Result<ShellCommandOutput, String> {
     let mut cmd = Command::new(&command);
     cmd.args(&args);
+
+    // Without this every one of those generator calls flashes a console window
+    // on screen. There is no console to show: the output is read, not displayed.
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
 
     if let Some(dir) = cwd {
         cmd.current_dir(&dir);

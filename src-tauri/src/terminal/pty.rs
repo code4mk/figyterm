@@ -1,4 +1,4 @@
-use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
+use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use std::io::{BufReader, Read, Write};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -146,10 +146,35 @@ fn build_path(home: &str) -> String {
     path
 }
 
+/// The two handles onto the pty, held together because **the order they close
+/// in matters** and struct fields drop in declaration order.
+///
+/// `writer` owns the pty's input side; dropping it is what tells the shell its
+/// stdin has ended. `master` owns the pty itself. Closing input first gives the
+/// shell the chance to notice and exit on its own; closing the pty first asks
+/// the platform to tear down a console that still has a live writer attached.
+///
+/// On Windows the difference is not cosmetic. `master`'s drop reaches
+/// `PsuedoCon::drop`, which calls `ClosePseudoConsole` — a **blocking** call
+/// that waits for the attached client to exit and for the console's output to
+/// drain. Called with the shell still running and its stdin still open, it can
+/// wait a very long time, or forever. POSIX has no equivalent: dropping the
+/// master there is `close(fd)`, the shell gets SIGHUP, and nothing blocks —
+/// which is why this only ever went wrong on Windows.
+struct PtyHandles {
+    writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    master: Arc<Mutex<Box<dyn MasterPty + Send>>>,
+}
+
 pub struct PtyInstance {
     pub session: TerminalSession,
-    pub master: Arc<Mutex<Box<dyn MasterPty + Send>>>,
-    pub writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    /// `Option` only so `Drop` can move the handles out — see the impl.
+    handles: Option<PtyHandles>,
+    /// Lets us terminate the shell without holding the whole `Child`. Only
+    /// Windows needs it — see `shutdown` — but it is cheap to carry everywhere
+    /// rather than splitting the struct in two.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
     /// PID of the login shell itself. When the tty's foreground process group
     /// leader differs from this, the user is running something. Unread on
     /// Windows, where there are no process groups to compare it against.
@@ -187,14 +212,18 @@ impl PtyInstance {
         cmd.cwd(&cwd);
         configure_environment(&mut cmd, &shell);
 
-        // The child handle is dropped as before (dropping it does not kill the
-        // process); only its pid is kept, to tell an idle prompt from a running
-        // command later.
-        let shell_pid = pair
+        // The `Child` itself is still dropped — dropping it does not kill the
+        // process — but a killer is split off it first. Dropping the pty is
+        // enough to end the shell on POSIX, where it gets SIGHUP; Windows has
+        // no such signal, and `ClosePseudoConsole` waits for the client to go
+        // away, so there it has to be asked directly. The pid is kept as before,
+        // to tell an idle prompt from a running command.
+        let child = pair
             .slave
             .spawn_command(cmd)
-            .map_err(|e| format!("Failed to spawn shell: {}", e))?
-            .process_id();
+            .map_err(|e| format!("Failed to spawn shell: {}", e))?;
+        let shell_pid = child.process_id();
+        let killer = child.clone_killer();
 
         let writer = pair
             .master
@@ -246,11 +275,21 @@ impl PtyInstance {
 
         Ok(Self {
             session,
-            master: Arc::new(Mutex::new(pair.master)),
-            writer: Arc::new(Mutex::new(writer)),
+            handles: Some(PtyHandles {
+                writer: Arc::new(Mutex::new(writer)),
+                master: Arc::new(Mutex::new(pair.master)),
+            }),
+            killer: Mutex::new(killer),
             shell_pid,
             shutdown,
         })
+    }
+
+    /// The handles, while the instance is alive. Only `Drop` ever takes them.
+    fn handles(&self) -> Result<&PtyHandles, String> {
+        self.handles
+            .as_ref()
+            .ok_or_else(|| "the pty is shutting down".to_string())
     }
 
     /// PID of the tty's foreground process group when it is something other than
@@ -262,7 +301,7 @@ impl PtyInstance {
     #[cfg(unix)]
     pub fn foreground_pid(&self) -> Option<u32> {
         let shell_pid = self.shell_pid?;
-        let master = self.master.lock().ok()?;
+        let master = self.handles().ok()?.master.lock().ok()?;
         let leader = master.process_group_leader()? as u32;
         (leader != shell_pid).then_some(leader)
     }
@@ -282,14 +321,14 @@ impl PtyInstance {
     }
 
     pub fn write(&self, data: &[u8]) -> Result<(), String> {
-        let mut writer = self.writer.lock().map_err(|e| e.to_string())?;
+        let mut writer = self.handles()?.writer.lock().map_err(|e| e.to_string())?;
         writer.write_all(data).map_err(|e| format!("Write failed: {}", e))?;
         writer.flush().map_err(|e| format!("Flush failed: {}", e))?;
         Ok(())
     }
 
     pub fn resize(&self, cols: u16, rows: u16) -> Result<(), String> {
-        let master = self.master.lock().map_err(|e| e.to_string())?;
+        let master = self.handles()?.master.lock().map_err(|e| e.to_string())?;
         master
             .resize(PtySize {
                 rows,
@@ -305,11 +344,48 @@ impl PtyInstance {
         if let Ok(mut s) = self.shutdown.lock() {
             *s = true;
         }
+
+        // POSIX doesn't need this: closing the pty hangs up the terminal and
+        // the shell takes SIGHUP. Windows has no hangup, and the shell staying
+        // alive is precisely what makes `ClosePseudoConsole` wait, so there the
+        // client is asked to go first. Failure is not interesting — the usual
+        // reason is that it has already exited.
+        #[cfg(windows)]
+        if let Ok(mut killer) = self.killer.lock() {
+            let _ = killer.kill();
+        }
     }
 }
 
 impl Drop for PtyInstance {
     fn drop(&mut self) {
         self.shutdown();
+
+        let Some(handles) = self.handles.take() else {
+            return;
+        };
+
+        // Closing the pty is not allowed to block whoever is dropping this.
+        //
+        // On Windows that close is `ClosePseudoConsole`, which waits for the
+        // console to drain and the client to exit. `close_session` runs on the
+        // main thread, so a shell that was slow to die took the whole UI down
+        // with it — the window stopped painting and stopped answering its close
+        // button, which is what "the app hangs and I can't close it" was. The
+        // shell has already been killed above, so this should return promptly;
+        // it goes to its own thread so that "should" isn't load-bearing.
+        //
+        // Nothing waits on the thread. If the process exits first the OS
+        // reclaims the handles, which is the same cleanup by a shorter route.
+        #[cfg(windows)]
+        {
+            thread::spawn(move || drop(handles));
+        }
+
+        // Elsewhere the close is a couple of `close(2)` calls; a thread would
+        // cost more than it saves, and dropping in place keeps the ordering
+        // (writer, then master) plain to read.
+        #[cfg(not(windows))]
+        drop(handles);
     }
 }

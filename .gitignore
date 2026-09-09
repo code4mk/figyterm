@@ -22,3 +22,4 @@ src-tauri/target/
 app-icon.png
 
 frontend/*
+docs/issues/*

@@ -90,7 +90,10 @@ fn resolve_cwd(cwd: Option<String>) -> String {
     }
 }
 
-#[tauri::command]
+/// `async` so opening a pty and spawning a shell happens off the main thread.
+/// On Windows that pair is `CreatePseudoConsole` plus `CreateProcess`, which is
+/// slow enough to be felt as a stutter every time a tab or pane is created.
+#[tauri::command(async)]
 pub fn create_terminal_session(
     app: AppHandle,
     state: State<'_, AppState>,
