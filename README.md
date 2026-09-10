@@ -11,6 +11,7 @@
 <p align="center">
   <a href="#features">Features</a> •
   <a href="#installation">Installation</a> •
+  <a href="#code-editor">Editor</a> •
   <a href="#recommended-setup">Shell Setup</a> •
   <a href="#development">Development</a> •
   <a href="#keyboard-shortcuts">Shortcuts</a> •
@@ -30,6 +31,8 @@ Inspired by [Fig](https://fig.io) (now part of AWS), FigyTerm is an open-source 
 - **Split Panes** — Up to 4 resizable terminal panes per tab (Cmd+D / Cmd+Shift+D)
 - **Multiple Tabs** — Browser-style tab bar with drag-to-reorder and rename support
 - **Embedded Browser** — In-app browser modal with tabs, address bar, and back/forward/reload (`⌘⇧B`); uses a native child webview so real sites load (not an iframe). On Linux it's positioned through a `gtk::Fixed` of our own, since Tauri can't place child webviews on GTK ([tauri#10420](https://github.com/tauri-apps/tauri/issues/10420))
+- **Embedded Code Editor** — A real editor beside the shell (`⌘⇧E`): CodeMirror 6, file tabs, a breadcrumb, and a resizable file tree. Click a `path:line:col` in terminal output and it opens there. Atomic saves with conflict detection, CRLF and BOM preserved, crash-safe drafts. Workspaces remember their own open tabs; fuzzy file finder (`⌘P`) and streamed project search (`⌘⇧F`). Loaded on first open, so it costs nothing at launch — see [the design notes](docs/CODE-EDITOR.md)
+- **Markdown Preview** — GitHub-flavoured rendering with a live outline, scroll synced both ways, and clickable in-page and sibling-file links. No `dangerouslySetInnerHTML` anywhere, so a document can't inject markup
 - **Command History Search** — Fuzzy-search past commands with picture-in-picture mode (`⌘R`)
 - **System Monitor** — Live CPU and memory charts in a draggable modal (`⌘⇧M`)
 - **Terminal Search** — Find text in the active pane (`⌘F`)
@@ -215,6 +218,7 @@ After install:
 | `⌘ C` | `Ctrl+Shift+C` | Copy selection |
 | `⌘ V` | `Ctrl+Shift+V` | Paste |
 | `⌘ ⇧ B` | `Ctrl+Shift+B` | Open browser |
+| `⌘ ⇧ E` | `Ctrl+Shift+E` | Open code editor |
 | `⌘ ⇧ M` | `Ctrl+Shift+M` | System monitor |
 | `⌘ ⇧ L` | `Ctrl+Shift+L` | Toggle light/dark theme |
 | `⌘ ⇧ P` | `Ctrl+Shift+P` | Command palette |
@@ -232,6 +236,63 @@ same as GNOME Terminal, Konsole and Windows Terminal: a bare `Ctrl`+letter belon
 app shortcut that took it would break the terminal it's wrapped around. The two chords
 that would collide (`Ctrl+Shift+T` and `Ctrl+Shift+D` are already taken) fall back to
 `Ctrl+Alt`.
+
+### Inside the code editor
+
+| macOS | Linux / Windows | Action |
+|-------|----------------|--------|
+| `⌘ S` | `Ctrl+S` | Save |
+| `⌥ ⌘ S` | `Ctrl+Alt+S` | Save all |
+| `⌘ P` | `Ctrl+P` | Go to file |
+| `⌘ F` | `Ctrl+F` | Find in file (replace lives in the panel) |
+| `⌘ ⇧ F` | `Ctrl+Shift+F` | Search in folder |
+| `⌘ G` | `Ctrl+G` | Go to line |
+| `⌘ W` | `Ctrl+W` | Close file tab |
+| `⌘ B` | `Ctrl+B` | Toggle the file tree |
+| `⌘ /` | `Ctrl+/` | Toggle comment |
+| `⌘ D` | `Ctrl+D` | Select next occurrence |
+| `⌘ 1-9` | `Ctrl+1-9` | Nth file tab |
+| `Esc` | `Esc` | Close the editor |
+
+These use plain `Ctrl` off macOS, unlike the table above. The reason the app
+takes `Ctrl+Shift` elsewhere is that a bare `Ctrl`+letter belongs to the shell —
+and inside the editor no shell has focus, so the conventional editor chords are
+free to mean what they usually mean.
+
+## Code Editor
+
+`⌘⇧E` opens an editor over the terminal, rooted at the focused pane's working
+directory. It is **not** a second native webview like the browser: the browser
+hosts pages it doesn't control, whereas the editor renders our own content, so
+it's ordinary React in the app's own webview — no bounds arithmetic, no DPI
+factor, no platform-specific container, and identical behaviour on all three
+platforms. [The design notes](docs/CODE-EDITOR.md) go into why that difference
+matters.
+
+**Editing** is CodeMirror 6 — multi-cursor, folding, bracket matching, a real
+search panel, and per-language grammars fetched on demand so opening a `.tsx`
+doesn't pay for Rust and Python. There's no language server; word completion
+from the open document covers the "finish this identifier" case.
+
+**Saving is the part that had to be right.** Writes go to a sibling temp file
+and are renamed over the target, so a crash can't leave a half-written file.
+Every save carries the mtime the buffer was loaded at, so a file changed by
+something else is never silently clobbered — you get overwrite, reload, or
+cancel. Line endings and byte-order marks are written back exactly as found,
+which is what stops a one-line edit becoming a whole-file diff. Dirty buffers
+are journalled while you type and offered back after a crash.
+
+**It knows it's in a terminal.** Paths in output are clickable — a `tsc` error,
+a stack trace, a `grep -n` hit — and open at the right line. The tree offers
+"open a terminal here". The workspace follows the shell.
+
+**Workspaces** each remember their own open tabs and expanded folders, can be
+starred, and are switched from a picker (click the folder name in the
+breadcrumb). Both the editor and the browser can go picture-in-picture or
+fullscreen, and clicking one brings it to the front.
+
+Deliberately absent for now: git decorations in the tree, diffing, and a
+language server. Reasons and a plan are in [docs/CODE-EDITOR.md](docs/CODE-EDITOR.md).
 
 ## Supported Command Specs
 
@@ -259,6 +320,7 @@ Adding a new spec is straightforward — see the [Spec Authoring Guide](docs/SPE
 │  ├── Autocomplete engine (spec-based)      │
 │  ├── Split panes (react-resizable-panels)  │
 │  ├── Browser modal (native child webview)  │
+│  ├── Code editor (CodeMirror 6, in-webview)│
 │  └── Settings & theme management           │
 ├─────────────────────────────────────────────┤
 │  Tauri IPC (commands + events)             │
@@ -266,6 +328,8 @@ Adding a new spec is straightforward — see the [Spec Authoring Guide](docs/SPE
 │  Rust (Native Layer)                        │
 │  ├── PTY session management                │
 │  ├── Path completion (filesystem)          │
+│  ├── Editor filesystem (confined to roots) │
+│  ├── File watching (notify) & project grep │
 │  ├── Shell command execution               │
 │  ├── Browser webviews (multi-webview)      │
 │  └── Window management                     │
@@ -278,9 +342,12 @@ Adding a new spec is straightforward — see the [Spec Authoring Guide](docs/SPE
 |-------|-----------|
 | Frontend | React 18, TypeScript, Vite, Tailwind CSS |
 | Terminal | xterm.js, FitAddon, WebLinksAddon |
+| Editor | CodeMirror 6 (per-language grammars, lazily imported) |
 | Desktop | Tauri 2.x |
 | Native | Rust |
 | PTY | portable-pty |
+| File watching | notify |
+| Project search | ignore (ripgrep's walker), regex |
 | State | Zustand |
 | UI Components | Headless UI, Lucide Icons |
 | Panels | react-resizable-panels |
@@ -309,11 +376,14 @@ figyterm/
 │   ├── components/
 │   │   ├── AppShell/             # Main layout, tab & pane management
 │   │   ├── Browser/              # Embedded browser modal
+│   │   ├── Editor/               # Code editor: surface, tabs, tree, preview
+│   │   ├── Overlay/              # Overlay portal & error boundary
 │   │   ├── Terminal/             # Terminal, TabBar, HistorySearch, SystemMonitor
 │   │   └── Settings/             # Settings modal (tabbed)
-│   ├── services/                 # Autocomplete, browser IPC, spec registry
+│   ├── hooks/                    # Draggable modals, file watching
+│   ├── services/                 # Autocomplete, browser & editor IPC, specs
 │   ├── specs/                    # Command completion specs (git, docker, etc.)
-│   ├── stores/                   # Zustand stores (settings, theme)
+│   ├── stores/                   # Zustand stores (settings, theme, editor)
 │   └── types/                    # TypeScript definitions (figy, terminal)
 ├── src-tauri/                    # Backend (Rust)
 │   └── src/
@@ -321,10 +391,14 @@ figyterm/
 │       │   ├── terminal.rs       # PTY session create/write/resize/close
 │       │   ├── browser.rs        # Child webview lifecycle & navigation
 │       │   ├── autocomplete.rs   # Path completions & shell history
+│       │   ├── fs.rs             # Editor filesystem, confined to roots
+│       │   ├── fs_watch.rs       # File watching, debounced
 │       │   ├── system.rs         # CPU/memory stats
 │       │   └── shell_exec.rs     # Shell command execution
+│       ├── filesystem/           # Read, atomic write, search, hidden files
 │       └── lib.rs                # App entry point
 ├── docs/                         # Documentation
+│   ├── CODE-EDITOR.md            # Editor design notes & decisions
 │   ├── CONTRIBUTING.md           # Contribution guidelines
 │   └── SPECS.md                  # Spec authoring guide
 ├── public/                       # Static assets (logo, icons)
@@ -345,6 +419,9 @@ figyterm/
 - [x] Terminal search (`⌘F`)
 - [x] System monitor (`⌘⇧M`)
 - [x] Embedded browser with tabs (`⌘⇧B`)
+- [x] Embedded code editor with file tree (`⌘⇧E`)
+- [x] Markdown preview with a synced outline
+- [ ] Git status in the editor's file tree and gutter
 - [ ] Plugin system for custom specs
 - [ ] AI-powered command suggestions (local models)
 - [ ] Snippet management
