@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, WrapText } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, GitBranch, WrapText } from "lucide-react";
+import { GitRepo } from "../../services/git";
 import { scrollIntoViewWithin } from "../../services/scroll";
 import { FileEncoding, LineEnding } from "../../services/editor-fs";
 import { availableLanguages, labelFor } from "../../services/editor-lang";
@@ -34,6 +35,8 @@ interface EditorStatusBarProps {
   wrapped: boolean;
   bufferCount: number;
   watcherMechanism: "native" | "poll" | null;
+  git: GitRepo;
+  onOpenSourceControl: () => void;
   onToggleWrap: () => void;
   onSetLanguage: (languageId: string) => void;
   onSetLineEnding: (lineEnding: LineEnding) => void;
@@ -48,6 +51,8 @@ export function EditorStatusBar({
   wrapped,
   bufferCount,
   watcherMechanism,
+  git,
+  onOpenSourceControl,
   onToggleWrap,
   onSetLanguage,
   onSetLineEnding,
@@ -152,6 +157,43 @@ export function EditorStatusBar({
       )}
 
       <div className="flex-1" />
+
+      {/*
+        The branch, where every editor and every shell prompt puts it. Clicking
+        it opens the panel, which is the only chord-free way in — ⌘⇧G is
+        CodeMirror's find-previous and taking it would cost more than it gave.
+      */}
+      {git.isRepo && (
+        <button
+          className="editor-status-item flex items-center gap-1 text-[10px]"
+          onClick={onOpenSourceControl}
+          title={
+            git.upstream
+              ? `Source control — tracking ${git.upstream}`
+              : "Source control"
+          }
+        >
+          <GitBranch size={10} />
+          <span className="max-w-[140px] truncate">
+            {git.detached ? "detached" : git.branch ?? "no branch"}
+          </span>
+          {git.ahead > 0 && (
+            <span className="flex items-center tabular-nums">
+              <ArrowUp size={9} />
+              {git.ahead}
+            </span>
+          )}
+          {git.behind > 0 && (
+            <span className="flex items-center tabular-nums">
+              <ArrowDown size={9} />
+              {git.behind}
+            </span>
+          )}
+          {git.files.length > 0 && (
+            <span className="editor-status-dot" aria-label="uncommitted changes" />
+          )}
+        </button>
+      )}
 
       {watcherMechanism === "poll" && (
         <span

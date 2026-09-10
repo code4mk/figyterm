@@ -127,7 +127,15 @@ pub struct SearchMatch {
     pub path: String,
     /// 1-based, so it can be handed straight to "go to line".
     pub line: u32,
+    /// 0-based index into `text`, for highlighting the hit in the panel.
     pub column: u32,
+    /// 0-based column in the source line, for putting the cursor on it.
+    ///
+    /// Distinct from `column` because `text` is only a window around the match
+    /// on a long line — the two agree on every line short enough to be shown
+    /// whole, and using one for the other sent "go to" to the wrong place on
+    /// exactly the lines where being precise matters.
+    pub line_column: u32,
     pub length: u32,
     /// The matched line, trimmed. `column` is an index into this.
     pub text: String,
@@ -655,6 +663,10 @@ pub fn search_files(
                     path: path_str.clone(),
                     line: index as u32 + 1,
                     column,
+                    // Counted in chars, not bytes: the editor's columns are
+                    // character offsets, and a line with any multi-byte
+                    // character in front of the match would land short.
+                    line_column: line[..hit.start()].chars().count() as u32,
                     length: line[hit.start()..hit.end()].chars().count() as u32,
                     text: shown,
                 });

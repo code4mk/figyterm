@@ -38,6 +38,9 @@ interface Palette {
   tooltip: string;
   tooltipSelected: string;
   fold: string;
+  gitAdded: string;
+  gitModified: string;
+  gitDeleted: string;
 }
 
 const DARK: Palette = {
@@ -57,6 +60,11 @@ const DARK: Palette = {
   tooltip: "#1e2228",
   tooltipSelected: "rgba(99, 102, 241, 0.22)",
   fold: "#8b949e",
+  // The same three the file tree and the source-control panel use, so a
+  // changed line and a changed row agree about what colour "modified" is.
+  gitAdded: "#3fb950",
+  gitModified: "#d29922",
+  gitDeleted: "#f85149",
 };
 
 const LIGHT: Palette = {
@@ -76,6 +84,9 @@ const LIGHT: Palette = {
   tooltip: "#ffffff",
   tooltipSelected: "rgba(79, 70, 229, 0.12)",
   fold: "#6b7280",
+  gitAdded: "#1a7f37",
+  gitModified: "#9a6700",
+  gitDeleted: "#cf222e",
 };
 
 const DARK_SYNTAX = HighlightStyle.define([
@@ -215,45 +226,54 @@ export function editorTheme({ dark, fontFamily, fontSize }: ThemeOptions): Exten
           outline: `1px solid ${p.border}`,
           borderRadius: "2px",
         },
-        // CodeMirror's search-and-replace panel. Left mostly to CodeMirror's own
-        // markup, recoloured — reimplementing it as React would mean
-        // reimplementing its keymap too.
+        /*
+          The change gutter, beside the line numbers. A `border-left` rather
+          than a filled cell, because a full-width block of colour next to
+          every changed line competes with the text for attention — which is
+          the whole difference between a diff view and a hint that something
+          changed.
+        */
+        ".cm-git-gutter": {
+          backgroundColor: p.gutter,
+          minWidth: "3px",
+          padding: "0",
+        },
+        ".cm-git-gutter .cm-gutterElement": { padding: "0" },
+        ".cm-git-change": { borderLeft: "3px solid transparent" },
+        ".cm-git-added": { borderLeftColor: p.gitAdded },
+        ".cm-git-modified": { borderLeftColor: p.gitModified },
+        /*
+          A deletion has no line of its own, so it can't be a full-height bar
+          without claiming a line that didn't change. A wedge at the top of the
+          line the gap is above is how every editor draws it.
+        */
+        ".cm-git-deleted": {
+          borderLeftColor: "transparent",
+          position: "relative",
+        },
+        ".cm-git-deleted::before": {
+          backgroundColor: p.gitDeleted,
+          content: '""',
+          height: "3px",
+          left: "0",
+          position: "absolute",
+          top: "0",
+          width: "3px",
+        },
+        /*
+          CodeMirror's panel container, stripped back to nothing. The find
+          panel's markup is React (see `FindPanel`) and its look lives in
+          `styles.css` with the rest of the editor chrome; what's left here is
+          only the row CodeMirror reserves for it.
+        */
         ".cm-panels": {
-          backgroundColor: p.panel,
+          backgroundColor: "transparent",
+          border: "none",
           color: p.foreground,
-          borderTop: `1px solid ${p.border}`,
           fontSize: "11px",
         },
-        ".cm-panel.cm-search": { padding: "6px 8px" },
-        ".cm-panel.cm-search input, .cm-panel.cm-search button, .cm-panel.cm-search label": {
-          fontFamily: "inherit",
-          fontSize: "11px",
-        },
-        ".cm-panel.cm-search input": {
-          backgroundColor: dark ? "rgba(255,255,255,0.05)" : "#ffffff",
-          border: `1px solid ${p.border}`,
-          borderRadius: "4px",
-          color: p.foreground,
-          padding: "3px 6px",
-          outline: "none",
-        },
-        ".cm-panel.cm-search input:focus": { borderColor: p.cursor },
-        ".cm-panel.cm-search button": {
-          backgroundColor: dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)",
-          backgroundImage: "none",
-          border: `1px solid ${p.border}`,
-          borderRadius: "4px",
-          color: p.foreground,
-          cursor: "pointer",
-          padding: "3px 8px",
-          margin: "0 2px",
-        },
-        ".cm-panel.cm-search button:hover": { borderColor: p.cursor },
-        ".cm-panel.cm-search [name=close]": {
-          color: p.gutterActive,
-          fontSize: "16px",
-          padding: "0 6px",
-        },
+        ".cm-panels-top": { borderBottom: `1px solid ${p.border}` },
+        ".cm-panels-bottom": { borderTop: `1px solid ${p.border}` },
         ".cm-tooltip": {
           backgroundColor: p.tooltip,
           border: `1px solid ${p.border}`,

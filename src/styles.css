@@ -1809,6 +1809,45 @@
   color: #d29922;
 }
 
+/* The diff tab, marked out from the file tabs by a dashed edge rather than a
+   different colour: it sits in the same strip and does the same job, it just
+   isn't a file you can edit or save. */
+.editor-tab-diff {
+  border-style: dashed;
+}
+
+.editor-tab-diff.active {
+  border-color: #4a5361;
+  border-style: dashed;
+}
+
+.editor-tab-diff-icon {
+  color: #d29922;
+}
+
+/* Explorer and Source Control, as one segmented switcher. */
+.editor-panel-switch {
+  border: 1px solid #2a2f37;
+  border-radius: 5px;
+  overflow: hidden;
+  margin-right: 2px;
+}
+
+.editor-panel-tab {
+  color: #8b949e;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+
+.editor-panel-tab:hover {
+  color: #e6edf3;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.editor-panel-tab.on {
+  color: #a5b4fc;
+  background: rgba(99, 102, 241, 0.16);
+}
+
 /*
   One box, two glyphs: the dirty dot and the close cross swap on hover so the
   tab's width never changes and close targets stay put.
@@ -2111,6 +2150,27 @@
 .editor-context-item.danger:hover {
   background: rgba(248, 113, 113, 0.16);
   color: #fca5a5;
+}
+
+/* A dimmed item still says what the chord is, so the menu doubles as a
+   reminder of it — it just can't be chosen right now. */
+.editor-context-item:disabled {
+  color: #6b7280;
+  cursor: default;
+}
+
+.editor-context-item:disabled:hover {
+  background: transparent;
+  color: #6b7280;
+}
+
+.editor-context-hint {
+  color: #7d8590;
+  font-variant-numeric: tabular-nums;
+}
+
+.editor-context-item:hover:not(:disabled) .editor-context-hint {
+  color: #c9d1d9;
 }
 
 .editor-context-sep {
@@ -2677,6 +2737,19 @@
 .light .editor-context-item.danger:hover {
   background: rgba(185, 28, 28, 0.08);
   color: #b91c1c;
+}
+
+.light .editor-context-item:disabled,
+.light .editor-context-item:disabled:hover {
+  color: #9ca3af;
+}
+
+.light .editor-context-hint {
+  color: #9ca3af;
+}
+
+.light .editor-context-item:hover:not(:disabled) .editor-context-hint {
+  color: #4b5563;
 }
 
 .light .editor-context-sep {
@@ -3579,3 +3652,1101 @@
   border-left-color: #4f46e5;
   color: #111827;
 }
+
+/* ── Find and replace ───────────────────────────────────────────────────────
+   The panel CodeMirror reserves the row for, filled in by `FindPanel`. The
+   host has no look of its own; everything visible is below it. */
+
+.editor-find-host {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.editor-find {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 5px 6px 5px 2px;
+}
+
+.editor-find-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.editor-find-row {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+}
+
+.editor-find-expand {
+  color: #6e7681;
+  padding: 3px 1px;
+  border-radius: 3px;
+  transition: color 0.12s ease;
+}
+
+.editor-find-expand:hover {
+  color: #e6edf3;
+}
+
+/* The field is a box holding the input *and* its three modifiers, so the
+   toggles read as part of the query rather than as buttons beside it. */
+.editor-find-field {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  flex: 1;
+  min-width: 90px;
+  max-width: 340px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid #353b44;
+  border-radius: 4px;
+  padding: 0 2px 0 6px;
+  transition: border-color 0.12s ease;
+}
+
+.editor-find-field:focus-within {
+  border-color: #6366f1;
+}
+
+.editor-find-field.invalid,
+.editor-find-field.invalid:focus-within {
+  border-color: #f85149;
+}
+
+.editor-find-input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #e6edf3;
+  font-size: 11px;
+  padding: 3px 0;
+}
+
+.editor-find-input::placeholder {
+  color: #5d636e;
+}
+
+.editor-find-input:disabled {
+  color: #6e7681;
+}
+
+.editor-find-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 19px;
+  height: 19px;
+  border-radius: 3px;
+  color: #6e7681;
+  flex-shrink: 0;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+
+.editor-find-toggle:hover {
+  color: #e6edf3;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.editor-find-toggle.active {
+  color: #a5b4fc;
+  background: rgba(99, 102, 241, 0.2);
+}
+
+.editor-find-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 21px;
+  height: 21px;
+  border-radius: 3px;
+  color: #8b949e;
+  flex-shrink: 0;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+
+.editor-find-btn:hover:not(:disabled) {
+  color: #e6edf3;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.editor-find-btn:disabled {
+  color: #4a5361;
+  cursor: default;
+}
+
+/* Fixed width so stepping through matches doesn't shuffle the buttons
+   sideways as the count goes from "9 of 12" to "10 of 12". */
+.editor-find-count {
+  color: #8b949e;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  min-width: 68px;
+  text-align: right;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.editor-find-count.invalid {
+  color: #f85149;
+}
+
+.editor-find-hint {
+  color: #6e7681;
+  font-size: 10px;
+  font-family: ui-monospace, monospace;
+  flex-shrink: 0;
+}
+
+/* ── Go to line ─────────────────────────────────────────────────────────── */
+
+.editor-goto-go {
+  color: #8b949e;
+  background: rgba(255, 255, 255, 0.06);
+  transition: color 0.12s ease, background 0.12s ease;
+}
+
+.editor-goto-go:hover:not(:disabled) {
+  color: #e6edf3;
+  background: rgba(99, 102, 241, 0.2);
+}
+
+.editor-goto-go:disabled {
+  color: #4a5361;
+  cursor: default;
+}
+
+.editor-goto-status {
+  border-top: 1px solid #2a2f37;
+}
+
+.editor-goto-target {
+  color: #e6edf3;
+}
+
+.editor-goto-of,
+.editor-goto-syntax {
+  color: #5d636e;
+}
+
+.editor-goto-warn {
+  color: #e3b341;
+}
+
+/* ── Git: tree decorations ──────────────────────────────────────────────── */
+
+/* The row's own colour, not a badge colour: a changed file should be readable
+   as changed from the shape of the tree, without reading the letter. */
+.editor-row.git-modified,
+.editor-row.git-typeChanged {
+  color: #e3b341;
+}
+
+.editor-row.git-added,
+.editor-row.git-untracked,
+.editor-row.git-copied {
+  color: #56d364;
+}
+
+.editor-row.git-deleted {
+  color: #f85149;
+}
+
+.editor-row.git-renamed {
+  color: #79c0ff;
+}
+
+.editor-row.git-conflicted {
+  color: #ff7b72;
+}
+
+.editor-row-git {
+  color: inherit;
+  opacity: 0.85;
+  font-variant-numeric: tabular-nums;
+  width: 10px;
+  text-align: center;
+}
+
+.editor-row-git-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #d29922;
+  opacity: 0.75;
+  margin-right: 2px;
+}
+
+/* ── Git: source control panel ──────────────────────────────────────────── */
+
+.editor-scm-branch {
+  border-bottom: 1px solid #2a2f37;
+  color: #b6bec8;
+}
+
+.editor-scm-count {
+  color: #8b949e;
+}
+
+.editor-scm-selectall {
+  color: #b6bec8;
+  border-bottom: 1px solid #2a2f37;
+  cursor: pointer;
+  user-select: none;
+}
+
+/* The commit box is at the bottom, so its border is on top. */
+.editor-scm-commit {
+  border-top: 1px solid #2a2f37;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+/* A real checkbox, restyled — `appearance: none` keeps the semantics and the
+   keyboard behaviour while letting the box match the rest of the chrome. */
+.editor-scm-checkbox {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 13px;
+  height: 13px;
+  border: 1px solid #4a5361;
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+  position: relative;
+  transition: background 0.1s ease, border-color 0.1s ease;
+}
+
+.editor-scm-checkbox:hover {
+  border-color: #6e7681;
+}
+
+.editor-scm-checkbox:checked,
+.editor-scm-checkbox:indeterminate {
+  background: #6366f1;
+  border-color: #6366f1;
+}
+
+/* Drawn rather than a glyph: a text tick sits differently in every font, and
+   at 13px that is the difference between centred and not. */
+.editor-scm-checkbox:checked::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 1px;
+  width: 5px;
+  height: 8px;
+  border: solid #ffffff;
+  border-width: 0 1.6px 1.6px 0;
+  transform: rotate(45deg);
+}
+
+.editor-scm-checkbox:indeterminate::after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 5px;
+  width: 7px;
+  height: 0;
+  border-top: 1.6px solid #ffffff;
+}
+
+.editor-scm-checkbox:focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 1px;
+}
+
+/* An excluded file is still listed, and still openable — it just isn't going
+   into this commit, which is worth showing without hiding the row. */
+.editor-scm-row.excluded .editor-row-name,
+.editor-scm-row.excluded .editor-scm-status {
+  opacity: 0.45;
+}
+
+.editor-scm-summary {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid #353b44;
+  color: #e6edf3;
+  outline: none;
+  transition: border-color 0.12s ease;
+}
+
+.editor-scm-summary:focus {
+  border-color: #6366f1;
+}
+
+.editor-scm-summary::placeholder {
+  color: #5d636e;
+}
+
+.editor-scm-message {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid #353b44;
+  color: #e6edf3;
+  outline: none;
+  font-family: inherit;
+  transition: border-color 0.12s ease;
+}
+
+.editor-scm-message:focus {
+  border-color: #6366f1;
+}
+
+.editor-scm-message::placeholder {
+  color: #5d636e;
+}
+
+.editor-scm-button {
+  background: rgba(99, 102, 241, 0.22);
+  color: #c7d2fe;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.editor-scm-button:hover:not(:disabled) {
+  background: rgba(99, 102, 241, 0.34);
+  color: #ffffff;
+}
+
+.editor-scm-button:disabled {
+  background: rgba(255, 255, 255, 0.04);
+  color: #4a5361;
+  cursor: default;
+}
+
+.editor-scm-error {
+  background: rgba(248, 113, 113, 0.12);
+  color: #fca5a5;
+}
+
+.editor-scm-status {
+  color: inherit;
+  opacity: 0.85;
+  font-variant-numeric: tabular-nums;
+  width: 10px;
+  text-align: center;
+}
+
+/* Discard appears on hover, so a list of twenty files isn't twenty buttons
+   inviting a mis-click. It stays visible while focused, or it would be
+   unreachable by keyboard. */
+.editor-scm-action {
+  color: #8b949e;
+  opacity: 0;
+  transition: color 0.12s ease, background 0.12s ease, opacity 0.1s ease;
+}
+
+.editor-scm-row:hover .editor-scm-action,
+.editor-scm-action:focus-visible {
+  opacity: 1;
+}
+
+.editor-scm-action:hover {
+  color: #e6edf3;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.editor-scm-action.danger:hover {
+  color: #fca5a5;
+  background: rgba(248, 113, 113, 0.14);
+}
+
+.editor-spin {
+  animation: editor-spin 0.9s linear infinite;
+}
+
+@keyframes editor-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* A dot rather than a number: the count is in the panel, and this only has to
+   say that there is something to look at. */
+.editor-status-dot,
+.editor-btn-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #d29922;
+  display: inline-block;
+}
+
+.editor-btn-dot {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+}
+
+/* ── Git: diff view ─────────────────────────────────────────────────────── */
+
+.editor-diff {
+  background: #12151a;
+}
+
+.editor-diff-header {
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid #2a2f37;
+  color: #e6edf3;
+}
+
+.editor-diff-path,
+.editor-diff-message {
+  color: #6e7681;
+}
+
+.editor-diff-plus {
+  color: #56d364;
+}
+
+.editor-diff-minus {
+  color: #f85149;
+}
+
+.editor-diff-switch {
+  border: 1px solid #353b44;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.editor-diff-tab {
+  color: #8b949e;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+
+.editor-diff-tab:hover {
+  color: #e6edf3;
+}
+
+.editor-diff-tab.on {
+  color: #c7d2fe;
+  background: rgba(99, 102, 241, 0.2);
+}
+
+.editor-diff-style {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid #353b44;
+  color: #c9d1d9;
+  padding: 1px 4px;
+  outline: none;
+  font-family: inherit;
+}
+
+.editor-diff-style:focus {
+  border-color: #6366f1;
+}
+
+/* ── Diff body ──────────────────────────────────────────────────────────────
+   The five presets differ in what they *show*, not only in colour, so each
+   sets a handful of custom properties and the structural rules below read
+   them. `--diff-cols` is the grid — one track per *visible* item, because a
+   0px track still lets its content spill over the next one, so a preset that
+   drops a column also removes it from layout with `display: none`. */
+
+.editor-diff-body {
+  --diff-cols: 44px 44px 14px 1fr;
+  --diff-add-row: rgba(63, 185, 80, 0.1);
+  --diff-del-row: rgba(248, 81, 73, 0.1);
+  --diff-add-word: rgba(63, 185, 80, 0.32);
+  --diff-del-word: rgba(248, 81, 73, 0.3);
+  --diff-add-text: #7ee787;
+  --diff-del-text: #ffa198;
+  --diff-num: #4a5361;
+  --diff-hunk-bg: rgba(99, 102, 241, 0.1);
+  --diff-hunk-text: #a5b4fc;
+  --diff-word-underline: none;
+  --diff-word-weight: inherit;
+  --diff-num-box: transparent;
+}
+
+.editor-diff-hunkhead {
+  background: var(--diff-hunk-bg);
+  color: var(--diff-hunk-text);
+  position: sticky;
+  top: 0;
+  /* Sticky, because a hunk header names the region you are reading and a
+     100-line hunk scrolls it away exactly when it starts mattering. */
+  z-index: 1;
+}
+
+.editor-diff-notes {
+  color: #6e7681;
+  font-style: italic;
+}
+
+.editor-diff-row {
+  display: grid;
+  grid-template-columns: var(--diff-cols);
+  align-items: start;
+  line-height: 1.5;
+}
+
+.editor-diff-num {
+  color: var(--diff-num);
+  background: var(--diff-num-box);
+  padding-right: 8px;
+  text-align: right;
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.editor-diff-sign {
+  color: var(--diff-num);
+  text-align: center;
+  user-select: none;
+}
+
+/* `pre-wrap` rather than `pre` so a long line wraps instead of putting a
+   horizontal scrollbar under three hundred rows. */
+.editor-diff-text {
+  color: #c9d1d9;
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding-right: 10px;
+  tab-size: 4;
+  min-width: 0;
+}
+
+.editor-diff-row.add,
+.editor-diff-half.add {
+  background: var(--diff-add-row);
+}
+
+.editor-diff-row.del,
+.editor-diff-half.del {
+  background: var(--diff-del-row);
+}
+
+.editor-diff-row.add .editor-diff-text,
+.editor-diff-row.add .editor-diff-sign,
+.editor-diff-half.add .editor-diff-text {
+  color: var(--diff-add-text);
+}
+
+.editor-diff-row.del .editor-diff-text,
+.editor-diff-row.del .editor-diff-sign,
+.editor-diff-half.del .editor-diff-text {
+  color: var(--diff-del-text);
+}
+
+/* The words that actually changed. A `<mark>` because that is what it is —
+   and its default yellow has to be overridden or every theme looks broken. */
+.editor-diff-word {
+  background: transparent;
+  color: inherit;
+  border-radius: 2px;
+  text-decoration: var(--diff-word-underline);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  font-weight: var(--diff-word-weight);
+}
+
+.editor-diff-row.add .editor-diff-word,
+.editor-diff-half.add .editor-diff-word {
+  background: var(--diff-add-word);
+}
+
+.editor-diff-row.del .editor-diff-word,
+.editor-diff-half.del .editor-diff-word {
+  background: var(--diff-del-word);
+}
+
+/* ── Split layout ───────────────────────────────────────────────────────── */
+
+.editor-diff-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: stretch;
+  line-height: 1.5;
+}
+
+.editor-diff-half {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  align-items: start;
+  min-width: 0;
+}
+
+/* The divider between the two sides, drawn on the left half so it doesn't
+   double up at the edges. */
+.editor-diff-half:first-child {
+  border-right: 1px solid #2a2f37;
+}
+
+/* A side with nothing on it is the gap where lines were added or removed
+   rather than changed — hatched rather than blank, so it reads as "nothing
+   here" instead of "an empty line here". */
+.editor-diff-half.filler {
+  background: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 4px,
+    rgba(255, 255, 255, 0.025) 4px,
+    rgba(255, 255, 255, 0.025) 8px
+  );
+}
+
+/* ── Presets ────────────────────────────────────────────────────────────── */
+
+/* GitLab: the same tints, with the changed words underlined as well. Its diffs
+   are read at a distance more often than GitHub's, and the underline survives
+   being squinted at. */
+.editor-diff-body[data-diff-style="gitlab"] {
+  --diff-add-word: rgba(63, 185, 80, 0.26);
+  --diff-del-word: rgba(248, 81, 73, 0.24);
+  --diff-word-underline: underline;
+  --diff-hunk-bg: rgba(255, 255, 255, 0.04);
+  --diff-hunk-text: #8b949e;
+}
+
+/* VS Code: no signs and one number column. The band of colour is the whole
+   signal, so it is stronger than GitHub's and the text stays the editor's own
+   foreground rather than turning green. */
+.editor-diff-body[data-diff-style="vscode"] {
+  --diff-cols: 48px 1fr;
+  --diff-add-row: rgba(63, 185, 80, 0.16);
+  --diff-del-row: rgba(248, 81, 73, 0.16);
+  --diff-add-word: rgba(63, 185, 80, 0.4);
+  --diff-del-word: rgba(248, 81, 73, 0.38);
+  --diff-add-text: #c9d1d9;
+  --diff-del-text: #c9d1d9;
+  --diff-hunk-bg: transparent;
+  --diff-hunk-text: #6e7681;
+}
+
+/* Delta: both line numbers in their own boxed column, no signs, changed words
+   in bold. Its trademark is the framing, which is what the tinted number
+   column is doing here. */
+.editor-diff-body[data-diff-style="delta"] {
+  --diff-cols: 40px 40px 1fr;
+  --diff-num-box: rgba(255, 255, 255, 0.04);
+  --diff-num: #6e7681;
+  --diff-word-weight: 600;
+  --diff-add-word: rgba(63, 185, 80, 0.34);
+  --diff-del-word: rgba(248, 81, 73, 0.32);
+  --diff-hunk-bg: rgba(255, 255, 255, 0.06);
+  --diff-hunk-text: #e3b341;
+}
+
+/* Removed from layout, not shrunk to nothing: the tracks above are counted to
+   match, and an item in a 0px track spills its text over its neighbour. */
+.editor-diff-body[data-diff-style="vscode"] .editor-diff-num.old,
+.editor-diff-body[data-diff-style="vscode"] .editor-diff-sign,
+.editor-diff-body[data-diff-style="delta"] .editor-diff-sign {
+  display: none;
+}
+
+.editor-diff-body[data-diff-style="delta"] .editor-diff-hunkhead {
+  border-top: 1px solid #2a2f37;
+  border-bottom: 1px solid #2a2f37;
+}
+
+/* Plain: what `git diff` prints. Coloured text, `+`/`-`, no line numbers, no
+   backgrounds, and no word highlight — a terminal has none of that, and a
+   preset that pretends otherwise isn't this preset. */
+.editor-diff-body[data-diff-style="plain"] {
+  --diff-cols: 14px 1fr;
+  --diff-add-row: transparent;
+  --diff-del-row: transparent;
+  --diff-add-word: transparent;
+  --diff-del-word: transparent;
+  --diff-add-text: #56d364;
+  --diff-del-text: #f85149;
+  --diff-hunk-bg: transparent;
+  --diff-hunk-text: #79c0ff;
+}
+
+.editor-diff-body[data-diff-style="plain"] .editor-diff-num,
+.editor-diff-body[data-diff-style="plain"] .editor-diff-half .editor-diff-num {
+  display: none;
+}
+
+.editor-diff-body[data-diff-style="plain"] .editor-diff-half {
+  grid-template-columns: 1fr;
+}
+
+.editor-diff-body[data-diff-style="plain"] .editor-diff-half.filler {
+  background: none;
+}
+
+
+/* ── Light theme: find, go to line, git ─────────────────────────────────── */
+
+.light .editor-find-host {
+  background: rgba(0, 0, 0, 0.015);
+}
+
+.light .editor-find-expand {
+  color: #9ca3af;
+}
+
+.light .editor-find-expand:hover {
+  color: #111827;
+}
+
+.light .editor-find-field {
+  background: #ffffff;
+  border-color: #e2e5eb;
+}
+
+.light .editor-find-field:focus-within {
+  border-color: #4f46e5;
+}
+
+.light .editor-find-field.invalid,
+.light .editor-find-field.invalid:focus-within {
+  border-color: #cf222e;
+}
+
+.light .editor-find-input {
+  color: #1a1d27;
+}
+
+.light .editor-find-input::placeholder {
+  color: #9ca3af;
+}
+
+.light .editor-find-input:disabled {
+  color: #9ca3af;
+}
+
+.light .editor-find-toggle,
+.light .editor-find-btn {
+  color: #6b7280;
+}
+
+.light .editor-find-toggle:hover,
+.light .editor-find-btn:hover:not(:disabled) {
+  color: #111827;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.light .editor-find-toggle.active {
+  color: #4338ca;
+  background: rgba(79, 70, 229, 0.14);
+}
+
+.light .editor-find-btn:disabled {
+  color: #c3c8d1;
+}
+
+.light .editor-find-count {
+  color: #6b7280;
+}
+
+.light .editor-find-count.invalid {
+  color: #cf222e;
+}
+
+.light .editor-find-hint {
+  color: #9ca3af;
+}
+
+.light .editor-goto-go {
+  color: #6b7280;
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.light .editor-goto-go:hover:not(:disabled) {
+  color: #111827;
+  background: rgba(79, 70, 229, 0.14);
+}
+
+.light .editor-goto-go:disabled {
+  color: #c3c8d1;
+}
+
+.light .editor-goto-status {
+  border-top-color: #e2e5eb;
+}
+
+.light .editor-goto-target {
+  color: #111827;
+}
+
+.light .editor-goto-of,
+.light .editor-goto-syntax {
+  color: #9ca3af;
+}
+
+.light .editor-goto-warn {
+  color: #9a6700;
+}
+
+.light .editor-row.git-modified,
+.light .editor-row.git-typeChanged {
+  color: #9a6700;
+}
+
+.light .editor-row.git-added,
+.light .editor-row.git-untracked,
+.light .editor-row.git-copied {
+  color: #1a7f37;
+}
+
+.light .editor-row.git-deleted {
+  color: #cf222e;
+}
+
+.light .editor-row.git-renamed {
+  color: #0969da;
+}
+
+.light .editor-row.git-conflicted {
+  color: #bc4c00;
+}
+
+.light .editor-row-git-dot,
+.light .editor-status-dot,
+.light .editor-btn-dot {
+  background: #9a6700;
+}
+
+.light .editor-scm-branch {
+  border-bottom-color: #e2e5eb;
+  color: #374151;
+}
+
+.light .editor-scm-count {
+  color: #6b7280;
+}
+
+.light .editor-tab-diff.active {
+  border-color: #c3c8d1;
+}
+
+.light .editor-tab-diff-icon {
+  color: #9a6700;
+}
+
+.light .editor-panel-switch {
+  border-color: #e2e5eb;
+}
+
+.light .editor-panel-tab {
+  color: #6b7280;
+}
+
+.light .editor-panel-tab:hover {
+  color: #111827;
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.light .editor-panel-tab.on {
+  color: #4338ca;
+  background: rgba(79, 70, 229, 0.12);
+}
+
+.light .editor-scm-selectall {
+  color: #374151;
+  border-bottom-color: #e2e5eb;
+}
+
+.light .editor-scm-commit {
+  border-top-color: #e2e5eb;
+  background: #f7f8fa;
+}
+
+.light .editor-scm-checkbox {
+  border-color: #c3c8d1;
+  background: #ffffff;
+}
+
+.light .editor-scm-checkbox:hover {
+  border-color: #9ca3af;
+}
+
+.light .editor-scm-checkbox:checked,
+.light .editor-scm-checkbox:indeterminate {
+  background: #4f46e5;
+  border-color: #4f46e5;
+}
+
+.light .editor-scm-summary {
+  background: #ffffff;
+  border-color: #e2e5eb;
+  color: #1a1d27;
+}
+
+.light .editor-scm-summary:focus {
+  border-color: #4f46e5;
+}
+
+.light .editor-scm-summary::placeholder {
+  color: #9ca3af;
+}
+
+.light .editor-scm-message {
+  background: #ffffff;
+  border-color: #e2e5eb;
+  color: #1a1d27;
+}
+
+.light .editor-scm-message:focus {
+  border-color: #4f46e5;
+}
+
+.light .editor-scm-message::placeholder {
+  color: #9ca3af;
+}
+
+.light .editor-scm-button {
+  background: rgba(79, 70, 229, 0.12);
+  color: #3730a3;
+}
+
+.light .editor-scm-button:hover:not(:disabled) {
+  background: rgba(79, 70, 229, 0.2);
+  color: #312e81;
+}
+
+.light .editor-scm-button:disabled {
+  background: rgba(0, 0, 0, 0.04);
+  color: #b3bac6;
+}
+
+.light .editor-scm-error {
+  background: rgba(185, 28, 28, 0.08);
+  color: #b91c1c;
+}
+
+.light .editor-scm-action {
+  color: #6b7280;
+}
+
+.light .editor-scm-action:hover {
+  color: #111827;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.light .editor-scm-action.danger:hover {
+  color: #b91c1c;
+  background: rgba(185, 28, 28, 0.08);
+}
+
+.light .editor-diff {
+  background: #ffffff;
+}
+
+.light .editor-diff-header {
+  background: #f7f8fa;
+  border-bottom-color: #e2e5eb;
+  color: #111827;
+}
+
+.light .editor-diff-path,
+.light .editor-diff-message {
+  color: #6b7280;
+}
+
+.light .editor-diff-plus {
+  color: #1a7f37;
+}
+
+.light .editor-diff-minus {
+  color: #cf222e;
+}
+
+.light .editor-diff-body {
+  --diff-add-row: rgba(26, 127, 55, 0.08);
+  --diff-del-row: rgba(207, 34, 46, 0.07);
+  --diff-add-word: rgba(26, 127, 55, 0.24);
+  --diff-del-word: rgba(207, 34, 46, 0.22);
+  --diff-add-text: #0f5323;
+  --diff-del-text: #8b1a20;
+  --diff-num: #b3bac6;
+  --diff-hunk-bg: rgba(79, 70, 229, 0.08);
+  --diff-hunk-text: #3730a3;
+}
+
+.light .editor-diff-text {
+  color: #1a1d27;
+}
+
+.light .editor-diff-notes {
+  color: #9ca3af;
+}
+
+.light .editor-diff-half:first-child {
+  border-right-color: #e2e5eb;
+}
+
+.light .editor-diff-half.filler {
+  background: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 4px,
+    rgba(0, 0, 0, 0.025) 4px,
+    rgba(0, 0, 0, 0.025) 8px
+  );
+}
+
+.light .editor-diff-body[data-diff-style="gitlab"] {
+  --diff-add-word: rgba(26, 127, 55, 0.2);
+  --diff-del-word: rgba(207, 34, 46, 0.18);
+  --diff-hunk-bg: rgba(0, 0, 0, 0.035);
+  --diff-hunk-text: #6b7280;
+}
+
+.light .editor-diff-body[data-diff-style="vscode"] {
+  --diff-add-row: rgba(26, 127, 55, 0.13);
+  --diff-del-row: rgba(207, 34, 46, 0.12);
+  --diff-add-word: rgba(26, 127, 55, 0.3);
+  --diff-del-word: rgba(207, 34, 46, 0.28);
+  --diff-add-text: #1a1d27;
+  --diff-del-text: #1a1d27;
+  --diff-hunk-text: #9ca3af;
+}
+
+.light .editor-diff-body[data-diff-style="delta"] {
+  --diff-num-box: rgba(0, 0, 0, 0.035);
+  --diff-num: #9ca3af;
+  --diff-add-word: rgba(26, 127, 55, 0.26);
+  --diff-del-word: rgba(207, 34, 46, 0.24);
+  --diff-hunk-bg: rgba(0, 0, 0, 0.05);
+  --diff-hunk-text: #9a6700;
+}
+
+.light .editor-diff-body[data-diff-style="delta"] .editor-diff-hunkhead {
+  border-top-color: #e2e5eb;
+  border-bottom-color: #e2e5eb;
+}
+
+.light .editor-diff-body[data-diff-style="plain"] {
+  --diff-add-text: #1a7f37;
+  --diff-del-text: #cf222e;
+  --diff-hunk-text: #0969da;
+}
+
+.light .editor-diff-switch {
+  border-color: #e2e5eb;
+}
+
+.light .editor-diff-tab {
+  color: #6b7280;
+}
+
+.light .editor-diff-tab:hover {
+  color: #111827;
+}
+
+.light .editor-diff-tab.on {
+  color: #3730a3;
+  background: rgba(79, 70, 229, 0.12);
+}
+
+.light .editor-diff-style {
+  background: #ffffff;
+  border-color: #e2e5eb;
+  color: #374151;
+}
+
+.light .editor-diff-style:focus {
+  border-color: #4f46e5;
+}
+

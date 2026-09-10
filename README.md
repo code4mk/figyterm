@@ -32,6 +32,8 @@ Inspired by [Fig](https://fig.io) (now part of AWS), FigyTerm is an open-source 
 - **Multiple Tabs** — Browser-style tab bar with drag-to-reorder and rename support
 - **Embedded Browser** — In-app browser modal with tabs, address bar, and back/forward/reload (`⌘⇧B`); uses a native child webview so real sites load (not an iframe). On Linux it's positioned through a `gtk::Fixed` of our own, since Tauri can't place child webviews on GTK ([tauri#10420](https://github.com/tauri-apps/tauri/issues/10420))
 - **Embedded Code Editor** — A real editor beside the shell (`⌘⇧E`): CodeMirror 6, file tabs, a breadcrumb, and a resizable file tree. Click a `path:line:col` in terminal output and it opens there. Atomic saves with conflict detection, CRLF and BOM preserved, crash-safe drafts. Workspaces remember their own open tabs; fuzzy file finder (`⌘P`) and streamed project search (`⌘⇧F`). Loaded on first open, so it costs nothing at launch — see [the design notes](docs/CODE-EDITOR.md)
+- **Git in the Editor** — Changed files badged in the tree, changed lines marked in the gutter, a branch indicator in the status bar, and a GitHub Desktop-style changes panel: tick the files, write a summary, commit. Discards to the trash, and runs your own `git`, so your hooks and credential helper apply
+- **A Real Diff Viewer** — Unified or split, with word-level highlighting inside changed lines, and five presets (GitHub, GitLab, VS Code, delta, plain `git diff`) so it reads like the tool you already use
 - **Markdown Preview** — GitHub-flavoured rendering with a live outline, scroll synced both ways, and clickable in-page and sibling-file links. No `dangerouslySetInnerHTML` anywhere, so a document can't inject markup
 - **Command History Search** — Fuzzy-search past commands with picture-in-picture mode (`⌘R`)
 - **System Monitor** — Live CPU and memory charts in a draggable modal (`⌘⇧M`)
@@ -244,7 +246,10 @@ that would collide (`Ctrl+Shift+T` and `Ctrl+Shift+D` are already taken) fall ba
 | `⌘ S` | `Ctrl+S` | Save |
 | `⌥ ⌘ S` | `Ctrl+Alt+S` | Save all |
 | `⌘ P` | `Ctrl+P` | Go to file |
-| `⌘ F` | `Ctrl+F` | Find in file (replace lives in the panel) |
+| `⌘ X` `⌘ C` `⌘ V` | `Ctrl+X` `Ctrl+C` `Ctrl+V` | Cut, copy, paste |
+| `⌘ F` | `Ctrl+F` | Find in file |
+| `⌥ ⌘ F` | `Ctrl+H` | Find and replace |
+| `↵` / `⇧ ↵` | `Enter` / `Shift+Enter` | Next / previous match, in the find field |
 | `⌘ ⇧ F` | `Ctrl+Shift+F` | Search in folder |
 | `⌘ G` | `Ctrl+G` | Go to line |
 | `⌘ W` | `Ctrl+W` | Close file tab |
@@ -258,6 +263,11 @@ These use plain `Ctrl` off macOS, unlike the table above. The reason the app
 takes `Ctrl+Shift` elsewhere is that a bare `Ctrl`+letter belongs to the shell —
 and inside the editor no shell has focus, so the conventional editor chords are
 free to mean what they usually mean.
+
+Right-clicking the text gives you cut, copy, paste, select all, undo, redo,
+find, go to line, save and the path actions; right-clicking the file tree gives
+you the file operations. Replace is `⌥⌘F` on macOS rather than the usual `⌘H`,
+which belongs to the system.
 
 ## Code Editor
 
@@ -285,6 +295,21 @@ are journalled while you type and offered back after a crash.
 **It knows it's in a terminal.** Paths in output are clickable — a `tsc` error,
 a stack trace, a `grep -n` hit — and open at the right line. The tree offers
 "open a terminal here". The workspace follows the shell.
+
+**Git is built in.** Changed files are coloured and badged in the tree, changed
+lines get a bar in the gutter beside the line number, and the branch (with
+ahead/behind) sits in the status bar. The changes panel is shaped like GitHub
+Desktop's: one list of what changed, a checkbox per file for what goes in the
+next commit, and a summary/description box with **Commit N files to `main`**.
+Clicking a file opens its diff against HEAD in a `diff-check` tab beside your
+files, **unified or split**, with the changed *words* inside a line highlighted
+the way GitHub does it — and a style picker covering GitHub, GitLab, VS Code,
+delta and plain `git diff`, so it can look like whichever one you already read
+diffs in. It shells out to your own `git`, so
+your hooks, credential helper and `.gitattributes` all apply. Discarding an
+untracked file moves it to the trash rather than deleting it, which is the one
+thing `git clean` gets wrong for an editor. Hunk-level staging, branch switching
+and push/pull are deliberately left to the shell.
 
 **Workspaces** each remember their own open tabs and expanded folders, can be
 starred, and are switched from a picker (click the folder name in the

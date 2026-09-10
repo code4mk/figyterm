@@ -3,6 +3,8 @@ import { basename, FileEncoding, LineEnding, OpenedFile } from "../services/edit
 import { languageFor } from "../services/editor-lang";
 import {
   clearDraft,
+  DiffLayout,
+  DiffStyle,
   loadSession,
   saveSession,
   Workspace,
@@ -94,6 +96,9 @@ interface EditorStore {
   /** Directories the explorer has expanded. */
   expanded: string[];
 
+  diffLayout: DiffLayout;
+  diffStyle: DiffStyle;
+
   setRoot: (root: string | null) => void;
   setRestoring: (restoring: boolean) => void;
 
@@ -131,6 +136,8 @@ interface EditorStore {
   setExplorerWidth: (width: number) => void;
   setPreviewWidth: (width: number) => void;
   setShowHidden: (show: boolean) => void;
+  setDiffLayout: (layout: DiffLayout) => void;
+  setDiffStyle: (style: DiffStyle) => void;
   toggleExpanded: (path: string) => void;
   /** Removes one directory from the expanded set, never adds. */
   collapse: (path: string) => void;
@@ -190,6 +197,8 @@ function persist(state: EditorStore): void {
     explorerVisible: state.explorerVisible,
     explorerWidth: state.explorerWidth,
     previewWidth: state.previewWidth,
+    diffLayout: state.diffLayout,
+    diffStyle: state.diffStyle,
   });
 }
 
@@ -229,6 +238,9 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   previewWidth: stored.previewWidth,
   showHidden: stored.showHidden,
   expanded: initialWorkspace?.expanded ?? [],
+
+  diffLayout: stored.diffLayout,
+  diffStyle: stored.diffStyle,
 
   setRoot: (root) => {
     set((state) => {
@@ -495,6 +507,16 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
 
   setShowHidden: (showHidden) => {
     set({ showHidden });
+    persist(get());
+  },
+
+  setDiffLayout: (diffLayout) => {
+    set({ diffLayout });
+    persist(get());
+  },
+
+  setDiffStyle: (diffStyle) => {
+    set({ diffStyle });
     persist(get());
   },
 

@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef, lazy, Suspense } from "react";
 import { listen, emit } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { TabBar } from "../Terminal/TabBar";
 import { StatusBar } from "../Terminal/StatusBar";
 import { SystemMonitor } from "../Terminal/SystemMonitor";
@@ -68,6 +69,8 @@ export function AppShell() {
   const [editorMounted, setEditorMounted] = useState(false);
   /** The file a clicked path in terminal output asked the editor to open. */
   const [editorRequest, setEditorRequest] = useState<EditorOpenRequest | null>(null);
+  /** Counts the ⌘W presses handed to the editor; see the menu listener below. */
+  const [editorCloseTab, setEditorCloseTab] = useState(0);
   const [updatesOpen, setUpdatesOpen] = useState(false);
   const [tabs, setTabs] = useState<TabInstance[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
@@ -347,6 +350,49 @@ export function AppShell() {
     if (editorOpen) setEditorMounted(true);
   }, [editorOpen]);
 
+  /**
+   * Read by the ⌘W listener, which is registered once and must not be torn
+   * down and rebuilt every time the editor is toggled.
+   */
+  const editorOpenRef = useRef(editorOpen);
+  editorOpenRef.current = editorOpen;
+
+  /**
+   * Closing the editor hands the keyboard back to the shell.
+   *
+   * The editor takes focus when it opens, and its container is hidden rather
+   * than unmounted when it closes — so the focused element goes out from under
+   * the browser and the keyboard belongs to nothing at all until the terminal
+   * is clicked. Every route out of the editor goes through here for that
+   * reason: the chord, the menu item, the modal's own close button and the
+   * error boundary.
+   */
+  const closeEditor = useCallback(() => {
+    setEditorOpen(false);
+    focusActivePane();
+  }, [focusActivePane]);
+
+  const toggleEditor = useCallback(() => {
+    if (editorOpenRef.current) closeEditor();
+    else setEditorOpen(true);
+  }, [closeEditor]);
+
+  /** The editor's undo/redo, while it is mounted and holding the keyboard. */
+  const editorHistoryRef = useRef<((command: "undo" | "redo") => boolean) | null>(null);
+
+  /**
+   * ⌘Z / ⇧⌘Z, on macOS only — see `menu.rs`.
+   *
+   * The code editor keeps its own history, so it gets first refusal. Anything
+   * else with focus is an ordinary text field, where the webview's own undo
+   * stack is the correct one and `execCommand` is how to reach it now that the
+   * menu no longer performs it directly.
+   */
+  const runHistoryCommand = useCallback((command: "undo" | "redo") => {
+    if (editorHistoryRef.current?.(command)) return;
+    document.execCommand(command);
+  }, []);
+
   /** A path clicked in terminal output; see the link provider in `Terminal.tsx`. */
   useEffect(() => {
     const pending = listen<{ path: string; line?: number; column?: number }>(
@@ -389,12 +435,24 @@ export function AppShell() {
       listen("menu://close-pane", () => handleClosePane()),
       listen("menu://clear-terminal", () => handleClearTerminal()),
       listen("menu://browser", () => setBrowserOpen((open) => !open)),
-      listen("menu://editor", () => setEditorOpen((open) => !open)),
+      listen("menu://editor", () => toggleEditor()),
       listen("menu://monitor", () => setMonitorOpen((open) => !open)),
       listen("menu://command-palette", () => setCommandPaletteOpen((open) => !open)),
       listen("menu://settings", () => setSettingsOpen(true)),
       listen("menu://toggle-theme", () => toggleTheme()),
       listen("menu://check-updates", () => handleOpenUpdates()),
+      /*
+        ⌘W, on macOS only — see `menu.rs` for why it arrives as an event rather
+        than as a key the editor could bind. With the editor up the chord
+        belongs to its tab strip, the way it does in every editor; with the
+        editor closed it means what the menu says.
+      */
+      listen("menu://close-window", () => {
+        if (editorOpenRef.current) setEditorCloseTab((count) => count + 1);
+        else void getCurrentWindow().close();
+      }),
+      listen("menu://undo", () => runHistoryCommand("undo")),
+      listen("menu://redo", () => runHistoryCommand("redo")),
     ];
 
     return () => {
@@ -410,6 +468,8 @@ export function AppShell() {
     handleClearTerminal,
     handleOpenUpdates,
     toggleTheme,
+    toggleEditor,
+    runHistoryCommand,
   ]);
 
   useEffect(() => {
@@ -449,7 +509,7 @@ export function AppShell() {
         setBrowserOpen((prev) => !prev);
       } else if (matches(e, SHORTCUTS.editor)) {
         e.preventDefault();
-        setEditorOpen((prev) => !prev);
+        toggleEditor();
       } else if (matches(e, SHORTCUTS.splitDown)) {
         e.preventDefault();
         handleSplitPane("vertical");
@@ -473,7 +533,7 @@ export function AppShell() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleNewTab, handleNewTabInSameDir, handleClosePane, handleClearTerminal, switchToNextTab, switchToPreviousTab, handleSplitPane, handleSwitchTab, tabs, toggleTheme]);
+  }, [handleNewTab, handleNewTabInSameDir, handleClosePane, handleClearTerminal, switchToNextTab, switchToPreviousTab, handleSplitPane, handleSwitchTab, tabs, toggleTheme, toggleEditor]);
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
 
@@ -600,14 +660,16 @@ export function AppShell() {
         dismiss it to look at the shell for a moment.
       */}
       {editorMounted && (
-        <OverlayBoundary label="code editor" onDismiss={() => setEditorOpen(false)}>
+        <OverlayBoundary label="code editor" onDismiss={closeEditor}>
           <Suspense fallback={null}>
             <EditorModal
               visible={editorOpen}
-              onClose={() => setEditorOpen(false)}
+              onClose={closeEditor}
               cwd={getActiveCwd()}
               onOpenTerminal={createTab}
               openRequest={editorRequest}
+              closeTabRequest={editorCloseTab}
+              historyRef={editorHistoryRef}
             />
           </Suspense>
         </OverlayBoundary>

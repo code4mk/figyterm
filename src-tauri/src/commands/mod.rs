@@ -5,6 +5,7 @@ pub mod browser;
 pub mod browser_layout;
 pub mod fs;
 pub mod fs_watch;
+pub mod git;
 pub mod shell_exec;
 pub mod specs;
 pub mod system;

@@ -84,7 +84,29 @@ export interface PersistedSession {
   explorerVisible: boolean;
   explorerWidth: number;
   previewWidth: number;
+  /**
+   * How the diff view draws itself. Global rather than per workspace: it's a
+   * preference about reading diffs, not about a project.
+   *
+   * Added without a version bump, like `favorites` — `loadSession` merges over
+   * the defaults, so an older stored session simply arrives with the default.
+   */
+  diffLayout: DiffLayout;
+  diffStyle: DiffStyle;
 }
+
+/** Both halves of one file, or one column with the removals in place. */
+export type DiffLayout = "unified" | "split";
+
+/**
+ * Whose diff conventions to follow.
+ *
+ * Not a colour scheme — the presets differ in what they *show*: whether there
+ * are `+`/`-` signs, one line-number column or two, a tint per row or bare
+ * coloured text. They're the presentations people already know from the tools
+ * they read diffs in, so nobody has to learn this one.
+ */
+export type DiffStyle = "github" | "gitlab" | "vscode" | "delta" | "plain";
 
 export interface PersistedDraft {
   /** Null for a scratch buffer that was never saved anywhere. */
@@ -106,7 +128,12 @@ const DEFAULT_SESSION: PersistedSession = {
   explorerVisible: true,
   explorerWidth: 260,
   previewWidth: 420,
+  diffLayout: "unified",
+  diffStyle: "github",
 };
+
+const DIFF_LAYOUTS: DiffLayout[] = ["unified", "split"];
+const DIFF_STYLES: DiffStyle[] = ["github", "gitlab", "vscode", "delta", "plain"];
 
 export function loadSession(): PersistedSession {
   try {
@@ -125,6 +152,15 @@ export function loadSession(): PersistedSession {
           (w): w is Workspace => !!w && typeof w.root === "string" && w.root.length > 0
         )
       : [];
+    // Checked against the known values rather than trusted: these two reach
+    // CSS as attribute selectors and a stored string from an older build (or a
+    // hand-edited one) would silently render an unstyled diff.
+    if (!DIFF_LAYOUTS.includes(merged.diffLayout)) {
+      merged.diffLayout = DEFAULT_SESSION.diffLayout;
+    }
+    if (!DIFF_STYLES.includes(merged.diffStyle)) {
+      merged.diffStyle = DEFAULT_SESSION.diffStyle;
+    }
     return merged;
   } catch {
     return { ...DEFAULT_SESSION };
