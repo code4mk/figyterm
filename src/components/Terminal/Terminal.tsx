@@ -1,11 +1,11 @@
 import { useEffect, useCallback, useRef, useState } from "react";
-import { Terminal as XTerm, ITheme } from "@xterm/xterm";
+import { Terminal as XTerm, ILink, ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { SearchAddon } from "@xterm/addon-search";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useThemeStore } from "../../stores/themeStore";
 import { TerminalSession } from "../../types/terminal";
@@ -18,6 +18,7 @@ import { Search, ChevronUp, ChevronDown, X } from "lucide-react";
 import { HistorySearch } from "./HistorySearch";
 import { SHORTCUTS, matches } from "../../services/shortcuts";
 import { isMac, platform } from "../../services/platform";
+import { languageFor } from "../../services/editor-lang";
 import {
   BACKSLASH_ESCAPES,
   PATH_SEP,
@@ -224,6 +225,34 @@ function extractLastToken(input: string): string {
  */
 const unescapeToken = unquotePath;
 
+/**
+ * The keystrokes that turn `replacing` into `completion` on the command line.
+ *
+ * Accepting a completion could erase the whole token and retype it, but that
+ * makes the line visibly flicker and, on a slow link or a busy shell, briefly
+ * shows a half-deleted path. So only the difference is sent: the shared prefix
+ * is left where it is, the part that diverges is erased, and the replacement's
+ * tail is typed. Completing `READ` to `README.md` sends three deletes and
+ * `EADME.md`, not eight deletes and the whole name.
+ *
+ * Counted in code points rather than UTF-16 units, because the shell erases one
+ * *character* per DEL: a filename with an emoji in it is two units and one
+ * character, and using `.length` would send twice the deletes needed and eat
+ * the character in front of it.
+ */
+function completionEdit(replacing: string, completion: string): string {
+  const from = [...replacing];
+  const to = [...completion];
+
+  let shared = 0;
+  const limit = Math.min(from.length, to.length);
+  while (shared < limit && from[shared] === to[shared]) shared++;
+
+  // `\x7f` (DEL) is what the shell's line editor reads as backspace, and what
+  // the rest of this file already sends for one.
+  return "\x7f".repeat(from.length - shared) + to.slice(shared).join("");
+}
+
 const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 
 /**
@@ -332,6 +361,46 @@ function parseCwd(chunk: string): string | null {
   return windows ? windows[1] : null;
 }
 
+/**
+ * A file path in terminal output, optionally with a line and column.
+ *
+ * Matches what tools actually print: `src/app.ts:42:7` from `tsc`, `./lib/x.py`
+ * from a traceback, `/etc/hosts` from `grep -n`, `C:\proj\main.rs` on Windows.
+ * An extension is required — without one this matches every bare word — and the
+ * trailing `:line:col` is optional, since `git status` and `ls` print neither.
+ */
+const FILE_PATH =
+  /(?:[A-Za-z]:[\\/]|~[\\/]|\.{1,2}[\\/]|[\\/])?(?:[\w.@+-]+[\\/])*[\w.@+-]+\.[A-Za-z][\w-]{0,9}(?::\d+(?::\d+)?)?/g;
+
+/**
+ * Whether a matched string is worth offering as a link.
+ *
+ * Anything with a separator in it is a path by construction. Anything else has
+ * to have an extension the editor recognises, which is what stops `v1.2.3`,
+ * `example.com` and `Cargo.toml.orig` from all becoming links. `languageFor`
+ * already holds that list, so this doesn't add a second one to keep in step.
+ */
+function looksLikePath(candidate: string): boolean {
+  const withoutPosition = candidate.replace(/:\d+(?::\d+)?$/, "");
+  if (/[\\/]/.test(withoutPosition)) return true;
+  return languageFor(withoutPosition) !== "plaintext";
+}
+
+/** Splits `src/app.ts:42:7` into its path, line and column. */
+function parsePathTarget(candidate: string): { path: string; line?: number; column?: number } {
+  const match = /^(.*?):(\d+)(?::(\d+))?$/.exec(candidate);
+  if (!match) return { path: candidate };
+  return {
+    path: match[1],
+    line: Number(match[2]),
+    column: match[3] ? Number(match[3]) : undefined,
+  };
+}
+
+function isAbsolutePath(path: string): boolean {
+  return /^([A-Za-z]:[\\/]|[\\/]|~)/.test(path);
+}
+
 export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, onCwdChange, clearRef, focusRef }: TerminalProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -363,6 +432,16 @@ export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, o
   const suggestionsRef = useRef<SuggestionItem[]>([]);
   const selectedIndexRef = useRef(0);
   const showRef = useRef(false);
+  /**
+   * Whether the user has moved the highlight with the arrow keys since this
+   * list appeared.
+   *
+   * It's the difference between a suggestion the popup offered and one the user
+   * chose, which is what Enter needs to know for spec suggestions: `docker ` +
+   * Enter should run docker, but `docker ` + ↓ + Enter should insert what the
+   * arrow landed on.
+   */
+  const selectionMovedRef = useRef(false);
 
   // State for React rendering only
   const [suggestions, setSuggestions] = useState<SuggestionItem[]>([]);
@@ -379,6 +458,8 @@ export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, o
     suggestionsRef.current = items;
     selectedIndexRef.current = idx;
     showRef.current = show;
+    // A new list means nothing has been chosen in it yet.
+    selectionMovedRef.current = false;
     setSuggestions(items);
     setSelectedIndex(idx);
     setShowSuggestions(show);
@@ -791,6 +872,69 @@ export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, o
     xterm.loadAddon(webLinksAddon);
     xterm.unicode.activeVersion = "11";
 
+    /**
+     * Turns file paths in output into links that open the editor.
+     *
+     * This is the point of having an editor in a terminal: a `tsc` error, a
+     * stack trace, a `grep -n` hit and a `git status` line all name a file and
+     * often a line, and clicking it should go there. Registered after the
+     * web-links addon so URLs stay its business.
+     *
+     * `provideLinks` is called for a hovered line only, so this costs nothing
+     * until the pointer is over output. It resolves relative paths against the
+     * pane's own cwd rather than the app's, which is what makes a link in a
+     * pane sitting in `~/api` point at that project's file. Paths broken across
+     * a wrapped line aren't detected — the buffer line ends mid-path — which is
+     * a real limitation and not worth reassembling reflowed lines for.
+     */
+    xterm.registerLinkProvider({
+      provideLinks(lineNumber, callback) {
+        const line = xterm.buffer.active.getLine(lineNumber - 1);
+        if (!line) {
+          callback(undefined);
+          return;
+        }
+
+        const text = line.translateToString(true);
+        const links: ILink[] = [];
+
+        for (const match of text.matchAll(FILE_PATH)) {
+          const candidate = match[0];
+          if (match.index === undefined || !looksLikePath(candidate)) continue;
+
+          // Skip anything inside a URL — `https://x.dev/a/b.js` is the web
+          // links addon's to handle, and it already has it.
+          const preceding = text.slice(0, match.index);
+          if (/:\/\/\S*$/.test(preceding)) continue;
+
+          const target = parsePathTarget(candidate);
+          const resolved = isAbsolutePath(target.path)
+            ? target.path
+            : cwdRef.current
+              ? `${cwdRef.current}${PATH_SEP}${target.path}`
+              : target.path;
+
+          links.push({
+            range: {
+              // xterm columns are 1-based and inclusive at both ends.
+              start: { x: match.index + 1, y: lineNumber },
+              end: { x: match.index + candidate.length, y: lineNumber },
+            },
+            text: candidate,
+            activate() {
+              void emit("editor://open-path", {
+                path: resolved,
+                line: target.line,
+                column: target.column,
+              });
+            },
+          });
+        }
+
+        callback(links.length > 0 ? links : undefined);
+      },
+    });
+
     // Open into a container that already has a size, so the very first
     // character measurement is a real one. See `waitForLayout`.
     await waitForLayout(container);
@@ -889,20 +1033,33 @@ export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, o
           // Enter skips only --options/-flags; accepts everything else (files, folders, subcommands, args)
           const isOption = selected.type === "option" || (selected.name && /^-/.test(selected.name));
 
-          // Enter runs, Tab completes — so Enter only accepts a suggestion the
-          // user has actually narrowed down to. Two ways it used to accept one
-          // they had not asked for:
-          //
-          //  - Nothing typed to complete. `docker ` opens a list of all fifty
-          //    subcommands with the first selected, and accepting the popup
-          //    re-opens it, so `docker system ` offered `prune` next. Enter
-          //    meant "run this", and inserted a word instead.
-          //  - Already typed in full. The engine offers `run` for `pnpm run`,
-          //    so the first Enter was spent adding a space and the command only
-          //    went on the second.
+          /*
+            Enter runs, Tab completes — so Enter only accepts a suggestion the
+            user has actually settled on. What counts as settled differs by the
+            kind of suggestion, and treating them alike was wrong in both
+            directions.
+
+            A **path** is settled as soon as it's highlighted. `cat ` opens a
+            list of files, and the only reason that list is on screen is that
+            the user is choosing one; requiring a typed prefix first meant the
+            first Enter ran a bare `cat` and swallowed the choice, while Tab —
+            which has no such guard — worked. That asymmetry is the bug.
+
+            A **spec** suggestion is not. `docker ` offers fifty subcommands
+            with the first one highlighted by default, and Enter there means
+            "run docker", not "insert `attach`". So those need either a typed
+            prefix or a deliberate move of the selection.
+
+            Either way an exact match is never re-inserted: the engine offers
+            `run` for `pnpm run`, and without this the first Enter was spent
+            adding a space and the command only went on the second.
+          */
           const typed = extractLastToken(inputBufferRef.current.trimStart());
-          const completes = typed.length > 0 && (selected.insertValue || selected.name) !== typed;
-          if (!isOption && completes) {
+          const isPath = selected.type === "file" || selected.type === "folder";
+          const differs = (selected.insertValue || selected.name) !== typed;
+          const settled = isPath || typed.length > 0 || selectionMovedRef.current;
+
+          if (!isOption && differs && settled) {
             acceptSuggestion(selected);
             return;
           }
@@ -967,6 +1124,7 @@ export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, o
         if (isShowing && items.length > 0) {
           const newIdx = Math.max(0, idx - 1);
           selectedIndexRef.current = newIdx;
+          selectionMovedRef.current = true;
           setSelectedIndex(newIdx);
           return;
         }
@@ -975,6 +1133,7 @@ export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, o
         if (isShowing && items.length > 0) {
           const newIdx = Math.min(items.length - 1, idx + 1);
           selectedIndexRef.current = newIdx;
+          selectionMovedRef.current = true;
           setSelectedIndex(newIdx);
           return;
         }

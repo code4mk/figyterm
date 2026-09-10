@@ -63,6 +63,10 @@ export const SHORTCUTS = define({
   commandPalette: { key: "p", label: "P", mac: MOD_SHIFT, other: CTRL_SHIFT },
   monitor: { key: "m", label: "M", mac: MOD_SHIFT, other: CTRL_SHIFT },
   browser: { key: "b", label: "B", mac: MOD_SHIFT, other: CTRL_SHIFT },
+  // `E` for editor. Free in both schemes, and the editor's own chords (⌘S,
+  // ⌘P, ⌘B…) are scoped inside its modal — see `EditorModal.onKeyDown`, which
+  // stops them here.
+  editor: { key: "e", label: "E", mac: MOD_SHIFT, other: CTRL_SHIFT },
   find: { key: "f", label: "F", mac: MOD_ONLY, other: CTRL_SHIFT },
   history: { key: "r", label: "R", mac: MOD_ONLY, other: CTRL_SHIFT },
   copy: { key: "c", label: "C", mac: MOD_ONLY, other: CTRL_SHIFT },

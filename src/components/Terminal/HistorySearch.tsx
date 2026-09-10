@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Search, Clock, CornerDownLeft, X, PictureInPicture2, Maximize2 } from "lucide-react";
 import { OverlayPortal } from "../Overlay/OverlayPortal";
+import { claimFront, releaseFront } from "../../services/overlay-stack";
 
 interface HistoryEntry {
   command: string;
@@ -86,6 +87,24 @@ export function HistorySearch({ visible, onClose, onSelect }: HistorySearchProps
   const [loading, setLoading] = useState(false);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [pipMode, setPipMode] = useState(false);
+
+  /**
+   * Keeps this window in front when it's opened or clicked, and steps aside
+   * when it closes. See `services/overlay-stack.ts`.
+   */
+  const [frontZ, setFrontZ] = useState<number | null>(null);
+  const raise = useCallback(() => setFrontZ(claimFront("history")), []);
+
+  useEffect(() => {
+    if (visible) {
+      raise();
+      return;
+    }
+    // Released on close, so whatever is still open becomes frontmost.
+    releaseFront("history");
+    setFrontZ(null);
+  }, [visible, pipMode, raise]);
+
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const selectedRef = useRef<HTMLButtonElement>(null);
@@ -290,7 +309,8 @@ export function HistorySearch({ visible, onClose, onSelect }: HistorySearchProps
     <div
       ref={modalRef}
       className={`history-modal rounded-xl overflow-hidden shadow-2xl ${pipMode ? "history-pip" : ""}`}
-      style={modalStyle}
+      style={pipMode ? { ...modalStyle, zIndex: frontZ ?? undefined } : modalStyle}
+      onPointerDownCapture={raise}
       onMouseDown={(e) => e.stopPropagation()}
       onMouseUp={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}

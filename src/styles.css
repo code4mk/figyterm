@@ -1289,6 +1289,7 @@
 
 .suggestion-item {
   color: var(--ft-text);
+  cursor: pointer;
 }
 
 .suggestion-item:hover {
@@ -1414,7 +1415,7 @@
   border: 1px solid transparent;
   border-bottom: none;
   color: #8b949e;
-  cursor: default;
+  cursor: pointer;
   transition: background 0.12s ease, color 0.12s ease;
 }
 
@@ -1749,4 +1750,1832 @@
 
 .light .browser-resize-handle:hover .browser-resize-icon {
   color: #6b7280;
+}
+
+/* ─── Code Editor ─── */
+
+.editor-modal {
+  position: relative;
+  background: #1e2228;
+  border: 1px solid #353b44;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+  isolation: isolate;
+}
+
+.editor-chrome {
+  position: relative;
+  z-index: 2;
+}
+
+/* Tab strip */
+
+.editor-tabstrip {
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid #2a2f37;
+}
+
+.editor-tabstrip-scroll {
+  scrollbar-width: none;
+}
+
+.editor-tabstrip-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.editor-tab {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid transparent;
+  border-bottom: none;
+  color: #8b949e;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.editor-tab:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.editor-tab.active {
+  background: #12151a;
+  border-color: #2a2f37;
+  color: #e6edf3;
+}
+
+.editor-tab.drop-target {
+  box-shadow: inset 2px 0 0 #6366f1;
+}
+
+.editor-tab-conflict {
+  color: #d29922;
+}
+
+/*
+  One box, two glyphs: the dirty dot and the close cross swap on hover so the
+  tab's width never changes and close targets stay put.
+*/
+.editor-tab-close {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  color: #5d636e;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+
+.editor-tab-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #6366f1;
+  opacity: 0;
+}
+
+.editor-tab-close.dirty .editor-tab-dot {
+  opacity: 1;
+}
+
+.editor-tab-cross {
+  position: absolute;
+  opacity: 0;
+}
+
+.editor-tab:hover .editor-tab-close .editor-tab-cross,
+.editor-tab.active .editor-tab-close:not(.dirty) .editor-tab-cross {
+  opacity: 1;
+}
+
+.editor-tab:hover .editor-tab-close.dirty .editor-tab-dot {
+  opacity: 0;
+}
+
+.editor-tab-close:hover {
+  color: #e6edf3;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+
+.editor-newtab-btn,
+.editor-btn,
+.editor-icon-btn {
+  color: #8b949e;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+
+.editor-newtab-btn:hover,
+.editor-btn:hover:not(:disabled),
+.editor-icon-btn:hover {
+  color: #e6edf3;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.editor-btn:disabled {
+  color: #3a3f48;
+  cursor: default;
+}
+
+.editor-btn.on {
+  color: #a5b4fc;
+  background: rgba(99, 102, 241, 0.14);
+}
+
+.editor-btn-close:hover:not(:disabled) {
+  color: #fca5a5;
+  background: rgba(248, 113, 113, 0.12);
+}
+
+.editor-btn-text {
+  color: #8b949e;
+  background: rgba(255, 255, 255, 0.05);
+  transition: color 0.12s ease, background 0.12s ease;
+}
+
+.editor-btn-text:hover {
+  color: #e6edf3;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Toolbar and breadcrumb */
+
+.editor-toolbar {
+  background: #12151a;
+  border-bottom: 1px solid #2a2f37;
+}
+
+.editor-breadcrumb {
+  white-space: nowrap;
+}
+
+.editor-crumb {
+  color: #8b949e;
+  font-size: 11px;
+  padding: 1px 3px;
+  border-radius: 3px;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+
+.editor-crumb:hover {
+  color: #e6edf3;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.editor-crumb.current {
+  color: #e6edf3;
+}
+
+.editor-crumb-sep {
+  color: #4a4f5a;
+}
+
+/* Notices */
+
+.editor-error {
+  background: rgba(248, 113, 113, 0.1);
+  border-bottom: 1px solid rgba(248, 113, 113, 0.2);
+  color: #fca5a5;
+}
+
+.editor-conflict {
+  background: rgba(210, 153, 34, 0.1);
+  border-bottom: 1px solid rgba(210, 153, 34, 0.25);
+  color: #e3b341;
+}
+
+/* The editor surface */
+
+.editor-surface {
+  background: #12151a;
+}
+
+.editor-surface .cm-editor {
+  height: 100%;
+}
+
+.editor-surface .cm-editor.cm-focused {
+  outline: none;
+}
+
+.editor-placeholder {
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px) 0 0 / 100% 24px,
+    #12151a;
+}
+
+.editor-placeholder-icon {
+  color: #4a4f5a;
+}
+
+.editor-placeholder-title {
+  color: #8b949e;
+}
+
+.editor-placeholder-text {
+  color: #5d636e;
+}
+
+/* Divider between the editor and the side panel */
+
+.editor-divider {
+  width: 4px;
+  cursor: col-resize;
+  background: #2a2f37;
+  transition: background 0.12s ease;
+}
+
+.editor-divider:hover {
+  background: #6366f1;
+}
+
+/* File explorer */
+
+.editor-explorer {
+  background: #171b21;
+  border-left: 1px solid #2a2f37;
+}
+
+.editor-explorer-header {
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid #2a2f37;
+}
+
+.editor-explorer-title {
+  color: #8b949e;
+}
+
+.editor-explorer-empty {
+  color: #5d636e;
+}
+
+.editor-explorer-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.editor-explorer-scroll::-webkit-scrollbar-thumb {
+  background: #2f343d;
+  border-radius: 4px;
+}
+
+.editor-explorer-scroll::-webkit-scrollbar-thumb:hover {
+  background: #3d434e;
+}
+
+.editor-row {
+  color: #b6bec8;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.1s ease;
+}
+
+.editor-row:hover {
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.editor-row.active {
+  background: rgba(99, 102, 241, 0.16);
+  color: #e6edf3;
+}
+
+.editor-row.drag-over {
+  background: rgba(99, 102, 241, 0.22);
+  box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.5);
+}
+
+.editor-row.hidden-entry {
+  opacity: 0.55;
+}
+
+.editor-row-chevron {
+  width: 12px;
+  color: #6e7681;
+  display: inline-flex;
+}
+
+.editor-row-name {
+  color: inherit;
+}
+
+.editor-row-link {
+  color: #6e7681;
+}
+
+.editor-row-input {
+  background: #0d1014;
+  border: 1px solid #6366f1;
+  color: #e6edf3;
+  outline: none;
+}
+
+/* File icons, by category */
+
+.editor-icon-folder { color: #7aa2f7; }
+.editor-icon-js { color: #f0db4f; }
+.editor-icon-ts { color: #4a9eff; }
+.editor-icon-data { color: #d29922; }
+.editor-icon-style { color: #56b6c2; }
+.editor-icon-markup { color: #e06c75; }
+.editor-icon-doc { color: #9aa4b2; }
+.editor-icon-python { color: #4b8bbe; }
+.editor-icon-rust { color: #dea584; }
+.editor-icon-go { color: #29beb0; }
+.editor-icon-java { color: #e76f51; }
+.editor-icon-cpp { color: #9c88ff; }
+.editor-icon-php { color: #8892be; }
+.editor-icon-ruby { color: #e0616e; }
+.editor-icon-lua { color: #5b8cff; }
+.editor-icon-swift { color: #f0913a; }
+.editor-icon-shell { color: #7ee787; }
+.editor-icon-config { color: #b78bd9; }
+.editor-icon-docker { color: #2496ed; }
+.editor-icon-diff { color: #d29922; }
+.editor-icon-image { color: #c792ea; }
+.editor-icon-plain { color: #6e7681; }
+
+/* Context menu */
+
+.editor-context-menu {
+  background: #262a30;
+  border: 1px solid #353b44;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+}
+
+.editor-context-item {
+  color: #c9d1d9;
+  transition: background 0.1s ease, color 0.1s ease;
+}
+
+.editor-context-item:hover {
+  background: rgba(99, 102, 241, 0.18);
+  color: #ffffff;
+}
+
+.editor-context-item.danger:hover {
+  background: rgba(248, 113, 113, 0.16);
+  color: #fca5a5;
+}
+
+.editor-context-sep {
+  height: 1px;
+  margin: 4px 0;
+  background: #353b44;
+}
+
+/* Quick open */
+
+.editor-overlay-backdrop {
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
+}
+
+.editor-palette {
+  background: #262a30;
+  border: 1px solid #353b44;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+}
+
+.editor-palette-field {
+  border-bottom: 1px solid #2a2f37;
+}
+
+.editor-palette-icon {
+  color: #6e7681;
+}
+
+.editor-palette-input {
+  color: #e6edf3;
+}
+
+.editor-palette-input::placeholder {
+  color: #5d636e;
+}
+
+.editor-palette-hint {
+  color: #d29922;
+}
+
+.editor-palette-row {
+  color: #b6bec8;
+  cursor: pointer;
+}
+
+.editor-palette-row.selected {
+  background: rgba(99, 102, 241, 0.16);
+  color: #e6edf3;
+}
+
+.editor-palette-dim {
+  color: #6e7681;
+}
+
+.editor-palette-match {
+  color: #a5b4fc;
+  font-weight: 600;
+}
+
+.editor-palette-empty {
+  color: #5d636e;
+}
+
+/* Project search */
+
+.editor-search-panel {
+  background: #171b21;
+  border-left: 1px solid #2a2f37;
+  color: #b6bec8;
+}
+
+.editor-search-head {
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid #2a2f37;
+  color: #8b949e;
+}
+
+.editor-search-icon {
+  color: #6e7681;
+}
+
+.editor-search-field {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid transparent;
+}
+
+.editor-search-field:focus-within {
+  border-color: rgba(99, 102, 241, 0.55);
+}
+
+.editor-search-input {
+  color: #e6edf3;
+}
+
+.editor-search-input::placeholder {
+  color: #5d636e;
+}
+
+.editor-search-toggle {
+  color: #6e7681;
+}
+
+.editor-search-toggle:hover {
+  color: #e6edf3;
+}
+
+.editor-search-toggle.active {
+  color: #a5b4fc;
+  background: rgba(99, 102, 241, 0.18);
+}
+
+.editor-search-check {
+  color: #6e7681;
+}
+
+.editor-checkbox {
+  width: 11px;
+  height: 11px;
+  accent-color: #6366f1;
+  cursor: pointer;
+}
+
+.editor-search-status {
+  color: #6e7681;
+}
+
+.editor-search-file {
+  color: #c9d1d9;
+}
+
+.editor-search-file:hover {
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.editor-search-count {
+  color: #6e7681;
+}
+
+.editor-search-hit {
+  color: #8b949e;
+}
+
+.editor-search-hit:hover {
+  background: rgba(255, 255, 255, 0.045);
+  color: #c9d1d9;
+}
+
+.editor-search-line {
+  color: #5d636e;
+}
+
+.editor-search-mark {
+  background: rgba(251, 191, 36, 0.28);
+  color: #fde68a;
+  border-radius: 2px;
+}
+
+/* Status bar */
+
+.editor-statusbar {
+  background: rgba(255, 255, 255, 0.02);
+  border-top: 1px solid #2a2f37;
+}
+
+.editor-status-item {
+  color: #8b949e;
+  padding: 1px 4px;
+  border-radius: 3px;
+  transition: color 0.12s ease, background 0.12s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.editor-status-item:hover,
+.editor-status-item.on {
+  color: #e6edf3;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.editor-status-text {
+  color: #5d636e;
+}
+
+.editor-status-tag {
+  color: #8b949e;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 0 5px;
+  border-radius: 3px;
+}
+
+.editor-status-tag.warn {
+  color: #e3b341;
+  background: rgba(210, 153, 34, 0.14);
+}
+
+.editor-status-popup {
+  background: #262a30;
+  border: 1px solid #353b44;
+  box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.5);
+  z-index: 20;
+}
+
+.editor-status-option {
+  color: #c9d1d9;
+}
+
+.editor-status-option:hover {
+  background: rgba(99, 102, 241, 0.18);
+  color: #ffffff;
+}
+
+.editor-status-option.selected {
+  color: #a5b4fc;
+}
+
+.editor-status-option-detail {
+  color: #6e7681;
+}
+
+.editor-resize-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+}
+
+.editor-resize-icon {
+  color: #4a4f5a;
+}
+
+.editor-resize-handle:hover .editor-resize-icon {
+  color: #8b949e;
+}
+
+/* Dialogs */
+
+.editor-dialog-backdrop {
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(2px);
+}
+
+.editor-dialog {
+  background: #262a30;
+  border: 1px solid #353b44;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+}
+
+.editor-dialog-title {
+  color: #e6edf3;
+}
+
+.editor-dialog-message {
+  color: #b6bec8;
+}
+
+.editor-dialog-detail {
+  color: #6e7681;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.editor-dialog-input {
+  background: #0d1014;
+  border: 1px solid #353b44;
+  color: #e6edf3;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.editor-dialog-input:focus {
+  border-color: #6366f1;
+}
+
+.editor-dialog-btn {
+  color: #c9d1d9;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid #353b44;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.editor-dialog-btn:hover {
+  background: rgba(255, 255, 255, 0.11);
+  color: #ffffff;
+}
+
+.editor-dialog-btn.primary {
+  background: rgba(99, 102, 241, 0.22);
+  border-color: rgba(99, 102, 241, 0.5);
+  color: #c7d2fe;
+}
+
+.editor-dialog-btn.primary:hover {
+  background: rgba(99, 102, 241, 0.32);
+  color: #ffffff;
+}
+
+.editor-dialog-btn.danger {
+  background: rgba(248, 113, 113, 0.14);
+  border-color: rgba(248, 113, 113, 0.35);
+  color: #fca5a5;
+}
+
+.editor-dialog-btn.danger:hover {
+  background: rgba(248, 113, 113, 0.24);
+  color: #ffffff;
+}
+
+/* ─── Code Editor · light ─── */
+
+.light .editor-modal {
+  background: #ffffff;
+  border: 1px solid #e2e5eb;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.12);
+}
+
+.light .editor-tabstrip {
+  background: #f2f4f7;
+  border-bottom: 1px solid #e2e5eb;
+}
+
+.light .editor-tab {
+  background: rgba(0, 0, 0, 0.03);
+  color: #6b7280;
+}
+
+.light .editor-tab:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.light .editor-tab.active {
+  background: #ffffff;
+  border-color: #e2e5eb;
+  color: #111827;
+}
+
+.light .editor-tab.drop-target {
+  box-shadow: inset 2px 0 0 #4f46e5;
+}
+
+.light .editor-tab-conflict {
+  color: #b45309;
+}
+
+.light .editor-tab-close {
+  color: #9ca3af;
+}
+
+.light .editor-tab-dot {
+  background: #4f46e5;
+}
+
+.light .editor-tab-close:hover {
+  color: #111827;
+  background: rgba(0, 0, 0, 0.07);
+}
+
+.light .editor-newtab-btn,
+.light .editor-btn,
+.light .editor-icon-btn {
+  color: #6b7280;
+}
+
+.light .editor-newtab-btn:hover,
+.light .editor-btn:hover:not(:disabled),
+.light .editor-icon-btn:hover {
+  color: #111827;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.light .editor-btn:disabled {
+  color: #cbd2dc;
+}
+
+.light .editor-btn.on {
+  color: #4338ca;
+  background: rgba(79, 70, 229, 0.12);
+}
+
+.light .editor-btn-close:hover:not(:disabled) {
+  color: #b91c1c;
+  background: rgba(185, 28, 28, 0.08);
+}
+
+.light .editor-btn-text {
+  color: #4b5163;
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.light .editor-btn-text:hover {
+  color: #111827;
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.light .editor-toolbar {
+  background: #ffffff;
+  border-bottom: 1px solid #e2e5eb;
+}
+
+.light .editor-crumb {
+  color: #6b7280;
+}
+
+.light .editor-crumb:hover {
+  color: #111827;
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.light .editor-crumb.current {
+  color: #111827;
+}
+
+.light .editor-crumb-sep {
+  color: #cbd2dc;
+}
+
+.light .editor-error {
+  background: rgba(185, 28, 28, 0.06);
+  border-bottom: 1px solid rgba(185, 28, 28, 0.15);
+  color: #b91c1c;
+}
+
+.light .editor-conflict {
+  background: rgba(180, 83, 9, 0.08);
+  border-bottom: 1px solid rgba(180, 83, 9, 0.2);
+  color: #92400e;
+}
+
+.light .editor-surface {
+  background: #ffffff;
+}
+
+.light .editor-placeholder {
+  background:
+    linear-gradient(rgba(0, 0, 0, 0.025) 1px, transparent 1px) 0 0 / 100% 24px,
+    #f7f8fa;
+}
+
+.light .editor-placeholder-icon {
+  color: #cbd2dc;
+}
+
+.light .editor-placeholder-title {
+  color: #4b5163;
+}
+
+.light .editor-placeholder-text {
+  color: #9ca3af;
+}
+
+.light .editor-divider {
+  background: #e2e5eb;
+}
+
+.light .editor-divider:hover {
+  background: #4f46e5;
+}
+
+.light .editor-explorer,
+.light .editor-search-panel {
+  background: #f7f8fa;
+  border-left: 1px solid #e2e5eb;
+}
+
+.light .editor-explorer-header,
+.light .editor-search-head {
+  background: #f2f4f7;
+  border-bottom: 1px solid #e2e5eb;
+}
+
+.light .editor-explorer-title,
+.light .editor-search-head {
+  color: #4b5163;
+}
+
+.light .editor-explorer-empty {
+  color: #9ca3af;
+}
+
+.light .editor-explorer-scroll::-webkit-scrollbar-thumb {
+  background: #d4d8e0;
+}
+
+.light .editor-explorer-scroll::-webkit-scrollbar-thumb:hover {
+  background: #b3bac6;
+}
+
+.light .editor-row {
+  color: #374151;
+}
+
+.light .editor-row:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.light .editor-row.active {
+  background: rgba(79, 70, 229, 0.12);
+  color: #111827;
+}
+
+.light .editor-row.drag-over {
+  background: rgba(79, 70, 229, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(79, 70, 229, 0.45);
+}
+
+.light .editor-row-chevron {
+  color: #9ca3af;
+}
+
+.light .editor-row-link {
+  color: #9ca3af;
+}
+
+.light .editor-row-input {
+  background: #ffffff;
+  border: 1px solid #4f46e5;
+  color: #111827;
+}
+
+/*
+  The dark icon colours are picked against #171b21 and several of them —
+  the yellows and the mint greens especially — drop below readable contrast on
+  a near-white tree. These are the same hues, darkened to carry.
+*/
+.light .editor-icon-folder { color: #3b6fd4; }
+.light .editor-icon-js { color: #a68a00; }
+.light .editor-icon-ts { color: #1d6fd1; }
+.light .editor-icon-data { color: #b45309; }
+.light .editor-icon-style { color: #0e7490; }
+.light .editor-icon-markup { color: #c2410c; }
+.light .editor-icon-doc { color: #6b7280; }
+.light .editor-icon-python { color: #2f6f9f; }
+.light .editor-icon-rust { color: #b45309; }
+.light .editor-icon-go { color: #0f766e; }
+.light .editor-icon-java { color: #c2410c; }
+.light .editor-icon-cpp { color: #6d28d9; }
+.light .editor-icon-php { color: #4b5563; }
+.light .editor-icon-ruby { color: #be123c; }
+.light .editor-icon-lua { color: #1d4ed8; }
+.light .editor-icon-swift { color: #c2410c; }
+.light .editor-icon-shell { color: #15803d; }
+.light .editor-icon-config { color: #7c3aed; }
+.light .editor-icon-docker { color: #0369a1; }
+.light .editor-icon-diff { color: #b45309; }
+.light .editor-icon-image { color: #9333ea; }
+.light .editor-icon-plain { color: #9ca3af; }
+
+.light .editor-context-menu {
+  background: #ffffff;
+  border: 1px solid #e2e5eb;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14);
+}
+
+.light .editor-context-item {
+  color: #374151;
+}
+
+.light .editor-context-item:hover {
+  background: rgba(79, 70, 229, 0.1);
+  color: #111827;
+}
+
+.light .editor-context-item.danger:hover {
+  background: rgba(185, 28, 28, 0.08);
+  color: #b91c1c;
+}
+
+.light .editor-context-sep {
+  background: #e2e5eb;
+}
+
+.light .editor-overlay-backdrop {
+  background: rgba(15, 23, 42, 0.28);
+}
+
+.light .editor-palette {
+  background: #ffffff;
+  border: 1px solid #e2e5eb;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.16);
+}
+
+.light .editor-palette-field {
+  border-bottom: 1px solid #e2e5eb;
+}
+
+.light .editor-palette-icon {
+  color: #9ca3af;
+}
+
+.light .editor-palette-input {
+  color: #111827;
+}
+
+.light .editor-palette-input::placeholder {
+  color: #9ca3af;
+}
+
+.light .editor-palette-hint {
+  color: #b45309;
+}
+
+.light .editor-palette-row {
+  color: #374151;
+}
+
+.light .editor-palette-row.selected {
+  background: rgba(79, 70, 229, 0.1);
+  color: #111827;
+}
+
+.light .editor-palette-dim {
+  color: #9ca3af;
+}
+
+.light .editor-palette-match {
+  color: #4338ca;
+}
+
+.light .editor-palette-empty {
+  color: #9ca3af;
+}
+
+.light .editor-search-panel {
+  color: #374151;
+}
+
+.light .editor-search-icon {
+  color: #9ca3af;
+}
+
+.light .editor-search-field {
+  background: #ffffff;
+  border: 1px solid #e2e5eb;
+}
+
+.light .editor-search-field:focus-within {
+  border-color: rgba(79, 70, 229, 0.5);
+}
+
+.light .editor-search-input {
+  color: #111827;
+}
+
+.light .editor-search-input::placeholder {
+  color: #9ca3af;
+}
+
+.light .editor-search-toggle {
+  color: #9ca3af;
+}
+
+.light .editor-search-toggle:hover {
+  color: #111827;
+}
+
+.light .editor-search-toggle.active {
+  color: #4338ca;
+  background: rgba(79, 70, 229, 0.12);
+}
+
+.light .editor-search-check,
+.light .editor-search-status,
+.light .editor-search-count,
+.light .editor-search-line {
+  color: #9ca3af;
+}
+
+.light .editor-checkbox {
+  accent-color: #4f46e5;
+}
+
+.light .editor-search-file {
+  color: #374151;
+}
+
+.light .editor-search-file:hover,
+.light .editor-search-hit:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.light .editor-search-hit {
+  color: #4b5563;
+}
+
+.light .editor-search-mark {
+  background: rgba(217, 119, 6, 0.2);
+  color: #92400e;
+}
+
+.light .editor-statusbar {
+  background: #f7f8fa;
+  border-top: 1px solid #e2e5eb;
+}
+
+.light .editor-status-item {
+  color: #4b5163;
+}
+
+.light .editor-status-item:hover,
+.light .editor-status-item.on {
+  color: #111827;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.light .editor-status-text {
+  color: #9ca3af;
+}
+
+.light .editor-status-tag {
+  color: #4b5163;
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.light .editor-status-tag.warn {
+  color: #92400e;
+  background: rgba(217, 119, 6, 0.14);
+}
+
+.light .editor-status-popup {
+  background: #ffffff;
+  border: 1px solid #e2e5eb;
+  box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.14);
+}
+
+.light .editor-status-option {
+  color: #374151;
+}
+
+.light .editor-status-option:hover {
+  background: rgba(79, 70, 229, 0.1);
+  color: #111827;
+}
+
+.light .editor-status-option.selected {
+  color: #4338ca;
+}
+
+.light .editor-status-option-detail {
+  color: #9ca3af;
+}
+
+.light .editor-resize-icon {
+  color: #cbd2dc;
+}
+
+.light .editor-resize-handle:hover .editor-resize-icon {
+  color: #6b7280;
+}
+
+.light .editor-dialog-backdrop {
+  background: rgba(15, 23, 42, 0.32);
+}
+
+.light .editor-dialog {
+  background: #ffffff;
+  border: 1px solid #e2e5eb;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.18);
+}
+
+.light .editor-dialog-title {
+  color: #111827;
+}
+
+.light .editor-dialog-message {
+  color: #374151;
+}
+
+.light .editor-dialog-detail {
+  color: #6b7280;
+}
+
+.light .editor-dialog-input {
+  background: #ffffff;
+  border: 1px solid #d4d8e0;
+  color: #111827;
+}
+
+.light .editor-dialog-input:focus {
+  border-color: #4f46e5;
+}
+
+.light .editor-dialog-btn {
+  color: #374151;
+  background: #ffffff;
+  border: 1px solid #d4d8e0;
+}
+
+.light .editor-dialog-btn:hover {
+  background: #f2f4f7;
+  color: #111827;
+}
+
+.light .editor-dialog-btn.primary {
+  background: rgba(79, 70, 229, 0.1);
+  border-color: rgba(79, 70, 229, 0.4);
+  color: #4338ca;
+}
+
+.light .editor-dialog-btn.primary:hover {
+  background: rgba(79, 70, 229, 0.18);
+}
+
+.light .editor-dialog-btn.danger {
+  background: rgba(185, 28, 28, 0.07);
+  border-color: rgba(185, 28, 28, 0.3);
+  color: #b91c1c;
+}
+
+.light .editor-dialog-btn.danger:hover {
+  background: rgba(185, 28, 28, 0.14);
+}
+
+/* ─── Code Editor · brand, preview, explorer error ─── */
+
+.editor-brand {
+  border-bottom: 1px solid #2a2f37;
+  border-right: 1px solid #2a2f37;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.editor-brand-title {
+  color: #8b949e;
+  letter-spacing: 0.01em;
+}
+
+.editor-explorer-error {
+  color: #fca5a5;
+  line-height: 1.5;
+}
+
+.editor-preview {
+  background: #171b21;
+}
+
+.editor-preview-head {
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid #2a2f37;
+  color: #8b949e;
+}
+
+.editor-preview-name {
+  color: #5d636e;
+}
+
+/*
+  Vertical only. `overflow-y: auto` alone makes the horizontal axis `auto` too,
+  which let a stray horizontal scroll shift the whole document sideways and
+  clip it down the left edge. Wide tables and code blocks get their own
+  scrollers from the Markdown renderer, so nothing needs to scroll out here.
+*/
+.editor-preview-body {
+  overflow-x: hidden;
+}
+
+.editor-preview-body::-webkit-scrollbar {
+  width: 8px;
+}
+
+.editor-preview-body::-webkit-scrollbar-thumb {
+  background: #2f343d;
+  border-radius: 4px;
+}
+
+.editor-preview-body::-webkit-scrollbar-thumb:hover {
+  background: #3d434e;
+}
+
+.editor-preview-empty {
+  color: #5d636e;
+}
+
+.light .editor-brand {
+  border-bottom: 1px solid #e2e5eb;
+  border-right: 1px solid #e2e5eb;
+  background: #f2f4f7;
+}
+
+.light .editor-brand-title {
+  color: #4b5163;
+}
+
+.light .editor-explorer-error {
+  color: #b91c1c;
+}
+
+.light .editor-preview {
+  background: #ffffff;
+}
+
+.light .editor-preview-head {
+  background: #f7f8fa;
+  border-bottom: 1px solid #e2e5eb;
+  color: #4b5163;
+}
+
+.light .editor-preview-name,
+.light .editor-preview-empty {
+  color: #9ca3af;
+}
+
+.light .editor-preview-body::-webkit-scrollbar-thumb {
+  background: #d4d8e0;
+}
+
+.light .editor-preview-body::-webkit-scrollbar-thumb:hover {
+  background: #b3bac6;
+}
+
+/* ─── Markdown outline (rendered as the preview's rail) ─── */
+
+.editor-outline {
+  color: #b6bec8;
+}
+
+.editor-outline-empty {
+  color: #5d636e;
+}
+
+.light .editor-outline {
+  color: #374151;
+}
+
+.light .editor-outline-empty {
+  color: #9ca3af;
+}
+
+
+/* ─── Code Editor · picture-in-picture ─── */
+
+/*
+  In PiP the backdrop must not eat clicks aimed at the terminal behind it —
+  that's the whole point of the mode. `pointer-events` is turned off on the
+  full-screen layer and back on for the modal itself.
+*/
+.editor-backdrop-pip {
+  pointer-events: none;
+}
+
+/*
+  The modal *and* anything modal raised beside it.
+
+  The dialogs — the workspace picker, the save and conflict prompts — are
+  siblings of `.editor-modal` inside this layer, not children of it, so the
+  click-through above left them completely dead in picture-in-picture: visible,
+  but impossible to click, pick from, or dismiss. A dialog is modal by
+  definition, so while one is open it takes the whole layer back.
+*/
+.editor-backdrop-pip .editor-modal,
+.editor-backdrop-pip .editor-dialog-backdrop {
+  pointer-events: auto;
+}
+
+.editor-modal.editor-pip {
+  position: fixed;
+  z-index: 245;
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(99, 102, 241, 0.15);
+}
+
+.light .editor-modal.editor-pip {
+  border: 1px solid rgba(79, 70, 229, 0.3);
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.14), 0 0 0 1px rgba(79, 70, 229, 0.12);
+}
+
+/* ─── Code Editor · workspace switcher ─── */
+
+.editor-crumb-root {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 200px;
+}
+
+.editor-crumb-root.open {
+  color: #e6edf3;
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.editor-workspace-menu {
+  background: #262a30;
+  border: 1px solid #353b44;
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.55);
+}
+
+.editor-workspace-heading {
+  color: #5d636e;
+}
+
+.editor-workspace-row {
+  color: #c9d1d9;
+  transition: background 0.1s ease, color 0.1s ease;
+}
+
+.editor-workspace-row:hover {
+  background: rgba(99, 102, 241, 0.16);
+  color: #ffffff;
+}
+
+.editor-workspace-row.current {
+  color: #a5b4fc;
+}
+
+.editor-workspace-path,
+.editor-workspace-icon {
+  color: #6e7681;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.editor-workspace-icon {
+  font-family: inherit;
+}
+
+.editor-workspace-count {
+  color: #6e7681;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 0 4px;
+  border-radius: 3px;
+}
+
+/*
+  Always visible, not hover-only.
+
+  It used to be revealed by `.editor-workspace-row:hover` — a class belonging
+  to the dropdown this picker replaced — so it sat at zero opacity forever and
+  the action looked absent. A destructive control in a list is also better shown
+  than hidden: guessing that a row has a delete button is not discoverable.
+*/
+.editor-workspace-remove {
+  color: #6e7681;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0.75;
+  transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+
+.editor-workspace-item:hover .editor-workspace-remove,
+.editor-workspace-item.selected .editor-workspace-remove {
+  opacity: 1;
+}
+
+/* The label rides along only on the row in play, to keep the list quiet. */
+.editor-workspace-remove-label {
+  display: none;
+}
+
+.editor-workspace-item:hover .editor-workspace-remove-label,
+.editor-workspace-item.selected .editor-workspace-remove-label {
+  display: inline;
+}
+
+.editor-workspace-remove:hover {
+  color: #fca5a5;
+  background: rgba(248, 113, 113, 0.14);
+}
+
+.editor-workspace-empty {
+  color: #5d636e;
+}
+
+.light .editor-crumb-root.open {
+  color: #111827;
+  background: rgba(0, 0, 0, 0.07);
+}
+
+.light .editor-workspace-menu {
+  background: #ffffff;
+  border: 1px solid #e2e5eb;
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.15);
+}
+
+.light .editor-workspace-heading,
+.light .editor-workspace-path,
+.light .editor-workspace-icon,
+.light .editor-workspace-count,
+.light .editor-workspace-empty {
+  color: #9ca3af;
+}
+
+.light .editor-workspace-row {
+  color: #374151;
+}
+
+.light .editor-workspace-row:hover {
+  background: rgba(79, 70, 229, 0.1);
+  color: #111827;
+}
+
+.light .editor-workspace-row.current {
+  color: #4338ca;
+}
+
+.light .editor-workspace-count {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.light .editor-workspace-remove {
+  color: #9ca3af;
+}
+
+.light .editor-workspace-remove:hover {
+  color: #b91c1c;
+  background: rgba(185, 28, 28, 0.08);
+}
+
+/* ─── Code Editor · workspace picker ─── */
+
+.editor-workspace-modal {
+  background: #262a30;
+  border: 1px solid #353b44;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+}
+
+.editor-workspace-header {
+  border-bottom: 1px solid #2a2f37;
+}
+
+.editor-workspace-search {
+  border-bottom: 1px solid #2a2f37;
+}
+
+.editor-workspace-footer {
+  border-top: 1px solid #2a2f37;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.editor-workspace-item {
+  color: #c9d1d9;
+  cursor: pointer;
+}
+
+.editor-workspace-item.selected {
+  background: rgba(99, 102, 241, 0.16);
+  color: #ffffff;
+}
+
+.editor-workspace-item.current {
+  color: #a5b4fc;
+}
+
+.editor-workspace-check {
+  color: #6366f1;
+}
+
+.editor-workspace-hint {
+  color: #5d636e;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.light .editor-workspace-modal {
+  background: #ffffff;
+  border: 1px solid #e2e5eb;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.18);
+}
+
+.light .editor-workspace-header,
+.light .editor-workspace-search {
+  border-bottom: 1px solid #e2e5eb;
+}
+
+.light .editor-workspace-footer {
+  border-top: 1px solid #e2e5eb;
+  background: #f7f8fa;
+}
+
+.light .editor-workspace-item {
+  color: #374151;
+}
+
+.light .editor-workspace-item.selected {
+  background: rgba(79, 70, 229, 0.1);
+  color: #111827;
+}
+
+.light .editor-workspace-item.current {
+  color: #4338ca;
+}
+
+.light .editor-workspace-check {
+  color: #4f46e5;
+}
+
+.light .editor-workspace-hint {
+  color: #9ca3af;
+}
+
+/* The tree row an open context menu applies to. */
+.editor-row.context-target {
+  background: rgba(99, 102, 241, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.5);
+  color: #e6edf3;
+}
+
+.editor-row.context-target.active {
+  background: rgba(99, 102, 241, 0.22);
+}
+
+.light .editor-row.context-target {
+  background: rgba(79, 70, 229, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(79, 70, 229, 0.45);
+  color: #111827;
+}
+
+.light .editor-row.context-target.active {
+  background: rgba(79, 70, 229, 0.18);
+}
+
+/* ─── Code Editor · workspace tabs and favourites ─── */
+
+.editor-workspace-tab {
+  color: #8b949e;
+  background: transparent;
+  border: 1px solid transparent;
+  transition: color 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+}
+
+.editor-workspace-tab:hover {
+  color: #e6edf3;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.editor-workspace-tab.active {
+  color: #c7d2fe;
+  background: rgba(99, 102, 241, 0.16);
+  border-color: rgba(99, 102, 241, 0.35);
+}
+
+.editor-workspace-tab-count {
+  color: #6e7681;
+  background: rgba(255, 255, 255, 0.07);
+  padding: 0 4px;
+  border-radius: 3px;
+}
+
+.editor-workspace-tab.active .editor-workspace-tab-count {
+  color: #a5b4fc;
+  background: rgba(99, 102, 241, 0.2);
+}
+
+/*
+  The star is dim until it means something. A filled one is a pin, so it stays
+  bright whether or not the row is under the pointer.
+*/
+.editor-workspace-star {
+  color: #5d636e;
+  opacity: 0.6;
+  transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+
+.editor-workspace-item:hover .editor-workspace-star,
+.editor-workspace-item.selected .editor-workspace-star {
+  opacity: 1;
+}
+
+.editor-workspace-star:hover {
+  color: #e3b341;
+  background: rgba(210, 153, 34, 0.14);
+}
+
+.editor-workspace-star.on {
+  color: #e3b341;
+  opacity: 1;
+}
+
+.light .editor-workspace-tab {
+  color: #4b5163;
+}
+
+.light .editor-workspace-tab:hover {
+  color: #111827;
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.light .editor-workspace-tab.active {
+  color: #4338ca;
+  background: rgba(79, 70, 229, 0.1);
+  border-color: rgba(79, 70, 229, 0.3);
+}
+
+.light .editor-workspace-tab-count {
+  color: #9ca3af;
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.light .editor-workspace-tab.active .editor-workspace-tab-count {
+  color: #4338ca;
+  background: rgba(79, 70, 229, 0.14);
+}
+
+.light .editor-workspace-star {
+  color: #9ca3af;
+}
+
+.light .editor-workspace-star:hover,
+.light .editor-workspace-star.on {
+  color: #b45309;
+}
+
+.light .editor-workspace-star:hover {
+  background: rgba(217, 119, 6, 0.12);
+}
+
+/* ─── Browser Modal · brand ─── */
+
+.browser-brand {
+  border-right: 1px solid #2a2f37;
+  align-self: stretch;
+}
+
+.browser-brand-title {
+  color: #8b949e;
+  letter-spacing: 0.01em;
+}
+
+.light .browser-brand {
+  border-right: 1px solid #e2e5eb;
+}
+
+.light .browser-brand-title {
+  color: #4b5163;
+}
+
+/* ─── Fullscreen modals ─── */
+
+/*
+  Edge to edge, so the frame's own rounding and border would sit against the
+  window's — square corners and no outer border while fullscreen.
+*/
+.editor-modal.editor-fullscreen,
+.browser-modal.browser-fullscreen {
+  border-radius: 0;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+/* ─── Overlay error boundary ─── */
+
+.overlay-boundary {
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+}
+
+.overlay-boundary-card {
+  background: #262a30;
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+}
+
+.overlay-boundary-title {
+  color: #fca5a5;
+}
+
+.overlay-boundary-message {
+  color: #b6bec8;
+}
+
+.overlay-boundary-detail {
+  color: #6e7681;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.light .overlay-boundary {
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.light .overlay-boundary-card {
+  background: #ffffff;
+  border: 1px solid rgba(185, 28, 28, 0.3);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.18);
+}
+
+.light .overlay-boundary-title {
+  color: #b91c1c;
+}
+
+.light .overlay-boundary-message {
+  color: #374151;
+}
+
+.light .overlay-boundary-detail {
+  color: #6b7280;
+}
+
+/* ─── The outline rail inside the preview ─── */
+
+.editor-preview-rail {
+  border-left: 1px solid #2a2f37;
+  background: rgba(255, 255, 255, 0.015);
+}
+
+/*
+  The rail is part of the preview window, so it drops the side panel's own
+  background and border rather than drawing a second frame inside one.
+*/
+.editor-preview-rail .editor-outline {
+  background: transparent;
+  border-left: none;
+}
+
+.editor-outline-label {
+  color: #5d636e;
+}
+
+.editor-outline-hide {
+  color: #5d636e;
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+
+.editor-preview-rail:hover .editor-outline-hide {
+  opacity: 1;
+}
+
+.editor-outline-hide:hover {
+  color: #e6edf3;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* A left marker rather than a filled row: quieter beside a document. */
+.editor-outline-row {
+  border-left: 2px solid transparent;
+  color: #8b949e;
+}
+
+.editor-outline-row:hover {
+  background: transparent;
+  border-left-color: #4a5361;
+  color: #e6edf3;
+}
+
+.editor-outline-row.active {
+  background: transparent;
+  border-left-color: #6366f1;
+  color: #e6edf3;
+  box-shadow: none;
+}
+
+.light .editor-preview-rail {
+  border-left: 1px solid #e2e5eb;
+  background: rgba(0, 0, 0, 0.012);
+}
+
+.light .editor-outline-label,
+.light .editor-outline-hide {
+  color: #9ca3af;
+}
+
+.light .editor-outline-hide:hover {
+  color: #111827;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.light .editor-outline-row {
+  color: #4b5163;
+}
+
+.light .editor-outline-row:hover {
+  background: transparent;
+  border-left-color: #b3bac6;
+  color: #111827;
+}
+
+.light .editor-outline-row.active {
+  background: transparent;
+  border-left-color: #4f46e5;
+  color: #111827;
 }
