@@ -3895,6 +3895,205 @@
   color: #8b949e;
 }
 
+/* ── Source control: remote and history ─────────────────────────────────── */
+
+.editor-scm-sync {
+  border-bottom: 1px solid #2a2f37;
+}
+
+.editor-scm-syncbtn {
+  color: #b6bec8;
+  background: rgba(255, 255, 255, 0.05);
+  transition: color 0.12s ease, background 0.12s ease;
+}
+
+.editor-scm-syncbtn:hover:not(:disabled) {
+  color: #e6edf3;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.editor-scm-syncbtn:disabled {
+  color: #4a5361;
+  cursor: default;
+}
+
+/* Git's own reply, verbatim: "Everything up-to-date" is an answer, and a
+   rejected push explains itself better than any rewording would. */
+.editor-scm-note {
+  background: rgba(255, 255, 255, 0.05);
+  color: #8b949e;
+  font-family: ui-monospace, monospace;
+}
+
+.editor-scm-tabs {
+  border-bottom: 1px solid #2a2f37;
+}
+
+.editor-scm-tab {
+  color: #6e7681;
+  border-bottom: 2px solid transparent;
+  transition: color 0.12s ease, border-color 0.12s ease;
+}
+
+.editor-scm-tab:hover {
+  color: #b6bec8;
+}
+
+.editor-scm-tab.on {
+  color: #e6edf3;
+  border-bottom-color: #6366f1;
+}
+
+.editor-scm-commit-row {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  align-items: center;
+}
+
+/* ── The commit drawer ──────────────────────────────────────────────────────
+   Slid in rather than swapped. Two panes with no transition between them read
+   as "the panel was replaced"; the movement is what says the list is still
+   behind this and Back returns to it. */
+
+.editor-scm-drawer {
+  animation: editor-drawer-in 0.16s ease-out;
+}
+
+@keyframes editor-drawer-in {
+  from {
+    transform: translateX(14%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Motion is a nicety, and for anyone who has asked not to have it the pane
+   appearing at once is the correct behaviour rather than a degraded one. */
+@media (prefers-reduced-motion: reduce) {
+  .editor-scm-drawer {
+    animation: none;
+  }
+}
+
+.editor-scm-drawer-bar {
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid #2a2f37;
+}
+
+.editor-scm-drawer-head {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.editor-scm-drawer-title {
+  color: #e6edf3;
+  /* Wrapped, not truncated: the subject is the one line of a commit that has
+     to be readable, and this is the pane with room for it. */
+  overflow-wrap: anywhere;
+}
+
+.editor-scm-body {
+  color: #b6bec8;
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  font-family: ui-monospace, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.editor-scm-drawer-stat {
+  color: #8b949e;
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.editor-scm-filestat {
+  opacity: 0.85;
+}
+
+/* ── The tally, and the folded commit body ──────────────────────────────── */
+
+/* Chips take their colour from the same `git-*` row classes the tree uses, so
+   `color: inherit` here is the whole point: one palette, three places. */
+.editor-scm-tally-part {
+  color: inherit;
+}
+
+.editor-scm-tally-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.editor-scm-bodywrap {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.editor-scm-bodywrap .editor-scm-body {
+  border-bottom: none;
+  background: transparent;
+}
+
+/*
+  Folded by height rather than by cutting the string: slicing at 400
+  characters lands mid-word, mid-list and mid-code-fence, and expanding it then
+  reflows everything below. A max-height shows a real partial line, and the
+  fade is what says there is more of it.
+*/
+.editor-scm-body.clamped {
+  /* Six lines plus the padding above them: `box-sizing: border-box` is set
+     globally, so a bare `9em` would spend the first 8px of it on padding and
+     show five. */
+  max-height: calc(6 * 1.5em + 8px);
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, #000 70%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent 100%);
+}
+
+.editor-scm-more {
+  color: #a5b4fc;
+  transition: color 0.12s ease;
+}
+
+.editor-scm-more:hover {
+  color: #c7d2fe;
+}
+
+.editor-scm-subject {
+  color: #e6edf3;
+}
+
+.editor-scm-meta {
+  color: #6e7681;
+}
+
+.editor-scm-sha {
+  color: #5d636e;
+  font-family: ui-monospace, monospace;
+}
+
+.editor-scm-merge {
+  color: #a5b4fc;
+}
+
+/* A branch or tag pointing at this commit. */
+.editor-scm-ref {
+  background: rgba(99, 102, 241, 0.18);
+  color: #c7d2fe;
+}
+
+.editor-diff-rev {
+  background: rgba(255, 255, 255, 0.06);
+  color: #e3b341;
+  font-family: ui-monospace, monospace;
+}
+
 .editor-scm-selectall {
   color: #b6bec8;
   border-bottom: 1px solid #2a2f37;
@@ -4540,6 +4739,107 @@
 .light .editor-panel-tab.on {
   color: #4338ca;
   background: rgba(79, 70, 229, 0.12);
+}
+
+.light .editor-scm-sync,
+.light .editor-scm-tabs {
+  border-bottom-color: #e2e5eb;
+}
+
+.light .editor-scm-syncbtn {
+  color: #374151;
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.light .editor-scm-syncbtn:hover:not(:disabled) {
+  color: #111827;
+  background: rgba(0, 0, 0, 0.09);
+}
+
+.light .editor-scm-syncbtn:disabled {
+  color: #b3bac6;
+}
+
+.light .editor-scm-note {
+  background: rgba(0, 0, 0, 0.04);
+  color: #6b7280;
+}
+
+.light .editor-scm-tab {
+  color: #9ca3af;
+}
+
+.light .editor-scm-tab:hover {
+  color: #374151;
+}
+
+.light .editor-scm-tab.on {
+  color: #111827;
+  border-bottom-color: #4f46e5;
+}
+
+.light .editor-scm-commit-row {
+  border-bottom-color: #eceef2;
+}
+
+.light .editor-scm-drawer-bar {
+  background: #f7f8fa;
+  border-bottom-color: #e2e5eb;
+}
+
+.light .editor-scm-drawer-head,
+.light .editor-scm-drawer-stat,
+.light .editor-scm-body {
+  border-bottom-color: #eceef2;
+}
+
+.light .editor-scm-drawer-title {
+  color: #111827;
+}
+
+.light .editor-scm-body {
+  color: #374151;
+  background: #f7f8fa;
+}
+
+.light .editor-scm-drawer-stat {
+  color: #6b7280;
+}
+
+.light .editor-scm-bodywrap {
+  border-bottom-color: #eceef2;
+  background: #f7f8fa;
+}
+
+.light .editor-scm-more {
+  color: #4338ca;
+}
+
+.light .editor-scm-more:hover {
+  color: #312e81;
+}
+
+.light .editor-scm-subject {
+  color: #111827;
+}
+
+.light .editor-scm-meta,
+.light .editor-scm-sha {
+  color: #9ca3af;
+}
+
+.light .editor-scm-merge {
+  color: #4338ca;
+}
+
+.light .editor-scm-ref {
+  background: rgba(79, 70, 229, 0.12);
+  color: #3730a3;
+}
+
+.light .editor-diff-rev {
+  background: rgba(0, 0, 0, 0.05);
+  color: #9a6700;
 }
 
 .light .editor-scm-selectall {

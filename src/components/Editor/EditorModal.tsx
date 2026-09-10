@@ -58,12 +58,17 @@ import {
 } from "../../services/editor-fs";
 import { clearDraft, listDrafts, saveDraft } from "../../services/editor-session";
 import {
+  GitCommit,
+  GitCommitFile,
   GitFile,
   GitFileDiff,
   gitCommit,
+  gitCommitDiff,
   gitDiscard,
+  gitFetch,
   gitFileDiff,
   gitFileHunks,
+  gitPush,
   gitStage,
   gitUnstage,
   repoRelative,
@@ -208,6 +213,28 @@ const REVEAL_LABEL =
       ? "Show in Explorer"
       : "Open Containing Folder";
 
+/**
+ * What the diff tab is showing.
+ *
+ * Two shapes, because a diff of the working tree and a diff of one commit are
+ * asked for differently — the first against HEAD, the second against a
+ * commit's first parent — and the header has a revision to name in the second
+ * case and not the first.
+ */
+type DiffTarget =
+  | { kind: "working"; file: GitFile }
+  | { kind: "commit"; commit: GitCommit; file: GitCommitFile };
+
+/** The tab and the header label for either shape. */
+function diffIdentity(target: DiffTarget): {
+  relative: string;
+  revision: string | null;
+} {
+  return target.kind === "working"
+    ? { relative: target.file.relative, revision: null }
+    : { relative: target.file.relative, revision: target.commit.short };
+}
+
 /** Where a right-click on the text opened, and what was selected at the time. */
 interface SurfaceMenu {
   x: number;
@@ -305,8 +332,8 @@ export function EditorModal({
    * watcher event arriving — which is long enough to look broken.
    */
   const [gitTick, setGitTick] = useState(0);
-  /** The file the diff tab is showing, or null when there is no diff tab. */
-  const [diffTarget, setDiffTarget] = useState<GitFile | null>(null);
+  /** What the diff tab is showing, or null when there is no diff tab. */
+  const [diffTarget, setDiffTarget] = useState<DiffTarget | null>(null);
   /**
    * Whether the diff tab is the one in front.
    *
@@ -1687,9 +1714,38 @@ export function EditorModal({
   );
 
   const openDiff = useCallback((file: GitFile) => {
-    setDiffTarget(file);
+    setDiffTarget({ kind: "working", file });
     setDiffFocused(true);
   }, []);
+
+  const openCommitDiff = useCallback((commit: GitCommit, file: GitCommitFile) => {
+    setDiffTarget({ kind: "commit", commit, file });
+    setDiffFocused(true);
+  }, []);
+
+  /**
+   * Fetch and push, which are the only two things here that leave the machine.
+   *
+   * The error is re-thrown rather than shown in the error bar: the panel puts
+   * it next to the button that caused it, and "everything up to date" or a
+   * rejected non-fast-forward is about that button, not about the editor.
+   */
+  const syncRemote = useCallback(
+    async (which: "fetch" | "push"): Promise<string> => {
+      if (!root) return "";
+      setGitBusy(true);
+      try {
+        // Returned, not discarded: git reports a successful push on stderr, and
+        // "Everything up-to-date" is an answer rather than a non-event.
+        return await (which === "fetch" ? gitFetch(root) : gitPush(root));
+      } finally {
+        setGitBusy(false);
+        setGitTick((tick) => tick + 1);
+        refreshGit();
+      }
+    },
+    [root, refreshGit]
+  );
 
   const closeDiff = useCallback(() => {
     setDiffTarget(null);
@@ -1708,7 +1764,12 @@ export function EditorModal({
     setDiffError(null);
     setDiffText(null);
 
-    void gitFileDiff(root, diffTarget.relative)
+    const request =
+      diffTarget.kind === "working"
+        ? gitFileDiff(root, diffTarget.file.relative)
+        : gitCommitDiff(root, diffTarget.commit.sha, diffTarget.file.relative);
+
+    void request
       .then((text) => {
         if (cancelled) return;
         setDiffText(text);
@@ -1725,10 +1786,14 @@ export function EditorModal({
     };
   }, [diffTarget, root, change.token, gitTick]);
 
-  /** A diff for a file that has stopped having one is just an empty panel. */
+  /**
+   * A working-tree diff for a file that has stopped having changes is an empty
+   * panel, so it closes itself. A commit's diff is history and never goes
+   * stale, which is why only one of the two is checked.
+   */
   useEffect(() => {
-    if (!diffTarget) return;
-    const still = git.files.some((file) => file.relative === diffTarget.relative);
+    if (diffTarget?.kind !== "working") return;
+    const still = git.files.some((file) => file.relative === diffTarget.file.relative);
     if (!still) closeDiff();
   }, [git.files, diffTarget, closeDiff]);
 
@@ -1997,7 +2062,11 @@ export function EditorModal({
                         // `lib.rs` would be two tabs claiming to be the same
                         // thing.
                         title: "diff-check",
-                        detail: diffTarget.relative,
+                        detail: diffIdentity(diffTarget).revision
+                          ? `${diffIdentity(diffTarget).relative} at ${
+                              diffIdentity(diffTarget).revision
+                            }`
+                          : diffIdentity(diffTarget).relative,
                         active: diffFocused,
                         onSelect: () => setDiffFocused(true),
                         onClose: closeDiff,
@@ -2298,8 +2367,12 @@ export function EditorModal({
               */}
               {diffShown ? (
                 <DiffView
-                  name={basename(diffTarget.relative)}
-                  relative={diffTarget.relative}
+                  name={basename(diffIdentity(diffTarget).relative)}
+                  relative={diffIdentity(diffTarget).relative}
+                  revision={diffIdentity(diffTarget).revision}
+                  subject={
+                    diffTarget.kind === "commit" ? diffTarget.commit.subject : null
+                  }
                   diff={diffText}
                   loading={diffLoading}
                   error={diffError}
@@ -2309,10 +2382,19 @@ export function EditorModal({
                   style={diffStyle}
                   onSetLayout={setDiffLayout}
                   onSetStyle={setDiffStyle}
+                  /* From a commit's diff, Edit opens the file as it is *now*.
+                     Reconstructing the version at that commit would be a
+                     read-only buffer of a file that also exists on disk, which
+                     is two tabs for one path and a save that can't happen. */
                   onOpenFile={() => {
-                    const path = diffTarget!.path;
+                    const path =
+                      diffTarget.kind === "working"
+                        ? diffTarget.file.path
+                        : root
+                          ? joinPath(root, diffIdentity(diffTarget).relative)
+                          : null;
                     setDiffFocused(false);
-                    void openPath(path);
+                    if (path) void openPath(path);
                   }}
                   onClose={closeDiff}
                 />
@@ -2413,13 +2495,19 @@ export function EditorModal({
                   {sidePanel === "git" && root && rootReady ? (
                     <SourceControl
                       repo={git}
+                      dir={root}
                       error={gitError}
                       busy={gitBusy}
+                      revision={`${gitTick}:${change.token}`}
                       onRefresh={refreshGit}
                       onOpenFile={(path) => void openPath(path)}
                       onOpenDiff={openDiff}
+                      onOpenCommitDiff={openCommitDiff}
                       onDiscard={setDiscardPrompt}
                       onCommit={commitFiles}
+                      onFetch={() => syncRemote("fetch")}
+                      onPush={() => syncRemote("push")}
+                      onError={setError}
                       onClose={() => setSidePanel("files")}
                     />
                   ) : sidePanel === "search" && root && rootReady ? (

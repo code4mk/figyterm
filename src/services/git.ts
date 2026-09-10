@@ -46,6 +46,40 @@ export interface GitRepo {
   truncated: boolean;
 }
 
+/** One entry in the history list. */
+export interface GitCommit {
+  sha: string;
+  /** Git's own abbreviation, which respects `core.abbrev`. */
+  short: string;
+  author: string;
+  email: string;
+  /** ISO 8601 — formatted here rather than parsed from a locale. */
+  date: string;
+  subject: string;
+  /** `HEAD -> main, origin/main, tag: v1.2`. Empty when undecorated. */
+  refs: string;
+  /** A merge, whose diff is therefore against its first parent. */
+  merge: boolean;
+}
+
+/** A file as one commit changed it. */
+export interface GitCommitFile {
+  relative: string;
+  change: GitChange;
+  from: string | null;
+  /** Both zero for a binary file — git reports `-`, having no lines to count. */
+  added: number;
+  removed: number;
+}
+
+/** Everything the history drawer shows about one commit. */
+export interface GitCommitDetail {
+  commit: GitCommit;
+  /** The message below the subject, verbatim — blank lines and all. */
+  body: string;
+  files: GitCommitFile[];
+}
+
 export interface GitHunk {
   /** First changed line in the working file, 1-based. */
   line: number;
@@ -104,6 +138,62 @@ export function gitCommit(dir: string, message: string): Promise<string> {
   return invoke<string>("git_commit", { dir, message });
 }
 
+/** One page of history, newest first. */
+export function gitLog(dir: string, skip: number, limit?: number): Promise<GitCommit[]> {
+  return invoke<GitCommit[]>("git_log", { dir, skip, limit });
+}
+
+export function gitCommitDetail(dir: string, sha: string): Promise<GitCommitDetail> {
+  return invoke<GitCommitDetail>("git_commit_detail", { dir, sha });
+}
+
+export function gitCommitDiff(dir: string, sha: string, path: string): Promise<string> {
+  return invoke<string>("git_commit_diff", { dir, sha, path });
+}
+
+/**
+ * Updates the remote-tracking refs. Changes nothing in the working tree, which
+ * is why it is the safe half of "sync" and has no confirmation.
+ */
+export function gitFetch(dir: string): Promise<string> {
+  return invoke<string>("git_fetch", { dir });
+}
+
+/** Pushes the current branch, publishing it if it has no upstream yet. */
+export function gitPush(dir: string): Promise<string> {
+  return invoke<string>("git_push", { dir });
+}
+
+/**
+ * A date as a history list wants it: how long ago for anything recent, the
+ * date itself once "23 days ago" has stopped being easier to read than "3 Aug".
+ */
+export function relativeDate(iso: string, now = Date.now()): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "";
+
+  const seconds = Math.round((now - then) / 1000);
+  if (seconds < 45) return "just now";
+  if (seconds < 90) return "a minute ago";
+
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} minutes ago`;
+
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} ${hours === 1 ? "hour" : "hours"} ago`;
+
+  const days = Math.round(hours / 24);
+  if (days === 1) return "yesterday";
+  if (days < 14) return `${days} days ago`;
+
+  const sameYear = new Date(then).getFullYear() === new Date(now).getFullYear();
+  return new Date(then).toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: sameYear ? undefined : "numeric",
+  });
+}
+
 /**
  * An absolute path as git would name it, or null if it isn't in the repository.
  *
@@ -160,6 +250,91 @@ export function changeBadge(change: GitChange): string {
     default:
       return "M";
   }
+}
+
+/**
+ * A set of changes counted by what actually happened to the file.
+ *
+ * Git has eight status letters and nobody wants a legend for them, so they
+ * collapse into the four things people say out loud:
+ *
+ * - **new** — `added`, `untracked` and `copied`. A copy is a file that wasn't
+ *   there before, whatever git knows about where its contents came from.
+ * - **edited** — `modified` and `typeChanged`. A file becoming a symlink is a
+ *   strange edit, not a fifth category.
+ * - **deleted** — `deleted`.
+ * - **renamed** — kept apart, because a rename is neither new nor edited and
+ *   folding it into either overstates what changed. `R100` moved a file and
+ *   touched nothing in it.
+ *
+ * `conflicted` gets its own count too: it is a state to resolve rather than a
+ * change that has happened.
+ */
+export interface ChangeTally {
+  total: number;
+  added: number;
+  edited: number;
+  deleted: number;
+  renamed: number;
+  conflicted: number;
+}
+
+export function tally(changes: GitChange[]): ChangeTally {
+  const counted: ChangeTally = {
+    total: changes.length,
+    added: 0,
+    edited: 0,
+    deleted: 0,
+    renamed: 0,
+    conflicted: 0,
+  };
+
+  for (const change of changes) {
+    switch (change) {
+      case "added":
+      case "untracked":
+      case "copied":
+        counted.added++;
+        break;
+      case "deleted":
+        counted.deleted++;
+        break;
+      case "renamed":
+        counted.renamed++;
+        break;
+      case "conflicted":
+        counted.conflicted++;
+        break;
+      default:
+        counted.edited++;
+    }
+  }
+
+  return counted;
+}
+
+/**
+ * The tally as chips, skipping the empty ones.
+ *
+ * `kind` is a `GitChange`, so the chips are coloured by the same rules the
+ * tree rows and the change gutter use — "new" is the green the gutter draws an
+ * added line in, and there is one palette rather than three.
+ */
+export function tallyParts(
+  counted: ChangeTally
+): { key: string; label: string; count: number; kind: GitChange }[] {
+  return [
+    { key: "edited", label: "edited", count: counted.edited, kind: "modified" as GitChange },
+    { key: "added", label: "new", count: counted.added, kind: "added" as GitChange },
+    { key: "deleted", label: "deleted", count: counted.deleted, kind: "deleted" as GitChange },
+    { key: "renamed", label: "renamed", count: counted.renamed, kind: "renamed" as GitChange },
+    {
+      key: "conflicted",
+      label: "conflicted",
+      count: counted.conflicted,
+      kind: "conflicted" as GitChange,
+    },
+  ].filter((part) => part.count > 0);
 }
 
 export function changeLabel(change: GitChange): string {

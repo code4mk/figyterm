@@ -32,7 +32,7 @@ Inspired by [Fig](https://fig.io) (now part of AWS), FigyTerm is an open-source 
 - **Multiple Tabs** — Browser-style tab bar with drag-to-reorder and rename support
 - **Embedded Browser** — In-app browser modal with tabs, address bar, and back/forward/reload (`⌘⇧B`); uses a native child webview so real sites load (not an iframe). On Linux it's positioned through a `gtk::Fixed` of our own, since Tauri can't place child webviews on GTK ([tauri#10420](https://github.com/tauri-apps/tauri/issues/10420))
 - **Embedded Code Editor** — A real editor beside the shell (`⌘⇧E`): CodeMirror 6, file tabs, a breadcrumb, and a resizable file tree. Click a `path:line:col` in terminal output and it opens there. Atomic saves with conflict detection, CRLF and BOM preserved, crash-safe drafts. Workspaces remember their own open tabs; fuzzy file finder (`⌘P`) and streamed project search (`⌘⇧F`). Loaded on first open, so it costs nothing at launch — see [the design notes](docs/CODE-EDITOR.md)
-- **Git in the Editor** — Changed files badged in the tree, changed lines marked in the gutter, a branch indicator in the status bar, and a GitHub Desktop-style changes panel: tick the files, write a summary, commit. Discards to the trash, and runs your own `git`, so your hooks and credential helper apply
+- **Git in the Editor** — Changed files badged in the tree, changed lines marked in the gutter, a branch indicator in the status bar, and a GitHub Desktop-style panel: tick the files, write a summary, commit. A history tab where a commit opens into a drawer with its message and files, plus fetch and push. Discards to the trash, and runs your own `git`, so your hooks and credential helper apply
 - **A Real Diff Viewer** — Unified or split, with word-level highlighting inside changed lines, and five presets (GitHub, GitLab, VS Code, delta, plain `git diff`) so it reads like the tool you already use
 - **Markdown Preview** — GitHub-flavoured rendering with a live outline, scroll synced both ways, and clickable in-page and sibling-file links. No `dangerouslySetInnerHTML` anywhere, so a document can't inject markup
 - **Command History Search** — Fuzzy-search past commands with picture-in-picture mode (`⌘R`)
@@ -308,8 +308,15 @@ delta and plain `git diff`, so it can look like whichever one you already read
 diffs in. It shells out to your own `git`, so
 your hooks, credential helper and `.gitattributes` all apply. Discarding an
 untracked file moves it to the trash rather than deleting it, which is the one
-thing `git clean` gets wrong for an editor. Hunk-level staging, branch switching
-and push/pull are deliberately left to the shell.
+thing `git clean` gets wrong for an editor. A **History** tab lists your commits, and
+opening one slides in a drawer with its message — folded behind **Read more**
+when it's long — and the files it touched, counted by what happened to them
+("24 edited · 6 new · 1 deleted"). Click a file to diff it at that revision, or
+Back to return to the list.
+**Fetch** and **Push** are there — push publishes a branch that
+has no upstream yet. Hunk-level staging, branch switching and pull are
+deliberately left to the shell: a pull can leave a conflict, and a merge editor
+is a feature of its own.
 
 **Workspaces** each remember their own open tabs and expanded folders, can be
 starred, and are switched from a picker (click the folder name in the

@@ -4,13 +4,26 @@ import {
   ArrowUp,
   Check,
   CircleAlert,
+  CloudUpload,
   GitBranch,
   RefreshCw,
   RotateCcw,
   X,
 } from "lucide-react";
-import { changeBadge, changeLabel, effectiveChange, GitFile, GitRepo } from "../../services/git";
+import {
+  changeBadge,
+  changeLabel,
+  effectiveChange,
+  GitCommit,
+  GitCommitFile,
+  GitFile,
+  GitRepo,
+  tally,
+  tallyParts,
+} from "../../services/git";
 import { isMac } from "../../services/platform";
+import { ChangeTally } from "./ChangeTally";
+import { CommitHistory } from "./CommitHistory";
 import { FileIcon } from "./fileIcons";
 
 /**
@@ -42,30 +55,48 @@ import { FileIcon } from "./fileIcons";
 
 interface SourceControlProps {
   repo: GitRepo;
+  /** The workspace folder, for the history tab's own queries. */
+  dir: string;
   /** A git-level failure — no `git` on PATH, a locked index — not "no repo". */
   error: string | null;
   busy: boolean;
+  /** Changes when the repository might have, so the history reloads. */
+  revision: string;
   onRefresh: () => void;
   onOpenFile: (path: string) => void;
   onOpenDiff: (file: GitFile) => void;
+  onOpenCommitDiff: (commit: GitCommit, file: GitCommitFile) => void;
   /** Confirmed by the caller: this throws away work. */
   onDiscard: (files: GitFile[]) => void;
   /** Stages exactly `include`, unstages the rest, then commits. */
   onCommit: (message: string, include: GitFile[]) => Promise<void>;
+  /** Both resolve with git's own output, which is worth showing either way. */
+  onFetch: () => Promise<string>;
+  onPush: () => Promise<string>;
+  onError: (message: string) => void;
   onClose: () => void;
 }
 
 export function SourceControl({
   repo,
+  dir,
   error,
   busy,
+  revision,
   onRefresh,
   onOpenFile,
   onOpenDiff,
+  onOpenCommitDiff,
   onDiscard,
   onCommit,
+  onFetch,
+  onPush,
+  onError,
   onClose,
 }: SourceControlProps) {
+  const [tab, setTab] = useState<"changes" | "history">("changes");
+  const [syncing, setSyncing] = useState<"fetch" | "push" | null>(null);
+  const [syncNote, setSyncNote] = useState<string | null>(null);
   const [summary, setSummary] = useState("");
   const [description, setDescription] = useState("");
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
@@ -79,6 +110,17 @@ export function SourceControl({
 
   const allIncluded = repo.files.length > 0 && included.length === repo.files.length;
   const noneIncluded = included.length === 0;
+
+  /*
+    Counted over every changed file, not only the ticked ones. The tally is
+    describing the working tree — "this is what you have done" — while the
+    checkboxes are about the next commit; recounting on every tick would make
+    the two answer the same question twice.
+  */
+  const counted = useMemo(
+    () => tally(repo.files.map(effectiveChange)),
+    [repo.files]
+  );
 
   const toggleFile = useCallback((relative: string) => {
     setExcluded((prev) => {
@@ -128,6 +170,35 @@ export function SourceControl({
     }
   }, [canCommit, message, included, onCommit]);
 
+  /**
+   * Fetch and push, sharing one busy flag and one message line.
+   *
+   * The result is shown rather than swallowed: `git push` reports success on
+   * stderr — "3b11460..a1b2c3d main -> main" — and "Everything up-to-date" is
+   * an answer, not a non-event. A failure is git's own words, which for these
+   * two is usually the only actionable thing there is (a rejected non-fast
+   * forward, a missing credential helper).
+   */
+  const sync = useCallback(
+    async (which: "fetch" | "push") => {
+      if (syncing) return;
+      setSyncing(which);
+      setSyncNote(null);
+      try {
+        const reply = await (which === "fetch" ? onFetch() : onPush());
+        setSyncNote(
+          reply.trim() ||
+            (which === "fetch" ? "Already up to date." : "Nothing to push.")
+        );
+      } catch (e) {
+        setSyncNote(String(e));
+      } finally {
+        setSyncing(null);
+      }
+    },
+    [syncing, onFetch, onPush]
+  );
+
   if (!repo.isRepo) {
     return (
       <div className="editor-explorer flex flex-col h-full min-h-0">
@@ -174,122 +245,226 @@ export function SourceControl({
         )}
       </div>
 
-      {repo.files.length > 0 && (
-        <label className="editor-scm-selectall flex items-center gap-2 px-2 py-1 shrink-0 text-[11px]">
-          <Checkbox
-            checked={allIncluded}
-            /* Some but not all: drawn as a dash, so "12 of 20 files" is
-               distinguishable from "none" at a glance. */
-            indeterminate={!allIncluded && !noneIncluded}
-            onChange={toggleAll}
-            label={allIncluded ? "Deselect every file" : "Select every file"}
-          />
-          <span className="truncate">
-            {repo.files.length} changed {repo.files.length === 1 ? "file" : "files"}
-            {!allIncluded && (
-              <span className="editor-scm-count"> · {included.length} selected</span>
-            )}
-          </span>
-        </label>
-      )}
+      {/*
+        Fetch and push, not "sync". They do different things — one reads, one
+        writes — and a single button that guesses which you meant is a button
+        that occasionally pushes when you wanted to look.
 
-      <div className="editor-explorer-scroll flex-1 min-h-0 overflow-y-auto">
-        {repo.files.length === 0 ? (
-          <div className="editor-explorer-empty px-3 py-4 text-[11px]">
-            Nothing has changed since the last commit.
-          </div>
-        ) : (
-          repo.files.map((file) => (
-            <Row
-              key={file.relative}
-              file={file}
-              included={!excluded.has(file.relative)}
-              onToggle={() => toggleFile(file.relative)}
-              onOpenDiff={() => onOpenDiff(file)}
-              onOpenFile={() => onOpenFile(file.path)}
-              onDiscard={() => onDiscard([file])}
-            />
-          ))
-        )}
-
-        {repo.truncated && (
-          <div className="editor-explorer-empty px-3 py-2 text-[10px]">
-            Only the first 5,000 changed files are listed.
-          </div>
-        )}
-      </div>
-
-      {/* Bottom, as in GitHub Desktop: the list is what you read, this is what
-          you do about it. */}
-      <div className="editor-scm-commit px-2 py-2 shrink-0">
-        <input
-          className="editor-scm-summary w-full text-[11px] px-2 py-1.5 rounded"
-          placeholder="Summary (required)"
-          spellCheck={false}
-          value={summary}
-          onChange={(e) => setSummary(e.target.value)}
-          onKeyDown={(e) => {
-            e.stopPropagation();
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-              e.preventDefault();
-              void commit();
-            }
-          }}
-          onKeyUp={(e) => e.stopPropagation()}
-        />
-        <textarea
-          className="editor-scm-message w-full text-[11px] px-2 py-1.5 mt-1 rounded resize-none"
-          rows={2}
-          placeholder={`Description (${isMac ? "⌘↵" : "Ctrl+Enter"} to commit)`}
-          spellCheck={false}
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          onKeyDown={(e) => {
-            e.stopPropagation();
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-              e.preventDefault();
-              void commit();
-            }
-          }}
-          onKeyUp={(e) => e.stopPropagation()}
-        />
-
+        Pull is absent on purpose: it merges, a merge conflicts, and a conflict
+        needs somewhere to be resolved. Fetch tells you that you are behind, and
+        the shell is three inches away.
+      */}
+      <div className="editor-scm-sync flex items-center gap-1 px-2 py-1 shrink-0">
         <button
-          className="editor-scm-button flex items-center justify-center gap-1.5 w-full mt-1.5 py-1.5 rounded text-[11px]"
-          onClick={() => void commit()}
-          disabled={!canCommit}
+          className="editor-scm-syncbtn flex items-center justify-center gap-1.5 flex-1 py-1 rounded text-[10px]"
+          onClick={() => void sync("fetch")}
+          disabled={!!syncing}
+          title="Update the remote-tracking branches. Changes nothing here."
+        >
+          <RefreshCw size={11} className={syncing === "fetch" ? "editor-spin" : undefined} />
+          {syncing === "fetch" ? "Fetching…" : "Fetch"}
+        </button>
+        <button
+          className="editor-scm-syncbtn flex items-center justify-center gap-1.5 flex-1 py-1 rounded text-[10px]"
+          onClick={() => void sync("push")}
+          disabled={!!syncing || repo.detached}
           title={
-            included.length === 0
-              ? "Select at least one file"
-              : !summary.trim()
-                ? "A commit needs a summary"
-                : `Commit ${included.length} file${included.length === 1 ? "" : "s"} to ${branch}`
+            repo.detached
+              ? "HEAD is detached, so there is no branch to push"
+              : repo.upstream
+                ? `Push ${repo.ahead || "nothing new"} to ${repo.upstream}`
+                : "Publish this branch, setting its upstream"
           }
         >
-          <Check size={12} />
-          <span className="truncate">
-            {committing
-              ? "Committing…"
-              : `Commit ${included.length || ""} ${
-                  included.length === 1 ? "file" : "files"
-                } to ${branch}`.replace(/\s+/g, " ")}
-          </span>
+          <CloudUpload size={11} className={syncing === "push" ? "editor-spin" : undefined} />
+          {syncing === "push"
+            ? "Pushing…"
+            : !repo.upstream
+              ? "Publish"
+              : repo.ahead > 0
+                ? `Push ${repo.ahead}`
+                : "Push"}
         </button>
-
-        {commitError && (
-          <div className="editor-scm-error flex items-start gap-1.5 mt-1.5 px-1.5 py-1 rounded text-[10px]">
-            <CircleAlert size={11} className="shrink-0 mt-px" />
-            <span className="flex-1 min-w-0 break-words">{commitError}</span>
-            <button
-              className="editor-btn p-0.5 rounded shrink-0"
-              onClick={() => setCommitError(null)}
-              aria-label="Dismiss"
-            >
-              <X size={9} />
-            </button>
-          </div>
-        )}
       </div>
+
+      {syncNote && (
+        <div className="editor-scm-note flex items-start gap-1.5 mx-2 mb-1 px-1.5 py-1 rounded text-[10px] shrink-0">
+          <span className="flex-1 min-w-0 break-words whitespace-pre-wrap">{syncNote}</span>
+          <button
+            className="editor-btn p-0.5 rounded shrink-0"
+            onClick={() => setSyncNote(null)}
+            aria-label="Dismiss"
+          >
+            <X size={9} />
+          </button>
+        </div>
+      )}
+
+      <div className="editor-scm-tabs flex shrink-0" role="tablist">
+        <button
+          role="tab"
+          aria-selected={tab === "changes"}
+          className={`editor-scm-tab flex-1 py-1 text-[10px] font-semibold uppercase tracking-wide ${
+            tab === "changes" ? "on" : ""
+          }`}
+          onClick={() => setTab("changes")}
+        >
+          Changes{repo.files.length > 0 && ` ${repo.files.length}`}
+        </button>
+        <button
+          role="tab"
+          aria-selected={tab === "history"}
+          className={`editor-scm-tab flex-1 py-1 text-[10px] font-semibold uppercase tracking-wide ${
+            tab === "history" ? "on" : ""
+          }`}
+          onClick={() => setTab("history")}
+        >
+          History
+        </button>
+      </div>
+
+      {tab === "history" ? (
+        /*
+          `overflow-hidden`, because the drawer inside slides in from the right
+          and would otherwise widen the panel for the length of the animation.
+          The scroll container is the history's own: it has two of them, one per
+          pane, and they keep their positions independently.
+        */
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+          {/* Mounted only while the tab is open, so opening the panel on
+              Changes costs no `git log` at all. */}
+          <CommitHistory
+            dir={dir}
+            revision={revision}
+            onOpenDiff={onOpenCommitDiff}
+            onError={onError}
+          />
+        </div>
+      ) : (
+        <>
+          {repo.files.length > 0 && (
+            <div className="editor-scm-selectall px-2 py-1 shrink-0">
+              <label className="flex items-center gap-2 text-[11px]">
+                <Checkbox
+                  checked={allIncluded}
+                  /* Some but not all: drawn as a dash, so "12 of 20 files" is
+                     distinguishable from "none" at a glance. */
+                  indeterminate={!allIncluded && !noneIncluded}
+                  onChange={toggleAll}
+                  label={allIncluded ? "Deselect every file" : "Select every file"}
+                />
+                <span className="truncate">
+                  {repo.files.length} changed {repo.files.length === 1 ? "file" : "files"}
+                  {!allIncluded && (
+                    <span className="editor-scm-count"> · {included.length} selected</span>
+                  )}
+                </span>
+              </label>
+              <div className="pl-[21px] text-[10px]">
+                <ChangeTally parts={tallyParts(counted)} />
+              </div>
+            </div>
+          )}
+
+          <div className="editor-explorer-scroll flex-1 min-h-0 overflow-y-auto">
+            {repo.files.length === 0 ? (
+              <div className="editor-explorer-empty px-3 py-4 text-[11px]">
+                Nothing has changed since the last commit.
+              </div>
+            ) : (
+              repo.files.map((file) => (
+                <Row
+                  key={file.relative}
+                  file={file}
+                  included={!excluded.has(file.relative)}
+                  onToggle={() => toggleFile(file.relative)}
+                  onOpenDiff={() => onOpenDiff(file)}
+                  onOpenFile={() => onOpenFile(file.path)}
+                  onDiscard={() => onDiscard([file])}
+                />
+              ))
+            )}
+
+            {repo.truncated && (
+              <div className="editor-explorer-empty px-3 py-2 text-[10px]">
+                Only the first 5,000 changed files are listed.
+              </div>
+            )}
+          </div>
+
+          {/* Bottom, as in GitHub Desktop: the list is what you read, this is what
+              you do about it. */}
+          <div className="editor-scm-commit px-2 py-2 shrink-0">
+            <input
+              className="editor-scm-summary w-full text-[11px] px-2 py-1.5 rounded"
+              placeholder="Summary (required)"
+              spellCheck={false}
+              value={summary}
+              onChange={(e) => setSummary(e.target.value)}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault();
+                  void commit();
+                }
+              }}
+              onKeyUp={(e) => e.stopPropagation()}
+            />
+            <textarea
+              className="editor-scm-message w-full text-[11px] px-2 py-1.5 mt-1 rounded resize-none"
+              rows={2}
+              placeholder={`Description (${isMac ? "⌘↵" : "Ctrl+Enter"} to commit)`}
+              spellCheck={false}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault();
+                  void commit();
+                }
+              }}
+              onKeyUp={(e) => e.stopPropagation()}
+            />
+
+            <button
+              className="editor-scm-button flex items-center justify-center gap-1.5 w-full mt-1.5 py-1.5 rounded text-[11px]"
+              onClick={() => void commit()}
+              disabled={!canCommit}
+              title={
+                included.length === 0
+                  ? "Select at least one file"
+                  : !summary.trim()
+                    ? "A commit needs a summary"
+                    : `Commit ${included.length} file${included.length === 1 ? "" : "s"} to ${branch}`
+              }
+            >
+              <Check size={12} />
+              <span className="truncate">
+                {committing
+                  ? "Committing…"
+                  : `Commit ${included.length || ""} ${
+                      included.length === 1 ? "file" : "files"
+                    } to ${branch}`.replace(/\s+/g, " ")}
+              </span>
+            </button>
+
+            {commitError && (
+              <div className="editor-scm-error flex items-start gap-1.5 mt-1.5 px-1.5 py-1 rounded text-[10px]">
+                <CircleAlert size={11} className="shrink-0 mt-px" />
+                <span className="flex-1 min-w-0 break-words">{commitError}</span>
+                <button
+                  className="editor-btn p-0.5 rounded shrink-0"
+                  onClick={() => setCommitError(null)}
+                  aria-label="Dismiss"
+                >
+                  <X size={9} />
+                </button>
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }

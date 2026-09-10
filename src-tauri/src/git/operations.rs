@@ -22,7 +22,8 @@
 
 use serde::Serialize;
 use std::path::{Component, Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 /// Cap on the reported file list.
 ///
@@ -33,6 +34,28 @@ const MAX_FILES: usize = 5_000;
 
 /// Cap on synthesising an all-added diff for an untracked file.
 const MAX_UNTRACKED_DIFF_BYTES: u64 = 2 * 1024 * 1024;
+
+/// One page of history. Enough to fill the panel several times over.
+pub const LOG_PAGE: usize = 50;
+
+/// How long a network operation gets before it is killed.
+///
+/// Fetch and push are the only two things here that talk to another machine,
+/// and the only two that can sit there forever: a credential prompt with no
+/// terminal to show it in, an SSH passphrase, a host that accepts the
+/// connection and then says nothing. `GIT_TERMINAL_PROMPT=0` stops git's own
+/// prompting, but it cannot stop ssh's, and a panel stuck on "Pushing…" with no
+/// way out is worse than one that says it gave up.
+const NETWORK_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// Field and record separators for `git log --format`.
+///
+/// Unit and record separator, rather than anything printable: a commit subject
+/// can contain any character a person can type, tabs and pipes included, and
+/// every delimiter that looks safe turns out to appear in somebody's commit
+/// message eventually.
+const FIELD: char = '\u{1f}';
+const RECORD: char = '\u{1e}';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -117,6 +140,48 @@ pub struct GitHunk {
     pub removed: u32,
 }
 
+/// One entry in the history list.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitCommit {
+    pub sha: String,
+    /// Git's own abbreviation, which respects `core.abbrev`.
+    pub short: String,
+    pub author: String,
+    pub email: String,
+    /// ISO 8601, so the frontend formats it rather than parsing a locale.
+    pub date: String,
+    pub subject: String,
+    /// `HEAD -> main, origin/main, tag: v1.2`. Empty when undecorated.
+    pub refs: String,
+    /// True for a merge, which is why its diff is against the first parent.
+    pub merge: bool,
+}
+
+/// A file as one commit changed it.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitCommitFile {
+    pub relative: String,
+    pub change: GitChange,
+    /// Where a rename came from.
+    pub from: Option<String>,
+    /// Lines added and removed. Both zero for a binary file, which git reports
+    /// as `-` rather than a number because there are no lines to count.
+    pub added: u32,
+    pub removed: u32,
+}
+
+/// Everything the history drawer shows about one commit.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitCommitDetail {
+    pub commit: GitCommit,
+    /// The message below the subject, verbatim — blank lines and all.
+    pub body: String,
+    pub files: Vec<GitCommitFile>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GitFileDiff {
@@ -159,6 +224,69 @@ fn git(cwd: &Path, args: &[&str]) -> Result<String, String> {
     } else {
         stderr
     })
+}
+
+/// Runs git with a deadline, returning stdout and stderr together.
+///
+/// Only for fetch and push. Two differences from [`git`] and both are the
+/// point: the deadline, because those are the only calls that can block
+/// forever, and the combined output, because git reports a successful push on
+/// *stderr* — "To github.com:… 3b11460..a1b2c3d main -> main" is the
+/// confirmation, and dropping it would leave a success with nothing to show.
+fn git_network(cwd: &Path, args: &[&str]) -> Result<String, String> {
+    let mut child = Command::new("git")
+        .arg("--no-optional-locks")
+        .args(args)
+        // Fails fast instead of waiting on a username and password nobody can
+        // type: there is no terminal attached to this process. A configured
+        // credential helper still works, which is the case that matters.
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .current_dir(cwd)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| match e.kind() {
+            std::io::ErrorKind::NotFound => "git was not found on PATH".to_string(),
+            _ => format!("git could not be run: {e}"),
+        })?;
+
+    let started = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let output = child
+                    .wait_with_output()
+                    .map_err(|e| format!("git could not be read: {e}"))?;
+                let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
+                text.push_str(&String::from_utf8_lossy(&output.stderr));
+                let text = text.trim().to_string();
+
+                return if status.success() {
+                    Ok(text)
+                } else if text.is_empty() {
+                    Err(format!("git exited with {status}"))
+                } else {
+                    Err(text)
+                };
+            }
+            Ok(None) => {
+                if started.elapsed() > NETWORK_TIMEOUT {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(format!(
+                        "git {} took longer than {} seconds and was stopped. \
+                         If it is waiting for a password or a passphrase, run it \
+                         in the terminal once so your credential helper has it.",
+                        args.first().copied().unwrap_or("command"),
+                        NETWORK_TIMEOUT.as_secs()
+                    ));
+                }
+                std::thread::sleep(Duration::from_millis(80));
+            }
+            Err(e) => return Err(format!("git could not be waited on: {e}")),
+        }
+    }
 }
 
 /// The repository top level for a directory, or `None` if it isn't in one.
@@ -616,6 +744,296 @@ pub fn commit(root: &Path, message: &str) -> Result<String, String> {
     })
 }
 
+// ─── History ────────────────────────────────────────────────────────────────
+
+/// Checks an object name before it becomes a git argument.
+///
+/// These come from this module's own `log` output, so the check is for the
+/// abnormal case: anything that isn't hex cannot be a commit, and refusing it
+/// here is what stops a revision argument ever being read as an option.
+fn revision_arg(sha: &str) -> Result<&str, String> {
+    let valid = sha.len() >= 4
+        && sha.len() <= 40
+        && sha.chars().all(|c| c.is_ascii_hexdigit());
+    if valid {
+        Ok(sha)
+    } else {
+        Err(format!("{sha} is not a commit"))
+    }
+}
+
+/// The same fields the list shows, for one commit.
+fn log_one(root: &Path, sha: &str) -> Result<GitCommit, String> {
+    log_range(root, &["--max-count=1", sha])?
+        .into_iter()
+        .next()
+        .ok_or_else(|| format!("{sha} is not a commit in this repository"))
+}
+
+/// One page of `git log`, newest first.
+pub fn log(root: &Path, limit: usize, skip: usize) -> Result<Vec<GitCommit>, String> {
+    let limit = format!("--max-count={}", limit.clamp(1, 500));
+    let skip = format!("--skip={skip}");
+    log_range(root, &[&limit, &skip])
+}
+
+/// `git log` with the fields the UI needs, over whatever range is given.
+fn log_range(root: &Path, args: &[&str]) -> Result<Vec<GitCommit>, String> {
+    let format = format!(
+        "--format=%H{FIELD}%h{FIELD}%an{FIELD}%ae{FIELD}%aI{FIELD}%s{FIELD}%D{FIELD}%P{RECORD}"
+    );
+    let mut all = vec!["log", "--no-color", &format];
+    all.extend_from_slice(args);
+
+    let raw = match git(root, &all) {
+        Ok(raw) => raw,
+        // A repository with no commits has no history, which is not an error —
+        // it is the state every repository starts in.
+        Err(_) => return Ok(Vec::new()),
+    };
+
+    Ok(raw
+        .split(RECORD)
+        .filter_map(|record| {
+            let record = record.trim_start_matches('\n');
+            if record.trim().is_empty() {
+                return None;
+            }
+            let mut fields = record.split(FIELD);
+            Some(GitCommit {
+                sha: fields.next()?.to_string(),
+                short: fields.next()?.to_string(),
+                author: fields.next()?.to_string(),
+                email: fields.next()?.to_string(),
+                date: fields.next()?.to_string(),
+                subject: fields.next()?.to_string(),
+                refs: fields.next()?.to_string(),
+                // More than one parent is a merge, which decides how its diff
+                // has to be asked for below.
+                merge: fields.next()?.split_whitespace().count() > 1,
+            })
+        })
+        .collect())
+}
+
+/// The body of a commit's message, and everything it touched.
+///
+/// One call rather than three, because it is one click. `--first-parent` is on
+/// both halves: `git show` on a merge prints nothing at all without it, and
+/// against the first parent it shows what the merge brought in, which is the
+/// question anyone opening one is asking.
+pub fn commit_detail(root: &Path, sha: &str) -> Result<GitCommitDetail, String> {
+    let sha = revision_arg(sha)?;
+
+    // The subject line and the rest of the metadata come from the same place
+    // the list does, so the drawer and the row it was opened from can never
+    // disagree about what a commit says.
+    let commit = log_one(root, sha)?;
+
+    let raw = git(
+        root,
+        &[
+            "show",
+            &format!("--format=%b{RECORD}"),
+            "--name-status",
+            "--no-color",
+            "--first-parent",
+            "-z",
+            sha,
+        ],
+    )?;
+
+    // The format output comes first, terminated by the record separator; the
+    // name-status records follow it.
+    let (body, names) = raw.split_once(RECORD).unwrap_or(("", raw.as_str()));
+
+    let mut files = statuses(names);
+    apply_counts(root, sha, &mut files)?;
+
+    Ok(GitCommitDetail {
+        commit,
+        body: body.trim_end().to_string(),
+        files,
+    })
+}
+
+/// Parses `show --name-status -z` records.
+///
+/// `<status>\0<path>\0`, or `<status>\0<from>\0<to>\0` for a rename or a copy
+/// — so the status decides how many fields to take, and miscounting turns one
+/// file's status into the next one's path.
+///
+/// The status is *trimmed* before its letter is read, which is not fussiness.
+/// With a non-empty `--format` git separates the two outputs with a NUL and a
+/// newline, so the first record arrives as `"\nM"` — and `'\n'` is not a status
+/// letter, so it fell through to the default and reported the first file in
+/// every commit as modified whatever it actually was.
+fn statuses(raw: &str) -> Vec<GitCommitFile> {
+    let mut files = Vec::new();
+    let mut fields = raw
+        .split('\0')
+        .map(str::trim)
+        .filter(|f| !f.is_empty());
+
+    while let Some(status) = fields.next() {
+        let code = status.chars().next().unwrap_or('?');
+        let renamed = matches!(code, 'R' | 'C');
+        let first = match fields.next() {
+            Some(path) => path,
+            None => break,
+        };
+        let (from, relative) = if renamed {
+            match fields.next() {
+                Some(to) => (Some(first.to_string()), to),
+                None => break,
+            }
+        } else {
+            (None, first)
+        };
+
+        files.push(GitCommitFile {
+            relative: relative.to_string(),
+            change: change_of(code).unwrap_or(GitChange::Modified),
+            from,
+            added: 0,
+            removed: 0,
+        });
+    }
+
+    files
+}
+
+/// Fills in the line counts from `--numstat`, matched by path.
+///
+/// A second call because `--name-status` and `--numstat` are two output
+/// formats, not two columns of one: asking for both in a single `git show`
+/// prints one block after the other, which is more parsing than running it
+/// twice and joining on the path.
+fn apply_counts(root: &Path, sha: &str, files: &mut [GitCommitFile]) -> Result<(), String> {
+    let raw = git(
+        root,
+        &[
+            "show",
+            "--numstat",
+            "--format=",
+            "--no-color",
+            "--first-parent",
+            "-z",
+            sha,
+        ],
+    )?;
+
+    let mut fields = raw.split('\0').filter(|f| !f.is_empty()).peekable();
+    while let Some(record) = fields.next() {
+        // `<added>\t<removed>\t<path>`, and for a rename the path is *empty* and
+        // the two paths follow as their own NUL-terminated fields.
+        let mut parts = record.split('\t');
+        let added = parts.next().unwrap_or("0");
+        let removed = parts.next().unwrap_or("0");
+        let inline = parts.next().unwrap_or("");
+
+        let path = if inline.is_empty() {
+            // Skip the source, keep the destination — the name-status pass
+            // keyed these files by where they ended up.
+            fields.next();
+            match fields.next() {
+                Some(to) => to.to_string(),
+                None => break,
+            }
+        } else {
+            inline.to_string()
+        };
+
+        // A binary file is reported as `-` on both counts: there are no lines
+        // to count, which is not the same as none having changed.
+        let added: u32 = added.parse().unwrap_or(0);
+        let removed: u32 = removed.parse().unwrap_or(0);
+
+        if let Some(file) = files.iter_mut().find(|f| f.relative == path) {
+            file.added = added;
+            file.removed = removed;
+        }
+    }
+
+    Ok(())
+}
+
+/// One file's diff as a commit left it.
+pub fn commit_diff(root: &Path, sha: &str, relative: &str) -> Result<String, String> {
+    let sha = revision_arg(sha)?;
+    let relative = relative_arg(relative)?;
+    git(
+        root,
+        &[
+            "show",
+            "--no-color",
+            "--no-ext-diff",
+            "--unified=3",
+            "--format=",
+            "--first-parent",
+            sha,
+            "--",
+            relative,
+        ],
+    )
+}
+
+// ─── Talking to a remote ────────────────────────────────────────────────────
+
+fn current_branch(root: &Path) -> Result<String, String> {
+    git(root, &["symbolic-ref", "--short", "HEAD"])
+        .map(|out| out.trim().to_string())
+        .map_err(|_| "HEAD is detached, so there is no branch to push".to_string())
+}
+
+/// The remote to publish a new branch to.
+///
+/// `origin` when it exists, the only one when there is exactly one, and
+/// otherwise an honest refusal: picking between three remotes on the user's
+/// behalf is how a branch ends up on the wrong one.
+fn default_remote(root: &Path) -> Result<String, String> {
+    let raw = git(root, &["remote"])?;
+    let remotes: Vec<&str> = raw.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+
+    if remotes.iter().any(|r| *r == "origin") {
+        return Ok("origin".to_string());
+    }
+    match remotes.as_slice() {
+        [] => Err("This repository has no remotes".to_string()),
+        [only] => Ok((*only).to_string()),
+        _ => Err(format!(
+            "This repository has several remotes ({}) and no `origin`, so push it              from the terminal once to choose one",
+            remotes.join(", ")
+        )),
+    }
+}
+
+fn has_upstream(root: &Path) -> bool {
+    git(root, &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]).is_ok()
+}
+
+/// Updates the remote-tracking refs. Changes nothing in the working tree.
+pub fn fetch(root: &Path) -> Result<String, String> {
+    // `--prune`, so a branch deleted on the remote stops being reported as
+    // something this repository has.
+    git_network(root, &["fetch", "--prune"])
+}
+
+/// Pushes the current branch, setting its upstream the first time.
+///
+/// Pull is deliberately not here. A pull merges, a merge conflicts, and a
+/// conflict needs somewhere to be resolved — which is a feature of its own and
+/// not one this panel has. Fetch tells you that you are behind; the shell three
+/// inches away does the rest.
+pub fn push(root: &Path) -> Result<String, String> {
+    if has_upstream(root) {
+        return git_network(root, &["push"]);
+    }
+    let remote = default_remote(root)?;
+    let branch = current_branch(root)?;
+    git_network(root, &["push", "--set-upstream", &remote, &branch])
+}
+
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -693,6 +1111,119 @@ mod tests {
         assert_eq!(hunk.line, 9);
         assert_eq!(hunk.lines, 0);
         assert_eq!(hunk.removed, 3);
+    }
+
+    /// `<status>\0<path>\0`, with renames taking a third field. Miscount and
+    /// the status of one file becomes the path of the next.
+    #[test]
+    fn commit_file_records_take_the_right_number_of_fields() {
+        // Simulated `show --name-status -z` output: a modify, a rename, an add.
+        let raw = "M\0src/lib.rs\0R100\0old/name.rs\0new/name.rs\0A\0docs/new.md\0";
+        let mut fields = raw.split('\0').filter(|f| !f.is_empty());
+        let mut seen = Vec::new();
+        while let Some(status) = fields.next() {
+            let code = status.chars().next().unwrap();
+            let first = fields.next().unwrap();
+            let path = if matches!(code, 'R' | 'C') {
+                fields.next().unwrap()
+            } else {
+                first
+            };
+            seen.push((code, path.to_string()));
+        }
+        assert_eq!(
+            seen,
+            vec![
+                ('M', "src/lib.rs".to_string()),
+                ('R', "new/name.rs".to_string()),
+                ('A', "docs/new.md".to_string()),
+            ]
+        );
+    }
+
+    /// `--numstat -z` puts a rename's paths in their own fields and leaves the
+    /// inline path *empty* — verified against a real `git show`, because it is
+    /// not what the non-`-z` format looks like.
+    #[test]
+    fn numstat_records_handle_a_rename() {
+        let raw = "79\t2\tREADME.md\0" // an ordinary change
+            .to_string()
+            + "1\t0\t\0old.txt\0new.txt\0" // a rename
+            + "-\t-\tlogo.png\0"; // a binary file
+
+        let mut files = vec![
+            GitCommitFile {
+                relative: "README.md".into(),
+                change: GitChange::Modified,
+                from: None,
+                added: 0,
+                removed: 0,
+            },
+            GitCommitFile {
+                relative: "new.txt".into(),
+                change: GitChange::Renamed,
+                from: Some("old.txt".into()),
+                added: 0,
+                removed: 0,
+            },
+            GitCommitFile {
+                relative: "logo.png".into(),
+                change: GitChange::Modified,
+                from: None,
+                added: 0,
+                removed: 0,
+            },
+        ];
+
+        // The body of `apply_counts`, without the subprocess.
+        let mut fields = raw.split('\0').filter(|f| !f.is_empty()).peekable();
+        while let Some(record) = fields.next() {
+            let mut parts = record.split('\t');
+            let added = parts.next().unwrap_or("0");
+            let removed = parts.next().unwrap_or("0");
+            let inline = parts.next().unwrap_or("");
+            let path = if inline.is_empty() {
+                fields.next();
+                match fields.next() {
+                    Some(to) => to.to_string(),
+                    None => break,
+                }
+            } else {
+                inline.to_string()
+            };
+            if let Some(file) = files.iter_mut().find(|f| f.relative == path) {
+                file.added = added.parse().unwrap_or(0);
+                file.removed = removed.parse().unwrap_or(0);
+            }
+        }
+
+        assert_eq!((files[0].added, files[0].removed), (79, 2));
+        assert_eq!((files[1].added, files[1].removed), (1, 0));
+        // Binary: `-` on both counts, which is not the same as unchanged.
+        assert_eq!((files[2].added, files[2].removed), (0, 0));
+    }
+
+    /// The regression above: git glues a newline to the first status when the
+    /// `--format` is not empty, and `A` must still come back as an addition.
+    #[test]
+    fn status_records_survive_the_separator_git_puts_before_them() {
+        let raw = "\0\nA\0src/new.rs\0D\0src/old.rs\0";
+        let files = statuses(raw);
+        assert_eq!(files.len(), 2);
+        assert_eq!(files[0].relative, "src/new.rs");
+        assert_eq!(files[0].change, GitChange::Added);
+        assert_eq!(files[1].relative, "src/old.rs");
+        assert_eq!(files[1].change, GitChange::Deleted);
+    }
+
+    #[test]
+    fn revision_arg_accepts_only_object_names() {
+        assert!(revision_arg("3b11460").is_ok());
+        assert!(revision_arg("4595984f3c8850d67e1b0496fe95ba7901dc9df4").is_ok());
+        assert!(revision_arg("HEAD").is_err());
+        assert!(revision_arg("--upload-pack=x").is_err());
+        assert!(revision_arg("main").is_err());
+        assert!(revision_arg("abc").is_err());
     }
 
     #[test]

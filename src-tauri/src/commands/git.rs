@@ -17,7 +17,9 @@ use std::path::PathBuf;
 use tauri::State;
 
 use crate::commands::fs::{resolve, FsState};
-use crate::git::operations::{self, GitFileDiff, GitRepo};
+use crate::git::operations::{
+    self, GitCommit, GitCommitDetail, GitFileDiff, GitRepo, LOG_PAGE,
+};
 
 /// Resolves the workspace directory, then asks git where the repository is.
 ///
@@ -73,4 +75,50 @@ pub fn git_discard(state: State<FsState>, dir: String, paths: Vec<String>) -> Re
 pub fn git_commit(state: State<FsState>, dir: String, message: String) -> Result<String, String> {
     let root = repo_root(&state, &dir)?;
     operations::commit(&root, &message)
+}
+
+#[tauri::command]
+pub fn git_log(
+    state: State<FsState>,
+    dir: String,
+    skip: usize,
+    limit: Option<usize>,
+) -> Result<Vec<GitCommit>, String> {
+    let root = repo_root(&state, &dir)?;
+    operations::log(&root, limit.unwrap_or(LOG_PAGE), skip)
+}
+
+/// Everything the history drawer shows: the message body and the file list.
+#[tauri::command]
+pub fn git_commit_detail(
+    state: State<FsState>,
+    dir: String,
+    sha: String,
+) -> Result<GitCommitDetail, String> {
+    let root = repo_root(&state, &dir)?;
+    operations::commit_detail(&root, &sha)
+}
+
+#[tauri::command]
+pub fn git_commit_diff(
+    state: State<FsState>,
+    dir: String,
+    sha: String,
+    path: String,
+) -> Result<String, String> {
+    let root = repo_root(&state, &dir)?;
+    operations::commit_diff(&root, &sha, &path)
+}
+
+/// Updates the remote-tracking refs. Touches nothing in the working tree.
+#[tauri::command]
+pub fn git_fetch(state: State<FsState>, dir: String) -> Result<String, String> {
+    let root = repo_root(&state, &dir)?;
+    operations::fetch(&root)
+}
+
+#[tauri::command]
+pub fn git_push(state: State<FsState>, dir: String) -> Result<String, String> {
+    let root = repo_root(&state, &dir)?;
+    operations::push(&root)
 }

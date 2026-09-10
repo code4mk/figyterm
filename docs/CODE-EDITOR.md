@@ -184,7 +184,10 @@ src/components/Editor/
   ContextMenu.tsx                the shared right-click shell
   QuickOpen.tsx                  fuzzy file finder
   GlobalSearch.tsx               ripgrep-style results panel
-  SourceControl.tsx              the changes list, checkboxes and commit box
+  SourceControl.tsx              changes/history tabs, fetch and push, commit box
+  CommitHistory.tsx              the history list, and which pane is on screen
+  CommitDetail.tsx               one commit: title, body, files, Back
+  ChangeTally.tsx                "24 edited · 6 new · 1 deleted", as chips
   DiffView.tsx                   working tree vs HEAD
 src/hooks/useFileWatcher.ts      external-change subscription
 ```
@@ -231,6 +234,9 @@ The git commands live in their own module, `src-tauri/src/commands/git.rs` over
 | `git_file_diff(dir, path)` | the unified diff of the working tree against HEAD, for `DiffView` |
 | `git_stage` / `git_unstage` / `git_discard` | `add`, `reset -q HEAD`, `checkout -q`; all take repo-relative paths |
 | `git_commit(dir, message)` | commits the index, returning git's own summary line |
+| `git_log(dir, skip, limit)` | one page of history, from a `%x1f`-delimited `--format` |
+| `git_commit_detail(dir, sha)` / `git_commit_diff(dir, sha, path)` | a commit's message body and files, and one file's diff at it |
+| `git_fetch(dir)` / `git_push(dir)` | the only two calls that leave the machine — see below |
 
 New module `src-tauri/src/commands/fs_watch.rs` using `notify` — one recursive
 watcher per open workspace root, debounced ~150 ms, emitting `editor://fs-change`.
@@ -562,13 +568,152 @@ Deliberately absent:
 - **Hunk-level staging.** A diff editor with selectable ranges, a patch builder
   and an `apply --cached` round-trip. A feature of its own, and a bad fit for a
   300px column — and with the index hidden there is nowhere to put the result.
-- **Branch switching, push, pull.** Checkout fails in a dozen interesting ways
-  and push needs credentials; both belong in the shell that is three inches
-  away, and both would need a UI for the failure modes rather than for the
-  happy path.
+- **Branch switching, and pull.** Checkout fails in a dozen interesting ways
+  and a pull can leave a conflict needing a merge editor; both belong in the
+  shell that is three inches away, and both would need a UI for the failure
+  modes rather than for the happy path. Fetch and push are here — see
+  [Fetch and push](#fetch-and-push).
 - **A chord for the panel.** `⌘⇧G` is CodeMirror's find-previous and `⌃⇧G` is
   not free everywhere; the toolbar button and the status-bar branch are the way
   in.
+
+### History
+
+A second tab in the panel, `CommitHistory`, and a **drawer** a commit opens
+into: the subject as a heading, the author and date, any branch or tag pointing
+at it, the message body, then the files with their `+`/`−` counts — and a Back
+button.
+
+The drawer replaced an expanding row, which is what this was first. Folding a
+commit open in place looked like the cheaper interaction and wasn't: a commit
+message is a paragraph, so unfolding one pushes every commit below it off a
+300px column. The list you were reading is gone either way — but with none of
+the room the message needs, and no way back except finding the row again.
+Replacing the pane admits what is happening, gives the message the full width,
+and has somewhere to put a Back button.
+
+It slides in from the right, which is not decoration: two panes with no
+transition between them read as "the panel was replaced", and the movement is
+what says the list is still behind this. Under `prefers-reduced-motion` it
+simply appears, which is the correct behaviour there rather than a degraded one.
+
+The body is **folded** above six lines or four hundred characters — both,
+because either alone gets it wrong: six lines of prose that wrap three times
+each is a wall of text by any measure, and one 900-character line is a wall of
+text with one newline in it. `Read more` unfolds it. Folded by `max-height`
+rather than by cutting the string: slicing at 400 characters lands mid-word,
+mid-list and mid-code-fence, and expanding it then reflows everything below it.
+A height with a fade over the bottom shows a real partial line, which is what
+says there is more. A thorough commit message is the *reason* to open a commit
+and also the thing that pushes its file list off the bottom of a 300px column.
+
+Clicking a file in the drawer opens its diff in the same `diff-check` tab, with
+the short SHA in the header — without it, "what I changed" and "what that commit
+changed" are the same file with the same counts and no way to tell them apart.
+A commit that disappears under an amend or a rebase closes the drawer rather
+than describing an object that no longer exists.
+
+Paged, not infinite. `git log` will hand over forty thousand commits and nobody
+is scrolling to the end of them, so it is a page and a button. A reload starts
+from the top and **discards** what was already loaded rather than splicing: a
+new commit shifts the whole list down by one, so "refetch page 0 and merge"
+duplicates a row at every page boundary.
+
+The log format is `%x1f`-delimited with `%x1e` between records — unit and record
+separator, not anything printable, because a commit subject can contain any
+character a person can type and every delimiter that looks safe turns out to be
+in somebody's commit message. A merge is detected from `%P` having more than one
+parent, which is also why its diff and file list are asked for with
+`--first-parent`: `git show` on a merge prints nothing at all by default.
+
+`commit_detail` gets the body and the file list from one `git show` — the format
+output first, terminated by `%x1e`, then the `--name-status` records — and the
+line counts from a second, `--numstat`, joined on the path. Two calls because
+those are two output formats rather than two columns of one; asking for both at
+once prints one block after the other, which is more parsing than running it
+twice.
+
+Both of those shapes were checked against real output rather than assumed, and
+both had a trap in them:
+
+- With a **non-empty `--format`**, git separates the two outputs with a NUL
+  *and a newline*, so the first name-status record arrives as `"\nM"`. `'\n'`
+  is not a status letter, so it fell through to the default and reported the
+  first file of every commit as modified whatever it really was. The status is
+  trimmed before its letter is read, and there is a test for exactly that
+  string.
+- `--numstat -z` puts a **rename's** paths in their own fields and leaves the
+  inline path *empty* — `1\t0\t\0old\0new\0` — which is not what the
+  non-`-z` format looks like. A binary file is `-` on both counts, meaning
+  "no lines to count", not "nothing changed".
+
+`revision_arg` refuses anything that isn't hex before it becomes a git argument.
+These SHAs come from this module's own output, so like `relative_arg` it is
+there for the abnormal case — and it is what stops a revision ever being read as
+an option.
+
+### Counting files by what happened to them
+
+`tally` in `services/git.ts`, drawn by `ChangeTally`, shown under both the
+Changes list and a commit's file list — one place decides the grouping, so a
+working tree and a commit of the same shape read identically.
+
+Git has eight status letters and nobody wants a legend for them, so they
+collapse into the four things people say out loud:
+
+| Shown | From | Why |
+|---|---|---|
+| **new** | `added`, `untracked`, `copied` | A copy is a file that wasn't there before, whatever git knows about where its contents came from |
+| **edited** | `modified`, `typeChanged` | A file becoming a symlink is a strange edit, not a fifth category |
+| **deleted** | `deleted` | |
+| **renamed** | `renamed` | Kept apart: a rename is neither new nor edited, and folding it into either overstates what changed — `R100` moved a file and touched nothing in it |
+
+`conflicted` gets its own count, being a state to resolve rather than a change
+that has happened. Empty counts are dropped, and the whole row is suppressed
+when one kind accounts for everything: "3 files changed · 3 edited" is the same
+sentence twice.
+
+The chips are coloured by `GitChange` through the same `git-*` row classes the
+tree uses, so "new" is the green the change gutter draws an added line in.
+One palette, three places.
+
+The Changes tab counts *every* changed file rather than the ticked ones: the
+tally describes the working tree — "this is what you have done" — while the
+checkboxes are about the next commit, and recounting on each tick would have
+the two answering the same question.
+
+### Fetch and push
+
+Two buttons, not one "sync". They do different things — one reads, one writes —
+and a single button that guesses which you meant is a button that occasionally
+pushes when you wanted to look. Push publishes the branch when it has no
+upstream, choosing `origin`, or the only remote, and otherwise refusing: picking
+between three remotes on the user's behalf is how a branch ends up on the wrong
+one.
+
+**Pull is deliberately absent.** A pull merges, a merge conflicts, and a
+conflict needs somewhere to be resolved — a merge editor is a feature of its
+own and not one this panel has. Fetch tells you that you are behind and the
+shell is three inches away.
+
+These are the only calls in the module that can block forever: a credential
+prompt with no terminal to show it in, an SSH passphrase, a host that accepts
+the connection and then says nothing. So they go through `git_network` rather
+than `git`, which differs in exactly two ways, both of them the point:
+
+- **`GIT_TERMINAL_PROMPT=0`**, so git fails fast instead of waiting for a
+  username nobody can type. A configured credential helper still works, which
+  is the case that matters.
+- **A 120-second deadline**, because that cannot stop *ssh* prompting, and a
+  panel stuck on "Pushing…" with no way out is worse than one that says it gave
+  up and suggests running it in the terminal once. `GIT_SSH_COMMAND` with
+  `BatchMode=yes` would prevent that one cause specifically, and was rejected:
+  it overrides a user's own `core.sshCommand`, and a timeout covers every cause
+  rather than the one we thought of.
+
+Output is returned on success too, not just on failure. Git reports a
+successful push on **stderr** — `3b11460..a1b2c3d  main -> main` is the
+confirmation — and "Everything up-to-date" is an answer.
 
 ### Diff view
 
@@ -814,6 +959,8 @@ What was built, against the plan above.
 - [x] Tree decorations, gutter change marks, branch in the status bar
 - [x] `DiffView`: unified and split layouts, word-level highlighting inside changed lines, five presets (GitHub, GitLab, VS Code, Delta, plain `git diff`)
 - [x] `SourceControl` panel, GitHub Desktop-shaped: one changes list, a checkbox per file, summary/description, `Commit N files to <branch>`
+- [x] History tab: paged `git log`, a commit opening a drawer with its message and files, each file opening a diff at that revision
+- [x] Fetch and push, with a deadline so a credential prompt can't hang the panel
 - [x] A find/replace panel with a match count, and a go-to-line overlay that previews
 - [x] Language, encoding and line-ending pickers; word wrap toggle
 - [x] Scratch buffers with save-as
@@ -862,6 +1009,18 @@ is a manual matrix, run per platform (macOS, Windows, Linux):
 - Untick a file, commit, and check `git log --stat`: only the ticked files are
   in it, including when one of the unticked ones was staged from the terminal.
 - Discard an untracked file: it is in the trash, not gone.
+- History: a commit's subject, author and relative date are right, a merge is
+  marked, and its files open a diff at that revision rather than the working
+  copy's.
+- The drawer's first file shows the status it actually has — an **added** first
+  file must not read as modified — and its `+`/`−` totals match
+  `git show --shortstat` for the same commit.
+- The tally adds up to the file count, a rename is counted as neither new nor
+  edited, and the row disappears when every file changed the same way.
+- A long commit body folds with a fade and `Read more`; a three-line one shows
+  whole, with no button.
+- Push on a branch with no upstream publishes it; push with no remote, and with
+  two remotes and no `origin`, both say so rather than doing something.
 - A one-word change shows one highlight, not one per word with the spaces
   punched out, and its `+`/`−` counts agree with `git diff --numstat`.
 - Every diff preset in both themes, unified and split: no column spilling into

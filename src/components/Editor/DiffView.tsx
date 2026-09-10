@@ -56,6 +56,15 @@ interface DiffViewProps {
   name: string;
   /** Repo-relative, beside the name so two same-named files are tellable apart. */
   relative: string;
+  /**
+   * The commit this is the diff of, abbreviated — null for the working tree.
+   *
+   * Without it the two look identical: the same file, the same +/− counts, and
+   * no way to tell "what I have changed" from "what that commit changed".
+   */
+  revision: string | null;
+  /** That commit's subject, for the tooltip. */
+  subject: string | null;
   diff: string | null;
   loading: boolean;
   error: string | null;
@@ -72,6 +81,8 @@ interface DiffViewProps {
 export function DiffView({
   name,
   relative,
+  revision,
+  subject,
   diff,
   loading,
   error,
@@ -94,6 +105,15 @@ export function DiffView({
         <FileText size={12} className="shrink-0 opacity-70" />
         <span className="text-[11px] font-semibold truncate">{name}</span>
         <span className="editor-diff-path text-[10px] truncate flex-1 min-w-0">{relative}</span>
+
+        {revision && (
+          <span
+            className="editor-diff-rev text-[10px] shrink-0 tabular-nums px-1 rounded"
+            title={subject ? `${revision} — ${subject}` : revision}
+          >
+            {revision}
+          </span>
+        )}
 
         {parsed && !parsed.binary && (
           <span className="editor-diff-counts text-[10px] shrink-0 tabular-nums">
@@ -171,7 +191,9 @@ export function DiffView({
           </div>
         ) : empty ? (
           <div className="editor-diff-message px-3 py-3 text-[11px]">
-            This file matches the last commit.
+            {revision
+              ? "That commit left this file unchanged."
+              : "This file matches the last commit."}
           </div>
         ) : (
           <>
