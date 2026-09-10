@@ -31,6 +31,19 @@ export function collapseHome(path: string): string {
   return inHome ? `~${path.slice(_homeDir.length)}` : path;
 }
 
+/**
+ * A path in the one form everything else can be compared against: `~` expanded
+ * and any trailing separator removed.
+ *
+ * Exported because the editor needs it too. The terminal's working directory is
+ * scraped from the shell prompt, so it can arrive as `~/project` while the
+ * editor's root is the canonical `/Users/me/project` — comparing those as
+ * strings says they're different folders.
+ */
+export function normalizeDir(path: string): string {
+  return normalize(path);
+}
+
 function normalize(p: string): string {
   if (!p) return p;
   let resolved = p;

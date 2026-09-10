@@ -4,6 +4,7 @@ import { X, PictureInPicture2, Maximize2, Cpu, MemoryStick, HardDrive } from "lu
 import Chart from "react-apexcharts";
 import { useThemeStore } from "../../stores/themeStore";
 import { OverlayPortal } from "../Overlay/OverlayPortal";
+import { claimFront, releaseFront } from "../../services/overlay-stack";
 
 interface SystemStats {
   cpuUsage: number;
@@ -37,6 +38,24 @@ export function SystemMonitor({ visible, onClose }: SystemMonitorProps) {
   const [memHistory, setMemHistory] = useState<{ x: number; y: number }[]>([]);
   const [pipMode, setPipMode] = useState(false);
   const [activeChart, setActiveChart] = useState<"cpu" | "memory">("cpu");
+
+  /**
+   * Keeps this window in front when it's opened or clicked, and steps aside
+   * when it closes. See `services/overlay-stack.ts`.
+   */
+  const [frontZ, setFrontZ] = useState<number | null>(null);
+  const raise = useCallback(() => setFrontZ(claimFront("monitor")), []);
+
+  useEffect(() => {
+    if (visible) {
+      raise();
+      return;
+    }
+    // Released on close, so whatever is still open becomes frontmost.
+    releaseFront("monitor");
+    setFrontZ(null);
+  }, [visible, pipMode, raise]);
+
   const modalRef = useRef<HTMLDivElement>(null);
   const theme = useThemeStore((s) => s.theme);
 
@@ -215,7 +234,8 @@ export function SystemMonitor({ visible, onClose }: SystemMonitorProps) {
     <div
       ref={modalRef}
       className={`monitor-modal rounded-xl overflow-hidden shadow-2xl ${pipMode ? "monitor-pip" : ""}`}
-      style={modalStyle}
+      style={pipMode ? { ...modalStyle, zIndex: frontZ ?? undefined } : modalStyle}
+      onPointerDownCapture={raise}
       onMouseDown={(e) => e.stopPropagation()}
       onMouseUp={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}

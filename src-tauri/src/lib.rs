@@ -7,6 +7,8 @@ pub mod terminal;
 pub mod updater;
 
 use commands::browser::BrowserState;
+use commands::fs::FsState;
+use commands::fs_watch::WatchState;
 use state::app_state::AppState;
 use tauri::{AppHandle, Manager, RunEvent};
 use updater::UpdaterState;
@@ -37,9 +39,12 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState::new())
         .manage(BrowserState::default())
+        .manage(FsState::default())
+        .manage(WatchState::default())
         .manage(UpdaterState::default())
         .setup(|app| {
             let menu = menu::build_app_menu(app.handle())?;
@@ -82,6 +87,20 @@ pub fn run() {
             commands::browser::browser_focus,
             commands::browser::browser_set_zoom,
             commands::browser::browser_set_theme,
+            commands::fs::fs_set_roots,
+            commands::fs::fs_list_dir,
+            commands::fs::fs_stat,
+            commands::fs::fs_read_text,
+            commands::fs::fs_write_text,
+            commands::fs::fs_create,
+            commands::fs::fs_rename,
+            commands::fs::fs_delete,
+            commands::fs::fs_reveal,
+            commands::fs::fs_list_files,
+            commands::fs::fs_search,
+            commands::fs::fs_cancel_search,
+            commands::fs_watch::fs_watch_root,
+            commands::fs_watch::fs_unwatch,
             updater::check_for_updates,
             updater::get_current_version,
             updater::running_foreground_commands,

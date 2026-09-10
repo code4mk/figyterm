@@ -3,6 +3,13 @@ import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useThemeStore } from "../../stores/themeStore";
 import { OverlayPortal } from "../Overlay/OverlayPortal";
 import {
+  claimFront,
+  isFront,
+  releaseFront,
+  subscribeOverlayStack,
+} from "../../services/overlay-stack";
+import { fullscreenRect, pictureInPictureRect } from "../../hooks/useDraggableModal";
+import {
   ArrowLeft,
   ArrowRight,
   RotateCw,
@@ -12,6 +19,7 @@ import {
   ExternalLink,
   PictureInPicture2,
   Maximize2,
+  Minimize2,
   Lock,
   TriangleAlert,
 } from "lucide-react";
@@ -46,7 +54,6 @@ const MIN_HEIGHT = 380;
 const MAX_WIDTH = 1800;
 const MAX_HEIGHT = 1200;
 const DEFAULT_SIZE = { w: 940, h: 620 };
-const PIP_SIZE = { w: 480, h: 400 };
 const MAX_TABS = 10;
 
 export function BrowserModal({ visible, onClose }: BrowserModalProps) {
@@ -56,6 +63,7 @@ export function BrowserModal({ visible, onClose }: BrowserModalProps) {
   const [editingAddress, setEditingAddress] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pipMode, setPipMode] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
   const theme = useThemeStore((s) => s.theme);
 
   // The native webview is repositioned over a one-way IPC hop, so it visibly lags a
@@ -72,6 +80,48 @@ export function BrowserModal({ visible, onClose }: BrowserModalProps) {
   const resizeRef = useRef<{ startX: number; startY: number; origW: number; origH: number } | null>(null);
   const creatingRef = useRef(false);
   const tabCountRef = useRef(0);
+
+  /**
+   * Keeps this window in front when it's opened or clicked.
+   *
+   * See `services/overlay-stack.ts` — several overlays can float at once, and
+   * the raised value has to land on the outermost fixed element to count.
+   */
+  const [frontZ, setFrontZ] = useState<number | null>(null);
+  const raise = useCallback(() => setFrontZ(claimFront("browser")), []);
+
+  useEffect(() => {
+    if (visible) {
+      raise();
+      return;
+    }
+    // Released on close, so whatever is still open becomes frontmost.
+    releaseFront("browser");
+    setFrontZ(null);
+  }, [visible, pipMode, raise]);
+
+  /**
+   * Whether this modal is the frontmost overlay.
+   *
+   * It matters far more here than anywhere else. The page is a *native child
+   * webview*, which the platform composites above the app's own webview
+   * entirely — no CSS z-index, stacking context or opacity can put anything
+   * over it. So with the editor in front, the browser's chrome correctly went
+   * behind while the page itself carried on painting straight through the
+   * middle of the editor.
+   *
+   * The only thing that actually occludes a child webview is hiding it, so the
+   * page is hidden whenever something else is in front. Recomputed from a
+   * subscription because another overlay coming forward has to re-render *this*
+   * one.
+   */
+  const [stackVersion, setStackVersion] = useState(0);
+  useEffect(() => subscribeOverlayStack(() => setStackVersion((v) => v + 1)), []);
+  // `stackVersion` is the dependency that matters — it changes whenever any
+  // overlay's claim does, which is exactly when this answer can change.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const atFront = useMemo(() => isFront("browser"), [frontZ, stackVersion]);
+
 
   const activeTab = useMemo(
     () => tabs.find((t) => t.tabId === activeTabId) ?? null,
@@ -208,7 +258,9 @@ export function BrowserModal({ visible, onClose }: BrowserModalProps) {
     const ids = tabIdsKey ? tabIdsKey.split("|") : [];
     if (ids.length === 0) return;
 
-    if (!visible || interacting) {
+    // `!atFront`: see the note on `atFront` — a child webview can only be
+    // occluded by being hidden.
+    if (!visible || interacting || !atFront) {
       ids.forEach((id) => void setBrowserVisible(id, false).catch(() => {}));
       return;
     }
@@ -221,19 +273,19 @@ export function BrowserModal({ visible, onClose }: BrowserModalProps) {
         () => {}
       );
     });
-  }, [visible, interacting, activeTabId, tabIdsKey, pos, size, pipMode, measure]);
+  }, [visible, interacting, atFront, activeTabId, tabIdsKey, pos, size, pipMode, measure]);
 
   useEffect(() => {
     if (!visible) return;
     const onResize = () => {
       const bounds = measure();
-      if (bounds && activeTabId && !interacting) {
+      if (bounds && activeTabId && !interacting && atFront) {
         void setBrowserVisible(activeTabId, true, bounds).catch(() => {});
       }
     };
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
-  }, [visible, activeTabId, interacting, measure]);
+  }, [visible, activeTabId, interacting, atFront, measure]);
 
   useEffect(() => {
     const el = viewportRef.current;
@@ -241,13 +293,13 @@ export function BrowserModal({ visible, onClose }: BrowserModalProps) {
 
     const observer = new ResizeObserver(() => {
       const bounds = measure();
-      if (bounds && activeTabId && !interacting) {
+      if (bounds && activeTabId && !interacting && atFront) {
         void setBrowserVisible(activeTabId, true, bounds).catch(() => {});
       }
     });
     observer.observe(el);
     return () => observer.disconnect();
-  }, [visible, activeTabId, interacting, measure]);
+  }, [visible, activeTabId, interacting, atFront, measure]);
 
   useEffect(() => {
     if (!editingAddress) setDraft(activeTab?.url ?? "");
@@ -326,14 +378,48 @@ export function BrowserModal({ visible, onClose }: BrowserModalProps) {
     [size]
   );
 
+  /**
+   * Fullscreen: the modal takes the whole window.
+   *
+   * Mutually exclusive with picture-in-picture — they're opposite answers to
+   * the same question — and the geometry comes from the shared helper, so this
+   * mode matches the editor's exactly.
+   */
+  const toggleFullscreen = useCallback(() => {
+    setPipMode(false);
+    setFullscreen((prev) => {
+      if (prev) {
+        setPos(null);
+        setSize(DEFAULT_SIZE);
+      } else {
+        const rect = fullscreenRect();
+        setSize({ w: rect.w, h: rect.h });
+        setPos({ x: rect.x, y: rect.y });
+      }
+      return !prev;
+    });
+  }, []);
+
+  /** Keeps a fullscreen modal the size of the window it's filling. */
+  useEffect(() => {
+    if (!fullscreen) return;
+    const follow = () => {
+      const rect = fullscreenRect();
+      setSize({ w: rect.w, h: rect.h });
+      setPos({ x: rect.x, y: rect.y });
+    };
+    window.addEventListener("resize", follow);
+    return () => window.removeEventListener("resize", follow);
+  }, [fullscreen]);
+
   const togglePip = useCallback(() => {
+    setFullscreen(false);
     setPipMode((prev) => {
       if (!prev) {
-        setSize(PIP_SIZE);
-        setPos({
-          x: Math.max(0, window.innerWidth - PIP_SIZE.w - 24),
-          y: Math.max(0, window.innerHeight - PIP_SIZE.h - 48),
-        });
+        // The same geometry the editor uses, from the shared helper.
+        const rect = pictureInPictureRect();
+        setSize({ w: rect.w, h: rect.h });
+        setPos({ x: rect.x, y: rect.y });
       } else {
         setPos(null);
         setSize(DEFAULT_SIZE);
@@ -361,12 +447,25 @@ export function BrowserModal({ visible, onClose }: BrowserModalProps) {
     [activeTabId, draft, createTab]
   );
 
+  /**
+   * The browser's own chords, and only those.
+   *
+   * Propagation is stopped per branch rather than up front. Swallowing every
+   * keystroke meant that while the browser was open none of the app's
+   * shortcuts worked — ⌘T did nothing, because the chord was consumed here
+   * before it reached the window handler in `AppShell`. Anything the browser
+   * doesn't claim now bubbles, so a new terminal tab still opens with the
+   * browser in front of it.
+   *
+   * Plain typing is unaffected: every app shortcut requires a modifier, so
+   * text going into the address bar matches none of them.
+   */
   const handleModalKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      e.stopPropagation();
       const isMod = e.metaKey || e.ctrlKey;
 
       if (e.key === "Escape") {
+        e.stopPropagation();
         if (editingAddress) {
           setEditingAddress(false);
           setDraft(activeTab?.url ?? "");
@@ -374,12 +473,14 @@ export function BrowserModal({ visible, onClose }: BrowserModalProps) {
         } else {
           onClose();
         }
-      } else if (isMod && e.key === "l") {
+      } else if (isMod && !e.shiftKey && !e.altKey && e.key === "l") {
         e.preventDefault();
+        e.stopPropagation();
         addressRef.current?.focus();
         addressRef.current?.select();
-      } else if (isMod && e.key === "r" && activeTabId) {
+      } else if (isMod && !e.shiftKey && !e.altKey && e.key === "r" && activeTabId) {
         e.preventDefault();
+        e.stopPropagation();
         void reloadBrowser(activeTabId).catch(() => {});
       }
     },
@@ -398,10 +499,11 @@ export function BrowserModal({ visible, onClose }: BrowserModalProps) {
   const modal = (
     <div
       ref={modalRef}
-      className={`browser-modal rounded-xl overflow-hidden shadow-2xl flex flex-col ${
+      className={`browser-modal overflow-hidden shadow-2xl flex flex-col ${
         pipMode ? "browser-pip" : ""
-      }`}
-      style={modalStyle}
+      } ${fullscreen ? "browser-fullscreen" : "rounded-xl"}`}
+      style={pipMode ? { ...modalStyle, zIndex: frontZ ?? undefined } : modalStyle}
+      onPointerDownCapture={raise}
       onMouseDown={(e) => e.stopPropagation()}
       onMouseUp={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
@@ -415,6 +517,18 @@ export function BrowserModal({ visible, onClose }: BrowserModalProps) {
         onPointerDown={handleDragStart}
         onContextMenu={suppressContextMenu}
       >
+        {/*
+          Names the window, as the editor's does. Inside the strip rather than
+          beside it, so it picks up the strip's own background and the drag
+          handler already on the parent.
+        */}
+        <div className="browser-brand flex items-center gap-2 pl-1 pr-2.5 mr-1 pb-1.5 shrink-0">
+          <img src="/logo.png" alt="" className="h-3.5 w-auto shrink-0" />
+          <span className="browser-brand-title text-[11px] font-semibold whitespace-nowrap">
+            Browser
+          </span>
+        </div>
+
         <div className="flex items-end gap-1 flex-1 min-w-0 overflow-x-auto browser-tabstrip-scroll">
           {tabs.map((tab) => (
             <div
@@ -461,13 +575,22 @@ export function BrowserModal({ visible, onClose }: BrowserModalProps) {
 
         <div className="flex items-center gap-0.5 shrink-0 pb-0.5">
           <button
-            className="browser-btn p-1 rounded"
+            className={`browser-btn p-1 rounded ${pipMode ? "on" : ""}`}
             onPointerDown={(e) => e.stopPropagation()}
             onClick={togglePip}
             title={pipMode ? "Exit picture-in-picture" : "Picture-in-picture"}
             aria-label={pipMode ? "Exit picture-in-picture" : "Picture-in-picture"}
           >
-            {pipMode ? <Maximize2 size={12} /> : <PictureInPicture2 size={12} />}
+            <PictureInPicture2 size={12} />
+          </button>
+          <button
+            className={`browser-btn p-1 rounded ${fullscreen ? "on" : ""}`}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={toggleFullscreen}
+            title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+            aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+          >
+            {fullscreen ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
           </button>
           <button
             className="browser-btn browser-btn-close p-1 rounded"
@@ -582,7 +705,7 @@ export function BrowserModal({ visible, onClose }: BrowserModalProps) {
         placeholder underneath is only ever seen while the modal is being moved.
       */}
       <div ref={viewportRef} className="browser-viewport flex-1 min-h-0">
-        {(interacting || tabs.length === 0) && (
+        {(interacting || !atFront || tabs.length === 0) && (
           <div className="browser-viewport-placeholder h-full w-full flex flex-col items-center justify-center gap-2">
             <Globe size={22} className="browser-placeholder-icon" />
             <span className="text-[11px] browser-placeholder-text">
@@ -632,10 +755,14 @@ export function BrowserModal({ visible, onClose }: BrowserModalProps) {
     <OverlayPortal>
       <div
         className="fixed inset-0 z-[250] flex items-start justify-center pt-[6vh]"
+        style={{ zIndex: frontZ ?? undefined }}
         onMouseDown={(e) => {
           if (e.target === e.currentTarget) onClose();
         }}
-        onKeyDown={(e) => e.stopPropagation()}
+        /*
+          No `onKeyDown` swallow here either — it undid the per-chord handling
+          in `handleModalKeyDown` by catching everything on the way past.
+        */
         onKeyUp={(e) => e.stopPropagation()}
       >
         {modal}

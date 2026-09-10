@@ -1,9 +1,10 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, lazy, Suspense } from "react";
 import { listen, emit } from "@tauri-apps/api/event";
 import { TabBar } from "../Terminal/TabBar";
 import { StatusBar } from "../Terminal/StatusBar";
 import { SystemMonitor } from "../Terminal/SystemMonitor";
 import { BrowserModal } from "../Browser/BrowserModal";
+import { OverlayBoundary } from "../Overlay/OverlayBoundary";
 import { CommandPalette } from "../CommandPalette/CommandPalette";
 import { Settings } from "../Settings/Settings";
 import { UpdateModal } from "../Updates/UpdateModal";
@@ -21,9 +22,23 @@ import { useTerminalStore } from "../../stores/terminalStore";
 import { useThemeStore } from "../../stores/themeStore";
 import { TerminalSession } from "../../types/terminal";
 import { SHORTCUTS, keys, matches } from "../../services/shortcuts";
+// Type-only, so importing it doesn't pull the editor into the startup bundle.
+import type { EditorOpenRequest } from "../Editor/EditorModal";
 import { isMac, EMBEDDED_BROWSER_SUPPORTED } from "../../services/platform";
 
 const MAX_PANES_PER_TAB = 4;
+
+/**
+ * The editor is fetched the first time it's opened, not at launch.
+ *
+ * It carries CodeMirror, which is a few hundred kilobytes of the bundle, and
+ * this is a terminal — the shell should be on screen before anything is spent
+ * on an editor the user may never open in this session. After that first open
+ * it stays mounted, so the cost is paid once.
+ */
+const EditorModal = lazy(() =>
+  import("../Editor/EditorModal").then((module) => ({ default: module.EditorModal }))
+);
 
 /**
  * ⌘1-9 / Ctrl+1-9 jumps to a tab by position. It lives here rather than in the
@@ -48,6 +63,11 @@ export function AppShell() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [monitorOpen, setMonitorOpen] = useState(false);
   const [browserOpen, setBrowserOpen] = useState(false);
+  const [editorOpen, setEditorOpen] = useState(false);
+  /** Latches on the first open, so the editor is fetched once and then stays. */
+  const [editorMounted, setEditorMounted] = useState(false);
+  /** The file a clicked path in terminal output asked the editor to open. */
+  const [editorRequest, setEditorRequest] = useState<EditorOpenRequest | null>(null);
   const [updatesOpen, setUpdatesOpen] = useState(false);
   const [tabs, setTabs] = useState<TabInstance[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
@@ -323,6 +343,30 @@ export function AppShell() {
     if (ref?.current) ref.current();
   }, [activePaneId]);
 
+  useEffect(() => {
+    if (editorOpen) setEditorMounted(true);
+  }, [editorOpen]);
+
+  /** A path clicked in terminal output; see the link provider in `Terminal.tsx`. */
+  useEffect(() => {
+    const pending = listen<{ path: string; line?: number; column?: number }>(
+      "editor://open-path",
+      (event) => {
+        setEditorOpen(true);
+        setEditorRequest((prev) => ({
+          path: event.payload.path,
+          line: event.payload.line,
+          column: event.payload.column,
+          // The token is what lets the same path be asked for twice.
+          token: (prev?.token ?? 0) + 1,
+        }));
+      }
+    );
+    return () => {
+      pending.then((off) => off()).catch(() => {});
+    };
+  }, []);
+
   const handleOpenUpdates = useCallback(() => {
     hideToast();
     setUpdatesOpen(true);
@@ -345,6 +389,7 @@ export function AppShell() {
       listen("menu://close-pane", () => handleClosePane()),
       listen("menu://clear-terminal", () => handleClearTerminal()),
       listen("menu://browser", () => setBrowserOpen((open) => !open)),
+      listen("menu://editor", () => setEditorOpen((open) => !open)),
       listen("menu://monitor", () => setMonitorOpen((open) => !open)),
       listen("menu://command-palette", () => setCommandPaletteOpen((open) => !open)),
       listen("menu://settings", () => setSettingsOpen(true)),
@@ -402,6 +447,9 @@ export function AppShell() {
       } else if (EMBEDDED_BROWSER_SUPPORTED && matches(e, SHORTCUTS.browser)) {
         e.preventDefault();
         setBrowserOpen((prev) => !prev);
+      } else if (matches(e, SHORTCUTS.editor)) {
+        e.preventDefault();
+        setEditorOpen((prev) => !prev);
       } else if (matches(e, SHORTCUTS.splitDown)) {
         e.preventDefault();
         handleSplitPane("vertical");
@@ -471,6 +519,7 @@ export function AppShell() {
     ...(EMBEDDED_BROWSER_SUPPORTED
       ? [{ id: "browser", label: "Open Browser", shortcut: keys(SHORTCUTS.browser), action: () => setBrowserOpen(true) }]
       : []),
+    { id: "editor", label: "Open Code Editor", shortcut: keys(SHORTCUTS.editor), action: () => setEditorOpen(true) },
     { id: "monitor", label: "System Monitor", shortcut: keys(SHORTCUTS.monitor), action: () => setMonitorOpen(true) },
     { id: "settings", label: "Settings", shortcut: keys(SHORTCUTS.settings), action: () => setSettingsOpen(true) },
     { id: "check-updates", label: "Check for Updates", action: handleOpenUpdates },
@@ -530,15 +579,38 @@ export function AppShell() {
         onClose={() => setSettingsOpen(false)}
         activeSessionId={activePaneSession?.sessionId ?? null}
       />
-      <SystemMonitor
-        visible={monitorOpen}
-        onClose={() => setMonitorOpen(false)}
-      />
-      {EMBEDDED_BROWSER_SUPPORTED && (
-        <BrowserModal
-          visible={browserOpen}
-          onClose={() => setBrowserOpen(false)}
+      <OverlayBoundary label="system monitor" onDismiss={() => setMonitorOpen(false)}>
+        <SystemMonitor
+          visible={monitorOpen}
+          onClose={() => setMonitorOpen(false)}
         />
+      </OverlayBoundary>
+      {EMBEDDED_BROWSER_SUPPORTED && (
+        <OverlayBoundary label="browser" onDismiss={() => setBrowserOpen(false)}>
+          <BrowserModal
+            visible={browserOpen}
+            onClose={() => setBrowserOpen(false)}
+          />
+        </OverlayBoundary>
+      )}
+      {/*
+        Once mounted it stays mounted whether or not it's open — it hides
+        itself. Unmounting it would throw away every open buffer's undo history
+        and selection, which is the one thing an editor must not lose when you
+        dismiss it to look at the shell for a moment.
+      */}
+      {editorMounted && (
+        <OverlayBoundary label="code editor" onDismiss={() => setEditorOpen(false)}>
+          <Suspense fallback={null}>
+            <EditorModal
+              visible={editorOpen}
+              onClose={() => setEditorOpen(false)}
+              cwd={getActiveCwd()}
+              onOpenTerminal={createTab}
+              openRequest={editorRequest}
+            />
+          </Suspense>
+        </OverlayBoundary>
       )}
       <UpdateModal
         isOpen={updatesOpen}

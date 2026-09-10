@@ -20,6 +20,7 @@ pub const MENU_SPLIT_DOWN: &str = "shell_split_down";
 pub const MENU_CLOSE_PANE: &str = "shell_close_pane";
 pub const MENU_CLEAR_TERMINAL: &str = "shell_clear_terminal";
 pub const MENU_BROWSER: &str = "shell_browser";
+pub const MENU_EDITOR: &str = "shell_editor";
 pub const MENU_MONITOR: &str = "shell_monitor";
 pub const MENU_COMMAND_PALETTE: &str = "shell_command_palette";
 pub const MENU_SETTINGS: &str = "shell_settings";
@@ -34,6 +35,7 @@ const EVENT_SPLIT_DOWN: &str = "menu://split-down";
 const EVENT_CLOSE_PANE: &str = "menu://close-pane";
 const EVENT_CLEAR_TERMINAL: &str = "menu://clear-terminal";
 const EVENT_BROWSER: &str = "menu://browser";
+const EVENT_EDITOR: &str = "menu://editor";
 const EVENT_MONITOR: &str = "menu://monitor";
 const EVENT_COMMAND_PALETTE: &str = "menu://command-palette";
 const EVENT_SETTINGS: &str = "menu://settings";
@@ -153,6 +155,13 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         true,
         accel("CmdOrCtrl+Shift+B", "Ctrl+Shift+B"),
     )?;
+    let editor = MenuItem::with_id(
+        app,
+        MENU_EDITOR,
+        label("Code Editor", "Ctrl+Shift+E"),
+        true,
+        accel("CmdOrCtrl+Shift+E", "Ctrl+Shift+E"),
+    )?;
     let monitor = MenuItem::with_id(
         app,
         MENU_MONITOR,
@@ -255,6 +264,7 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
             &clear_terminal,
             &sep3,
             &browser,
+            &editor,
             &monitor,
             &toggle_theme,
             &sep4,
@@ -389,6 +399,7 @@ pub fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
         MENU_CLOSE_PANE => app.emit(EVENT_CLOSE_PANE, ()),
         MENU_CLEAR_TERMINAL => app.emit(EVENT_CLEAR_TERMINAL, ()),
         MENU_BROWSER => app.emit(EVENT_BROWSER, ()),
+        MENU_EDITOR => app.emit(EVENT_EDITOR, ()),
         MENU_MONITOR => app.emit(EVENT_MONITOR, ()),
         MENU_COMMAND_PALETTE => app.emit(EVENT_COMMAND_PALETTE, ()),
         MENU_SETTINGS => app.emit(EVENT_SETTINGS, ()),
