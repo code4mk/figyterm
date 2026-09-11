@@ -60,25 +60,62 @@ struct ChangePayload {
 
 /// Whether a path is one the editor should hear about.
 ///
-/// Two exclusions earn their place:
+/// **Our own temp files** are always excluded. Every atomic save creates and
+/// renames a `.name.figytmp` sibling (see `filesystem/operations.rs`), so
+/// without this filter saving a file makes the editor tell itself the directory
+/// changed, twice.
 ///
-/// - **Our own temp files.** Every atomic save creates and renames a
-///   `.name.figytmp` sibling (see `filesystem/operations.rs`), so without this
-///   filter saving a file makes the editor tell itself the directory changed,
-///   twice.
-/// - **`.git`.** It churns constantly — index locks, refs, objects — and none
-///   of it is a file anybody has open. Git integration, when it arrives, will
-///   want a deliberate refresh rather than this firehose.
+/// **`.git`** used to be excluded outright, on the grounds that it churns and
+/// that none of it is a file anybody has open. Both true, and the conclusion
+/// was still wrong: the source-control panel needs to notice a commit, a
+/// checkout or a fetch made in the pane behind, and with nothing under `.git`
+/// reported it only ever refreshed after an action taken in the editor itself.
+/// So four things inside it are let through and the rest is not — see
+/// [`is_repo_signal`].
 fn is_interesting(path: &Path) -> bool {
-    let mut components = path.components();
-    if components.any(|c| c.as_os_str() == ".git") {
-        return false;
+    if let Some(rest) = inside_git(path) {
+        return is_repo_signal(&rest);
     }
 
     match path.file_name().and_then(|n| n.to_str()) {
         Some(name) => !(name.starts_with('.') && name.ends_with(".figytmp")),
         None => true,
     }
+}
+
+/// The components of `path` after a `.git` directory, if it is inside one.
+fn inside_git(path: &Path) -> Option<Vec<String>> {
+    let mut components = path.components().map(|c| c.as_os_str().to_string_lossy());
+    components.by_ref().find(|c| c == ".git")?;
+    Some(components.map(|c| c.into_owned()).collect())
+}
+
+/// Whether a path inside `.git` means the repository's *state* changed.
+///
+/// Four things do, and they are the four `git status` reads:
+///
+/// - `HEAD` — the branch changed, or it became detached.
+/// - `index` — something was staged or unstaged.
+/// - `refs/…` and `packed-refs` — a commit, a fetch, a branch, a tag.
+///
+/// Everything else is the churn: `objects/` is written on every commit and
+/// every fetch and says nothing a ref does not, and `logs/` is the reflog. Lock
+/// files are excluded by name — `index.lock` appears and vanishes around every
+/// single git command, and reporting it would turn one commit into a burst of
+/// events for a file that no longer exists.
+///
+/// Note that our own `git status` runs with `--no-optional-locks`, so reading
+/// the repository cannot rewrite the index and cannot feed this back into
+/// itself.
+fn is_repo_signal(rest: &[String]) -> bool {
+    let Some(first) = rest.first() else {
+        // The `.git` directory itself.
+        return false;
+    };
+    if rest.last().is_some_and(|name| name.ends_with(".lock")) {
+        return false;
+    }
+    matches!(first.as_str(), "HEAD" | "index" | "packed-refs") || first == "refs"
 }
 
 fn relevant_kind(kind: &EventKind) -> bool {
@@ -237,4 +274,42 @@ pub fn fs_unwatch(state: State<WatchState>) -> Result<(), String> {
         .map_err(|_| "The file watcher is unavailable".to_string())?;
     *active = None;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn interesting(path: &str) -> bool {
+        is_interesting(&PathBuf::from(path))
+    }
+
+    /// The four things that mean the repository moved, and the churn that does
+    /// not. Worth pinning: too narrow and a commit in the terminal goes
+    /// unnoticed, too wide and every `git status` feeds the watcher back into
+    /// itself.
+    #[test]
+    fn repository_state_is_reported_and_the_churn_is_not() {
+        assert!(interesting("/p/.git/HEAD"));
+        assert!(interesting("/p/.git/index"));
+        assert!(interesting("/p/.git/packed-refs"));
+        assert!(interesting("/p/.git/refs/heads/main"));
+        assert!(interesting("/p/.git/refs/remotes/origin/main"));
+
+        assert!(!interesting("/p/.git"));
+        assert!(!interesting("/p/.git/index.lock"));
+        assert!(!interesting("/p/.git/refs/heads/main.lock"));
+        assert!(!interesting("/p/.git/objects/ab/cdef"));
+        assert!(!interesting("/p/.git/logs/HEAD"));
+        assert!(!interesting("/p/.git/COMMIT_EDITMSG"));
+    }
+
+    #[test]
+    fn ordinary_files_are_reported_and_our_temp_files_are_not() {
+        assert!(interesting("/p/src/lib.rs"));
+        // A file that merely has `git` in its name is not inside `.git`.
+        assert!(interesting("/p/src/github.rs"));
+        assert!(!interesting("/p/src/.lib.rs.figytmp"));
+    }
 }

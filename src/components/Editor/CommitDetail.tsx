@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, CircleAlert, GitMerge } from "lucide-react";
+import { ArrowLeft, ArrowUp, CircleAlert, GitMerge } from "lucide-react";
 import {
   changeBadge,
   changeLabel,
@@ -104,6 +104,15 @@ export function CommitDetail({
           Back
         </button>
         <div className="flex-1" />
+        {commit.unpushed && (
+          <span
+            className="editor-scm-unpushed-tag flex items-center gap-0.5 text-[9px] px-1 rounded shrink-0"
+            title="Not pushed yet — this commit is only on this machine"
+          >
+            <ArrowUp size={9} />
+            Not pushed
+          </span>
+        )}
         <RemoteLink
           remote={remote}
           sha={{ full: commit.sha, short: commit.short }}

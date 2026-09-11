@@ -60,6 +60,8 @@ export interface GitCommit {
   refs: string;
   /** A merge, whose diff is therefore against its first parent. */
   merge: boolean;
+  /** On this branch but not on its upstream — committed here and nowhere else. */
+  unpushed: boolean;
 }
 
 /** A file as one commit changed it. */

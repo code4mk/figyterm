@@ -4209,6 +4209,32 @@
   color: #a5b4fc;
 }
 
+/*
+  Unpushed work, in one colour across the three places it is mentioned: the
+  history row's arrow, the drawer's tag, the branch counter and the Push
+  button. Amber rather than red — it is something to do, not something wrong.
+*/
+.editor-scm-unpushed,
+.editor-scm-count.pending,
+.editor-status-ahead {
+  color: #e3b341;
+}
+
+.editor-scm-unpushed-tag {
+  background: rgba(210, 153, 34, 0.18);
+  color: #e3b341;
+}
+
+.editor-scm-syncbtn.pending {
+  background: rgba(210, 153, 34, 0.16);
+  color: #e3b341;
+}
+
+.editor-scm-syncbtn.pending:hover:not(:disabled) {
+  background: rgba(210, 153, 34, 0.26);
+  color: #f5d99a;
+}
+
 /* A branch or tag pointing at this commit. */
 .editor-scm-ref {
   background: rgba(99, 102, 241, 0.18);
@@ -5017,6 +5043,27 @@
 
 .light .editor-scm-merge {
   color: #4338ca;
+}
+
+.light .editor-scm-unpushed,
+.light .editor-scm-count.pending,
+.light .editor-status-ahead {
+  color: #9a6700;
+}
+
+.light .editor-scm-unpushed-tag {
+  background: rgba(154, 103, 0, 0.12);
+  color: #7a5200;
+}
+
+.light .editor-scm-syncbtn.pending {
+  background: rgba(154, 103, 0, 0.12);
+  color: #7a5200;
+}
+
+.light .editor-scm-syncbtn.pending:hover:not(:disabled) {
+  background: rgba(154, 103, 0, 0.2);
+  color: #5c3d00;
 }
 
 .light .editor-scm-ref {

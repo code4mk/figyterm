@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronRight, GitMerge } from "lucide-react";
+import { ArrowUp, ChevronRight, GitMerge } from "lucide-react";
 import { GitCommit, GitCommitFile, gitLog, relativeDate } from "../../services/git";
 import { Remote } from "../../services/git-forge";
 import { CommitDetail } from "./CommitDetail";
@@ -201,6 +201,18 @@ function Row({
           {commit.merge && (
             <span className="editor-scm-merge shrink-0 flex" title="Merge commit">
               <GitMerge size={10} />
+            </span>
+          )}
+          {/* Committed here and nowhere else. The arrow is the same one the
+              Push button and the branch counter use, so the three read as one
+              fact rather than three. */}
+          {commit.unpushed && (
+            <span
+              className="editor-scm-unpushed shrink-0 flex"
+              title="Not pushed yet — this commit is only on this machine"
+              aria-label="Not pushed"
+            >
+              <ArrowUp size={10} />
             </span>
           )}
           <span className="editor-scm-subject text-[11px] truncate">{commit.subject}</span>

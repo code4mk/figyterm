@@ -584,11 +584,39 @@ on the same watcher event would be three processes for one answer. It coalesces,
 because the watcher fires in bursts — a `git rebase` or an `npm install` under a
 watched tree would otherwise fork a hundred times.
 
-The refresh trigger is the file watcher, not a poll. `.git` is inside the
-watched tree, so a commit or a checkout in the pane behind arrives as an
-ordinary filesystem event. `gitTick` covers only the gap between the editor's
-*own* stage or commit finishing and the debounced watcher event landing, which
-is long enough to look broken.
+The refresh trigger is the file watcher, not a poll — but that took two fixes,
+both of which had the panel showing a repository state that was no longer true.
+
+**`.git` was excluded from the watcher outright**, on the grounds that it churns
+and that none of it is a file anybody has open. Both true, and the conclusion
+was still wrong: nothing under `.git` being reported meant the panel only ever
+refreshed after an action taken in the editor itself, so a commit in the pane
+behind left it listing files that were already committed. Four things inside it
+are now let through and the rest is not — `HEAD`, `index`, `refs/…` and
+`packed-refs`, which are the four `git status` reads. `objects/` and `logs/` are
+the churn and say nothing a ref does not; `*.lock` is excluded by name, because
+`index.lock` appears and vanishes around every single git command. There are
+tests, because too narrow means a commit goes unnoticed and too wide means every
+`git status` feeds the watcher back into itself.
+
+That last risk is closed from the other end too: our `git status` runs with
+`--no-optional-locks`, so reading the repository cannot rewrite the index.
+
+**And `refresh` starved.** It re-armed its 250 ms window on every call, so a
+burst of requests closer together than the window pushed the run out
+indefinitely — which is exactly what a commit produces, git writing the index,
+the refs and the reflog in quick succession. A run already scheduled is now left
+alone. There is nothing to coalesce: the run reads the repository as it finds
+it, so a later request wants precisely what the pending one is already going to
+fetch. A ceiling brings it forward if it has somehow been waiting a second.
+
+`gitTick` still covers the gap between the editor's *own* action finishing and
+the watcher event landing, which is long enough to look broken.
+
+One case the watcher cannot see: a worktree or a submodule, where `.git` is a
+*file* pointing elsewhere and the repository's state lives outside the watched
+tree. The editor's own actions still refresh; an outside commit needs the panel's
+refresh button.
 
 ### The change gutter
 
@@ -764,6 +792,23 @@ The Changes tab counts *every* changed file rather than the ticked ones: the
 tally describes the working tree — "this is what you have done" — while the
 checkboxes are about the next commit, and recounting on each tick would have
 the two answering the same question.
+
+### Saying what has not been pushed
+
+`git log` marks each commit `unpushed`, from `rev-list @{upstream}..HEAD`. Asked
+of git rather than inferred from the `ahead` count and the list's order: "the
+newest N are the unpushed ones" holds only while the history is linear, and a
+branch that has merged its upstream back in is exactly the case where somebody
+wants to know what is still local.
+
+Nothing is marked when there is no upstream. On an unpublished branch every
+commit is unpushed, which is a true fact about five hundred rows and a useful
+one about none of them — the Publish button says it once instead.
+
+It is one colour in the four places it is mentioned — the history row's arrow,
+the drawer's tag, the branch counter and the Push button — so they read as one
+fact rather than four. Amber rather than red: it is something to do, not
+something wrong.
 
 ### Fetch and push
 
@@ -1208,6 +1253,10 @@ is a manual matrix, run per platform (macOS, Windows, Linux):
 - Untick a file, commit, and check `git log --stat`: only the ticked files are
   in it, including when one of the unticked ones was staged from the terminal.
 - Discard an untracked file: it is in the trash, not gone.
+- Commit from the panel: the file list empties and the history gains a row
+  without touching Refresh. Then commit from the terminal behind it: the same.
+- A commit that has not been pushed is marked in the history, and the Push
+  button says so.
 - History: a commit's subject, author and relative date are right, a merge is
   marked, and its files open a diff at that revision rather than the working
   copy's.

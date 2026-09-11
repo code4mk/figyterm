@@ -222,17 +222,23 @@ export function EditorStatusBar({
           className="editor-status-item flex items-center gap-1 text-[10px]"
           onClick={onOpenSourceControl}
           title={
-            git.upstream
-              ? `Source control — tracking ${git.upstream}`
-              : "Source control"
+            git.ahead > 0
+              ? `${git.ahead} commit${git.ahead === 1 ? "" : "s"} to push${
+                  git.upstream ? ` to ${git.upstream}` : ""
+                }`
+              : git.upstream
+                ? `Source control — tracking ${git.upstream}`
+                : "Source control"
           }
         >
           <GitBranch size={10} />
           <span className="max-w-[140px] truncate">
             {git.detached ? "detached" : git.branch ?? "no branch"}
           </span>
+          {/* Accented, because unlike the branch name this one is telling you
+              something needs doing. */}
           {git.ahead > 0 && (
-            <span className="flex items-center tabular-nums">
+            <span className="editor-status-ahead flex items-center tabular-nums">
               <ArrowUp size={9} />
               {git.ahead}
             </span>

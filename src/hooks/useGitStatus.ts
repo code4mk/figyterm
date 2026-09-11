@@ -22,6 +22,14 @@ import { parseRemote, Remote } from "../services/git-forge";
 /** Minimum gap between two status runs. */
 const COALESCE_MS = 250;
 
+/**
+ * A ceiling on how long coalescing may delay a run.
+ *
+ * Belt and braces for the case below: even if something contrives to keep
+ * asking, the status is never more than this out of date.
+ */
+const MAX_DELAY_MS = 1_000;
+
 export interface GitDecorations {
   /** Change per absolute path, for the file tree's badges. */
   files: Map<string, GitChange>;
@@ -36,6 +44,8 @@ export function useGitStatus(root: string | null, enabled: boolean) {
   const running = useRef(false);
   const again = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** When the currently pending run was first asked for. */
+  const askedAt = useRef(0);
   /** Guards against a reply for a folder the editor has already left. */
   const wanted = useRef<string | null>(root);
   wanted.current = enabled ? root : null;
@@ -65,14 +75,41 @@ export function useGitStatus(root: string | null, enabled: boolean) {
     }
   }, []);
 
+  /**
+   * Asks for a status run, soon.
+   *
+   * A run already scheduled is **left alone** rather than pushed back, which is
+   * the whole of the fix for a real bug: this used to `clearTimeout` and start
+   * the window again on every call, so a burst of requests closer together than
+   * the window starved it and the run never happened. Committing does exactly
+   * that — git writes the index, the objects, the refs and the reflog, the
+   * watcher reports each, and the panel sat there still listing files that were
+   * already committed.
+   *
+   * Re-arming is safe to skip because there is nothing to coalesce: the run
+   * reads the repository as it finds it, so a later request wants precisely
+   * what the pending one is already going to fetch.
+   */
   const refresh = useCallback(() => {
     const dir = wanted.current;
     if (!dir) return;
+
+    // Mid-flight: note that the answer is already stale and re-run once it
+    // lands, rather than asking two `git status` processes the same question.
     if (running.current) {
       again.current = true;
       return;
     }
-    if (timer.current) clearTimeout(timer.current);
+
+    if (timer.current) {
+      // Already scheduled. Only bring it forward if it has been waiting long
+      // enough that "soon" has stopped being true.
+      if (Date.now() - askedAt.current < MAX_DELAY_MS) return;
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
+
+    askedAt.current = Date.now();
     timer.current = setTimeout(() => {
       timer.current = null;
       if (wanted.current) void run(wanted.current);

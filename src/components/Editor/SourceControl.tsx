@@ -238,7 +238,7 @@ export function SourceControl({
         )}
         {repo.ahead > 0 && (
           <span
-            className="editor-scm-count flex items-center text-[10px] tabular-nums"
+            className="editor-scm-count pending flex items-center text-[10px] tabular-nums"
             title={`${repo.ahead} commit${repo.ahead === 1 ? "" : "s"} to push`}
           >
             <ArrowUp size={9} />
@@ -284,10 +284,15 @@ export function SourceControl({
           <RefreshCw size={11} className={syncing === "fetch" ? "editor-spin" : undefined} />
           Fetch
         </button>
+        {/*
+          Accented once there is something to push. The button is otherwise
+          identical to Fetch, and "you have work only on this machine" is worth
+          more than a number nobody was looking for.
+        */}
         <button
           className={`editor-scm-syncbtn flex items-center justify-center gap-1.5 flex-1 py-1 rounded text-[10px] ${
             syncing === "push" ? "busy" : ""
-          }`}
+          } ${!syncing && (repo.ahead > 0 || !repo.upstream) ? "pending" : ""}`}
           onClick={() => void sync("push")}
           disabled={!!syncing || repo.detached}
           title={

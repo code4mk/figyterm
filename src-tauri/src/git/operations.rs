@@ -21,6 +21,7 @@
 //! whole reason to prefer it.
 
 use serde::Serialize;
+use std::collections::HashSet;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -156,7 +157,16 @@ pub struct GitCommit {
     pub refs: String,
     /// True for a merge, which is why its diff is against the first parent.
     pub merge: bool,
+    /// On this branch but not on its upstream: committed here and nowhere else.
+    pub unpushed: bool,
 }
+
+/// How far back commits are checked against the upstream.
+///
+/// A branch further ahead than this is not one anybody is reading the top of,
+/// and the marking is per-commit decoration rather than something correctness
+/// rests on.
+const UNPUSHED_SCAN: usize = 1_000;
 
 /// A file as one commit changed it.
 #[derive(Debug, Clone, Serialize)]
@@ -764,17 +774,54 @@ fn revision_arg(sha: &str) -> Result<&str, String> {
 
 /// The same fields the list shows, for one commit.
 fn log_one(root: &Path, sha: &str) -> Result<GitCommit, String> {
-    log_range(root, &["--max-count=1", sha])?
+    let mut commit = log_range(root, &["--max-count=1", sha])?
         .into_iter()
         .next()
-        .ok_or_else(|| format!("{sha} is not a commit in this repository"))
+        .ok_or_else(|| format!("{sha} is not a commit in this repository"))?;
+
+    // Asked the same way the list asks, so the drawer and the row it was opened
+    // from cannot disagree about whether it has been pushed.
+    if let Some(pending) = unpushed(root) {
+        commit.unpushed = pending.contains(&commit.sha);
+    }
+    Ok(commit)
 }
 
 /// One page of `git log`, newest first.
 pub fn log(root: &Path, limit: usize, skip: usize) -> Result<Vec<GitCommit>, String> {
     let limit = format!("--max-count={}", limit.clamp(1, 500));
     let skip = format!("--skip={skip}");
-    log_range(root, &[&limit, &skip])
+    let mut commits = log_range(root, &[&limit, &skip])?;
+
+    if let Some(pending) = unpushed(root) {
+        for commit in &mut commits {
+            commit.unpushed = pending.contains(&commit.sha);
+        }
+    }
+    Ok(commits)
+}
+
+/// Which commits the upstream hasn't got.
+///
+/// Asked of git rather than inferred from the `ahead` count and the list's
+/// order. "The newest N are the unpushed ones" holds only while the history is
+/// linear, and a branch that has merged its upstream back in is exactly the
+/// case where somebody wants to know what is still local.
+///
+/// `None` when there is no upstream — the command fails there — and then
+/// nothing is marked: on an unpublished branch every commit is unpushed, which
+/// is a true fact about five hundred rows and a useful one about none of them.
+/// The Publish button says it once instead.
+fn unpushed(root: &Path) -> Option<HashSet<String>> {
+    let limit = format!("--max-count={UNPUSHED_SCAN}");
+    let raw = git(root, &["rev-list", &limit, "@{upstream}..HEAD"]).ok()?;
+    Some(
+        raw.lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(str::to_string)
+            .collect(),
+    )
 }
 
 /// `git log` with the fields the UI needs, over whatever range is given.
@@ -811,6 +858,8 @@ fn log_range(root: &Path, args: &[&str]) -> Result<Vec<GitCommit>, String> {
                 // More than one parent is a merge, which decides how its diff
                 // has to be asked for below.
                 merge: fields.next()?.split_whitespace().count() > 1,
+                // Filled in by `log`, which knows about the upstream.
+                unpushed: false,
             })
         })
         .collect())
