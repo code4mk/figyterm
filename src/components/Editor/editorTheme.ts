@@ -38,6 +38,11 @@ interface Palette {
   tooltip: string;
   tooltipSelected: string;
   fold: string;
+  gitAdded: string;
+  gitModified: string;
+  gitDeleted: string;
+  indentGuide: string;
+  indentGuideActive: string;
 }
 
 const DARK: Palette = {
@@ -57,6 +62,19 @@ const DARK: Palette = {
   tooltip: "#1e2228",
   tooltipSelected: "rgba(99, 102, 241, 0.22)",
   fold: "#8b949e",
+  // The same three the file tree and the source-control panel use, so a
+  // changed line and a changed row agree about what colour "modified" is.
+  gitAdded: "#3fb950",
+  gitModified: "#d29922",
+  gitDeleted: "#f85149",
+  // Faint on purpose: a guide is a hint about structure, and one strong enough
+  // to read is one competing with the code for attention.
+  indentGuide: "rgba(255, 255, 255, 0.09)",
+  // The active one is the exception, and it has to be several times the faint
+  // one to read as "this block" at a glance rather than as an artefact. Not the
+  // cursor's indigo, though: the caret and the selection already own that, and
+  // a third indigo thing on screen stops any of them meaning anything.
+  indentGuideActive: "rgba(255, 255, 255, 0.34)",
 };
 
 const LIGHT: Palette = {
@@ -76,6 +94,11 @@ const LIGHT: Palette = {
   tooltip: "#ffffff",
   tooltipSelected: "rgba(79, 70, 229, 0.12)",
   fold: "#6b7280",
+  gitAdded: "#1a7f37",
+  gitModified: "#9a6700",
+  gitDeleted: "#cf222e",
+  indentGuide: "rgba(0, 0, 0, 0.09)",
+  indentGuideActive: "rgba(0, 0, 0, 0.32)",
 };
 
 const DARK_SYNTAX = HighlightStyle.define([
@@ -134,6 +157,8 @@ export interface ThemeOptions {
   dark: boolean;
   fontFamily: string;
   fontSize: number;
+  /** Unitless, so it scales with the font size rather than fighting it. */
+  lineHeight: number;
 }
 
 /**
@@ -144,7 +169,12 @@ export interface ThemeOptions {
  * for a terminal packing rows in and too tight for reading a file, so this
  * takes 1.55 regardless.
  */
-export function editorTheme({ dark, fontFamily, fontSize }: ThemeOptions): Extension {
+export function editorTheme({
+  dark,
+  fontFamily,
+  fontSize,
+  lineHeight,
+}: ThemeOptions): Extension {
   const p = dark ? DARK : LIGHT;
 
   return [
@@ -158,7 +188,7 @@ export function editorTheme({ dark, fontFamily, fontSize }: ThemeOptions): Exten
         },
         ".cm-scroller": {
           fontFamily,
-          lineHeight: "1.55",
+          lineHeight: String(lineHeight),
           overflow: "auto",
         },
         ".cm-content": {
@@ -177,6 +207,56 @@ export function editorTheme({ dark, fontFamily, fontSize }: ThemeOptions): Exten
         ".cm-lineNumbers .cm-gutterElement": {
           padding: "0 6px 0 12px",
           minWidth: "36px",
+        },
+        /*
+          A line's padding, set here rather than left to CodeMirror's default,
+          because the indent guides are positioned against it and a number
+          nobody owns is a number that moves.
+        */
+        ".cm-content .cm-line": { padding: "0 2px 0 6px" },
+
+        /*
+          The indent guides. One pseudo-element per line, not a node per level:
+          a repeating gradient draws a hairline every `--cm-indent-width`
+          columns, and the element's own width — `--cm-indent-depth` of them —
+          is what stops it at the last level instead of ruling the whole line.
+          A line twelve levels deep therefore costs one style attribute.
+
+          `ch` is the unit that matters: the editor is monospaced, so one
+          character is one column, and the guides line up with the text at any
+          font size without being told what it is.
+        */
+        ".cm-indent-guides": { position: "relative" },
+        ".cm-indent-guides::before": {
+          backgroundImage: `linear-gradient(to right, ${p.indentGuide} 0 1px, transparent 1px 100%)`,
+          backgroundSize: "var(--cm-indent-width) 100%",
+          bottom: "0",
+          content: '""',
+          // The line's own padding-left, so the first guide sits at column
+          // zero of the text rather than at the edge of the element.
+          left: "6px",
+          pointerEvents: "none",
+          position: "absolute",
+          top: "0",
+          width: "calc(var(--cm-indent-depth) * var(--cm-indent-width))",
+        },
+
+        /*
+          The active guide: one more hairline, painted over the faint one at the
+          same column. A second element rather than a gap in the gradient
+          because a repeating gradient cannot colour one of its stripes
+          differently — and it only exists on the lines of the block the cursor
+          is in, so an idle file draws none of them.
+        */
+        ".cm-indent-active::after": {
+          backgroundColor: p.indentGuideActive,
+          bottom: "0",
+          content: '""',
+          left: "calc(6px + var(--cm-indent-active) * var(--cm-indent-width))",
+          pointerEvents: "none",
+          position: "absolute",
+          top: "0",
+          width: "1px",
         },
         ".cm-activeLine": { backgroundColor: p.activeLine },
         ".cm-activeLineGutter": {
@@ -215,45 +295,54 @@ export function editorTheme({ dark, fontFamily, fontSize }: ThemeOptions): Exten
           outline: `1px solid ${p.border}`,
           borderRadius: "2px",
         },
-        // CodeMirror's search-and-replace panel. Left mostly to CodeMirror's own
-        // markup, recoloured — reimplementing it as React would mean
-        // reimplementing its keymap too.
+        /*
+          The change gutter, beside the line numbers. A `border-left` rather
+          than a filled cell, because a full-width block of colour next to
+          every changed line competes with the text for attention — which is
+          the whole difference between a diff view and a hint that something
+          changed.
+        */
+        ".cm-git-gutter": {
+          backgroundColor: p.gutter,
+          minWidth: "3px",
+          padding: "0",
+        },
+        ".cm-git-gutter .cm-gutterElement": { padding: "0" },
+        ".cm-git-change": { borderLeft: "3px solid transparent" },
+        ".cm-git-added": { borderLeftColor: p.gitAdded },
+        ".cm-git-modified": { borderLeftColor: p.gitModified },
+        /*
+          A deletion has no line of its own, so it can't be a full-height bar
+          without claiming a line that didn't change. A wedge at the top of the
+          line the gap is above is how every editor draws it.
+        */
+        ".cm-git-deleted": {
+          borderLeftColor: "transparent",
+          position: "relative",
+        },
+        ".cm-git-deleted::before": {
+          backgroundColor: p.gitDeleted,
+          content: '""',
+          height: "3px",
+          left: "0",
+          position: "absolute",
+          top: "0",
+          width: "3px",
+        },
+        /*
+          CodeMirror's panel container, stripped back to nothing. The find
+          panel's markup is React (see `FindPanel`) and its look lives in
+          `styles.css` with the rest of the editor chrome; what's left here is
+          only the row CodeMirror reserves for it.
+        */
         ".cm-panels": {
-          backgroundColor: p.panel,
+          backgroundColor: "transparent",
+          border: "none",
           color: p.foreground,
-          borderTop: `1px solid ${p.border}`,
           fontSize: "11px",
         },
-        ".cm-panel.cm-search": { padding: "6px 8px" },
-        ".cm-panel.cm-search input, .cm-panel.cm-search button, .cm-panel.cm-search label": {
-          fontFamily: "inherit",
-          fontSize: "11px",
-        },
-        ".cm-panel.cm-search input": {
-          backgroundColor: dark ? "rgba(255,255,255,0.05)" : "#ffffff",
-          border: `1px solid ${p.border}`,
-          borderRadius: "4px",
-          color: p.foreground,
-          padding: "3px 6px",
-          outline: "none",
-        },
-        ".cm-panel.cm-search input:focus": { borderColor: p.cursor },
-        ".cm-panel.cm-search button": {
-          backgroundColor: dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)",
-          backgroundImage: "none",
-          border: `1px solid ${p.border}`,
-          borderRadius: "4px",
-          color: p.foreground,
-          cursor: "pointer",
-          padding: "3px 8px",
-          margin: "0 2px",
-        },
-        ".cm-panel.cm-search button:hover": { borderColor: p.cursor },
-        ".cm-panel.cm-search [name=close]": {
-          color: p.gutterActive,
-          fontSize: "16px",
-          padding: "0 6px",
-        },
+        ".cm-panels-top": { borderBottom: `1px solid ${p.border}` },
+        ".cm-panels-bottom": { borderTop: `1px solid ${p.border}` },
         ".cm-tooltip": {
           backgroundColor: p.tooltip,
           border: `1px solid ${p.border}`,

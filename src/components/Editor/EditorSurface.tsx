@@ -1,4 +1,12 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from "react";
+import { createPortal } from "react-dom";
 import {
   autocompletion,
   closeBrackets,
@@ -21,18 +29,30 @@ import {
   indentUnit,
 } from "@codemirror/language";
 import {
-  gotoLine,
   highlightSelectionMatches,
   openSearchPanel,
   search,
   searchKeymap,
 } from "@codemirror/search";
-import { Compartment, EditorState, Extension, Prec, Text } from "@codemirror/state";
+import {
+  Compartment,
+  EditorSelection,
+  EditorState,
+  Extension,
+  Prec,
+  Range,
+  RangeSet,
+  StateEffect,
+  StateField,
+  Text,
+} from "@codemirror/state";
 import {
   crosshairCursor,
   drawSelection,
   dropCursor,
   EditorView,
+  gutter,
+  GutterMarker,
   highlightActiveLine,
   highlightActiveLineGutter,
   highlightSpecialChars,
@@ -40,8 +60,13 @@ import {
   lineNumbers,
   rectangularSelection,
 } from "@codemirror/view";
+import { EditorSettings } from "../../services/editor-session";
 import { loadLanguage } from "../../services/editor-lang";
+import { indentGuides } from "./editorIndent";
+import { GitFileDiff } from "../../services/git";
+import { isMac } from "../../services/platform";
 import { editorTheme } from "./editorTheme";
+import { FindPanel } from "./FindPanel";
 
 /**
  * The text-editing surface: one CodeMirror view, many documents.
@@ -69,6 +94,22 @@ const readOnlyComp = new Compartment();
 const themeComp = new Compartment();
 const wrapComp = new Compartment();
 const indentComp = new Compartment();
+/*
+  `tabSize` is separate from the indent unit and both matter. The unit is what
+  gets *inserted*; `tabSize` is how wide an existing tab *renders*. A file
+  indented with tabs needs the two to agree or the guides land between the
+  characters they are describing.
+*/
+const tabComp = new Compartment();
+/*
+  One compartment per setting the settings modal can change, because the
+  alternative is rebuilding every open buffer's state when a checkbox moves —
+  which would throw away its undo history, its folds and its selection to
+  change the colour of some hairlines.
+*/
+const guidesComp = new Compartment();
+const bracketsComp = new Compartment();
+const completionComp = new Compartment();
 
 /**
  * Above this, word completion stops scanning the document. It walks the whole
@@ -79,13 +120,178 @@ const COMPLETION_MAX_DOC = 200_000;
 /** How long a scanned word list stays good for. */
 const COMPLETION_CACHE_MS = 1500;
 
+/** Above this, an all-new file stops being marked line by line. */
+const MAX_MARKED_LINES = 20_000;
+
 export type SurfaceCommand =
   | "find"
-  | "gotoLine"
   | "undo"
   | "redo"
   | "toggleWrap"
-  | "selectAll";
+  | "selectAll"
+  | "copy"
+  | "cut"
+  | "paste";
+
+/**
+ * What the clipboard should get, and which ranges a cut would remove.
+ *
+ * ⌘C, ⌘X and ⌘V themselves are the webview's own — CodeMirror listens for the
+ * `copy`, `cut` and `paste` DOM events and the platform delivers them. This
+ * exists for the context menu, which has no keystroke to ride on and so has to
+ * do the work itself; it follows CodeMirror's rules so the two agree.
+ *
+ * With nothing selected that means whole lines, the way it does in every
+ * editor: ⌘C on a bare cursor copies the line it's on, and each cursor of a
+ * multiple selection contributes one — but only once per line, or two cursors
+ * on the same line would copy it twice.
+ */
+function clipboardRange(state: EditorState): {
+  text: string;
+  ranges: { from: number; to: number }[];
+} {
+  const content: string[] = [];
+  const ranges: { from: number; to: number }[] = [];
+
+  for (const range of state.selection.ranges) {
+    if (range.empty) continue;
+    content.push(state.sliceDoc(range.from, range.to));
+    ranges.push({ from: range.from, to: range.to });
+  }
+
+  if (!content.length) {
+    let lastLine = -1;
+    for (const { from } of state.selection.ranges) {
+      const line = state.doc.lineAt(from);
+      if (line.number === lastLine) continue;
+      lastLine = line.number;
+      content.push(line.text);
+      // Past the end of the line, so a cut takes the break with it.
+      ranges.push({ from: line.from, to: Math.min(state.doc.length, line.to + 1) });
+    }
+  }
+
+  return { text: content.join(state.lineBreak), ranges };
+}
+
+/**
+ * Inserts clipboard text at the selection.
+ *
+ * One clipboard line per cursor when the counts happen to agree, which is what
+ * makes a multi-cursor copy round-trip; otherwise every selection gets the
+ * whole text. Both are CodeMirror's own rules for a paste.
+ */
+function insertClipboard(view: EditorView, input: string) {
+  const { state } = view;
+  const text = state.toText(input);
+
+  if (text.lines > 1 && text.lines === state.selection.ranges.length) {
+    let index = 1;
+    view.dispatch(
+      state.changeByRange((range) => {
+        const line = text.line(index++);
+        return {
+          changes: { from: range.from, to: range.to, insert: line.text },
+          range: EditorSelection.cursor(range.from + line.length),
+        };
+      }),
+      { userEvent: "input.paste", scrollIntoView: true }
+    );
+    return;
+  }
+
+  view.dispatch(state.replaceSelection(text), {
+    userEvent: "input.paste",
+    scrollIntoView: true,
+  });
+}
+
+// ─── Change marks ───────────────────────────────────────────────────────────
+
+/**
+ * The bar beside the line number saying how a line differs from HEAD.
+ *
+ * A class rather than `toDOM`, so the gutter element itself carries the colour
+ * and there is no node per line to build and destroy — on a file where every
+ * line is new that is the difference between one stylesheet rule and twenty
+ * thousand divs.
+ */
+class ChangeMarker extends GutterMarker {
+  elementClass: string;
+
+  constructor(readonly kind: "added" | "modified" | "deleted") {
+    super();
+    this.elementClass = `cm-git-change cm-git-${kind}`;
+  }
+
+  eq(other: GutterMarker): boolean {
+    return other instanceof ChangeMarker && other.kind === this.kind;
+  }
+}
+
+const ADDED = new ChangeMarker("added");
+const MODIFIED = new ChangeMarker("modified");
+const DELETED = new ChangeMarker("deleted");
+
+const setGitChanges = StateEffect.define<GitFileDiff | null>();
+
+/**
+ * Turns git's hunks into one marker per affected line.
+ *
+ * A hunk covering no lines of this file is a pure deletion: there is nothing of
+ * it left to mark, so the marker goes on the line the gap is now above, which
+ * is the only place a reader could look for it.
+ */
+function changeMarks(doc: Text, diff: GitFileDiff | null): RangeSet<GutterMarker> {
+  if (!diff) return RangeSet.empty;
+
+  const ranges: Range<GutterMarker>[] = [];
+  const mark = (line: number, marker: ChangeMarker) => {
+    if (line < 1 || line > doc.lines || ranges.length >= MAX_MARKED_LINES) return;
+    ranges.push(marker.range(doc.line(line).from));
+  };
+
+  if (diff.untracked) {
+    for (let line = 1; line <= doc.lines; line++) mark(line, ADDED);
+    return RangeSet.of(ranges, true);
+  }
+
+  for (const hunk of diff.hunks) {
+    if (hunk.lines === 0) {
+      mark(hunk.line, DELETED);
+      continue;
+    }
+    const marker = hunk.removed > 0 ? MODIFIED : ADDED;
+    for (let line = hunk.line; line < hunk.line + hunk.lines; line++) mark(line, marker);
+  }
+
+  return RangeSet.of(ranges, true);
+}
+
+const gitChangeField = StateField.define<RangeSet<GutterMarker>>({
+  create: () => RangeSet.empty,
+  update(marks, tr) {
+    for (const effect of tr.effects) {
+      if (effect.is(setGitChanges)) return changeMarks(tr.state.doc, effect.value);
+    }
+    /*
+      Mapped through the edit rather than dropped. The marks are stale the
+      moment anything is typed — git has not seen the change — but a mark that
+      slides down with the line it was on is far closer to the truth than one
+      left anchored to a byte offset, and the next save refetches the lot.
+    */
+    return marks.map(tr.changes);
+  },
+});
+
+/** Its own column, between the line numbers and the fold arrows. */
+const gitChangeGutter = gutter({
+  class: "cm-git-gutter",
+  markers: (view) => view.state.field(gitChangeField),
+  // Reserves the width up front, so the text doesn't shift sideways the first
+  // time a file turns out to have changes.
+  initialSpacer: () => MODIFIED,
+});
 
 export interface EditorSurfaceHandle {
   /** The buffer's current text, or null if it was never opened. */
@@ -128,6 +334,34 @@ export interface EditorSurfaceHandle {
   command: (command: SurfaceCommand) => void;
   isWrapped: () => boolean;
   /**
+   * Whether anything is actually selected.
+   *
+   * Read when the context menu opens, so Cut and Copy can say what they would
+   * act on — a bare cursor means the line it sits on.
+   */
+  hasSelection: () => boolean;
+  /**
+   * Whether the text has the keyboard.
+   *
+   * Asked before a chord that arrives from the native menu is treated as the
+   * editor's: with the editor open but the caret in its search field or the
+   * quick-open box, undo belongs to that field, not to the document.
+   */
+  hasFocus: () => boolean;
+  /** How many lines the open document has, for the go-to-line overlay. */
+  lineCount: () => number;
+  /** The open buffer's indent unit, as the status bar's picker shows it. */
+  getIndent: () => { useTabs: boolean; width: number };
+  /**
+   * Changes what a level of indentation is.
+   *
+   * New indentation only. Existing lines are left exactly as they are: a file
+   * with mixed indentation is usually mixed for a reason somebody else decided,
+   * and silently rewriting every line of it on a menu click would turn a
+   * setting into a whole-file diff.
+   */
+  setIndent: (indent: { useTabs: boolean; width: number }) => void;
+  /**
    * The buffer's cursor, or null while its state is still being built.
    *
    * The modal reads this after a tab switch rather than waiting to be told.
@@ -139,6 +373,31 @@ export interface EditorSurfaceHandle {
   getCursor: (bufferId: string) => { line: number; column: number } | null;
 }
 
+/**
+ * The compartment reconfigurations for one set of settings.
+ *
+ * One list, used both when a setting changes on the buffer in front and when a
+ * buffer that missed the change is next activated — so the two paths cannot
+ * drift apart and leave one buffer with guides and another without.
+ */
+function settingEffects(
+  settings: EditorSettings,
+  currentRecord: () => BufferRecord | null
+): StateEffect<unknown>[] {
+  return [
+    guidesComp.reconfigure(settings.indentGuides ? indentGuides() : []),
+    bracketsComp.reconfigure(settings.autoCloseBrackets ? closeBrackets() : []),
+    completionComp.reconfigure(
+      settings.wordCompletion
+        ? autocompletion({
+            override: [wordCompletionSource(currentRecord)],
+            activateOnTyping: false,
+          })
+        : []
+    ),
+  ];
+}
+
 interface BufferRecord {
   state: EditorState;
   /** The document as it is on disk; dirtiness is a comparison against this. */
@@ -147,6 +406,16 @@ interface BufferRecord {
   scrollTop: number;
   themeVersion: number;
   languageId: string;
+  /** What the status bar's picker shows, once it has been asked or detected. */
+  indent: { useTabs: boolean; width: number };
+  /**
+   * Which settings this state was built with.
+   *
+   * A background buffer misses a setting change — reconfiguring every open
+   * state would mean rebuilding each — so this is what lets one notice, on
+   * activation, that it is out of date. The same trick as `themeVersion`.
+   */
+  settingsVersion: number;
   words?: { list: string[]; at: number };
 }
 
@@ -162,6 +431,9 @@ interface EditorSurfaceProps {
   dark: boolean;
   fontFamily: string;
   fontSize: number;
+  lineHeight: number;
+  /** The editor's own preferences; see `EditorSettings`. */
+  settings: EditorSettings;
 
   onDirtyChange: (bufferId: string, dirty: boolean) => void;
   onCursorChange: (line: number, column: number) => void;
@@ -177,6 +449,18 @@ interface EditorSurfaceProps {
   onCloseTab: () => void;
   onToggleExplorer: () => void;
   onSelectTab: (index: number) => void;
+  /** A right-click on the text, for the modal to raise its menu over. */
+  onContextMenu: (e: React.MouseEvent) => void;
+  /**
+   * The go-to-line chord. Handled by the modal, which owns the overlay — see
+   * `GoToLine` for why CodeMirror's own dialog isn't used.
+   */
+  onGoToLine: () => void;
+  /**
+   * How the open buffer differs from HEAD, for the change gutter. Null while
+   * it is unknown, or when the file isn't in a repository.
+   */
+  gitDiff: GitFileDiff | null;
 }
 
 /**
@@ -204,7 +488,17 @@ function topVisibleLine(view: EditorView): number | null {
  * one-line edit, so what the file already does wins. Ties and empty files fall
  * back to two spaces.
  */
-function detectIndent(content: string): string {
+/**
+ * The indent unit a file appears to use, or null if it has no indentation to
+ * go on.
+ *
+ * Null rather than a guess, so the caller can fall back to the *setting*. A
+ * file with nothing indented in it — a README, a list of hostnames, a file
+ * fifteen lines long — used to silently get two spaces regardless of what the
+ * user had asked for, which is the one case where their preference is the only
+ * evidence there is.
+ */
+function detectIndent(content: string): string | null {
   let tabs = 0;
   const widths = new Map<number, number>();
 
@@ -235,7 +529,7 @@ function detectIndent(content: string): string {
   const best = candidates.sort(
     (a, b) => (widths.get(b) ?? 0) - (widths.get(a) ?? 0) || a - b
   )[0];
-  return " ".repeat(best ?? 2);
+  return best ? " ".repeat(best) : null;
 }
 
 /**
@@ -292,14 +586,40 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
       dark,
       fontFamily,
       fontSize,
+      lineHeight,
+      settings,
       onDirtyChange,
     } = props;
 
     const containerRef = useRef<HTMLDivElement>(null);
     const viewRef = useRef<EditorView | null>(null);
+    /**
+     * CodeMirror's search panel, once it exists, so `FindPanel` can be
+     * rendered into it. The library keeps owning the panel — its lifecycle,
+     * the match highlighting, the `⌘F`-while-open behaviour — and React only
+     * supplies what goes inside.
+     */
+    const [findHost, setFindHost] = useState<HTMLElement | null>(null);
+    /** Whether the panel was opened by the replace chord rather than by find. */
+    const [findReplace, setFindReplace] = useState(false);
+    /**
+     * Bumped while the panel is open on anything that changes what the match
+     * count should say. Gated on the panel existing: this is the one thing in
+     * here that re-renders on a keystroke, and it must not do so otherwise.
+     */
+    const [findTick, setFindTick] = useState(0);
+    const findOpen = useRef(false);
+    /** Set by the replace chord, read by the panel as it mounts. */
+    const replaceWanted = useRef(false);
     const records = useRef<Map<string, BufferRecord>>(new Map());
     const currentRef = useRef<string | null>(null);
-    const wrappedRef = useRef(false);
+    /*
+      Seeded from the setting, then owned by the session: the status bar's
+      toggle is a per-session override, so changing the default must not undo a
+      toggle the user made two minutes ago. `useRef`'s initial value runs once,
+      which is exactly that rule.
+    */
+    const wrappedRef = useRef(settings.wordWrap);
     /** Last position handed to `onCursorChange`, to avoid redundant renders. */
     const reported = useRef({ line: 0, column: 0 });
 
@@ -313,15 +633,54 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
     const handlers = useRef(props);
     handlers.current = props;
 
+    /**
+     * The change marks for whatever is in front.
+     *
+     * Kept in a ref as well as a prop because a buffer's state is built
+     * asynchronously: the marks can arrive from git while the grammar for the
+     * file they belong to is still loading, and a dispatch to the state that
+     * is about to be replaced would simply be lost.
+     */
+    const gitDiffRef = useRef(props.gitDiff);
+    gitDiffRef.current = props.gitDiff;
+
     /** Bumped on every theme change, so stale buffer states can be spotted. */
     const themeVersion = useRef(0);
-    const themeRef = useRef({ dark, fontFamily, fontSize });
-    themeRef.current = { dark, fontFamily, fontSize };
+    const themeRef = useRef({ dark, fontFamily, fontSize, lineHeight });
+    themeRef.current = { dark, fontFamily, fontSize, lineHeight };
+
+    /**
+     * The editor's settings, for the extensions baked into each buffer's state.
+     *
+     * A ref for the same reason `handlers` is one: the extensions are built
+     * once per buffer and cannot close over a prop that changes. Changing a
+     * setting reconfigures the compartments instead — see the effect below.
+     */
+    const settingsRef = useRef(settings);
+    settingsRef.current = settings;
+
+    /** Bumped on every settings change, so stale buffer states can be spotted. */
+    const settingsVersion = useRef(0);
 
     const recordOf = useCallback(
       (id: string | null) => (id ? records.current.get(id) ?? null : null),
       []
     );
+
+    /**
+     * A right-click on the text.
+     *
+     * The press itself has already put the caret where the user pointed — the
+     * webview does that inside an editable region, and CodeMirror ignores
+     * button 2 entirely. What it also doesn't do is take focus, so on an
+     * editor that didn't have it the menu's commands would have nothing to act
+     * on; hence the focus here, which restores the buffer's own selection.
+     */
+    const onContextMenu = useCallback((e: React.MouseEvent) => {
+      const view = viewRef.current;
+      if (view && !view.hasFocus) view.focus();
+      handlers.current.onContextMenu(e);
+    }, []);
 
     const currentRecord = useCallback(() => recordOf(currentRef.current), [recordOf]);
 
@@ -330,6 +689,8 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
       (id: string): Extension[] => [
         lineNumbers(),
         highlightActiveLineGutter(),
+        // Between the numbers and the fold arrows, as every editor puts it.
+        gitChangeGutter,
         highlightSpecialChars(),
         history(),
         foldGutter({ openText: "⌄", closedText: "›" }),
@@ -337,17 +698,52 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
         dropCursor(),
         EditorState.allowMultipleSelections.of(true),
         indentOnInput(),
+        guidesComp.of(settingsRef.current.indentGuides ? indentGuides() : []),
         bracketMatching(),
-        closeBrackets(),
-        autocompletion({
-          override: [wordCompletionSource(currentRecord)],
-          activateOnTyping: false,
-        }),
+        bracketsComp.of(settingsRef.current.autoCloseBrackets ? closeBrackets() : []),
+        completionComp.of(
+          settingsRef.current.wordCompletion
+            ? autocompletion({
+                override: [wordCompletionSource(currentRecord)],
+                activateOnTyping: false,
+              })
+            : []
+        ),
         rectangularSelection(),
         crosshairCursor(),
         highlightActiveLine(),
         highlightSelectionMatches(),
-        search({ top: true }),
+        gitChangeField,
+        search({
+          top: true,
+          /*
+            The panel's markup is `FindPanel`, mounted into this node. Going
+            through `createPanel` rather than floating a widget over the editor
+            keeps three things that are easy to lose: the match highlighting,
+            which CodeMirror only draws while its panel is registered as open;
+            the layout, since a panel pushes the text down instead of covering
+            the first two lines of it; and Escape, which the library already
+            routes to the panel before anything else.
+          */
+          createPanel: () => {
+            const dom = document.createElement("div");
+            dom.className = "editor-find-host";
+            return {
+              dom,
+              top: true,
+              mount: () => {
+                findOpen.current = true;
+                setFindReplace(replaceWanted.current);
+                replaceWanted.current = false;
+                setFindHost(dom);
+              },
+              destroy: () => {
+                findOpen.current = false;
+                setFindHost((current) => (current === dom ? null : current));
+              },
+            };
+          },
+        }),
 
         // Ahead of CodeMirror's own bindings, which claim some of the same
         // chords (`Mod-g` is find-next there, and go-to-line here).
@@ -379,8 +775,26 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
               preventDefault: true,
               run: () => (handlers.current.onToggleExplorer(), true),
             },
-            { key: "Mod-g", preventDefault: true, run: gotoLine },
-            { key: "Mod-h", preventDefault: true, run: openSearchPanel },
+            {
+              key: "Mod-g",
+              preventDefault: true,
+              run: () => (handlers.current.onGoToLine(), true),
+            },
+            // Replace. ⌘H belongs to macOS — the app menu's Hide item holds it
+            // and a menu accelerator is translated before the webview sees the
+            // key, so binding it here only ever hid the window. ⌥⌘F is what
+            // macOS editors use instead; Ctrl+H is free everywhere else.
+            {
+              key: isMac ? "Mod-Alt-f" : "Mod-h",
+              preventDefault: true,
+              run: (view) => {
+                // Both, because the two cases differ: a closed panel reads the
+                // ref as it mounts, an open one only gets the state change.
+                replaceWanted.current = true;
+                setFindReplace(true);
+                return openSearchPanel(view);
+              },
+            },
             // ⌘1-9 picks a tab, matching the terminal's own tab shortcuts.
             ...Array.from({ length: 9 }, (_, index) => ({
               key: `Mod-${index + 1}`,
@@ -418,6 +832,14 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
             handlers.current.onEdited(id);
           }
 
+          // The find panel's count and "3 of 17" both go stale on an edit and
+          // on a step to the next match, and nothing in the editor state
+          // tracks either — so while the panel is open, and only then, the
+          // panel is told to recount.
+          if (findOpen.current && (update.docChanged || update.selectionSet)) {
+            setFindTick((tick) => tick + 1);
+          }
+
           // Compared against the last reported position rather than gated on
           // `selectionSet`: a change anywhere before the cursor moves it
           // without the selection being explicitly set.
@@ -444,7 +866,17 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
       ): Promise<BufferRecord> => {
         const languageExtension = withHighlight ? await loadLanguage(language) : null;
         const doc = Text.of(content.split("\n"));
-        const { dark: isDark, fontFamily: family, fontSize: size } = themeRef.current;
+        // The file's own indentation wins; the setting is what answers for a
+        // file that has none.
+        const preference = settingsRef.current;
+        const detected = detectIndent(content);
+        const unit =
+          detected ??
+          (preference.useTabs ? "\t" : " ".repeat(Math.max(1, preference.indentWidth)));
+        const indent = unit.includes("\t")
+          ? { useTabs: true, width: preference.indentWidth }
+          : { useTabs: false, width: Math.max(1, unit.length) };
+        const theme = themeRef.current;
 
         const state = EditorState.create({
           doc,
@@ -452,9 +884,10 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
             ...baseExtensions(id),
             languageComp.of(languageExtension ?? []),
             readOnlyComp.of(EditorState.readOnly.of(readonly)),
-            themeComp.of(editorTheme({ dark: isDark, fontFamily: family, fontSize: size })),
+            themeComp.of(editorTheme(theme)),
             wrapComp.of(wrappedRef.current ? EditorView.lineWrapping : []),
-            indentComp.of(indentUnit.of(detectIndent(content))),
+            indentComp.of(indentUnit.of(unit)),
+            tabComp.of(EditorState.tabSize.of(indent.width)),
           ],
         });
 
@@ -464,7 +897,9 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
           dirty: false,
           scrollTop: 0,
           themeVersion: themeVersion.current,
+          settingsVersion: settingsVersion.current,
           languageId: language,
+          indent,
         };
       },
       [baseExtensions]
@@ -479,13 +914,7 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
       const view = new EditorView({
         state: EditorState.create({
           extensions: [
-            themeComp.of(
-              editorTheme({
-                dark: themeRef.current.dark,
-                fontFamily: themeRef.current.fontFamily,
-                fontSize: themeRef.current.fontSize,
-              })
-            ),
+            themeComp.of(editorTheme(themeRef.current)),
             EditorState.readOnly.of(true),
           ],
         }),
@@ -566,8 +995,22 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
           record.themeVersion = themeVersion.current;
         }
 
+        // And the same for a setting changed while it was in the background.
+        if (record.settingsVersion !== settingsVersion.current) {
+          record.state = record.state.update({
+            effects: settingEffects(settingsRef.current, currentRecord),
+          }).state;
+          record.settingsVersion = settingsVersion.current;
+        }
+
         currentRef.current = bufferId;
         view.setState(record.state);
+
+        // Re-applied after the swap, not before: the state that was just
+        // installed carries whatever marks it had when it was last in front,
+        // which for a file reopened after an outside commit is wrong.
+        view.dispatch({ effects: setGitChanges.of(gitDiffRef.current) });
+        record.state = view.state;
 
         // Both deferred a frame: the view has just been handed a new state and
         // hasn't measured it, so focusing lands against stale geometry and a
@@ -604,14 +1047,34 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
       const view = viewRef.current;
       if (!view) return;
       view.dispatch({
-        effects: themeComp.reconfigure(editorTheme({ dark, fontFamily, fontSize })),
+        effects: themeComp.reconfigure(editorTheme({ dark, fontFamily, fontSize, lineHeight })),
       });
       const record = currentRecord();
       if (record) {
         record.state = view.state;
         record.themeVersion = themeVersion.current;
       }
-    }, [dark, fontFamily, fontSize, currentRecord]);
+    }, [dark, fontFamily, fontSize, lineHeight, currentRecord]);
+
+    // --- Settings ------------------------------------------------------------
+
+    /**
+     * Applies a changed setting to the buffer in front.
+     *
+     * Only to that one: the others are immutable states sitting in a map, and
+     * reconfiguring them would mean rebuilding each. They pick the new value up
+     * the next time they are activated, below, which is the first moment it can
+     * possibly matter.
+     */
+    useEffect(() => {
+      const view = viewRef.current;
+      const record = currentRecord();
+      if (!view || !record) return;
+      settingsVersion.current++;
+      view.dispatch({ effects: settingEffects(settings, currentRecord) });
+      record.state = view.state;
+      record.settingsVersion = settingsVersion.current;
+    }, [settings, currentRecord]);
 
     // --- Language and read-only changes on the open buffer -------------------
 
@@ -645,6 +1108,16 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
       });
       record.state = view.state;
     }, [readOnly, currentRecord]);
+
+    // --- Change marks --------------------------------------------------------
+
+    useEffect(() => {
+      const view = viewRef.current;
+      if (!view) return;
+      view.dispatch({ effects: setGitChanges.of(props.gitDiff) });
+      const record = currentRecord();
+      if (record) record.state = view.state;
+    }, [props.gitDiff, currentRecord]);
 
     // --- Imperative surface --------------------------------------------------
 
@@ -757,9 +1230,6 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
             case "find":
               openSearchPanel(view);
               break;
-            case "gotoLine":
-              gotoLine(view);
-              break;
             case "selectAll":
               view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } });
               break;
@@ -779,6 +1249,40 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
               if (record) record.state = view.state;
               break;
             }
+            case "copy":
+            case "cut": {
+              const { text, ranges } = clipboardRange(view.state);
+              // Empty text with a range is a blank line: nothing to put on the
+              // clipboard, but a cut still has its line break to remove.
+              if (!text && !ranges.length) break;
+              void navigator.clipboard.writeText(text).catch(() => {
+                // Refused clipboard access; nothing useful to say about it here.
+              });
+              if (command === "cut" && !view.state.readOnly) {
+                view.dispatch({
+                  changes: ranges,
+                  scrollIntoView: true,
+                  userEvent: "delete.cut",
+                });
+              }
+              view.focus();
+              break;
+            }
+            case "paste": {
+              if (view.state.readOnly) break;
+              void navigator.clipboard
+                .readText()
+                .then((text) => {
+                  // Re-read: the await gave the user time to switch tabs, and
+                  // the view that comes back may be showing another document.
+                  const live = viewRef.current;
+                  if (!live || !text || live.state.readOnly) return;
+                  insertClipboard(live, text);
+                  live.focus();
+                })
+                .catch(() => {});
+              break;
+            }
             case "undo":
             case "redo": {
               // Imported lazily: the palette and the menu are the only callers,
@@ -794,6 +1298,38 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
         },
 
         isWrapped: () => wrappedRef.current,
+
+        hasSelection: () =>
+          viewRef.current
+            ? viewRef.current.state.selection.ranges.some((range) => !range.empty)
+            : false,
+
+        hasFocus: () => viewRef.current?.hasFocus ?? false,
+
+        lineCount: () => viewRef.current?.state.doc.lines ?? 1,
+
+        getIndent: () =>
+          currentRecord()?.indent ?? { useTabs: false, width: 2 },
+
+        setIndent: ({ useTabs, width }) => {
+          const view = viewRef.current;
+          if (!view) return;
+          const unit = useTabs ? "\t" : " ".repeat(Math.max(1, width));
+          view.dispatch({
+            effects: [
+              indentComp.reconfigure(indentUnit.of(unit)),
+              // A tab's *width* is `tabSize`, not the unit's length, so tabs
+              // need both reconfigured or the guides and the rendered tab stop
+              // disagree.
+              tabComp.reconfigure(EditorState.tabSize.of(Math.max(1, width))),
+            ],
+          });
+          const record = currentRecord();
+          if (record) {
+            record.state = view.state;
+            record.indent = { useTabs, width };
+          }
+        },
 
         getCursor: (id) => {
           const record = records.current.get(id);
@@ -812,6 +1348,28 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
       [currentRecord, onDirtyChange]
     );
 
-    return <div ref={containerRef} className="editor-surface h-full w-full min-h-0" />;
+    return (
+      <div
+        ref={containerRef}
+        className="editor-surface h-full w-full min-h-0"
+        onContextMenu={onContextMenu}
+      >
+        {findHost &&
+          viewRef.current &&
+          createPortal(
+            <FindPanel
+              /* Remounted per buffer, because the search state is per buffer:
+                 CodeMirror keeps a query in each document's own state, and a
+                 panel carrying the previous file's text into the next one
+                 would be showing a query the editor isn't running. */
+              key={bufferId ?? "none"}
+              view={viewRef.current}
+              withReplace={findReplace}
+              tick={findTick}
+            />,
+            findHost
+          )}
+      </div>
+    );
   }
 );

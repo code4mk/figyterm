@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, WrapText } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, GitBranch, WrapText } from "lucide-react";
+import { GitRepo } from "../../services/git";
 import { scrollIntoViewWithin } from "../../services/scroll";
 import { FileEncoding, LineEnding } from "../../services/editor-fs";
 import { availableLanguages, labelFor } from "../../services/editor-lang";
@@ -28,12 +29,40 @@ const ENCODINGS: { value: FileEncoding; label: string }[] = [
   { value: "utf-16be", label: "UTF-16 BE" },
 ];
 
+/**
+ * What the indent picker offers.
+ *
+ * Tabs have no width to choose — how wide one renders is `tabSize`, and the
+ * options below set it — so "Tabs" appears once per width rather than as a
+ * separate axis. Two, four and eight because those are the widths that exist
+ * in the wild; a picker with every number from one to sixteen is a picker
+ * nobody finds "4" in.
+ */
+const INDENTS: { useTabs: boolean; width: number; label: string; detail: string }[] = [
+  { useTabs: false, width: 2, label: "2 spaces", detail: "Spaces" },
+  { useTabs: false, width: 4, label: "4 spaces", detail: "Spaces" },
+  { useTabs: false, width: 8, label: "8 spaces", detail: "Spaces" },
+  { useTabs: true, width: 2, label: "Tabs, width 2", detail: "Tabs" },
+  { useTabs: true, width: 4, label: "Tabs, width 4", detail: "Tabs" },
+  { useTabs: true, width: 8, label: "Tabs, width 8", detail: "Tabs" },
+];
+
+export interface Indent {
+  useTabs: boolean;
+  width: number;
+}
+
 interface EditorStatusBarProps {
   buffer: EditorBuffer | null;
   cursor: { line: number; column: number };
   wrapped: boolean;
   bufferCount: number;
   watcherMechanism: "native" | "poll" | null;
+  git: GitRepo;
+  /** What a level of indentation currently is, for the picker's label. */
+  indent: Indent;
+  onSetIndent: (indent: Indent) => void;
+  onOpenSourceControl: () => void;
   onToggleWrap: () => void;
   onSetLanguage: (languageId: string) => void;
   onSetLineEnding: (lineEnding: LineEnding) => void;
@@ -48,6 +77,10 @@ export function EditorStatusBar({
   wrapped,
   bufferCount,
   watcherMechanism,
+  git,
+  indent,
+  onSetIndent,
+  onOpenSourceControl,
   onToggleWrap,
   onSetLanguage,
   onSetLineEnding,
@@ -55,7 +88,9 @@ export function EditorStatusBar({
   onGoToLine,
   onResizeStart,
 }: EditorStatusBarProps) {
-  const [open, setOpen] = useState<"language" | "lineEnding" | "encoding" | null>(null);
+  const [open, setOpen] = useState<
+    "language" | "lineEnding" | "encoding" | "indent" | null
+  >(null);
 
   return (
     <div
@@ -96,6 +131,30 @@ export function EditorStatusBar({
               detail: option.detail,
               selected: option.value === buffer.lineEnding,
               onSelect: () => onSetLineEnding(option.value),
+            }))}
+          />
+
+          {/*
+            Where the layout notes always said it should be, and the last of
+            the four that was missing. It is also the setting that quietly
+            turns a one-line change into a whole-file diff, so it is worth
+            being visible rather than detected and never mentioned again.
+          */}
+          <Popup
+            open={open === "indent"}
+            onOpenChange={(next) => setOpen(next ? "indent" : null)}
+            label={
+              indent.useTabs ? `Tab ${indent.width}` : `Spaces ${indent.width}`
+            }
+            title="Indentation — applies to new indentation, not to lines already in the file"
+            items={INDENTS.map((option) => ({
+              key: `${option.useTabs ? "tab" : "space"}-${option.width}`,
+              label: option.label,
+              detail: option.detail,
+              selected:
+                option.useTabs === indent.useTabs && option.width === indent.width,
+              onSelect: () =>
+                onSetIndent({ useTabs: option.useTabs, width: option.width }),
             }))}
           />
 
@@ -152,6 +211,49 @@ export function EditorStatusBar({
       )}
 
       <div className="flex-1" />
+
+      {/*
+        The branch, where every editor and every shell prompt puts it. Clicking
+        it opens the panel, which is the only chord-free way in — ⌘⇧G is
+        CodeMirror's find-previous and taking it would cost more than it gave.
+      */}
+      {git.isRepo && (
+        <button
+          className="editor-status-item flex items-center gap-1 text-[10px]"
+          onClick={onOpenSourceControl}
+          title={
+            git.ahead > 0
+              ? `${git.ahead} commit${git.ahead === 1 ? "" : "s"} to push${
+                  git.upstream ? ` to ${git.upstream}` : ""
+                }`
+              : git.upstream
+                ? `Source control — tracking ${git.upstream}`
+                : "Source control"
+          }
+        >
+          <GitBranch size={10} />
+          <span className="max-w-[140px] truncate">
+            {git.detached ? "detached" : git.branch ?? "no branch"}
+          </span>
+          {/* Accented, because unlike the branch name this one is telling you
+              something needs doing. */}
+          {git.ahead > 0 && (
+            <span className="editor-status-ahead flex items-center tabular-nums">
+              <ArrowUp size={9} />
+              {git.ahead}
+            </span>
+          )}
+          {git.behind > 0 && (
+            <span className="flex items-center tabular-nums">
+              <ArrowDown size={9} />
+              {git.behind}
+            </span>
+          )}
+          {git.files.length > 0 && (
+            <span className="editor-status-dot" aria-label="uncommitted changes" />
+          )}
+        </button>
+      )}
 
       {watcherMechanism === "poll" && (
         <span

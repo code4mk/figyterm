@@ -4,7 +4,7 @@ import { useThemeStore } from "../../stores/themeStore";
 import { OverlayPortal } from "../Overlay/OverlayPortal";
 import {
   claimFront,
-  isFront,
+  isCovered,
   releaseFront,
   subscribeOverlayStack,
 } from "../../services/overlay-stack";
@@ -101,7 +101,7 @@ export function BrowserModal({ visible, onClose }: BrowserModalProps) {
   }, [visible, pipMode, raise]);
 
   /**
-   * Whether this modal is the frontmost overlay.
+   * Whether something is actually on top of the page.
    *
    * It matters far more here than anywhere else. The page is a *native child
    * webview*, which the platform composites above the app's own webview
@@ -110,17 +110,37 @@ export function BrowserModal({ visible, onClose }: BrowserModalProps) {
    * behind while the page itself carried on painting straight through the
    * middle of the editor.
    *
-   * The only thing that actually occludes a child webview is hiding it, so the
-   * page is hidden whenever something else is in front. Recomputed from a
-   * subscription because another overlay coming forward has to re-render *this*
-   * one.
+   * The only thing that occludes a child webview is hiding it. What this used
+   * to ask was "am I frontmost?", and the answer blanked the page the moment
+   * any other overlay was clicked — including the editor sitting *beside* it in
+   * picture-in-picture, overlapping nowhere, which looks exactly like the
+   * browser has broken. So the question is now "is anything in front of me over
+   * *this rectangle*", and the rectangle is the page's, not the window's: an
+   * overlay lying across the toolbar is not over the page.
+   *
+   * Recomputed from a subscription because another overlay coming forward, or
+   * being dragged, has to re-render *this* one.
    */
   const [stackVersion, setStackVersion] = useState(0);
   useEffect(() => subscribeOverlayStack(() => setStackVersion((v) => v + 1)), []);
-  // `stackVersion` is the dependency that matters — it changes whenever any
-  // overlay's claim does, which is exactly when this answer can change.
+
+  // `stackVersion` and the geometry are the dependencies that matter: between
+  // them they change whenever this answer can.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const atFront = useMemo(() => isFront("browser"), [frontZ, stackVersion]);
+  const covered = useMemo(() => {
+    const element = viewportRef.current;
+    if (!element) return false;
+    const rect = element.getBoundingClientRect();
+    // A page with no area is not covered, it is collapsed — and reporting it
+    // as covered would hide it while the modal is animating open.
+    if (rect.width <= 0 || rect.height <= 0) return false;
+    return isCovered("browser", {
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
+      height: rect.height,
+    });
+  }, [frontZ, stackVersion, pos, size, pipMode]);
 
 
   const activeTab = useMemo(
@@ -258,9 +278,9 @@ export function BrowserModal({ visible, onClose }: BrowserModalProps) {
     const ids = tabIdsKey ? tabIdsKey.split("|") : [];
     if (ids.length === 0) return;
 
-    // `!atFront`: see the note on `atFront` — a child webview can only be
-    // occluded by being hidden.
-    if (!visible || interacting || !atFront) {
+    // `covered`: see the note on it above — a child webview can only be
+    // occluded by being hidden, so being covered means being hidden.
+    if (!visible || interacting || covered) {
       ids.forEach((id) => void setBrowserVisible(id, false).catch(() => {}));
       return;
     }
@@ -273,19 +293,19 @@ export function BrowserModal({ visible, onClose }: BrowserModalProps) {
         () => {}
       );
     });
-  }, [visible, interacting, atFront, activeTabId, tabIdsKey, pos, size, pipMode, measure]);
+  }, [visible, interacting, covered, activeTabId, tabIdsKey, pos, size, pipMode, measure]);
 
   useEffect(() => {
     if (!visible) return;
     const onResize = () => {
       const bounds = measure();
-      if (bounds && activeTabId && !interacting && atFront) {
+      if (bounds && activeTabId && !interacting && !covered) {
         void setBrowserVisible(activeTabId, true, bounds).catch(() => {});
       }
     };
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
-  }, [visible, activeTabId, interacting, atFront, measure]);
+  }, [visible, activeTabId, interacting, covered, measure]);
 
   useEffect(() => {
     const el = viewportRef.current;
@@ -293,13 +313,13 @@ export function BrowserModal({ visible, onClose }: BrowserModalProps) {
 
     const observer = new ResizeObserver(() => {
       const bounds = measure();
-      if (bounds && activeTabId && !interacting && atFront) {
+      if (bounds && activeTabId && !interacting && !covered) {
         void setBrowserVisible(activeTabId, true, bounds).catch(() => {});
       }
     });
     observer.observe(el);
     return () => observer.disconnect();
-  }, [visible, activeTabId, interacting, atFront, measure]);
+  }, [visible, activeTabId, interacting, covered, measure]);
 
   useEffect(() => {
     if (!editingAddress) setDraft(activeTab?.url ?? "");
@@ -705,7 +725,7 @@ export function BrowserModal({ visible, onClose }: BrowserModalProps) {
         placeholder underneath is only ever seen while the modal is being moved.
       */}
       <div ref={viewportRef} className="browser-viewport flex-1 min-h-0">
-        {(interacting || !atFront || tabs.length === 0) && (
+        {(interacting || covered || tabs.length === 0) && (
           <div className="browser-viewport-placeholder h-full w-full flex flex-col items-center justify-center gap-2">
             <Globe size={22} className="browser-placeholder-icon" />
             <span className="text-[11px] browser-placeholder-text">

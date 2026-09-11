@@ -6,16 +6,27 @@ import {
   ChevronDown,
   ChevronRight,
   CircleAlert,
+  ClipboardPaste,
+  Copy,
   Eye,
+  FilePlus,
   FolderInput,
+  FolderTree,
+  GitBranch,
+  ListOrdered,
   Maximize2,
   Minimize2,
   PanelRight,
   PictureInPicture2,
+  Redo2,
   Save,
+  Scissors,
+  Settings2,
   Search,
   SquareArrowOutUpRight,
   TextSearch,
+  TextSelect,
+  Undo2,
   X,
 } from "lucide-react";
 import { open as openFolderDialog } from "@tauri-apps/plugin-dialog";
@@ -27,11 +38,13 @@ import {
   useDraggableModal,
 } from "../../hooks/useDraggableModal";
 import { useFileWatcher } from "../../hooks/useFileWatcher";
+import { useOverlayRect } from "../../hooks/useOverlayRect";
 import { useEditorStore, restorableSession } from "../../stores/editorStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useThemeStore } from "../../stores/themeStore";
 import {
   basename,
+  deletePath,
   dirname,
   FileEncoding,
   formatBytes,
@@ -46,10 +59,32 @@ import {
   writeTextFile,
 } from "../../services/editor-fs";
 import { clearDraft, listDrafts, saveDraft } from "../../services/editor-session";
+import {
+  GitCommit,
+  GitCommitFile,
+  GitFile,
+  GitFileDiff,
+  gitCommit,
+  gitCommitDiff,
+  gitDiscard,
+  gitFetch,
+  gitFileDiff,
+  gitFileHunks,
+  gitPush,
+  gitStage,
+  gitUnstage,
+  repoRelative,
+} from "../../services/git";
+import { useGitStatus } from "../../hooks/useGitStatus";
 import { findBySlug, parseOutline } from "../../services/markdown-outline";
-import { isLinux } from "../../services/platform";
+import { isLinux, isMac, platform } from "../../services/platform";
 import { normalizeDir } from "../../services/recent-dirs";
-import { EditorSurface, EditorSurfaceHandle } from "./EditorSurface";
+import { ContextMenu, ContextMenuItem, ContextMenuSeparator } from "./ContextMenu";
+import { DiffView } from "./DiffView";
+import { EditorSettingsModal } from "./EditorSettingsModal";
+import { EditorSurface, EditorSurfaceHandle, SurfaceCommand } from "./EditorSurface";
+import { GoToLine } from "./GoToLine";
+import { SourceControl } from "./SourceControl";
 import { EditorTabs } from "./EditorTabs";
 import { EditorStatusBar } from "./EditorStatusBar";
 import { EditorDialog } from "./EditorDialog";
@@ -113,6 +148,101 @@ interface EditorModalProps {
   onOpenTerminal: (dir: string) => void;
   /** A file the app wants opened — a clicked path in terminal output. */
   openRequest: EditorOpenRequest | null;
+  /**
+   * Bumped when the app hands ⌘W over: the native Window menu owns that chord
+   * on macOS, so it can't be claimed in the webview. See `AppShell`.
+   */
+  closeTabRequest: number;
+  /**
+   * Filled in with a handler for ⌘Z and ⇧⌘Z, which arrive the same way and for
+   * the same reason.
+   *
+   * A callback rather than a counted prop: undo is held down and repeated, and
+   * two presses in one React batch would collapse into a single re-render and
+   * so into a single undo. It returns whether the editor took the chord, so
+   * `AppShell` knows whether to fall back to the webview's own undo.
+   */
+  historyRef: React.MutableRefObject<((command: "undo" | "redo") => boolean) | null>;
+}
+
+/**
+ * What a discard is actually going to do, spelled out.
+ *
+ * The two halves are not the same act: a tracked file is restored from the
+ * index and the changes to it are gone, while an untracked one goes to the
+ * trash and can be fetched back. Saying so is the difference between an
+ * informed yes and a habitual one.
+ */
+function discardChoice(files: GitFile[]): string {
+  const untracked = files.filter((file) => file.unstaged === "untracked").length;
+  const tracked = files.length - untracked;
+
+  const parts: string[] = [];
+  if (tracked > 0) {
+    parts.push(
+      tracked === 1
+        ? "The file goes back to its last staged or committed version, and the changes to it will be gone."
+        : `${tracked} files go back to their last staged or committed versions, and the changes to them will be gone.`
+    );
+  }
+  if (untracked > 0) {
+    parts.push(
+      untracked === 1
+        ? "One file is untracked, so it is moved to the trash instead — git has no version of it to restore."
+        : `${untracked} files are untracked, so they are moved to the trash instead — git has no versions of them to restore.`
+    );
+  }
+  return parts.join(" ");
+}
+
+/**
+ * A chord written the way the platform writes it — `⌘X`, or `Ctrl+X`.
+ *
+ * Only for the context menu's hint column. Everything in `SHORTCUTS` is
+ * app-level and spelled there; these are the editor's own, and the ones the
+ * webview provides for nothing.
+ */
+function chord(key: string, extra?: "shift" | "alt"): string {
+  if (isMac) {
+    return `${extra === "shift" ? "⇧" : extra === "alt" ? "⌥" : ""}⌘${key}`;
+  }
+  return `Ctrl+${extra === "shift" ? "Shift+" : extra === "alt" ? "Alt+" : ""}${key}`;
+}
+
+const REVEAL_LABEL =
+  platform === "mac"
+    ? "Reveal in Finder"
+    : platform === "windows"
+      ? "Show in Explorer"
+      : "Open Containing Folder";
+
+/**
+ * What the diff tab is showing.
+ *
+ * Two shapes, because a diff of the working tree and a diff of one commit are
+ * asked for differently — the first against HEAD, the second against a
+ * commit's first parent — and the header has a revision to name in the second
+ * case and not the first.
+ */
+type DiffTarget =
+  | { kind: "working"; file: GitFile }
+  | { kind: "commit"; commit: GitCommit; file: GitCommitFile };
+
+/** The tab and the header label for either shape. */
+function diffIdentity(target: DiffTarget): {
+  relative: string;
+  revision: string | null;
+} {
+  return target.kind === "working"
+    ? { relative: target.file.relative, revision: null }
+    : { relative: target.file.relative, revision: target.commit.short };
+}
+
+/** Where a right-click on the text opened, and what was selected at the time. */
+interface SurfaceMenu {
+  x: number;
+  y: number;
+  hasSelection: boolean;
 }
 
 /**
@@ -144,6 +274,8 @@ export function EditorModal({
   cwd,
   onOpenTerminal,
   openRequest,
+  closeTabRequest,
+  historyRef,
 }: EditorModalProps) {
   const {
     root,
@@ -156,6 +288,9 @@ export function EditorModal({
     previewWidth,
     showHidden,
     expanded,
+    diffLayout,
+    diffStyle,
+    settings: editorSettings,
     setRoot,
     switchWorkspace,
     removeWorkspace,
@@ -176,6 +311,10 @@ export function EditorModal({
     setExplorerWidth,
     setPreviewWidth,
     setShowHidden,
+    setDiffLayout,
+    setDiffStyle,
+    setEditorSettings,
+    resetEditorSettings,
     toggleExpanded,
     collapse,
     collapseAll,
@@ -184,8 +323,63 @@ export function EditorModal({
   const theme = useThemeStore((s) => s.theme);
   const { settings } = useSettingsStore();
 
+  /**
+   * What the editor actually renders in.
+   *
+   * A blank face or a zero size means "follow the terminal", and it is a
+   * sentinel rather than a copy of the terminal's value so that changing the
+   * terminal still moves the editor for anyone who never chose one — which is
+   * what somebody who never chose would expect.
+   */
+  const editorFont = useMemo(
+    () => ({
+      family: editorSettings.fontFamily || settings.fontFamily,
+      size: editorSettings.fontSize || settings.fontSize,
+    }),
+    [editorSettings.fontFamily, editorSettings.fontSize, settings.fontFamily, settings.fontSize]
+  );
+
   const [error, setError] = useState<string | null>(null);
   const [quickOpen, setQuickOpen] = useState(false);
+  const [surfaceMenu, setSurfaceMenu] = useState<SurfaceMenu | null>(null);
+  const [goToOpen, setGoToOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  /**
+   * What a level of indentation is in the buffer in front.
+   *
+   * Mirrored into React state rather than read from the surface on render: the
+   * surface detects it from the file when a buffer is first built, and a
+   * component that reads a ref during render has no reason to re-render when
+   * that answer arrives.
+   */
+  const [indent, setIndent] = useState({ useTabs: false, width: 2 });
+  /** How the file in front differs from HEAD, for the change gutter. */
+  const [gitDiff, setGitDiff] = useState<GitFileDiff | null>(null);
+  const [gitBusy, setGitBusy] = useState(false);
+  /**
+   * Bumped after the editor itself changes the repository.
+   *
+   * The watcher covers changes made anywhere else, `.git` included, so this is
+   * only for the gap between a stage or a commit finishing and the debounced
+   * watcher event arriving — which is long enough to look broken.
+   */
+  const [gitTick, setGitTick] = useState(0);
+  /** What the diff tab is showing, or null when there is no diff tab. */
+  const [diffTarget, setDiffTarget] = useState<DiffTarget | null>(null);
+  /**
+   * Whether the diff tab is the one in front.
+   *
+   * Separate from `diffTarget` so the diff behaves like the tab it now is:
+   * clicking a file tab moves away from it without closing it, and clicking it
+   * again comes back. One piece of state for both would mean switching to a
+   * file destroyed the diff, which is not what a tab does.
+   */
+  const [diffFocused, setDiffFocused] = useState(false);
+  const [diffText, setDiffText] = useState<string | null>(null);
+  const [diffLoading, setDiffLoading] = useState(false);
+  const [diffError, setDiffError] = useState<string | null>(null);
+  /** Files a discard is waiting to be confirmed for. */
+  const [discardPrompt, setDiscardPrompt] = useState<GitFile[] | null>(null);
   /**
    * What the right-hand panel is showing.
    *
@@ -194,7 +388,7 @@ export function EditorModal({
    * used to be a third mode here; it lives inside the preview now, which frees
    * this column for the tree.
    */
-  const [sidePanel, setSidePanel] = useState<"files" | "search">("files");
+  const [sidePanel, setSidePanel] = useState<"files" | "search" | "git">("files");
   const [cursor, setCursor] = useState({ line: 1, column: 1 });
   const [wrapped, setWrapped] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
@@ -258,6 +452,16 @@ export function EditorModal({
   const journalTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   /** Where to put the cursor once the buffer being opened is live. */
   const pendingGoTo = useRef<{ bufferId: string; line: number; column: number } | null>(null);
+  /**
+   * Bumped every time a cursor move is queued, and depended on by the effect
+   * that applies it.
+   *
+   * Without it the effect was keyed only on which buffer was active and how
+   * many were open, so a jump *within the file already in front* changed
+   * neither and never ran — which is exactly what picking a second hit in the
+   * open file from folder search does. It queued the line and stopped there.
+   */
+  const [goToToken, setGoToToken] = useState(0);
   const lastRequest = useRef(0);
   /** Tracks the visible transition, so adoption happens on open and only then. */
   const wasVisible = useRef(false);
@@ -307,7 +511,39 @@ export function EditorModal({
     elementRef: modalRef,
   });
 
+  /*
+    Only in picture-in-picture is this a *window*; otherwise it is a modal with
+    a full-screen backdrop, and the stack's "no rectangle means it covers
+    everything" is the right answer for that.
+  */
+  useOverlayRect("editor", modalRef, visible && pipMode);
+
   const { change, mechanism } = useFileWatcher(rootReady ? root : null, visible);
+
+  const {
+    repo: git,
+    error: gitError,
+    refresh: refreshGit,
+    decorations: gitDecorations,
+    remote: gitRemote,
+  } = useGitStatus(rootReady ? root : null, visible);
+
+  /**
+   * The watcher is the git refresh trigger.
+   *
+   * `.git` is inside the watched tree, so a commit, a checkout or a rebase in
+   * the pane behind arrives as a filesystem event like anything else — no
+   * polling, and no need for the editor to be the only thing allowed to touch
+   * the repository.
+   */
+  useEffect(() => {
+    if (!visible || change.token === 0) return;
+    refreshGit();
+  }, [change.token, visible, refreshGit]);
+
+  useEffect(() => {
+    if (visible) refreshGit();
+  }, [visible, refreshGit]);
 
   /**
    * What the explorer reacts to.
@@ -471,15 +707,25 @@ export function EditorModal({
     })();
   }, [root, requestWorkspace]);
 
+  /** Queues a cursor move for a buffer that may not be live yet. */
+  const queueGoTo = useCallback((bufferId: string, line: number, column: number) => {
+    pendingGoTo.current = { bufferId, line, column };
+    setGoToToken((token) => token + 1);
+  }, []);
+
   const openPath = useCallback(
     async (path: string, line?: number, column?: number) => {
       const state = useEditorStore.getState();
+      // Opening a file means showing it. Every route in comes through here —
+      // the tree, quick open, a folder-search hit, a clicked path in terminal
+      // output — so this is the one place the diff has to step aside.
+      setDiffFocused(false);
 
       const existing = state.bufferFor(path);
       if (existing) {
         state.setActiveBuffer(existing.id);
         setPreview(null);
-        if (line) pendingGoTo.current = { bufferId: existing.id, line, column: column ?? 1 };
+        if (line) queueGoTo(existing.id, line, column ?? 1);
         return existing.id;
       }
 
@@ -507,7 +753,7 @@ export function EditorModal({
         }
         const id = state.openFile(path, file);
         setPreview(null);
-        if (line) pendingGoTo.current = { bufferId: id, line, column: column ?? 1 };
+        if (line) queueGoTo(id, line, column ?? 1);
         return id;
       } catch (e) {
         // Names the file first: the backend's message is about a path, and on
@@ -516,7 +762,7 @@ export function EditorModal({
         return null;
       }
     },
-    []
+    [queueGoTo]
   );
 
   openPathRef.current = openPath;
@@ -679,7 +925,7 @@ export function EditorModal({
     };
     raf = requestAnimationFrame(attempt);
     return () => cancelAnimationFrame(raf);
-  }, [activeBufferId, buffers.length]);
+  }, [activeBufferId, buffers.length, goToToken]);
 
   // --- Saving --------------------------------------------------------------
 
@@ -890,6 +1136,45 @@ export function EditorModal({
     setFrontZ(null);
   }, [visible, pipMode, raise]);
 
+  /**
+   * Focus follows the editor when it opens.
+   *
+   * Nothing did this, and the effect was that the editor looked like it had no
+   * keyboard at all: the modal drew over a terminal that still held focus, so
+   * every keystroke — the editor's own chords, ⌘C and ⌘V included — went to the
+   * shell underneath, and clicking into the text was the only way to wake it
+   * up. The surface takes focus when it *activates* a buffer, which is why the
+   * very first open worked and every reopen after it didn't: the tab was
+   * already active, so there was nothing to activate.
+   *
+   * Deferred a frame because the modal has only just stopped being
+   * `display: none` — CodeMirror measures against a laid-out element, and
+   * `refresh` here is what stops the caret landing in the wrong column. With
+   * no file open the modal itself takes focus, so its chords still work from
+   * the empty state.
+   *
+   * `activeBufferId` is read through a ref rather than depended on: switching
+   * tabs must not pull focus back out of the tree or the search panel.
+   */
+  const activeBufferRef = useRef(activeBufferId);
+  activeBufferRef.current = activeBufferId;
+
+  useEffect(() => {
+    if (!visible) return;
+    const frame = requestAnimationFrame(() => {
+      surfaceRef.current?.refresh();
+      if (activeBufferRef.current) surfaceRef.current?.focus();
+
+      // Checked rather than assumed: with no file open there is no surface to
+      // focus, and behind a binary preview the surface is `invisible` and
+      // can't take focus even though a buffer is active. Either way the modal
+      // holds the keyboard itself, so its own chords still land.
+      const modal = modalRef.current;
+      if (modal && !modal.contains(document.activeElement)) modal.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [visible]);
+
   // --- Closing tabs --------------------------------------------------------
 
   const requestCloseBuffer = useCallback(
@@ -914,6 +1199,37 @@ export function EditorModal({
     },
     [closeBuffer]
   );
+
+  /**
+   * ⌘W, arriving by way of the native menu — see `AppShell` for why it can't
+   * simply be bound here. Compared against the last count seen rather than
+   * fired on every change, so the value the editor mounts with closes nothing.
+   */
+  const closeTabSeen = useRef(closeTabRequest);
+  useEffect(() => {
+    if (closeTabRequest === closeTabSeen.current) return;
+    closeTabSeen.current = closeTabRequest;
+    if (activeBufferId) requestCloseBuffer(activeBufferId);
+  }, [closeTabRequest, activeBufferId, requestCloseBuffer]);
+
+  /**
+   * ⌘Z and ⇧⌘Z, likewise by way of the native menu.
+   *
+   * Declined unless the text actually holds the keyboard: with the editor
+   * hidden, or the caret in the search field or the quick-open box, undo is
+   * that field's and `AppShell` should let the webview have it.
+   */
+  useEffect(() => {
+    historyRef.current = (command) => {
+      const surface = surfaceRef.current;
+      if (!visible || !surface?.hasFocus()) return false;
+      surface.command(command);
+      return true;
+    };
+    return () => {
+      historyRef.current = null;
+    };
+  }, [visible, historyRef]);
 
   // --- Terminal integration ------------------------------------------------
 
@@ -1281,6 +1597,323 @@ export function EditorModal({
 
   goToHeadingRef.current = goToHeading;
 
+  /**
+   * Picks what the side column shows, opening it if it was collapsed.
+   *
+   * Clicking the tab you are already on collapses the column, which is what
+   * every editor's activity bar does and the only way to get back to a full
+   * width editor without hunting for the separate collapse button.
+   */
+  const openPanel = useCallback(
+    (mode: "files" | "search" | "git") => {
+      setSidePanel(mode);
+      setExplorerVisible(true);
+    },
+    [setExplorerVisible]
+  );
+
+  const showPanel = useCallback(
+    (mode: "files" | "search" | "git") => {
+      if (explorerVisible && sidePanel === mode) {
+        setExplorerVisible(false);
+        return;
+      }
+      openPanel(mode);
+    },
+    [explorerVisible, sidePanel, setExplorerVisible, openPanel]
+  );
+
+  // --- Git -----------------------------------------------------------------
+
+  /** The file in front, as git names it. Null outside a repository. */
+  const gitPath = useMemo(
+    () => (git.root && activeBuffer?.path ? repoRelative(git.root, activeBuffer.path) : null),
+    [git.root, activeBuffer?.path]
+  );
+
+  /**
+   * The change gutter's data for the open file.
+   *
+   * Refetched on the watcher rather than on the status list: a file that is
+   * already "M" stays "M" when you save it again, so nothing in the status
+   * would change, while the lines that differ change completely.
+   */
+  useEffect(() => {
+    if (!visible || !root || !rootReady || !git.isRepo || !gitPath) {
+      setGitDiff(null);
+      return;
+    }
+
+    let cancelled = false;
+    let settled = false;
+    // Cleared only if the answer is slow: blanking the gutter on every save
+    // and then filling it back in a frame later reads as a flicker.
+    const blank = setTimeout(() => {
+      if (!settled) setGitDiff(null);
+    }, 150);
+
+    void gitFileHunks(root, gitPath)
+      .then((diff) => {
+        settled = true;
+        if (!cancelled) setGitDiff(diff);
+      })
+      .catch(() => {
+        settled = true;
+        // A file git can't diff — one just deleted underneath us, a submodule —
+        // simply has no marks. Nothing to say about it.
+        if (!cancelled) setGitDiff(null);
+      });
+
+    return () => {
+      cancelled = true;
+      clearTimeout(blank);
+    };
+  }, [visible, root, rootReady, git.isRepo, gitPath, change.token, gitTick]);
+
+  /**
+   * Runs something that changes the repository.
+   *
+   * The refresh is in `finally` rather than after the await: a stage that
+   * fails halfway has still changed the index, and a panel showing the state
+   * from before is worse than one showing the mess.
+   */
+  const runGit = useCallback(
+    async (action: (dir: string) => Promise<void>) => {
+      if (!root) return;
+      setGitBusy(true);
+      try {
+        await action(root);
+      } finally {
+        setGitBusy(false);
+        setGitTick((tick) => tick + 1);
+        refreshGit();
+      }
+    },
+    [root, refreshGit]
+  );
+
+  /**
+   * Throws away working-tree changes — the one git action here that destroys
+   * something, hence the confirmation the caller has already collected.
+   *
+   * Untracked files are split out and deleted through the filesystem layer, so
+   * they go to the trash. `git clean` would be the obvious spelling and it is
+   * the wrong one: it unlinks, and "discard" on a file git has never seen
+   * would then be the only unrecoverable button in the editor.
+   */
+  const discardFiles = useCallback(
+    (files: GitFile[]) => {
+      const untracked = files.filter((file) => file.unstaged === "untracked");
+      const tracked = files.filter((file) => file.unstaged !== "untracked");
+
+      void runGit(async (dir) => {
+        if (tracked.length > 0) {
+          await gitDiscard(dir, tracked.map((file) => file.relative));
+        }
+        for (const file of untracked) {
+          await deletePath(file.path, true);
+        }
+      }).catch((e) => setError(String(e)));
+    },
+    [runGit]
+  );
+
+  /**
+   * Makes the index match the panel's checkboxes, then commits.
+   *
+   * The panel doesn't show the index — see `SourceControl` — so it can't assume
+   * anything about what is already staged. Unstaging the unticked files is the
+   * half that's easy to forget and the half that matters: without it, a file
+   * staged from the terminal and then unticked here would still be committed.
+   *
+   * Not routed through `runGit`, because the panel shows the failure itself,
+   * next to the message box that caused it.
+   */
+  const commitFiles = useCallback(
+    async (message: string, include: GitFile[]) => {
+      if (!root) return;
+      const included = new Set(include.map((file) => file.relative));
+      const excluded = git.files.filter((file) => !included.has(file.relative));
+
+      setGitBusy(true);
+      try {
+        if (excluded.length > 0) {
+          await gitUnstage(root, excluded.map((file) => file.relative));
+        }
+        if (include.length > 0) {
+          await gitStage(root, include.map((file) => file.relative));
+        }
+        await gitCommit(root, message);
+      } finally {
+        setGitBusy(false);
+        setGitTick((tick) => tick + 1);
+        refreshGit();
+      }
+    },
+    [root, git.files, refreshGit]
+  );
+
+  const openDiff = useCallback((file: GitFile) => {
+    setDiffTarget({ kind: "working", file });
+    setDiffFocused(true);
+  }, []);
+
+  const openCommitDiff = useCallback((commit: GitCommit, file: GitCommitFile) => {
+    setDiffTarget({ kind: "commit", commit, file });
+    setDiffFocused(true);
+  }, []);
+
+  /**
+   * Fetch and push, which are the only two things here that leave the machine.
+   *
+   * The error is re-thrown rather than shown in the error bar: the panel puts
+   * it next to the button that caused it, and "everything up to date" or a
+   * rejected non-fast-forward is about that button, not about the editor.
+   */
+  const syncRemote = useCallback(
+    async (which: "fetch" | "push"): Promise<string> => {
+      if (!root) return "";
+      setGitBusy(true);
+      try {
+        // Returned, not discarded: git reports a successful push on stderr, and
+        // "Everything up-to-date" is an answer rather than a non-event.
+        return await (which === "fetch" ? gitFetch(root) : gitPush(root));
+      } finally {
+        setGitBusy(false);
+        setGitTick((tick) => tick + 1);
+        refreshGit();
+      }
+    },
+    [root, refreshGit]
+  );
+
+  const closeDiff = useCallback(() => {
+    setDiffTarget(null);
+    setDiffFocused(false);
+  }, []);
+
+  /** True only when the diff is what the editor column is showing. */
+  const diffShown = !!diffTarget && diffFocused;
+
+  /** The diff text for whatever the panel asked to see. */
+  useEffect(() => {
+    if (!diffTarget || !root) return;
+
+    let cancelled = false;
+    setDiffLoading(true);
+    setDiffError(null);
+    setDiffText(null);
+
+    const request =
+      diffTarget.kind === "working"
+        ? gitFileDiff(root, diffTarget.file.relative)
+        : gitCommitDiff(root, diffTarget.commit.sha, diffTarget.file.relative);
+
+    void request
+      .then((text) => {
+        if (cancelled) return;
+        setDiffText(text);
+        setDiffLoading(false);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setDiffError(String(e));
+        setDiffLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [diffTarget, root, change.token, gitTick]);
+
+  /**
+   * A working-tree diff for a file that has stopped having changes is an empty
+   * panel, so it closes itself. A commit's diff is history and never goes
+   * stale, which is why only one of the two is checked.
+   */
+  useEffect(() => {
+    if (diffTarget?.kind !== "working") return;
+    const still = git.files.some((file) => file.relative === diffTarget.file.relative);
+    if (!still) closeDiff();
+  }, [git.files, diffTarget, closeDiff]);
+
+  // --- Go to line ----------------------------------------------------------
+
+  /**
+   * Where the view was when the overlay opened, so cancelling puts it back.
+   *
+   * The overlay scrolls the editor as the number is typed — which is the point
+   * of it, and useless if abandoning the jump leaves you somewhere else.
+   */
+  const goToOrigin = useRef<number | null>(null);
+
+  const openGoToLine = useCallback(() => {
+    if (!activeBufferId) return;
+    goToOrigin.current = surfaceRef.current?.topLine() ?? null;
+    setGoToOpen(true);
+  }, [activeBufferId]);
+
+  /*
+    Re-read on every tab switch, and once the buffer's state exists — which is
+    asynchronous, because its grammar is a dynamic import, so a single read at
+    activation lands before there is anything to read.
+  */
+  useEffect(() => {
+    if (!activeBufferId) return;
+    let frames = 0;
+    let raf = 0;
+    const read = () => {
+      const surface = surfaceRef.current;
+      if (surface?.getContent(activeBufferId) !== null && surface) {
+        setIndent(surface.getIndent());
+        return;
+      }
+      if (frames++ < 60) raf = requestAnimationFrame(read);
+    };
+    raf = requestAnimationFrame(read);
+    return () => cancelAnimationFrame(raf);
+  }, [activeBufferId, buffers.length]);
+
+  const closeGoToLine = useCallback(() => {
+    setGoToOpen(false);
+    goToOrigin.current = null;
+    surfaceRef.current?.focus();
+  }, []);
+
+  const previewGoToLine = useCallback((line: number | null) => {
+    const target = line ?? goToOrigin.current;
+    if (target !== null) surfaceRef.current?.scrollToLine(target);
+  }, []);
+
+  // --- Context menu --------------------------------------------------------
+
+  /**
+   * A right-click on the text.
+   *
+   * What was selected is read now rather than when an item is clicked: the menu
+   * says "Copy" or "Copy Line" depending on it, and by the time the click
+   * arrives the answer would be whatever the menu itself did to the selection.
+   */
+  const openSurfaceMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setSurfaceMenu({
+      x: e.clientX,
+      y: e.clientY,
+      hasSelection: surfaceRef.current?.hasSelection() ?? false,
+    });
+  }, []);
+
+  const runSurfaceCommand = useCallback((command: SurfaceCommand) => {
+    setSurfaceMenu(null);
+    surfaceRef.current?.command(command);
+  }, []);
+
+  /** Copy Path and its relative twin; the failure is silent, as elsewhere. */
+  const copyToClipboard = useCallback((text: string) => {
+    setSurfaceMenu(null);
+    void navigator.clipboard.writeText(text).catch(() => {});
+  }, []);
+
   // --- Keyboard ------------------------------------------------------------
 
   /**
@@ -1309,8 +1942,11 @@ export function EditorModal({
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
-        if (quickOpen) setQuickOpen(false);
-        // Search and the outline step back to the tree before Escape closes
+        if (settingsOpen) setSettingsOpen(false);
+        else if (quickOpen) setQuickOpen(false);
+        else if (goToOpen) closeGoToLine();
+        else if (diffShown) closeDiff();
+        // Search and source control step back to the tree before Escape closes
         // the whole editor.
         else if (sidePanel !== "files") setSidePanel("files");
         else onClose();
@@ -1338,8 +1974,9 @@ export function EditorModal({
         case "f":
           if (e.shiftKey) {
             claim();
-            setSidePanel("search");
-            setExplorerVisible(true);
+            // Shows rather than toggles: a chord that closed the panel you
+            // just asked for reads as a missed keystroke.
+            openPanel("search");
           }
           break;
         case "b":
@@ -1356,13 +1993,19 @@ export function EditorModal({
       }
     },
     [
+      settingsOpen,
       quickOpen,
+      goToOpen,
+      closeGoToLine,
+      diffShown,
+      closeDiff,
       sidePanel,
       onClose,
       saveAll,
       saveActive,
       explorerVisible,
       setExplorerVisible,
+      openPanel,
       activeBufferId,
       requestCloseBuffer,
     ]
@@ -1440,12 +2083,21 @@ export function EditorModal({
       >
         <div
           ref={modalRef}
-          className={`editor-modal overflow-hidden shadow-2xl flex flex-col ${
+          /*
+            Focusable so the modal can hold focus itself when no file is open.
+            Its `onKeyDown` only fires for keys aimed at something inside it,
+            and with an empty tab strip there is nothing inside it to aim at —
+            so ⌘P, ⌘B and Escape had nowhere to land.
+          */
+          tabIndex={-1}
+          className={`editor-modal overflow-hidden shadow-2xl flex flex-col focus:outline-none ${
             pipMode ? "editor-pip" : ""
           } ${fullscreen ? "editor-fullscreen" : "rounded-xl"}`}
           style={modalStyle}
           onMouseDown={(e) => e.stopPropagation()}
           onKeyDown={onKeyDown}
+          // Suppresses the webview's own menu over the chrome. The text surface
+          // and the file tree raise their own instead.
           onContextMenu={(e) => e.preventDefault()}
         >
           {/* Tab strip, doubling as the drag handle */}
@@ -1462,10 +2114,37 @@ export function EditorModal({
             <div className="flex-1 min-w-0">
               <EditorTabs
                 buffers={buffers}
-                activeBufferId={activeBufferId}
-                onSelect={setActiveBuffer}
+                // Nulled while the diff is in front, or two tabs would look
+                // active at once.
+                activeBufferId={diffShown ? null : activeBufferId}
+                diff={
+                  diffTarget
+                    ? {
+                        // Literally this, and without an extension: it is not a
+                        // file, and a tab reading `lib.rs` next to the tab for
+                        // `lib.rs` would be two tabs claiming to be the same
+                        // thing.
+                        title: "diff-check",
+                        detail: diffIdentity(diffTarget).revision
+                          ? `${diffIdentity(diffTarget).relative} at ${
+                              diffIdentity(diffTarget).revision
+                            }`
+                          : diffIdentity(diffTarget).relative,
+                        active: diffFocused,
+                        onSelect: () => setDiffFocused(true),
+                        onClose: closeDiff,
+                      }
+                    : null
+                }
+                onSelect={(id) => {
+                  setDiffFocused(false);
+                  setActiveBuffer(id);
+                }}
                 onClose={requestCloseBuffer}
-                onNewScratch={() => openScratch()}
+                onNewScratch={() => {
+                  setDiffFocused(false);
+                  openScratch();
+                }}
                 onReorder={reorderBuffers}
                 onDragHandle={onDragStart}
               />
@@ -1500,13 +2179,20 @@ export function EditorModal({
 
           {/* Breadcrumb / toolbar */}
           <div className="editor-chrome editor-toolbar flex items-center gap-1 px-2 py-1">
+            {/*
+              These say "file", so they step away from the diff rather than
+              paging the file underneath it out of sight.
+            */}
             <button
               className="editor-btn p-1 rounded"
               onClick={() => {
                 const index = buffers.findIndex((b) => b.id === activeBufferId);
+                setDiffFocused(false);
                 if (index > 0) setActiveBuffer(buffers[index - 1].id);
               }}
-              disabled={buffers.findIndex((b) => b.id === activeBufferId) <= 0}
+              disabled={
+                !diffShown && buffers.findIndex((b) => b.id === activeBufferId) <= 0
+              }
               title="Previous file"
               aria-label="Previous file"
             >
@@ -1516,11 +2202,13 @@ export function EditorModal({
               className="editor-btn p-1 rounded"
               onClick={() => {
                 const index = buffers.findIndex((b) => b.id === activeBufferId);
+                setDiffFocused(false);
                 if (index >= 0 && index < buffers.length - 1) {
                   setActiveBuffer(buffers[index + 1].id);
                 }
               }}
               disabled={
+                !diffShown &&
                 buffers.findIndex((b) => b.id === activeBufferId) >= buffers.length - 1
               }
               title="Next file"
@@ -1543,20 +2231,29 @@ export function EditorModal({
                   <ChevronDown size={10} className="shrink-0 opacity-60" />
                 </button>
               )}
-              {crumbs.map((crumb) => (
-                <span key={crumb.path} className="flex items-center gap-0.5 min-w-0">
-                  <ChevronRight size={11} className="editor-crumb-sep shrink-0" />
-                  <button
-                    className={`editor-crumb truncate ${crumb.isLast ? "current" : ""}`}
-                    onClick={() =>
-                      revealInTree(crumb.isLast ? dirname(crumb.path) : crumb.path)
-                    }
-                    title={crumb.path}
-                  >
-                    {crumb.label}
-                  </button>
-                </span>
-              ))}
+              {/*
+                The crumbs are the *active file's* path, so with the diff in
+                front they name a file you are not looking at — the last tab's,
+                which is exactly as confusing as it sounds. The diff carries its
+                own path in its header. The workspace chip above stays: it is
+                the workspace switcher rather than part of a path, and it is the
+                only way to reach it from here.
+              */}
+              {!diffShown &&
+                crumbs.map((crumb) => (
+                  <span key={crumb.path} className="flex items-center gap-0.5 min-w-0">
+                    <ChevronRight size={11} className="editor-crumb-sep shrink-0" />
+                    <button
+                      className={`editor-crumb truncate ${crumb.isLast ? "current" : ""}`}
+                      onClick={() =>
+                        revealInTree(crumb.isLast ? dirname(crumb.path) : crumb.path)
+                      }
+                      title={crumb.path}
+                    >
+                      {crumb.label}
+                    </button>
+                  </span>
+                ))}
             </div>
 
             {terminalFolderDiffers && (
@@ -1570,7 +2267,8 @@ export function EditorModal({
               </button>
             )}
 
-            {activeBuffer && (
+            {/* Both act on the file, not on the diff. */}
+            {activeBuffer && !diffShown && (
               <>
                 <button
                   className="editor-btn p-1 rounded"
@@ -1613,21 +2311,68 @@ export function EditorModal({
               <Search size={13} />
             </button>
             <button
-              className={`editor-btn p-1 rounded ${sidePanel === "search" ? "on" : ""}`}
-              onClick={() => {
-                setSidePanel((mode) => (mode === "search" ? "files" : "search"));
-                setExplorerVisible(true);
-              }}
+              className={`editor-btn p-1 rounded ${
+                panelShown && sidePanel === "search" ? "on" : ""
+              }`}
+              onClick={() => showPanel("search")}
               title="Search in folder (⌘⇧F)"
               aria-label="Search in folder"
             >
               <TextSearch size={13} />
             </button>
+            {/*
+              The two things the side column can be, as one switcher rather
+              than as a pair of independent toggles. With a toggle each, the
+              honest states were "tree shown", "source control shown" and
+              "both buttons look off but a panel is open" — which is what a
+              radio group is for.
+            */}
+            <div className="editor-panel-switch flex items-center shrink-0" role="tablist">
+              <button
+                role="tab"
+                aria-selected={panelShown && sidePanel === "files"}
+                className={`editor-panel-tab p-1 ${
+                  panelShown && sidePanel === "files" ? "on" : ""
+                }`}
+                onClick={() => showPanel("files")}
+                title="Explorer — the file tree (⌘B)"
+                aria-label="Explorer"
+              >
+                <FolderTree size={13} />
+              </button>
+              <button
+                role="tab"
+                aria-selected={panelShown && sidePanel === "git"}
+                className={`editor-panel-tab relative p-1 ${
+                  panelShown && sidePanel === "git" ? "on" : ""
+                }`}
+                onClick={() => showPanel("git")}
+                title={
+                  git.isRepo
+                    ? `Source control — ${git.files.length} change${
+                        git.files.length === 1 ? "" : "s"
+                      }`
+                    : "Source control"
+                }
+                aria-label="Source control"
+              >
+                <GitBranch size={13} />
+                {git.files.length > 0 && <span className="editor-btn-dot" aria-hidden />}
+              </button>
+            </div>
+            <button
+              className={`editor-btn p-1 rounded ${settingsOpen ? "on" : ""}`}
+              onClick={() => setSettingsOpen(true)}
+              title="Editor settings"
+              aria-label="Editor settings"
+            >
+              <Settings2 size={13} />
+            </button>
             <button
               className={`editor-btn p-1 rounded ${explorerVisible ? "on" : ""}`}
               onClick={() => setExplorerVisible(!explorerVisible)}
-              title="Toggle the file tree (⌘B)"
-              aria-label="Toggle the file tree"
+              title={explorerVisible ? "Hide the side panel (⌘B)" : "Show the side panel (⌘B)"}
+              aria-label="Toggle the side panel"
             >
               <PanelRight size={13} />
             </button>
@@ -1686,7 +2431,45 @@ export function EditorModal({
           {/* Editor and side panel */}
           <div className="flex-1 min-h-0 flex overflow-hidden">
             <div className="flex-1 min-w-0 min-h-0 relative">
-              {preview ? (
+              {/*
+                A diff takes the editor's whole column rather than the side
+                panel's: it is the thing being read, and 300px of unified diff
+                is not reading, it is guessing.
+              */}
+              {diffShown ? (
+                <DiffView
+                  name={basename(diffIdentity(diffTarget).relative)}
+                  relative={diffIdentity(diffTarget).relative}
+                  revision={diffIdentity(diffTarget).revision}
+                  subject={
+                    diffTarget.kind === "commit" ? diffTarget.commit.subject : null
+                  }
+                  diff={diffText}
+                  loading={diffLoading}
+                  error={diffError}
+                  fontFamily={editorFont.family}
+                  fontSize={editorFont.size}
+                  layout={diffLayout}
+                  style={diffStyle}
+                  onSetLayout={setDiffLayout}
+                  onSetStyle={setDiffStyle}
+                  /* From a commit's diff, Edit opens the file as it is *now*.
+                     Reconstructing the version at that commit would be a
+                     read-only buffer of a file that also exists on disk, which
+                     is two tabs for one path and a save that can't happen. */
+                  onOpenFile={() => {
+                    const path =
+                      diffTarget.kind === "working"
+                        ? diffTarget.file.path
+                        : root
+                          ? joinPath(root, diffIdentity(diffTarget).relative)
+                          : null;
+                    setDiffFocused(false);
+                    if (path) void openPath(path);
+                  }}
+                  onClose={closeDiff}
+                />
+              ) : preview ? (
                 <PreviewCard
                   preview={preview}
                   onDismiss={() => setPreview(null)}
@@ -1703,7 +2486,13 @@ export function EditorModal({
                 Kept mounted even while a preview or the empty state is showing,
                 so switching back to a tab doesn't rebuild every document.
               */}
-              <div className={preview || buffers.length === 0 ? "invisible absolute inset-0" : "h-full"}>
+              <div
+                className={
+                  diffShown || preview || buffers.length === 0
+                    ? "invisible absolute inset-0"
+                    : "h-full"
+                }
+              >
                 <EditorSurface
                   ref={surfaceRef}
                   bufferId={activeBufferId}
@@ -1712,8 +2501,10 @@ export function EditorModal({
                   readOnly={activeBuffer?.readonly ?? true}
                   highlight={!activeBuffer?.large}
                   dark={theme === "dark"}
-                  fontFamily={settings.fontFamily}
-                  fontSize={settings.fontSize}
+                  fontFamily={editorFont.family}
+                  fontSize={editorFont.size}
+                  lineHeight={editorSettings.lineHeight}
+                  settings={editorSettings}
                   onDirtyChange={setDirty}
                   onCursorChange={onCursorChange}
                   onEdited={onEdited}
@@ -1721,15 +2512,17 @@ export function EditorModal({
                   onSave={saveActive}
                   onSaveAll={saveAll}
                   onQuickOpen={() => setQuickOpen(true)}
-                  onGlobalSearch={() => {
-                    setSidePanel("search");
-                    setExplorerVisible(true);
-                  }}
+                  onGlobalSearch={() => openPanel("search")}
                   onCloseTab={() => activeBufferId && requestCloseBuffer(activeBufferId)}
                   onToggleExplorer={() => setExplorerVisible(!explorerVisible)}
                   onSelectTab={(index) => {
-                    if (buffers[index]) setActiveBuffer(buffers[index].id);
+                    if (!buffers[index]) return;
+                    setDiffFocused(false);
+                    setActiveBuffer(buffers[index].id);
                   }}
+                  onContextMenu={openSurfaceMenu}
+                  onGoToLine={openGoToLine}
+                  gitDiff={gitDiff}
                 />
               </div>
             </div>
@@ -1772,7 +2565,26 @@ export function EditorModal({
                   className="shrink-0 min-h-0"
                   style={{ width: paneWidth(dragWidth ?? explorerWidth) }}
                 >
-                  {sidePanel === "search" && root && rootReady ? (
+                  {sidePanel === "git" && root && rootReady ? (
+                    <SourceControl
+                      repo={git}
+                      dir={root}
+                      remote={gitRemote}
+                      error={gitError}
+                      busy={gitBusy}
+                      revision={`${gitTick}:${change.token}`}
+                      onRefresh={refreshGit}
+                      onOpenFile={(path) => void openPath(path)}
+                      onOpenDiff={openDiff}
+                      onOpenCommitDiff={openCommitDiff}
+                      onDiscard={setDiscardPrompt}
+                      onCommit={commitFiles}
+                      onFetch={() => syncRemote("fetch")}
+                      onPush={() => syncRemote("push")}
+                      onError={setError}
+                      onClose={() => setSidePanel("files")}
+                    />
+                  ) : sidePanel === "search" && root && rootReady ? (
                     <GlobalSearch
                       root={root}
                       onOpen={(path, line, column) => void openPath(path, line, column)}
@@ -1792,6 +2604,8 @@ export function EditorModal({
                       onForgetExpanded={collapse}
                       onError={setError}
                       change={treeChange}
+                      gitFiles={gitDecorations.files}
+                      gitDirs={gitDecorations.dirs}
                     />
                   ) : null}
                 </div>
@@ -1805,6 +2619,13 @@ export function EditorModal({
             wrapped={wrapped}
             bufferCount={buffers.length}
             watcherMechanism={mechanism}
+            git={git}
+            indent={indent}
+            onSetIndent={(next) => {
+              surfaceRef.current?.setIndent(next);
+              setIndent(next);
+            }}
+            onOpenSourceControl={() => openPanel("git")}
             onToggleWrap={() => {
               surfaceRef.current?.command("toggleWrap");
               setWrapped(surfaceRef.current?.isWrapped() ?? false);
@@ -1816,7 +2637,7 @@ export function EditorModal({
             onSetEncoding={(value: FileEncoding) =>
               activeBufferId && setEncoding(activeBufferId, value)
             }
-            onGoToLine={() => surfaceRef.current?.command("gotoLine")}
+            onGoToLine={openGoToLine}
             onResizeStart={onResizeStart}
           />
 
@@ -1836,7 +2657,230 @@ export function EditorModal({
               onError={setError}
             />
           )}
+
+          {goToOpen && activeBuffer && (
+            <GoToLine
+              currentLine={cursor.line}
+              lineCount={surfaceRef.current?.lineCount() ?? 1}
+              onPreview={previewGoToLine}
+              onGo={(target) => {
+                setGoToOpen(false);
+                goToOrigin.current = null;
+                surfaceRef.current?.goTo(target.line, target.column);
+              }}
+              onClose={closeGoToLine}
+            />
+          )}
+
+          {settingsOpen && (
+            <EditorSettingsModal
+              settings={editorSettings}
+              terminalFont={{ family: settings.fontFamily, size: settings.fontSize }}
+              showHidden={showHidden}
+              diffLayout={diffLayout}
+              diffStyle={diffStyle}
+              onChange={setEditorSettings}
+              onSetShowHidden={setShowHidden}
+              onSetDiffLayout={setDiffLayout}
+              onSetDiffStyle={setDiffStyle}
+              onReset={resetEditorSettings}
+              onClose={() => {
+                setSettingsOpen(false);
+                surfaceRef.current?.focus();
+              }}
+            />
+          )}
+
+          {surfaceMenu && (
+            <ContextMenu
+              x={surfaceMenu.x}
+              y={surfaceMenu.y}
+              onDismiss={() => setSurfaceMenu(null)}
+            >
+              {activeBuffer ? (
+                <>
+                  {/* Cut and Copy fall back to the whole line when nothing is
+                      selected, so the labels say which it would be. */}
+                  <ContextMenuItem
+                    icon={<Scissors size={12} />}
+                    label={surfaceMenu.hasSelection ? "Cut" : "Cut Line"}
+                    hint={chord("X")}
+                    disabled={activeBuffer.readonly}
+                    onClick={() => runSurfaceCommand("cut")}
+                  />
+                  <ContextMenuItem
+                    icon={<Copy size={12} />}
+                    label={surfaceMenu.hasSelection ? "Copy" : "Copy Line"}
+                    hint={chord("C")}
+                    onClick={() => runSurfaceCommand("copy")}
+                  />
+                  <ContextMenuItem
+                    icon={<ClipboardPaste size={12} />}
+                    label="Paste"
+                    hint={chord("V")}
+                    disabled={activeBuffer.readonly}
+                    onClick={() => runSurfaceCommand("paste")}
+                  />
+                  <ContextMenuItem
+                    icon={<TextSelect size={12} />}
+                    label="Select All"
+                    hint={chord("A")}
+                    onClick={() => runSurfaceCommand("selectAll")}
+                  />
+
+                  <ContextMenuSeparator />
+                  <ContextMenuItem
+                    icon={<Undo2 size={12} />}
+                    label="Undo"
+                    hint={chord("Z")}
+                    disabled={activeBuffer.readonly}
+                    onClick={() => runSurfaceCommand("undo")}
+                  />
+                  <ContextMenuItem
+                    icon={<Redo2 size={12} />}
+                    label="Redo"
+                    hint={chord("Z", "shift")}
+                    disabled={activeBuffer.readonly}
+                    onClick={() => runSurfaceCommand("redo")}
+                  />
+
+                  <ContextMenuSeparator />
+                  <ContextMenuItem
+                    icon={<Search size={12} />}
+                    label="Find…"
+                    hint={chord("F")}
+                    onClick={() => runSurfaceCommand("find")}
+                  />
+                  <ContextMenuItem
+                    icon={<ListOrdered size={12} />}
+                    label="Go to Line…"
+                    hint={chord("G")}
+                    onClick={() => {
+                      setSurfaceMenu(null);
+                      openGoToLine();
+                    }}
+                  />
+                  <ContextMenuItem
+                    icon={<Settings2 size={12} />}
+                    label="Editor Settings…"
+                    onClick={() => {
+                      setSurfaceMenu(null);
+                      setSettingsOpen(true);
+                    }}
+                  />
+                  <ContextMenuItem
+                    icon={<Save size={12} />}
+                    label="Save"
+                    hint={chord("S")}
+                    disabled={activeBuffer.readonly}
+                    onClick={() => {
+                      setSurfaceMenu(null);
+                      void saveActive();
+                    }}
+                  />
+
+                  {activeBuffer.path && (
+                    <>
+                      <ContextMenuSeparator />
+                      <ContextMenuItem
+                        icon={<FolderTree size={12} />}
+                        label="Reveal in Tree"
+                        onClick={() => {
+                          setSurfaceMenu(null);
+                          revealInTree(dirname(activeBuffer.path!));
+                        }}
+                      />
+                      <ContextMenuItem
+                        icon={<Copy size={12} />}
+                        label="Copy Path"
+                        onClick={() => copyToClipboard(activeBuffer.path!)}
+                      />
+                      {root && (
+                        <ContextMenuItem
+                          icon={<Copy size={12} />}
+                          label="Copy Relative Path"
+                          onClick={() =>
+                            copyToClipboard(relativeTo(root, activeBuffer.path!))
+                          }
+                        />
+                      )}
+                      <ContextMenuItem
+                        icon={<SquareArrowOutUpRight size={12} />}
+                        label={REVEAL_LABEL}
+                        onClick={() => {
+                          setSurfaceMenu(null);
+                          void revealPath(activeBuffer.path!).catch((e) =>
+                            setError(String(e))
+                          );
+                        }}
+                      />
+                    </>
+                  )}
+                </>
+              ) : (
+                /* Nothing open: the only useful actions are the ones that
+                   would open something. */
+                <>
+                  <ContextMenuItem
+                    icon={<FilePlus size={12} />}
+                    label="New File"
+                    onClick={() => {
+                      setSurfaceMenu(null);
+                      openScratch();
+                    }}
+                  />
+                  <ContextMenuItem
+                    icon={<Search size={12} />}
+                    label="Quick Open…"
+                    hint={chord("P")}
+                    onClick={() => {
+                      setSurfaceMenu(null);
+                      setQuickOpen(true);
+                    }}
+                  />
+                </>
+              )}
+            </ContextMenu>
+          )}
         </div>
+
+        {/*
+          Discard is the one git action here that destroys work, so it asks —
+          and it says which of the two things it is about to do, because
+          "discard" means `git checkout` for a tracked file and a move to the
+          trash for one git has never seen.
+        */}
+        {discardPrompt && discardPrompt.length > 0 && (
+          <EditorDialog
+            title={
+              discardPrompt.length === 1
+                ? discardPrompt[0].unstaged === "untracked"
+                  ? "Move this file to the trash?"
+                  : "Discard these changes?"
+                : `Discard ${discardPrompt.length} files?`
+            }
+            message={discardChoice(discardPrompt)}
+            detail={
+              discardPrompt.length === 1
+                ? discardPrompt[0].relative
+                : discardPrompt.map((file) => file.relative).join(", ")
+            }
+            onCancel={() => setDiscardPrompt(null)}
+            actions={[
+              {
+                label: "Discard",
+                primary: true,
+                danger: true,
+                onClick: () => {
+                  const files = discardPrompt;
+                  setDiscardPrompt(null);
+                  discardFiles(files);
+                },
+              },
+              { label: "Cancel", onClick: () => setDiscardPrompt(null) },
+            ]}
+          />
+        )}
 
         {conflictBuffer && (
           <EditorDialog

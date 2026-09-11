@@ -57,7 +57,15 @@ export interface SearchMatch {
   path: string;
   /** 1-based. */
   line: number;
+  /**
+   * 0-based index into `text`, for highlighting the hit in the results panel.
+   *
+   * Not the column in the file: `text` is a window around the match on a long
+   * line, so on those two it starts partway in. Use `lineColumn` to go to it.
+   */
   column: number;
+  /** 0-based column in the source line — what "go to" needs. */
+  lineColumn: number;
   length: number;
   text: string;
 }

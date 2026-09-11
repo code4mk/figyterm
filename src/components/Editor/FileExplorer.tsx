@@ -28,7 +28,9 @@ import {
   renamePath,
   revealPath,
 } from "../../services/editor-fs";
+import { changeBadge, changeLabel, GitChange } from "../../services/git";
 import { platform } from "../../services/platform";
+import { ContextMenu, ContextMenuItem, ContextMenuSeparator } from "./ContextMenu";
 import { FileIcon } from "./fileIcons";
 import { EditorDialog } from "./EditorDialog";
 
@@ -81,6 +83,16 @@ interface FileExplorerProps {
   onForgetExpanded: (path: string) => void;
   onError: (message: string) => void;
   change: ExplorerChange;
+  /**
+   * Git's verdict on each path, absolute-keyed.
+   *
+   * Handed in rather than fetched here: the source-control panel and the
+   * change gutter need the same status, and three components each running
+   * `git status` on the same watcher event is three processes for one answer.
+   */
+  gitFiles: Map<string, GitChange>;
+  /** Directories with something changed inside them, so a collapsed one says so. */
+  gitDirs: Set<string>;
 }
 
 interface Row {
@@ -117,6 +129,8 @@ export function FileExplorer({
   onForgetExpanded,
   onError,
   change,
+  gitFiles,
+  gitDirs,
 }: FileExplorerProps) {
   const [children, setChildren] = useState<Map<string, FileEntry[]>>(new Map());
   const [scrollTop, setScrollTop] = useState(0);
@@ -146,7 +160,6 @@ export function FileExplorer({
    * error message per attempt.
    */
   const failedRef = useRef<Set<string>>(new Set());
-  const menuRef = useRef<HTMLDivElement>(null);
   const expandedSet = useMemo(() => new Set(expanded), [expanded]);
   /** The same set, for `load` to consult without being rebuilt on every change. */
   const expandedRef = useRef(expandedSet);
@@ -406,47 +419,7 @@ export function FileExplorer({
     [onError]
   );
 
-  /**
-   * Dismisses the context menu on any press outside it.
-   *
-   * Listened for in the *capture* phase, which is the whole point: the editor
-   * modal stops mousedown propagation on its own container, so a bubble-phase
-   * listener on `window` never saw clicks inside the editor — and the menu
-   * stayed open while you clicked around it. Capture runs before React's
-   * handlers, so nothing downstream can swallow it.
-   *
-   * That means the menu's own presses arrive here too, hence the `contains`
-   * check: without it the menu would close on the mousedown and the click would
-   * never reach the item being chosen.
-   */
-  useEffect(() => {
-    if (!menu) return;
-
-    const onPress = (e: MouseEvent) => {
-      if (menuRef.current?.contains(e.target as Node)) return;
-      setMenu(null);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setMenu(null);
-    };
-    const dismiss = () => setMenu(null);
-
-    window.addEventListener("mousedown", onPress, true);
-    window.addEventListener("keydown", onKey, true);
-    // A scroll or a window switch leaves the menu pointing at the wrong row.
-    window.addEventListener("blur", dismiss);
-    window.addEventListener("resize", dismiss);
-    scrollRef.current?.addEventListener("scroll", dismiss);
-
-    const scroller = scrollRef.current;
-    return () => {
-      window.removeEventListener("mousedown", onPress, true);
-      window.removeEventListener("keydown", onKey, true);
-      window.removeEventListener("blur", dismiss);
-      window.removeEventListener("resize", dismiss);
-      scroller?.removeEventListener("scroll", dismiss);
-    };
-  }, [menu]);
+  const dismissMenu = useCallback(() => setMenu(null), []);
 
   return (
     <div className="editor-explorer flex flex-col h-full min-h-0">
@@ -511,6 +484,14 @@ export function FileExplorer({
           {visible.map((row, index) => {
             const absolute = first + index;
             const isDraftRow = row.entry.name === "" && row.entry.path.includes(" draft");
+            /*
+              A file carries its own status; a directory carries the fact that
+              something under it changed. The two are drawn differently — a
+              letter for the file, a dot for the folder — because "M" on a
+              folder would read as the folder itself being modified.
+            */
+            const gitChange = gitFiles.get(row.entry.path) ?? null;
+            const gitInside = !gitChange && row.entry.isDir && gitDirs.has(row.entry.path);
 
             return (
               <div
@@ -533,7 +514,9 @@ export function FileExplorer({
                   activePath === row.entry.path ? "active" : ""
                 } ${menu?.entry?.path === row.entry.path ? "context-target" : ""} ${
                   dragOver === row.entry.path ? "drag-over" : ""
-                } ${row.entry.isHidden ? "hidden-entry" : ""}`}
+                } ${row.entry.isHidden ? "hidden-entry" : ""} ${
+                  gitChange ? `git-${gitChange}` : gitInside ? "git-inside" : ""
+                }`}
                 draggable={!isDraftRow && renaming !== row.entry.path}
                 onDragStart={(e) => {
                   e.dataTransfer.setData("text/plain", row.entry.path);
@@ -603,10 +586,30 @@ export function FileExplorer({
                     onCancel={() => setRenaming(null)}
                   />
                 ) : (
-                  <span className="editor-row-name text-[12px] truncate" title={row.entry.name}>
-                    {row.entry.name}
-                    {row.entry.isSymlink && <span className="editor-row-link"> ↗</span>}
-                  </span>
+                  <>
+                    <span
+                      className="editor-row-name text-[12px] truncate"
+                      title={row.entry.name}
+                    >
+                      {row.entry.name}
+                      {row.entry.isSymlink && <span className="editor-row-link"> ↗</span>}
+                    </span>
+                    {gitChange ? (
+                      <span
+                        className="editor-row-git text-[10px] shrink-0 ml-auto"
+                        title={changeLabel(gitChange)}
+                        aria-label={changeLabel(gitChange)}
+                      >
+                        {changeBadge(gitChange)}
+                      </span>
+                    ) : gitInside ? (
+                      <span
+                        className="editor-row-git-dot shrink-0 ml-auto"
+                        title="Something inside this folder has changed"
+                        aria-hidden
+                      />
+                    ) : null}
+                  </>
                 )}
               </div>
             );
@@ -635,19 +638,9 @@ export function FileExplorer({
       </div>
 
       {menu && (
-        <div
-          ref={menuRef}
-          className="editor-context-menu fixed z-[280] py-1 rounded-lg min-w-[190px]"
-          style={{
-            // Kept on screen: a menu opened near the bottom or right edge is
-            // flipped rather than clipped.
-            left: Math.min(menu.x, window.innerWidth - 200),
-            top: Math.min(menu.y, window.innerHeight - 260),
-          }}
-          onMouseDown={(e) => e.stopPropagation()}
-        >
+        <ContextMenu x={menu.x} y={menu.y} onDismiss={dismissMenu}>
           {menu.entry && !menu.entry.isDir && (
-            <MenuItem
+            <ContextMenuItem
               icon={<SquareArrowOutUpRight size={12} />}
               label="Open"
               onClick={() => {
@@ -657,7 +650,7 @@ export function FileExplorer({
             />
           )}
           {menu.entry?.isDir && (
-            <MenuItem
+            <ContextMenuItem
               icon={<Terminal size={12} />}
               label="Open in Terminal"
               onClick={() => {
@@ -666,20 +659,20 @@ export function FileExplorer({
               }}
             />
           )}
-          <MenuItem
+          <ContextMenuItem
             icon={<FilePlus size={12} />}
             label="New File"
             onClick={() => startDraft(menu.entry, false)}
           />
-          <MenuItem
+          <ContextMenuItem
             icon={<FolderPlus size={12} />}
             label="New Folder"
             onClick={() => startDraft(menu.entry, true)}
           />
           {menu.entry && (
             <>
-              <div className="editor-context-sep" />
-              <MenuItem
+              <ContextMenuSeparator />
+              <ContextMenuItem
                 icon={<Pencil size={12} />}
                 label="Rename"
                 onClick={() => {
@@ -687,17 +680,17 @@ export function FileExplorer({
                   setMenu(null);
                 }}
               />
-              <MenuItem
+              <ContextMenuItem
                 icon={<Copy size={12} />}
                 label="Copy Path"
                 onClick={() => copyToClipboard(menu.entry!.path)}
               />
-              <MenuItem
+              <ContextMenuItem
                 icon={<Copy size={12} />}
                 label="Copy Relative Path"
                 onClick={() => copyToClipboard(relativeTo(root, menu.entry!.path))}
               />
-              <MenuItem
+              <ContextMenuItem
                 icon={<SquareArrowOutUpRight size={12} />}
                 label={REVEAL_LABEL}
                 onClick={() => {
@@ -705,8 +698,8 @@ export function FileExplorer({
                   setMenu(null);
                 }}
               />
-              <div className="editor-context-sep" />
-              <MenuItem
+              <ContextMenuSeparator />
+              <ContextMenuItem
                 icon={<Trash2 size={12} />}
                 label="Move to Trash"
                 danger
@@ -717,7 +710,7 @@ export function FileExplorer({
               />
             </>
           )}
-        </div>
+        </ContextMenu>
       )}
 
       {pendingDelete && (
@@ -737,30 +730,6 @@ export function FileExplorer({
         />
       )}
     </div>
-  );
-}
-
-function MenuItem({
-  icon,
-  label,
-  onClick,
-  danger,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  onClick: () => void;
-  danger?: boolean;
-}) {
-  return (
-    <button
-      className={`editor-context-item flex items-center gap-2 w-full px-2.5 py-1 text-[11px] text-left ${
-        danger ? "danger" : ""
-      }`}
-      onClick={onClick}
-    >
-      <span className="shrink-0 opacity-70">{icon}</span>
-      <span className="truncate">{label}</span>
-    </button>
   );
 }
 

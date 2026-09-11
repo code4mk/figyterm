@@ -243,9 +243,11 @@ export function GlobalSearch({ root, onOpen, onClose }: GlobalSearchProps) {
               {!isCollapsed &&
                 group.matches.map((match, matchIndex) => (
                   <button
-                    key={`${match.line}-${match.column}-${matchIndex}`}
+                    key={`${match.line}-${match.lineColumn}-${matchIndex}`}
                     className="editor-search-hit flex items-baseline gap-2 w-full pl-7 pr-2 py-0.5 text-left"
-                    onClick={() => onOpen(match.path, match.line, match.column + 1)}
+                    // `lineColumn`, not `column`: the latter indexes the trimmed
+                    // text below, which on a long line starts partway in.
+                    onClick={() => onOpen(match.path, match.line, match.lineColumn + 1)}
                   >
                     <span className="editor-search-line text-[10px] shrink-0 tabular-nums">
                       {match.line}

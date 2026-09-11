@@ -1,5 +1,6 @@
-import { useRef, useState } from "react";
-import { Plus, TriangleAlert, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { FileDiff, Plus, TriangleAlert, X } from "lucide-react";
+import { scrollHorizontallyWithin } from "../../services/scroll";
 import { EditorBuffer } from "../../stores/editorStore";
 import { FileIcon } from "./fileIcons";
 
@@ -9,11 +10,31 @@ import { FileIcon } from "./fileIcons";
  *
  * A dirty tab shows a dot in place of its close button until hovered, so the
  * strip can be read at a glance without the close targets moving around.
+ *
+ * The diff is a tab here too, and deliberately not a buffer. It has no
+ * document, nothing to save and nothing to reorder — putting it in the store
+ * alongside real files would mean every path that iterates buffers first
+ * asking whether this one is really a file. As a tab it gets what it needed,
+ * which is somewhere visible to live and a way to be closed: before this it
+ * covered the editor with no representation at all, so switching to a file tab
+ * lost it with nothing to click to get it back.
  */
+
+/** The diff's tab, when one is open. */
+export interface DiffTab {
+  /** Shown on the tab. Extension-free on purpose: it isn't a file. */
+  title: string;
+  /** The file it is a diff of, for the tooltip. */
+  detail: string;
+  active: boolean;
+  onSelect: () => void;
+  onClose: () => void;
+}
 
 interface EditorTabsProps {
   buffers: EditorBuffer[];
   activeBufferId: string | null;
+  diff: DiffTab | null;
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
   onNewScratch: () => void;
@@ -24,6 +45,7 @@ interface EditorTabsProps {
 export function EditorTabs({
   buffers,
   activeBufferId,
+  diff,
   onSelect,
   onClose,
   onNewScratch,
@@ -33,6 +55,27 @@ export function EditorTabs({
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
   const stripRef = useRef<HTMLDivElement>(null);
+  const activeRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * Brings the active tab into view.
+   *
+   * With twenty files open the strip overflows, and ⌘1-9, Previous/Next file
+   * and a click in the tree all change which tab is active without touching
+   * the scroll — so the tab you just switched to was off-screen and had to be
+   * found by hand, which is the opposite of what a shortcut is for.
+   *
+   * Deferred a frame: on the render where a tab first appears its geometry is
+   * not measured yet, so scrolling to `offsetLeft` now would scroll to zero.
+   */
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      scrollHorizontallyWithin(stripRef.current, activeRef.current);
+    });
+    return () => cancelAnimationFrame(frame);
+    // The diff tab counts as the active one when it is in front, which is why
+    // it is a dependency: switching to it should bring it into view too.
+  }, [activeBufferId, diff?.active, buffers.length]);
 
   return (
     <div
@@ -47,6 +90,7 @@ export function EditorTabs({
         {buffers.map((buffer, index) => (
           <div
             key={buffer.id}
+            ref={buffer.id === activeBufferId ? activeRef : undefined}
             role="tab"
             aria-selected={buffer.id === activeBufferId}
             title={buffer.path ?? buffer.name}
@@ -118,6 +162,45 @@ export function EditorTabs({
             </button>
           </div>
         ))}
+
+        {diff && (
+          <div
+            ref={diff.active ? activeRef : undefined}
+            role="tab"
+            aria-selected={diff.active}
+            title={`Diff — ${diff.detail}`}
+            className={`editor-tab editor-tab-diff group flex items-center gap-1.5 pl-2 pr-1 h-7 rounded-t-lg shrink-0 max-w-[190px] ${
+              diff.active ? "active" : ""
+            }`}
+            // Not draggable, and it stops the window drag like a real tab: it
+            // has no position in the buffer list to reorder to.
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={diff.onSelect}
+            onAuxClick={(e) => {
+              if (e.button === 1) {
+                e.preventDefault();
+                diff.onClose();
+              }
+            }}
+          >
+            <FileDiff size={12} className="editor-tab-diff-icon shrink-0" />
+            <span className="editor-tab-title text-[11px] truncate flex-1 min-w-0">
+              {diff.title}
+            </span>
+            <button
+              className="editor-tab-close p-0.5 rounded shrink-0"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                diff.onClose();
+              }}
+              title="Close the diff"
+              aria-label="Close the diff"
+            >
+              <X size={11} className="editor-tab-cross" />
+            </button>
+          </div>
+        )}
 
         <button
           className="editor-newtab-btn shrink-0 p-1 rounded mb-0.5"

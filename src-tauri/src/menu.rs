@@ -27,6 +27,12 @@ pub const MENU_SETTINGS: &str = "shell_settings";
 pub const MENU_TOGGLE_THEME: &str = "shell_toggle_theme";
 pub const MENU_COPY: &str = "edit_copy";
 pub const MENU_PASTE: &str = "edit_paste";
+#[cfg(target_os = "macos")]
+pub const MENU_CLOSE_WINDOW: &str = "window_close";
+#[cfg(target_os = "macos")]
+pub const MENU_UNDO: &str = "edit_undo";
+#[cfg(target_os = "macos")]
+pub const MENU_REDO: &str = "edit_redo";
 
 const EVENT_NEW_TAB: &str = "menu://new-tab";
 const EVENT_NEW_TAB_SAME_DIR: &str = "menu://new-tab-same-dir";
@@ -43,6 +49,12 @@ const EVENT_TOGGLE_THEME: &str = "menu://toggle-theme";
 const EVENT_CHECK_UPDATES: &str = "menu://check-updates";
 const EVENT_COPY: &str = "menu://copy";
 const EVENT_PASTE: &str = "menu://paste";
+#[cfg(target_os = "macos")]
+const EVENT_CLOSE_WINDOW: &str = "menu://close-window";
+#[cfg(target_os = "macos")]
+const EVENT_UNDO: &str = "menu://undo";
+#[cfg(target_os = "macos")]
+const EVENT_REDO: &str = "menu://redo";
 
 /// An accelerator spelled for the platform it runs on.
 ///
@@ -273,6 +285,44 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         ],
     )?;
 
+    /*
+      On macOS the predefined Close Window item carries ⌘W, and a menu
+      accelerator is translated before the webview ever sees the key — so with
+      the editor open ⌘W closed the whole window, unsaved buffers and all,
+      where every editor closes the current tab. Routed through the frontend
+      instead, which closes the editor's tab while the editor is up and the
+      window otherwise.
+
+      Off macOS the predefined item is Alt+F4, which collides with nothing, so
+      it stays exactly as it was.
+    */
+    #[cfg(target_os = "macos")]
+    let close_window = MenuItem::with_id(
+        app,
+        MENU_CLOSE_WINDOW,
+        "Close Window",
+        true,
+        Some("CmdOrCtrl+W"),
+    )?;
+
+    /*
+      Undo and redo are routed the same way, and for the same reason. The
+      predefined items own ⌘Z and ⇧⌘Z, so the chord never reaches the webview —
+      it becomes `undo:` on the WKWebView, which runs WebKit's undo manager
+      over a DOM the code editor rewrites underneath it. CodeMirror keeps its
+      own history and has to be asked directly, so the frontend decides: the
+      editor when it has focus, the webview's own undo for any other field.
+
+      Cut, copy, paste and select all stay predefined. Those genuinely are the
+      webview's to perform — CodeMirror listens for the `copy`, `cut` and
+      `paste` DOM events they produce — and on macOS an Edit menu holding them
+      is what makes the clipboard work in a WKWebView at all.
+    */
+    #[cfg(target_os = "macos")]
+    let undo_item = MenuItem::with_id(app, MENU_UNDO, "Undo", true, Some("CmdOrCtrl+Z"))?;
+    #[cfg(target_os = "macos")]
+    let redo_item = MenuItem::with_id(app, MENU_REDO, "Redo", true, Some("CmdOrCtrl+Shift+Z"))?;
+
     // `PredefinedMenuItem::minimize` carries CmdOrCtrl+M, and off macOS that is
     // Ctrl+M — which is carriage return. A menu that holds it swallows every
     // Enter the user presses, so the item is macOS-only. Maximize has no
@@ -289,6 +339,9 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
             &PredefinedMenuItem::maximize(app, None)?,
             #[cfg(target_os = "macos")]
             &PredefinedMenuItem::separator(app)?,
+            #[cfg(target_os = "macos")]
+            &close_window,
+            #[cfg(not(target_os = "macos"))]
             &PredefinedMenuItem::close_window(app, None)?,
         ],
     )?;
@@ -341,8 +394,8 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
                 "Edit",
                 true,
                 &[
-                    &PredefinedMenuItem::undo(app, None)?,
-                    &PredefinedMenuItem::redo(app, None)?,
+                    &undo_item,
+                    &redo_item,
                     &PredefinedMenuItem::separator(app)?,
                     &PredefinedMenuItem::cut(app, None)?,
                     &PredefinedMenuItem::copy(app, None)?,
@@ -407,6 +460,12 @@ pub fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
         MENU_CHECK_UPDATES => app.emit(EVENT_CHECK_UPDATES, ()),
         MENU_COPY => app.emit(EVENT_COPY, ()),
         MENU_PASTE => app.emit(EVENT_PASTE, ()),
+        #[cfg(target_os = "macos")]
+        MENU_CLOSE_WINDOW => app.emit(EVENT_CLOSE_WINDOW, ()),
+        #[cfg(target_os = "macos")]
+        MENU_UNDO => app.emit(EVENT_UNDO, ()),
+        #[cfg(target_os = "macos")]
+        MENU_REDO => app.emit(EVENT_REDO, ()),
         _ => Ok(()),
     };
     if let Err(err) = result {
