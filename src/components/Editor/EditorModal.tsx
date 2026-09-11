@@ -21,6 +21,7 @@ import {
   Redo2,
   Save,
   Scissors,
+  Settings2,
   Search,
   SquareArrowOutUpRight,
   TextSearch,
@@ -37,6 +38,7 @@ import {
   useDraggableModal,
 } from "../../hooks/useDraggableModal";
 import { useFileWatcher } from "../../hooks/useFileWatcher";
+import { useOverlayRect } from "../../hooks/useOverlayRect";
 import { useEditorStore, restorableSession } from "../../stores/editorStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useThemeStore } from "../../stores/themeStore";
@@ -79,6 +81,7 @@ import { isLinux, isMac, platform } from "../../services/platform";
 import { normalizeDir } from "../../services/recent-dirs";
 import { ContextMenu, ContextMenuItem, ContextMenuSeparator } from "./ContextMenu";
 import { DiffView } from "./DiffView";
+import { EditorSettingsModal } from "./EditorSettingsModal";
 import { EditorSurface, EditorSurfaceHandle, SurfaceCommand } from "./EditorSurface";
 import { GoToLine } from "./GoToLine";
 import { SourceControl } from "./SourceControl";
@@ -287,6 +290,7 @@ export function EditorModal({
     expanded,
     diffLayout,
     diffStyle,
+    settings: editorSettings,
     setRoot,
     switchWorkspace,
     removeWorkspace,
@@ -309,6 +313,8 @@ export function EditorModal({
     setShowHidden,
     setDiffLayout,
     setDiffStyle,
+    setEditorSettings,
+    resetEditorSettings,
     toggleExpanded,
     collapse,
     collapseAll,
@@ -317,10 +323,36 @@ export function EditorModal({
   const theme = useThemeStore((s) => s.theme);
   const { settings } = useSettingsStore();
 
+  /**
+   * What the editor actually renders in.
+   *
+   * A blank face or a zero size means "follow the terminal", and it is a
+   * sentinel rather than a copy of the terminal's value so that changing the
+   * terminal still moves the editor for anyone who never chose one — which is
+   * what somebody who never chose would expect.
+   */
+  const editorFont = useMemo(
+    () => ({
+      family: editorSettings.fontFamily || settings.fontFamily,
+      size: editorSettings.fontSize || settings.fontSize,
+    }),
+    [editorSettings.fontFamily, editorSettings.fontSize, settings.fontFamily, settings.fontSize]
+  );
+
   const [error, setError] = useState<string | null>(null);
   const [quickOpen, setQuickOpen] = useState(false);
   const [surfaceMenu, setSurfaceMenu] = useState<SurfaceMenu | null>(null);
   const [goToOpen, setGoToOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  /**
+   * What a level of indentation is in the buffer in front.
+   *
+   * Mirrored into React state rather than read from the surface on render: the
+   * surface detects it from the file when a buffer is first built, and a
+   * component that reads a ref during render has no reason to re-render when
+   * that answer arrives.
+   */
+  const [indent, setIndent] = useState({ useTabs: false, width: 2 });
   /** How the file in front differs from HEAD, for the change gutter. */
   const [gitDiff, setGitDiff] = useState<GitFileDiff | null>(null);
   const [gitBusy, setGitBusy] = useState(false);
@@ -479,6 +511,13 @@ export function EditorModal({
     elementRef: modalRef,
   });
 
+  /*
+    Only in picture-in-picture is this a *window*; otherwise it is a modal with
+    a full-screen backdrop, and the stack's "no rectangle means it covers
+    everything" is the right answer for that.
+  */
+  useOverlayRect("editor", modalRef, visible && pipMode);
+
   const { change, mechanism } = useFileWatcher(rootReady ? root : null, visible);
 
   const {
@@ -486,6 +525,7 @@ export function EditorModal({
     error: gitError,
     refresh: refreshGit,
     decorations: gitDecorations,
+    remote: gitRemote,
   } = useGitStatus(rootReady ? root : null, visible);
 
   /**
@@ -1813,6 +1853,27 @@ export function EditorModal({
     setGoToOpen(true);
   }, [activeBufferId]);
 
+  /*
+    Re-read on every tab switch, and once the buffer's state exists — which is
+    asynchronous, because its grammar is a dynamic import, so a single read at
+    activation lands before there is anything to read.
+  */
+  useEffect(() => {
+    if (!activeBufferId) return;
+    let frames = 0;
+    let raf = 0;
+    const read = () => {
+      const surface = surfaceRef.current;
+      if (surface?.getContent(activeBufferId) !== null && surface) {
+        setIndent(surface.getIndent());
+        return;
+      }
+      if (frames++ < 60) raf = requestAnimationFrame(read);
+    };
+    raf = requestAnimationFrame(read);
+    return () => cancelAnimationFrame(raf);
+  }, [activeBufferId, buffers.length]);
+
   const closeGoToLine = useCallback(() => {
     setGoToOpen(false);
     goToOrigin.current = null;
@@ -1881,7 +1942,8 @@ export function EditorModal({
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
-        if (quickOpen) setQuickOpen(false);
+        if (settingsOpen) setSettingsOpen(false);
+        else if (quickOpen) setQuickOpen(false);
         else if (goToOpen) closeGoToLine();
         else if (diffShown) closeDiff();
         // Search and source control step back to the tree before Escape closes
@@ -1931,6 +1993,7 @@ export function EditorModal({
       }
     },
     [
+      settingsOpen,
       quickOpen,
       goToOpen,
       closeGoToLine,
@@ -2298,6 +2361,14 @@ export function EditorModal({
               </button>
             </div>
             <button
+              className={`editor-btn p-1 rounded ${settingsOpen ? "on" : ""}`}
+              onClick={() => setSettingsOpen(true)}
+              title="Editor settings"
+              aria-label="Editor settings"
+            >
+              <Settings2 size={13} />
+            </button>
+            <button
               className={`editor-btn p-1 rounded ${explorerVisible ? "on" : ""}`}
               onClick={() => setExplorerVisible(!explorerVisible)}
               title={explorerVisible ? "Hide the side panel (⌘B)" : "Show the side panel (⌘B)"}
@@ -2376,8 +2447,8 @@ export function EditorModal({
                   diff={diffText}
                   loading={diffLoading}
                   error={diffError}
-                  fontFamily={settings.fontFamily}
-                  fontSize={settings.fontSize}
+                  fontFamily={editorFont.family}
+                  fontSize={editorFont.size}
                   layout={diffLayout}
                   style={diffStyle}
                   onSetLayout={setDiffLayout}
@@ -2430,8 +2501,10 @@ export function EditorModal({
                   readOnly={activeBuffer?.readonly ?? true}
                   highlight={!activeBuffer?.large}
                   dark={theme === "dark"}
-                  fontFamily={settings.fontFamily}
-                  fontSize={settings.fontSize}
+                  fontFamily={editorFont.family}
+                  fontSize={editorFont.size}
+                  lineHeight={editorSettings.lineHeight}
+                  settings={editorSettings}
                   onDirtyChange={setDirty}
                   onCursorChange={onCursorChange}
                   onEdited={onEdited}
@@ -2496,6 +2569,7 @@ export function EditorModal({
                     <SourceControl
                       repo={git}
                       dir={root}
+                      remote={gitRemote}
                       error={gitError}
                       busy={gitBusy}
                       revision={`${gitTick}:${change.token}`}
@@ -2546,6 +2620,11 @@ export function EditorModal({
             bufferCount={buffers.length}
             watcherMechanism={mechanism}
             git={git}
+            indent={indent}
+            onSetIndent={(next) => {
+              surfaceRef.current?.setIndent(next);
+              setIndent(next);
+            }}
             onOpenSourceControl={() => openPanel("git")}
             onToggleWrap={() => {
               surfaceRef.current?.command("toggleWrap");
@@ -2590,6 +2669,25 @@ export function EditorModal({
                 surfaceRef.current?.goTo(target.line, target.column);
               }}
               onClose={closeGoToLine}
+            />
+          )}
+
+          {settingsOpen && (
+            <EditorSettingsModal
+              settings={editorSettings}
+              terminalFont={{ family: settings.fontFamily, size: settings.fontSize }}
+              showHidden={showHidden}
+              diffLayout={diffLayout}
+              diffStyle={diffStyle}
+              onChange={setEditorSettings}
+              onSetShowHidden={setShowHidden}
+              onSetDiffLayout={setDiffLayout}
+              onSetDiffStyle={setDiffStyle}
+              onReset={resetEditorSettings}
+              onClose={() => {
+                setSettingsOpen(false);
+                surfaceRef.current?.focus();
+              }}
             />
           )}
 
@@ -2660,6 +2758,14 @@ export function EditorModal({
                     onClick={() => {
                       setSurfaceMenu(null);
                       openGoToLine();
+                    }}
+                  />
+                  <ContextMenuItem
+                    icon={<Settings2 size={12} />}
+                    label="Editor Settings…"
+                    onClick={() => {
+                      setSurfaceMenu(null);
+                      setSettingsOpen(true);
                     }}
                   />
                   <ContextMenuItem

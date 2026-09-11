@@ -164,6 +164,11 @@ export function gitPush(dir: string): Promise<string> {
   return invoke<string>("git_push", { dir });
 }
 
+/** The tracked remote's URL, raw. Empty when the repository has no remote. */
+export function gitRemoteUrl(dir: string): Promise<string> {
+  return invoke<string>("git_remote_url", { dir });
+}
+
 /**
  * A date as a history list wants it: how long ago for anything recent, the
  * date itself once "23 days ago" has stopped being easier to read than "3 Aug".

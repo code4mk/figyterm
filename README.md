@@ -279,9 +279,17 @@ factor, no platform-specific container, and identical behaviour on all three
 platforms. [The design notes](docs/CODE-EDITOR.md) go into why that difference
 matters.
 
-**Editing** is CodeMirror 6 — multi-cursor, folding, bracket matching, a real
-search panel, and per-language grammars fetched on demand so opening a `.tsx`
-doesn't pay for Rust and Python. There's no language server; word completion
+**It has its own settings** — the gear in the toolbar. Font, size and line
+height are the editor's, not the terminal's, since code and a shell rarely want
+the same one; leave them blank and they follow the terminal. Indentation
+guides, word wrap, bracket closing, word completion, hidden files and the diff
+style all live there too, and every control applies as you change it.
+
+**Editing** is CodeMirror 6 — multi-cursor, folding, bracket matching,
+indentation guides that highlight the block you are in, a real find-and-replace
+panel with a match count, and
+per-language grammars fetched on demand so opening a `.tsx` doesn't pay for
+Rust and Python. There's no language server; word completion
 from the open document covers the "finish this identifier" case.
 
 **Saving is the part that had to be right.** Writes go to a sibling temp file
@@ -312,7 +320,8 @@ thing `git clean` gets wrong for an editor. A **History** tab lists your commits
 opening one slides in a drawer with its message — folded behind **Read more**
 when it's long — and the files it touched, counted by what happened to them
 ("24 edited · 6 new · 1 deleted"). Click a file to diff it at that revision, or
-Back to return to the list.
+Back to return to the list. A commit's SHA and the branch name are links — they
+open on GitHub, GitLab or Bitbucket, worked out from your remote.
 **Fetch** and **Push** are there — push publishes a branch that
 has no upstream yet. Hunk-level staging, branch switching and pull are
 deliberately left to the shell: a pull can leave a conflict, and a merge editor

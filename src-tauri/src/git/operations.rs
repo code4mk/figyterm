@@ -1008,6 +1008,35 @@ fn default_remote(root: &Path) -> Result<String, String> {
     }
 }
 
+/// The fetch URL of the remote this branch tracks, or of the default one.
+///
+/// Raw, exactly as git has it — `git@github.com:user/repo.git` and
+/// `https://gitlab.com/user/repo.git` both come back untouched. Turning one
+/// into a web address is guesswork about a forge's URL scheme and belongs in
+/// the frontend next to the code that builds the rest of the path; this only
+/// answers "which remote, and what is it called".
+///
+/// Empty rather than an error when there is no remote: a repository without
+/// one is normal, and the UI simply has no link to offer.
+pub fn remote_url(root: &Path) -> Result<String, String> {
+    // The branch's own remote first — a fork checked out with `upstream` as
+    // well as `origin` should link to the one it actually tracks.
+    let named = current_branch(root)
+        .ok()
+        .and_then(|branch| git(root, &["config", "--get", &format!("branch.{branch}.remote")]).ok())
+        .map(|out| out.trim().to_string())
+        .filter(|name| !name.is_empty());
+
+    let remote = match named.or_else(|| default_remote(root).ok()) {
+        Some(remote) => remote,
+        None => return Ok(String::new()),
+    };
+
+    Ok(git(root, &["remote", "get-url", &remote])
+        .map(|out| out.trim().to_string())
+        .unwrap_or_default())
+}
+
 fn has_upstream(root: &Path) -> bool {
     git(root, &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]).is_ok()
 }

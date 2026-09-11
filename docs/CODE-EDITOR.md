@@ -27,7 +27,7 @@ a direction the rest of the document still discusses.
 |---|---|
 | Editing engine | **CodeMirror 6.** Monaco's 5 MB and worker wiring aren't worth the VS Code feel here. |
 | Modal or pane | **Modal only.** Docking it as a `PaneContainer` pane is not planned. |
-| Git integration | **Reversed — built.** Tree decorations, gutter marks, a diff view and file-level staging. See [Git](#git). Hunk-level staging, branch switching and push/pull are still out. |
+| Git integration | **Reversed — built.** Tree decorations, gutter marks, a diff view, file-level staging, history and fetch/push. See [Git](#git). Hunk-level staging, branch switching and pull are still out. |
 | `figy edit` CLI shim | **Not wanted.** |
 | Existing browser modal | **Left alone.** The drag/resize hook was written for the editor and the browser keeps its own copy; see the note in `useDraggableModal.ts`. |
 
@@ -161,7 +161,10 @@ status bar, are both there now — the layout had left room for them.
   you are already on collapses the column, as an activity bar does.
 - **Status bar** — language, encoding, line ending, cursor position, indent
   setting, git branch, and the resize grip. Clicking language, encoding, line
-  ending or indent opens a picker for it.
+  ending or indent opens a picker for it. The indent picker sets what *new*
+  indentation is and leaves the file alone: a file with mixed indentation
+  usually has it for a reason somebody else decided, and rewriting every line
+  on a menu click turns a setting into a whole-file diff.
 
 ---
 
@@ -188,6 +191,8 @@ src/components/Editor/
   CommitHistory.tsx              the history list, and which pane is on screen
   CommitDetail.tsx               one commit: title, body, files, Back
   ChangeTally.tsx                "24 edited · 6 new · 1 deleted", as chips
+  EditorSettingsModal.tsx        the editor's own preferences
+  editorIndent.ts                indentation guides and the active block
   DiffView.tsx                   working tree vs HEAD
 src/hooks/useFileWatcher.ts      external-change subscription
 ```
@@ -355,6 +360,7 @@ editor chords would be worse.
 | Action | macOS | Elsewhere |
 |---|---|---|
 | Save / Save all | `⌘S` / `⌥⌘S` | `Ctrl+S` / `Ctrl+Alt+S` |
+| Indent / outdent | `Tab` / `⇧Tab` | same |
 | Quick open | `⌘P` | `Ctrl+P` |
 | Cut / copy / paste | `⌘X` / `⌘C` / `⌘V` | `Ctrl+X` / `Ctrl+C` / `Ctrl+V` |
 | Find / replace in file | `⌘F` / `⌥⌘F` | `Ctrl+F` / `Ctrl+H` |
@@ -421,6 +427,83 @@ Three were being silently eaten.
 
 Cut, copy, paste and select all stay predefined and untouched — those genuinely
 are the webview's to perform.
+
+### Indentation guides
+
+`editorIndent.ts`, written rather than taken from
+`@replit/codemirror-indentation-markers`. Partly one fewer dependency in what
+is already the largest chunk of the bundle, but mostly because the whole of it
+is two rules and both are judgement calls every implementation makes
+differently.
+
+**Which guides a line gets.**
+
+> A line's guides come from its own indent. A **blank** line has none of its
+> own, so it borrows the **smaller** of the indents either side of it.
+
+Smaller, not larger: a blank line between a nested block and the statement
+after it belongs to whichever is shallower, and drawing the deeper one runs a
+guide past the end of the block it was describing. At the top or bottom of a
+file there is no neighbour to borrow from and no block to describe, so a
+trailing blank line gets nothing.
+
+**Which guide is active.** The innermost block containing the cursor, drawn
+several times brighter, along that block's **whole extent** rather than only on
+the cursor's line — the point of it is to show where the block ends.
+
+> A line that *opens* a block belongs to the block it opens.
+
+Resting on `function outer() {` lights the guide running down its body, not the
+one around the function itself, because the body is what you are about to be
+looking at. The consequences are worth spelling out, because they are what
+separates this from a highlight that is merely decorative:
+
+| Cursor on | Lit |
+|---|---|
+| `function outer() {` | the function's body, all of it |
+| a line inside an `if` | that `if`'s body |
+| a blank line inside it | the same — the block does not break |
+| the `}` closing the `if` | the enclosing function body, not the `if` |
+| a **sibling** block at the same depth | nothing; only the block you are in |
+| a top-level line | nothing; there is no guide to brighten |
+
+Both rules go through one `effectiveColumns`, deliberately. When the drawn
+guides and the active highlight worked the indent out separately they disagreed
+around blank lines, and a highlight landing one level off the guide it is
+supposed to be brightening reads as a rendering bug rather than as a different
+answer to a hard question.
+
+The block's extent is traced by walking out while the indent holds, bounded at
+5,000 lines each way: in a file that is one enormous indented block that walk is
+otherwise the whole file, on every cursor move.
+
+It deliberately does **not** consult the syntax tree. Guides are a visual
+summary of the whitespace, and a reader comparing them against the text expects
+them to agree with what is in the file — including where the file's indentation
+is inconsistent, which is exactly when they are most useful. A tree-driven
+version would draw the indentation the parser thinks ought to be there.
+
+Drawn as one pseudo-element per line carrying `--cm-indent-depth` and
+`--cm-indent-width`: a repeating gradient steps a hairline every level, and the
+element's own width is what stops it at the last one rather than ruling the
+whole line. So a line twelve levels deep costs one style attribute instead of
+twelve widgets. The width is in `ch`, which in a monospaced editor is exactly
+one column at any font size. The active guide is a *second* pseudo-element
+painted over the faint one at the same column — a repeating gradient cannot
+colour one of its own stripes differently — and it exists only on the lines of
+the block the cursor is in, so an idle file draws none.
+
+Depth, width *and* the active level are all in one decoration, keyed on all
+three. `Decoration.line` compares by identity, so a fresh one per line would
+make every visible line's decoration distinct and defeat CodeMirror's diffing —
+every line torn down and rebuilt on every keystroke. And they cannot be two
+layered decorations, because both would want to set `style` and only one of
+them can.
+
+It rebuilds on `selectionSet` as well as the usual three, because moving the
+cursor moves which guide is active — that is the whole feature. Over the visible
+lines only, which is the same order of work as the active-line highlight drawn
+beside it.
 
 ### Context menus
 
@@ -713,7 +796,40 @@ than `git`, which differs in exactly two ways, both of them the point:
 
 Output is returned on success too, not just on failure. Git reports a
 successful push on **stderr** — `3b11460..a1b2c3d  main -> main` is the
-confirmation — and "Everything up-to-date" is an answer.
+confirmation — and "Everything up-to-date" is an answer. It lands in a row that
+is always mounted and animates open, because inserting it into the flow snapped
+the tabs and the whole file list down by its height the instant a fetch
+finished. The buttons' labels do not change while they run either: a centred
+icon-and-text group re-centres itself as "Fetch" becomes "Fetching…", so the
+icon slides sideways and the button appears to twitch. The spin and the
+disabled state say it is working without moving anything.
+
+### Linking to the forge
+
+A commit's SHA and the branch name open on the remote. `git-forge.ts` turns a
+remote URL into web addresses, and it is kept apart from `git.ts` because it is
+guesswork of a particular kind: a remote URL says where to *fetch* from, and
+nothing in git says what a commit looks like in a browser. So it is a table of
+conventions with a fallback, and it is honest about what it cannot answer — a
+local-path clone has no web page behind it, `parseRemote` returns null, and the
+SHA renders as plain text. A link that 404s is worse than no link.
+
+The four spellings a remote arrives in are all handled, including the SSH
+shorthand `git@host:user/repo.git`, which is not a URL and cannot be given to
+`new URL()` — the colon there is a separator, not a port. GitLab's `/-/commit/`
+and Bitbucket's `/commits/` differ from GitHub's `/commit/`; an unrecognised
+host gets GitHub's, which Gitea and Forgejo also use, so the fallback is right
+more often than it is wrong.
+
+`origin/` is stripped from a tracking ref before it becomes a branch URL — the
+remote has no branch called that — but only when the prefix matches a remote we
+know, so `feature/code-editor` keeps both halves.
+
+The SHA gets a **background**. Monospace hex on its own does not read as
+something you can press; the chip is what says "this is an object, and it goes
+somewhere". It opens in the system browser rather than the app's own, because a
+commit page is something people send to a colleague and open beside four other
+tabs.
 
 ### Diff view
 
@@ -862,6 +978,73 @@ CodeMirror's own and kept deliberately: `412`, `412:8`, `+20`, `-20`, `50%`.
 
 ---
 
+## Settings
+
+`EditorSettingsModal`, opened from the gear in the toolbar or the text's context
+menu. Its own modal rather than a page in the app's Settings dialog, for two
+reasons that both come down to where it lives:
+
+- That dialog is **Headless UI's**, which makes `#root` inert while it is open
+  — the exact problem `OverlayPortal` exists to work around. Opening it from
+  inside the editor would freeze the editor behind it.
+- These settings are **judged by looking at the thing they change.** Font size
+  and line height are decided by reading the code next to them, which needs the
+  code still on screen rather than covered by a full-window dialog.
+
+Every control applies immediately and there is no Save button: there is nothing
+to batch, and a checkbox you have to confirm is a checkbox that lies about what
+the editor currently looks like.
+
+**There is no chord for it.** `⌘,` is the app's own Settings, and on macOS that
+is a native menu accelerator — translated before the webview sees the key — so
+the editor could not claim it even if that were the right call. See
+[Chords the native menu owns](#chords-the-native-menu-owns).
+
+### The font was the reason to build it
+
+The editor was rendering in the **terminal's** font at the terminal's size.
+That is a setting chosen for reading a shell; code usually wants a different
+size and often a different face, and a preference that can only be right for
+one of two panes is not one setting, it is two.
+
+So the editor has its own, with a sentinel: an empty family or a zero size
+means "follow the terminal". A sentinel rather than copying the terminal's
+value in at first run, because then changing the terminal's font still moves
+the editor for anyone who never chose one — which is what somebody who never
+chose would expect.
+
+### Applying a setting without rebuilding every buffer
+
+Each toggle that changes an extension gets a **compartment** — guides, bracket
+closing, word completion. The alternative is rebuilding every open buffer's
+`EditorState` when a checkbox moves, which throws away its undo history, its
+folds and its selection to change the colour of some hairlines.
+
+Only the buffer in front is reconfigured. The others are immutable states in a
+map, and they carry a `settingsVersion` so one notices on activation that it
+missed a change — the same trick `themeVersion` already used for the theme.
+Both paths go through one `settingEffects`, so they cannot drift apart and
+leave one buffer with guides and another without.
+
+**Word wrap** is seeded from the setting and then owned by the session, because
+the status bar's toggle is a per-file override: changing the default must not
+undo a toggle made two minutes ago.
+
+**Indentation** is the fallback, not an override. A file's own indentation
+still wins — `detectIndent` now returns *null* rather than guessing two spaces
+when a file has nothing indented in it, which is the one case where the user's
+preference is the only evidence there is.
+
+### Reading it back
+
+The stored blob is user-editable, so `loadSession` merges field by field over
+the defaults rather than taking `settings` whole: a session written by an older
+build has none, and a missing field must become a default rather than an
+`undefined` reaching a CSS property. Numbers are clamped for the same reason —
+a hand-edited `lineHeight: 0` would collapse every line to nothing.
+
+---
+
 ## Theming
 
 CM6 themes are data, so the whole thing is one `EditorView.theme` built from the
@@ -962,7 +1145,10 @@ What was built, against the plan above.
 - [x] History tab: paged `git log`, a commit opening a drawer with its message and files, each file opening a diff at that revision
 - [x] Fetch and push, with a deadline so a credential prompt can't hang the panel
 - [x] A find/replace panel with a match count, and a go-to-line overlay that previews
-- [x] Language, encoding and line-ending pickers; word wrap toggle
+- [x] Language, encoding, line-ending and indent pickers; word wrap toggle
+- [x] Indentation guides, with the cursor's block highlighted
+- [x] An editor settings modal, with the editor's own font rather than the terminal's
+- [x] The active tab scrolls into view
 - [x] Scratch buffers with save-as
 - [ ] Outline, multi-root workspaces, a keymap section in Settings, minimap
 
@@ -1003,6 +1189,19 @@ is a manual matrix, run per platform (macOS, Windows, Linux):
 - Click a `tsc` error path in terminal output: correct file, correct line.
 - Try to open `/etc/hosts` with a workspace root of `~/project`: refused.
 - Theme toggle with the editor open: both themes legible, no flash.
+- Change the font size in editor settings: the open buffer and every background
+  tab follow, and none of them loses its undo history or its folds.
+- Set a font in editor settings, then change the terminal's: the editor keeps
+  its own. Clear it again and the editor follows the terminal once more.
+- Twenty files open, then `⌘1-9` and Previous/Next file: the tab you land on
+  scrolls into view, and does it visibly rather than teleporting.
+- Browser and editor both in picture-in-picture, side by side: clicking the
+  editor must not blank the browser's page. Then drag the editor over it — it
+  must blank, and come back when the editor moves off.
+- Indentation guides line up with the text at every font size, continue through
+  a blank line inside a block, and stop at the shallower level between blocks.
+- The active guide follows the cursor, covers the whole block rather than one
+  line, and does **not** light a sibling block at the same depth.
 - In a repo: a changed file is badged in the tree, its changed lines marked in
   the gutter, and its name in the panel is a *name* — not a name with an object
   hash in front of it.

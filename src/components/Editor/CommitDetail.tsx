@@ -11,8 +11,10 @@ import {
   tally,
   tallyParts,
 } from "../../services/git";
+import { Remote } from "../../services/git-forge";
 import { FileIcon } from "./fileIcons";
 import { ChangeTally } from "./ChangeTally";
+import { RemoteLink } from "./RemoteLink";
 
 /**
  * One commit, in the panel the list was in.
@@ -35,13 +37,21 @@ import { ChangeTally } from "./ChangeTally";
 
 interface CommitDetailProps {
   dir: string;
+  /** The forge behind the tracked remote, for the link on the SHA. */
+  remote: Remote | null;
   /** The row that was clicked, so the header can draw before the load lands. */
   commit: GitCommit;
   onBack: () => void;
   onOpenDiff: (commit: GitCommit, file: GitCommitFile) => void;
 }
 
-export function CommitDetail({ dir, commit, onBack, onOpenDiff }: CommitDetailProps) {
+export function CommitDetail({
+  dir,
+  remote,
+  commit,
+  onBack,
+  onOpenDiff,
+}: CommitDetailProps) {
   const [detail, setDetail] = useState<GitCommitDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -94,9 +104,11 @@ export function CommitDetail({ dir, commit, onBack, onOpenDiff }: CommitDetailPr
           Back
         </button>
         <div className="flex-1" />
-        <span className="editor-scm-sha text-[10px] tabular-nums shrink-0">
-          {commit.short}
-        </span>
+        <RemoteLink
+          remote={remote}
+          sha={{ full: commit.sha, short: commit.short }}
+          className="editor-scm-sha text-[10px] tabular-nums shrink-0"
+        />
       </div>
 
       <div className="editor-explorer-scroll flex-1 min-h-0 overflow-y-auto">

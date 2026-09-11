@@ -60,7 +60,9 @@ import {
   lineNumbers,
   rectangularSelection,
 } from "@codemirror/view";
+import { EditorSettings } from "../../services/editor-session";
 import { loadLanguage } from "../../services/editor-lang";
+import { indentGuides } from "./editorIndent";
 import { GitFileDiff } from "../../services/git";
 import { isMac } from "../../services/platform";
 import { editorTheme } from "./editorTheme";
@@ -92,6 +94,22 @@ const readOnlyComp = new Compartment();
 const themeComp = new Compartment();
 const wrapComp = new Compartment();
 const indentComp = new Compartment();
+/*
+  `tabSize` is separate from the indent unit and both matter. The unit is what
+  gets *inserted*; `tabSize` is how wide an existing tab *renders*. A file
+  indented with tabs needs the two to agree or the guides land between the
+  characters they are describing.
+*/
+const tabComp = new Compartment();
+/*
+  One compartment per setting the settings modal can change, because the
+  alternative is rebuilding every open buffer's state when a checkbox moves —
+  which would throw away its undo history, its folds and its selection to
+  change the colour of some hairlines.
+*/
+const guidesComp = new Compartment();
+const bracketsComp = new Compartment();
+const completionComp = new Compartment();
 
 /**
  * Above this, word completion stops scanning the document. It walks the whole
@@ -332,6 +350,17 @@ export interface EditorSurfaceHandle {
   hasFocus: () => boolean;
   /** How many lines the open document has, for the go-to-line overlay. */
   lineCount: () => number;
+  /** The open buffer's indent unit, as the status bar's picker shows it. */
+  getIndent: () => { useTabs: boolean; width: number };
+  /**
+   * Changes what a level of indentation is.
+   *
+   * New indentation only. Existing lines are left exactly as they are: a file
+   * with mixed indentation is usually mixed for a reason somebody else decided,
+   * and silently rewriting every line of it on a menu click would turn a
+   * setting into a whole-file diff.
+   */
+  setIndent: (indent: { useTabs: boolean; width: number }) => void;
   /**
    * The buffer's cursor, or null while its state is still being built.
    *
@@ -344,6 +373,31 @@ export interface EditorSurfaceHandle {
   getCursor: (bufferId: string) => { line: number; column: number } | null;
 }
 
+/**
+ * The compartment reconfigurations for one set of settings.
+ *
+ * One list, used both when a setting changes on the buffer in front and when a
+ * buffer that missed the change is next activated — so the two paths cannot
+ * drift apart and leave one buffer with guides and another without.
+ */
+function settingEffects(
+  settings: EditorSettings,
+  currentRecord: () => BufferRecord | null
+): StateEffect<unknown>[] {
+  return [
+    guidesComp.reconfigure(settings.indentGuides ? indentGuides() : []),
+    bracketsComp.reconfigure(settings.autoCloseBrackets ? closeBrackets() : []),
+    completionComp.reconfigure(
+      settings.wordCompletion
+        ? autocompletion({
+            override: [wordCompletionSource(currentRecord)],
+            activateOnTyping: false,
+          })
+        : []
+    ),
+  ];
+}
+
 interface BufferRecord {
   state: EditorState;
   /** The document as it is on disk; dirtiness is a comparison against this. */
@@ -352,6 +406,16 @@ interface BufferRecord {
   scrollTop: number;
   themeVersion: number;
   languageId: string;
+  /** What the status bar's picker shows, once it has been asked or detected. */
+  indent: { useTabs: boolean; width: number };
+  /**
+   * Which settings this state was built with.
+   *
+   * A background buffer misses a setting change — reconfiguring every open
+   * state would mean rebuilding each — so this is what lets one notice, on
+   * activation, that it is out of date. The same trick as `themeVersion`.
+   */
+  settingsVersion: number;
   words?: { list: string[]; at: number };
 }
 
@@ -367,6 +431,9 @@ interface EditorSurfaceProps {
   dark: boolean;
   fontFamily: string;
   fontSize: number;
+  lineHeight: number;
+  /** The editor's own preferences; see `EditorSettings`. */
+  settings: EditorSettings;
 
   onDirtyChange: (bufferId: string, dirty: boolean) => void;
   onCursorChange: (line: number, column: number) => void;
@@ -421,7 +488,17 @@ function topVisibleLine(view: EditorView): number | null {
  * one-line edit, so what the file already does wins. Ties and empty files fall
  * back to two spaces.
  */
-function detectIndent(content: string): string {
+/**
+ * The indent unit a file appears to use, or null if it has no indentation to
+ * go on.
+ *
+ * Null rather than a guess, so the caller can fall back to the *setting*. A
+ * file with nothing indented in it — a README, a list of hostnames, a file
+ * fifteen lines long — used to silently get two spaces regardless of what the
+ * user had asked for, which is the one case where their preference is the only
+ * evidence there is.
+ */
+function detectIndent(content: string): string | null {
   let tabs = 0;
   const widths = new Map<number, number>();
 
@@ -452,7 +529,7 @@ function detectIndent(content: string): string {
   const best = candidates.sort(
     (a, b) => (widths.get(b) ?? 0) - (widths.get(a) ?? 0) || a - b
   )[0];
-  return " ".repeat(best ?? 2);
+  return best ? " ".repeat(best) : null;
 }
 
 /**
@@ -509,6 +586,8 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
       dark,
       fontFamily,
       fontSize,
+      lineHeight,
+      settings,
       onDirtyChange,
     } = props;
 
@@ -534,7 +613,13 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
     const replaceWanted = useRef(false);
     const records = useRef<Map<string, BufferRecord>>(new Map());
     const currentRef = useRef<string | null>(null);
-    const wrappedRef = useRef(false);
+    /*
+      Seeded from the setting, then owned by the session: the status bar's
+      toggle is a per-session override, so changing the default must not undo a
+      toggle the user made two minutes ago. `useRef`'s initial value runs once,
+      which is exactly that rule.
+    */
+    const wrappedRef = useRef(settings.wordWrap);
     /** Last position handed to `onCursorChange`, to avoid redundant renders. */
     const reported = useRef({ line: 0, column: 0 });
 
@@ -561,8 +646,21 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
 
     /** Bumped on every theme change, so stale buffer states can be spotted. */
     const themeVersion = useRef(0);
-    const themeRef = useRef({ dark, fontFamily, fontSize });
-    themeRef.current = { dark, fontFamily, fontSize };
+    const themeRef = useRef({ dark, fontFamily, fontSize, lineHeight });
+    themeRef.current = { dark, fontFamily, fontSize, lineHeight };
+
+    /**
+     * The editor's settings, for the extensions baked into each buffer's state.
+     *
+     * A ref for the same reason `handlers` is one: the extensions are built
+     * once per buffer and cannot close over a prop that changes. Changing a
+     * setting reconfigures the compartments instead — see the effect below.
+     */
+    const settingsRef = useRef(settings);
+    settingsRef.current = settings;
+
+    /** Bumped on every settings change, so stale buffer states can be spotted. */
+    const settingsVersion = useRef(0);
 
     const recordOf = useCallback(
       (id: string | null) => (id ? records.current.get(id) ?? null : null),
@@ -600,12 +698,17 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
         dropCursor(),
         EditorState.allowMultipleSelections.of(true),
         indentOnInput(),
+        guidesComp.of(settingsRef.current.indentGuides ? indentGuides() : []),
         bracketMatching(),
-        closeBrackets(),
-        autocompletion({
-          override: [wordCompletionSource(currentRecord)],
-          activateOnTyping: false,
-        }),
+        bracketsComp.of(settingsRef.current.autoCloseBrackets ? closeBrackets() : []),
+        completionComp.of(
+          settingsRef.current.wordCompletion
+            ? autocompletion({
+                override: [wordCompletionSource(currentRecord)],
+                activateOnTyping: false,
+              })
+            : []
+        ),
         rectangularSelection(),
         crosshairCursor(),
         highlightActiveLine(),
@@ -763,7 +866,17 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
       ): Promise<BufferRecord> => {
         const languageExtension = withHighlight ? await loadLanguage(language) : null;
         const doc = Text.of(content.split("\n"));
-        const { dark: isDark, fontFamily: family, fontSize: size } = themeRef.current;
+        // The file's own indentation wins; the setting is what answers for a
+        // file that has none.
+        const preference = settingsRef.current;
+        const detected = detectIndent(content);
+        const unit =
+          detected ??
+          (preference.useTabs ? "\t" : " ".repeat(Math.max(1, preference.indentWidth)));
+        const indent = unit.includes("\t")
+          ? { useTabs: true, width: preference.indentWidth }
+          : { useTabs: false, width: Math.max(1, unit.length) };
+        const theme = themeRef.current;
 
         const state = EditorState.create({
           doc,
@@ -771,9 +884,10 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
             ...baseExtensions(id),
             languageComp.of(languageExtension ?? []),
             readOnlyComp.of(EditorState.readOnly.of(readonly)),
-            themeComp.of(editorTheme({ dark: isDark, fontFamily: family, fontSize: size })),
+            themeComp.of(editorTheme(theme)),
             wrapComp.of(wrappedRef.current ? EditorView.lineWrapping : []),
-            indentComp.of(indentUnit.of(detectIndent(content))),
+            indentComp.of(indentUnit.of(unit)),
+            tabComp.of(EditorState.tabSize.of(indent.width)),
           ],
         });
 
@@ -783,7 +897,9 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
           dirty: false,
           scrollTop: 0,
           themeVersion: themeVersion.current,
+          settingsVersion: settingsVersion.current,
           languageId: language,
+          indent,
         };
       },
       [baseExtensions]
@@ -798,13 +914,7 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
       const view = new EditorView({
         state: EditorState.create({
           extensions: [
-            themeComp.of(
-              editorTheme({
-                dark: themeRef.current.dark,
-                fontFamily: themeRef.current.fontFamily,
-                fontSize: themeRef.current.fontSize,
-              })
-            ),
+            themeComp.of(editorTheme(themeRef.current)),
             EditorState.readOnly.of(true),
           ],
         }),
@@ -885,6 +995,14 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
           record.themeVersion = themeVersion.current;
         }
 
+        // And the same for a setting changed while it was in the background.
+        if (record.settingsVersion !== settingsVersion.current) {
+          record.state = record.state.update({
+            effects: settingEffects(settingsRef.current, currentRecord),
+          }).state;
+          record.settingsVersion = settingsVersion.current;
+        }
+
         currentRef.current = bufferId;
         view.setState(record.state);
 
@@ -929,14 +1047,34 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
       const view = viewRef.current;
       if (!view) return;
       view.dispatch({
-        effects: themeComp.reconfigure(editorTheme({ dark, fontFamily, fontSize })),
+        effects: themeComp.reconfigure(editorTheme({ dark, fontFamily, fontSize, lineHeight })),
       });
       const record = currentRecord();
       if (record) {
         record.state = view.state;
         record.themeVersion = themeVersion.current;
       }
-    }, [dark, fontFamily, fontSize, currentRecord]);
+    }, [dark, fontFamily, fontSize, lineHeight, currentRecord]);
+
+    // --- Settings ------------------------------------------------------------
+
+    /**
+     * Applies a changed setting to the buffer in front.
+     *
+     * Only to that one: the others are immutable states sitting in a map, and
+     * reconfiguring them would mean rebuilding each. They pick the new value up
+     * the next time they are activated, below, which is the first moment it can
+     * possibly matter.
+     */
+    useEffect(() => {
+      const view = viewRef.current;
+      const record = currentRecord();
+      if (!view || !record) return;
+      settingsVersion.current++;
+      view.dispatch({ effects: settingEffects(settings, currentRecord) });
+      record.state = view.state;
+      record.settingsVersion = settingsVersion.current;
+    }, [settings, currentRecord]);
 
     // --- Language and read-only changes on the open buffer -------------------
 
@@ -1169,6 +1307,29 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
         hasFocus: () => viewRef.current?.hasFocus ?? false,
 
         lineCount: () => viewRef.current?.state.doc.lines ?? 1,
+
+        getIndent: () =>
+          currentRecord()?.indent ?? { useTabs: false, width: 2 },
+
+        setIndent: ({ useTabs, width }) => {
+          const view = viewRef.current;
+          if (!view) return;
+          const unit = useTabs ? "\t" : " ".repeat(Math.max(1, width));
+          view.dispatch({
+            effects: [
+              indentComp.reconfigure(indentUnit.of(unit)),
+              // A tab's *width* is `tabSize`, not the unit's length, so tabs
+              // need both reconfigured or the guides and the rendered tab stop
+              // disagree.
+              tabComp.reconfigure(EditorState.tabSize.of(Math.max(1, width))),
+            ],
+          });
+          const record = currentRecord();
+          if (record) {
+            record.state = view.state;
+            record.indent = { useTabs, width };
+          }
+        },
 
         getCursor: (id) => {
           const record = records.current.get(id);

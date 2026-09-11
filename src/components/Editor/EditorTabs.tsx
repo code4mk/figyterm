@@ -1,5 +1,6 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FileDiff, Plus, TriangleAlert, X } from "lucide-react";
+import { scrollHorizontallyWithin } from "../../services/scroll";
 import { EditorBuffer } from "../../stores/editorStore";
 import { FileIcon } from "./fileIcons";
 
@@ -54,6 +55,27 @@ export function EditorTabs({
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
   const stripRef = useRef<HTMLDivElement>(null);
+  const activeRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * Brings the active tab into view.
+   *
+   * With twenty files open the strip overflows, and ⌘1-9, Previous/Next file
+   * and a click in the tree all change which tab is active without touching
+   * the scroll — so the tab you just switched to was off-screen and had to be
+   * found by hand, which is the opposite of what a shortcut is for.
+   *
+   * Deferred a frame: on the render where a tab first appears its geometry is
+   * not measured yet, so scrolling to `offsetLeft` now would scroll to zero.
+   */
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      scrollHorizontallyWithin(stripRef.current, activeRef.current);
+    });
+    return () => cancelAnimationFrame(frame);
+    // The diff tab counts as the active one when it is in front, which is why
+    // it is a dependency: switching to it should bring it into view too.
+  }, [activeBufferId, diff?.active, buffers.length]);
 
   return (
     <div
@@ -68,6 +90,7 @@ export function EditorTabs({
         {buffers.map((buffer, index) => (
           <div
             key={buffer.id}
+            ref={buffer.id === activeBufferId ? activeRef : undefined}
             role="tab"
             aria-selected={buffer.id === activeBufferId}
             title={buffer.path ?? buffer.name}
@@ -142,6 +165,7 @@ export function EditorTabs({
 
         {diff && (
           <div
+            ref={diff.active ? activeRef : undefined}
             role="tab"
             aria-selected={diff.active}
             title={`Diff — ${diff.detail}`}

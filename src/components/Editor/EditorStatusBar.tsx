@@ -29,6 +29,29 @@ const ENCODINGS: { value: FileEncoding; label: string }[] = [
   { value: "utf-16be", label: "UTF-16 BE" },
 ];
 
+/**
+ * What the indent picker offers.
+ *
+ * Tabs have no width to choose — how wide one renders is `tabSize`, and the
+ * options below set it — so "Tabs" appears once per width rather than as a
+ * separate axis. Two, four and eight because those are the widths that exist
+ * in the wild; a picker with every number from one to sixteen is a picker
+ * nobody finds "4" in.
+ */
+const INDENTS: { useTabs: boolean; width: number; label: string; detail: string }[] = [
+  { useTabs: false, width: 2, label: "2 spaces", detail: "Spaces" },
+  { useTabs: false, width: 4, label: "4 spaces", detail: "Spaces" },
+  { useTabs: false, width: 8, label: "8 spaces", detail: "Spaces" },
+  { useTabs: true, width: 2, label: "Tabs, width 2", detail: "Tabs" },
+  { useTabs: true, width: 4, label: "Tabs, width 4", detail: "Tabs" },
+  { useTabs: true, width: 8, label: "Tabs, width 8", detail: "Tabs" },
+];
+
+export interface Indent {
+  useTabs: boolean;
+  width: number;
+}
+
 interface EditorStatusBarProps {
   buffer: EditorBuffer | null;
   cursor: { line: number; column: number };
@@ -36,6 +59,9 @@ interface EditorStatusBarProps {
   bufferCount: number;
   watcherMechanism: "native" | "poll" | null;
   git: GitRepo;
+  /** What a level of indentation currently is, for the picker's label. */
+  indent: Indent;
+  onSetIndent: (indent: Indent) => void;
   onOpenSourceControl: () => void;
   onToggleWrap: () => void;
   onSetLanguage: (languageId: string) => void;
@@ -52,6 +78,8 @@ export function EditorStatusBar({
   bufferCount,
   watcherMechanism,
   git,
+  indent,
+  onSetIndent,
   onOpenSourceControl,
   onToggleWrap,
   onSetLanguage,
@@ -60,7 +88,9 @@ export function EditorStatusBar({
   onGoToLine,
   onResizeStart,
 }: EditorStatusBarProps) {
-  const [open, setOpen] = useState<"language" | "lineEnding" | "encoding" | null>(null);
+  const [open, setOpen] = useState<
+    "language" | "lineEnding" | "encoding" | "indent" | null
+  >(null);
 
   return (
     <div
@@ -101,6 +131,30 @@ export function EditorStatusBar({
               detail: option.detail,
               selected: option.value === buffer.lineEnding,
               onSelect: () => onSetLineEnding(option.value),
+            }))}
+          />
+
+          {/*
+            Where the layout notes always said it should be, and the last of
+            the four that was missing. It is also the setting that quietly
+            turns a one-line change into a whole-file diff, so it is worth
+            being visible rather than detected and never mentioned again.
+          */}
+          <Popup
+            open={open === "indent"}
+            onOpenChange={(next) => setOpen(next ? "indent" : null)}
+            label={
+              indent.useTabs ? `Tab ${indent.width}` : `Spaces ${indent.width}`
+            }
+            title="Indentation — applies to new indentation, not to lines already in the file"
+            items={INDENTS.map((option) => ({
+              key: `${option.useTabs ? "tab" : "space"}-${option.width}`,
+              label: option.label,
+              detail: option.detail,
+              selected:
+                option.useTabs === indent.useTabs && option.width === indent.width,
+              onSelect: () =>
+                onSetIndent({ useTabs: option.useTabs, width: option.width }),
             }))}
           />
 

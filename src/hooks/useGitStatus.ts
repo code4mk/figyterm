@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { effectiveChange, gitStatus, GitChange, GitRepo, NO_REPO } from "../services/git";
+import { effectiveChange, gitRemoteUrl, gitStatus, GitChange, GitRepo, NO_REPO } from "../services/git";
+import { parseRemote, Remote } from "../services/git-forge";
 
 /**
  * The repository behind the open folder, kept roughly current.
@@ -90,6 +91,38 @@ export function useGitStatus(root: string | null, enabled: boolean) {
     };
   }, [root, enabled, refresh]);
 
+  /**
+   * The forge behind the tracked remote, for the links on a SHA and a branch.
+   *
+   * Fetched on its own rather than with the status, and only when the
+   * repository changes: a remote URL changes when somebody edits a config
+   * file, not when a file is saved, so asking for it on every watcher burst
+   * would be a process per keystroke pause for an answer that never moves.
+   */
+  const [remote, setRemote] = useState<Remote | null>(null);
+
+  useEffect(() => {
+    if (!enabled || !root || !repo.isRepo) {
+      setRemote(null);
+      return;
+    }
+
+    let cancelled = false;
+    void gitRemoteUrl(root)
+      .then((url) => {
+        if (!cancelled) setRemote(parseRemote(url));
+      })
+      .catch(() => {
+        // No remote, or a URL with no web address behind it. There is simply
+        // no link to offer, which is not a failure worth reporting.
+        if (!cancelled) setRemote(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [root, enabled, repo.isRepo]);
+
   const decorations = useMemo<GitDecorations>(() => {
     const files = new Map<string, GitChange>();
     const dirs = new Set<string>();
@@ -116,5 +149,5 @@ export function useGitStatus(root: string | null, enabled: boolean) {
     return { files, dirs };
   }, [repo]);
 
-  return { repo, error, refresh, decorations };
+  return { repo, error, refresh, decorations, remote };
 }

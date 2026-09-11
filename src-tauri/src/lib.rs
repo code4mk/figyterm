@@ -113,6 +113,7 @@ pub fn run() {
             commands::git::git_commit_diff,
             commands::git::git_fetch,
             commands::git::git_push,
+            commands::git::git_remote_url,
             updater::check_for_updates,
             updater::get_current_version,
             updater::running_foreground_commands,

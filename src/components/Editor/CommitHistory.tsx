@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronRight, GitMerge } from "lucide-react";
 import { GitCommit, GitCommitFile, gitLog, relativeDate } from "../../services/git";
+import { Remote } from "../../services/git-forge";
 import { CommitDetail } from "./CommitDetail";
+import { RemoteLink } from "./RemoteLink";
 
 /**
  * The history tab: a list of commits, and the drawer one opens into.
@@ -27,6 +29,8 @@ import { CommitDetail } from "./CommitDetail";
 interface CommitHistoryProps {
   /** The workspace folder; the backend resolves the repository from it. */
   dir: string;
+  /** The forge behind the tracked remote, for the links on a SHA. */
+  remote: Remote | null;
   /**
    * Changes when the repository might have. A commit here, a fetch, or a
    * commit or rebase in the pane behind all change what the history is.
@@ -40,7 +44,13 @@ interface CommitHistoryProps {
   onError: (message: string) => void;
 }
 
-export function CommitHistory({ dir, revision, onOpenDiff, onError }: CommitHistoryProps) {
+export function CommitHistory({
+  dir,
+  remote,
+  revision,
+  onOpenDiff,
+  onError,
+}: CommitHistoryProps) {
   const [commits, setCommits] = useState<GitCommit[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
@@ -109,6 +119,7 @@ export function CommitHistory({ dir, revision, onOpenDiff, onError }: CommitHist
         // drawer rather than swapping its contents underneath you.
         key={open.sha}
         dir={dir}
+        remote={remote}
         commit={open}
         onBack={() => setOpen(null)}
         onOpenDiff={onOpenDiff}
@@ -129,7 +140,12 @@ export function CommitHistory({ dir, revision, onOpenDiff, onError }: CommitHist
       ) : (
         <>
           {commits.map((commit) => (
-            <Row key={commit.sha} commit={commit} onOpen={() => setOpen(commit)} />
+            <Row
+              key={commit.sha}
+              commit={commit}
+              remote={remote}
+              onOpen={() => setOpen(commit)}
+            />
           ))}
 
           {!done && (
@@ -147,7 +163,15 @@ export function CommitHistory({ dir, revision, onOpenDiff, onError }: CommitHist
   );
 }
 
-function Row({ commit, onOpen }: { commit: GitCommit; onOpen: () => void }) {
+function Row({
+  commit,
+  remote,
+  onOpen,
+}: {
+  commit: GitCommit;
+  remote: Remote | null;
+  onOpen: () => void;
+}) {
   /**
    * `HEAD -> main, origin/main, tag: v1` as chips.
    *
@@ -186,9 +210,11 @@ function Row({ commit, onOpen }: { commit: GitCommit; onOpen: () => void }) {
           <span className="editor-scm-meta text-[10px] truncate">
             {commit.author} · {relativeDate(commit.date)}
           </span>
-          <span className="editor-scm-sha text-[10px] shrink-0 tabular-nums">
-            {commit.short}
-          </span>
+          <RemoteLink
+            remote={remote}
+            sha={{ full: commit.sha, short: commit.short }}
+            className="editor-scm-sha text-[10px] shrink-0 tabular-nums"
+          />
         </div>
 
         {refs.length > 0 && (

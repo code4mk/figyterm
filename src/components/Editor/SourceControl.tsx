@@ -21,10 +21,12 @@ import {
   tally,
   tallyParts,
 } from "../../services/git";
+import { Remote } from "../../services/git-forge";
 import { isMac } from "../../services/platform";
 import { ChangeTally } from "./ChangeTally";
 import { CommitHistory } from "./CommitHistory";
 import { FileIcon } from "./fileIcons";
+import { RemoteLink } from "./RemoteLink";
 
 /**
  * The changes panel, shaped like GitHub Desktop's.
@@ -57,6 +59,8 @@ interface SourceControlProps {
   repo: GitRepo;
   /** The workspace folder, for the history tab's own queries. */
   dir: string;
+  /** The forge behind the tracked remote, or null when there is nowhere to link. */
+  remote: Remote | null;
   /** A git-level failure — no `git` on PATH, a locked index — not "no repo". */
   error: string | null;
   busy: boolean;
@@ -80,6 +84,7 @@ interface SourceControlProps {
 export function SourceControl({
   repo,
   dir,
+  remote,
   error,
   busy,
   revision,
@@ -222,9 +227,15 @@ export function SourceControl({
 
       <div className="editor-scm-branch flex items-center gap-1.5 px-2 py-1 shrink-0">
         <GitBranch size={11} className="shrink-0 opacity-70" />
-        <span className="text-[11px] truncate flex-1" title={repo.upstream ?? undefined}>
-          {branch}
-        </span>
+        {repo.detached || !repo.branch ? (
+          <span className="text-[11px] truncate flex-1">{branch}</span>
+        ) : (
+          <RemoteLink
+            remote={remote}
+            branch={repo.branch}
+            className="text-[11px] min-w-0 flex-1"
+          />
+        )}
         {repo.ahead > 0 && (
           <span
             className="editor-scm-count flex items-center text-[10px] tabular-nums"
@@ -255,17 +266,28 @@ export function SourceControl({
         the shell is three inches away.
       */}
       <div className="editor-scm-sync flex items-center gap-1 px-2 py-1 shrink-0">
+        {/*
+          The label does not change while it runs, and the spinner does not
+          take its place: a centred icon-plus-text group re-centres itself as
+          "Fetch" becomes "Fetching…", so the icon slides sideways and the whole
+          button appears to twitch. The spin, the dimming and the disabled
+          state say it is working without moving anything.
+        */}
         <button
-          className="editor-scm-syncbtn flex items-center justify-center gap-1.5 flex-1 py-1 rounded text-[10px]"
+          className={`editor-scm-syncbtn flex items-center justify-center gap-1.5 flex-1 py-1 rounded text-[10px] ${
+            syncing === "fetch" ? "busy" : ""
+          }`}
           onClick={() => void sync("fetch")}
           disabled={!!syncing}
           title="Update the remote-tracking branches. Changes nothing here."
         >
           <RefreshCw size={11} className={syncing === "fetch" ? "editor-spin" : undefined} />
-          {syncing === "fetch" ? "Fetching…" : "Fetch"}
+          Fetch
         </button>
         <button
-          className="editor-scm-syncbtn flex items-center justify-center gap-1.5 flex-1 py-1 rounded text-[10px]"
+          className={`editor-scm-syncbtn flex items-center justify-center gap-1.5 flex-1 py-1 rounded text-[10px] ${
+            syncing === "push" ? "busy" : ""
+          }`}
           onClick={() => void sync("push")}
           disabled={!!syncing || repo.detached}
           title={
@@ -277,28 +299,32 @@ export function SourceControl({
           }
         >
           <CloudUpload size={11} className={syncing === "push" ? "editor-spin" : undefined} />
-          {syncing === "push"
-            ? "Pushing…"
-            : !repo.upstream
-              ? "Publish"
-              : repo.ahead > 0
-                ? `Push ${repo.ahead}`
-                : "Push"}
+          {!repo.upstream ? "Publish" : repo.ahead > 0 ? `Push ${repo.ahead}` : "Push"}
         </button>
       </div>
 
-      {syncNote && (
-        <div className="editor-scm-note flex items-start gap-1.5 mx-2 mb-1 px-1.5 py-1 rounded text-[10px] shrink-0">
+      {/*
+        Always mounted, animated open. Inserting it into the flow snapped the
+        tabs and the whole file list down by its height the instant a fetch
+        finished, which is the jump; a height transition on a row that is
+        already there moves them at a speed the eye can follow.
+      */}
+      <div
+        className={`editor-scm-notewrap shrink-0 ${syncNote ? "open" : ""}`}
+        aria-live="polite"
+      >
+        <div className="editor-scm-note flex items-start gap-1.5 mx-2 mb-1 px-1.5 py-1 rounded text-[10px]">
           <span className="flex-1 min-w-0 break-words whitespace-pre-wrap">{syncNote}</span>
           <button
             className="editor-btn p-0.5 rounded shrink-0"
             onClick={() => setSyncNote(null)}
             aria-label="Dismiss"
+            tabIndex={syncNote ? 0 : -1}
           >
             <X size={9} />
           </button>
         </div>
-      )}
+      </div>
 
       <div className="editor-scm-tabs flex shrink-0" role="tablist">
         <button
@@ -335,6 +361,7 @@ export function SourceControl({
               Changes costs no `git log` at all. */}
           <CommitHistory
             dir={dir}
+            remote={remote}
             revision={revision}
             onOpenDiff={onOpenCommitDiff}
             onError={onError}

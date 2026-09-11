@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Search, Clock, CornerDownLeft, X, PictureInPicture2, Maximize2 } from "lucide-react";
 import { OverlayPortal } from "../Overlay/OverlayPortal";
+import { useOverlayRect } from "../../hooks/useOverlayRect";
 import { claimFront, releaseFront } from "../../services/overlay-stack";
 
 interface HistoryEntry {
@@ -109,6 +110,9 @@ export function HistorySearch({ visible, onClose, onSelect }: HistorySearchProps
   const listRef = useRef<HTMLDivElement>(null);
   const selectedRef = useRef<HTMLButtonElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
+
+  // As above: a window in picture-in-picture, a backdropped modal otherwise.
+  useOverlayRect("history", modalRef, visible && pipMode);
 
   // Drag state
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);

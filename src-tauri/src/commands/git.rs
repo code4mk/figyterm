@@ -122,3 +122,10 @@ pub fn git_push(state: State<FsState>, dir: String) -> Result<String, String> {
     let root = repo_root(&state, &dir)?;
     operations::push(&root)
 }
+
+/// The tracked remote's URL, raw. Empty when the repository has no remote.
+#[tauri::command]
+pub fn git_remote_url(state: State<FsState>, dir: String) -> Result<String, String> {
+    let root = repo_root(&state, &dir)?;
+    operations::remote_url(&root)
+}

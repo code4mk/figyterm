@@ -4,6 +4,7 @@ import { X, PictureInPicture2, Maximize2, Cpu, MemoryStick, HardDrive } from "lu
 import Chart from "react-apexcharts";
 import { useThemeStore } from "../../stores/themeStore";
 import { OverlayPortal } from "../Overlay/OverlayPortal";
+import { useOverlayRect } from "../../hooks/useOverlayRect";
 import { claimFront, releaseFront } from "../../services/overlay-stack";
 
 interface SystemStats {
@@ -57,6 +58,11 @@ export function SystemMonitor({ visible, onClose }: SystemMonitorProps) {
   }, [visible, pipMode, raise]);
 
   const modalRef = useRef<HTMLDivElement>(null);
+
+  // A window only in picture-in-picture; a backdropped modal otherwise. See
+  // `useOverlayRect` — this is what stops it blanking the browser's page when
+  // the two are side by side.
+  useOverlayRect("monitor", modalRef, visible && pipMode);
   const theme = useThemeStore((s) => s.theme);
 
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);

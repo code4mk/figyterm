@@ -4,7 +4,9 @@ import { languageFor } from "../services/editor-lang";
 import {
   clearDraft,
   DiffLayout,
+  DEFAULT_EDITOR_SETTINGS,
   DiffStyle,
+  EditorSettings,
   loadSession,
   saveSession,
   Workspace,
@@ -98,6 +100,8 @@ interface EditorStore {
 
   diffLayout: DiffLayout;
   diffStyle: DiffStyle;
+  /** The editor's own preferences; see `EditorSettings`. */
+  settings: EditorSettings;
 
   setRoot: (root: string | null) => void;
   setRestoring: (restoring: boolean) => void;
@@ -138,6 +142,9 @@ interface EditorStore {
   setShowHidden: (show: boolean) => void;
   setDiffLayout: (layout: DiffLayout) => void;
   setDiffStyle: (style: DiffStyle) => void;
+  /** Patched rather than replaced, so a control only owns its own field. */
+  setEditorSettings: (patch: Partial<EditorSettings>) => void;
+  resetEditorSettings: () => void;
   toggleExpanded: (path: string) => void;
   /** Removes one directory from the expanded set, never adds. */
   collapse: (path: string) => void;
@@ -199,6 +206,7 @@ function persist(state: EditorStore): void {
     previewWidth: state.previewWidth,
     diffLayout: state.diffLayout,
     diffStyle: state.diffStyle,
+    settings: state.settings,
   });
 }
 
@@ -241,6 +249,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
 
   diffLayout: stored.diffLayout,
   diffStyle: stored.diffStyle,
+  settings: stored.settings,
 
   setRoot: (root) => {
     set((state) => {
@@ -517,6 +526,16 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
 
   setDiffStyle: (diffStyle) => {
     set({ diffStyle });
+    persist(get());
+  },
+
+  setEditorSettings: (patch) => {
+    set((state) => ({ settings: { ...state.settings, ...patch } }));
+    persist(get());
+  },
+
+  resetEditorSettings: () => {
+    set({ settings: DEFAULT_EDITOR_SETTINGS });
     persist(get());
   },
 

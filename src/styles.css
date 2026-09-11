@@ -3653,6 +3653,70 @@
   color: #111827;
 }
 
+/* ── Editor settings ────────────────────────────────────────────────────────
+   An overlay inside the editor rather than a page in the app's Settings
+   dialog: these are judged by reading the code next to them, which needs the
+   code still on screen. */
+
+.editor-settings {
+  background: #1a1e24;
+  border: 1px solid #353b44;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+}
+
+.editor-settings-header {
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid #2a2f37;
+  color: #e6edf3;
+}
+
+.editor-settings-title {
+  color: #6e7681;
+}
+
+.editor-settings-section + .editor-settings-section {
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  margin-top: 4px;
+}
+
+.editor-settings-row {
+  color: #c9d1d9;
+  border-radius: 4px;
+}
+
+.editor-settings-row:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.editor-settings-hint {
+  color: #6e7681;
+}
+
+.editor-settings-input,
+.editor-settings-select {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid #353b44;
+  color: #e6edf3;
+  outline: none;
+  font-family: inherit;
+  transition: border-color 0.12s ease;
+}
+
+.editor-settings-input:focus,
+.editor-settings-select:focus {
+  border-color: #6366f1;
+}
+
+.editor-settings-input::placeholder {
+  color: #5d636e;
+}
+
+/* Wide enough for "Match the terminal" without the row reflowing when the
+   value changes to "14px". */
+.editor-settings-select {
+  max-width: 160px;
+}
+
 /* ── Find and replace ───────────────────────────────────────────────────────
    The panel CodeMirror reserves the row for, filled in by `FindPanel`. The
    host has no look of its own; everything visible is below it. */
@@ -3917,6 +3981,38 @@
   cursor: default;
 }
 
+/* The one that is running stays legible — it is the thing you are waiting on,
+   so dimming it to the same grey as the one that is merely unavailable would
+   say the opposite. */
+.editor-scm-syncbtn.busy:disabled {
+  color: #b6bec8;
+  background: rgba(99, 102, 241, 0.14);
+}
+
+/*
+  Animated open rather than inserted. `max-height` with `overflow: hidden`,
+  not a height of `auto`: the note's height depends on how much git had to
+  say, which cannot be interpolated to — and a generous ceiling costs nothing
+  because the transition ends when the content does.
+*/
+.editor-scm-notewrap {
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition: max-height 0.18s ease, opacity 0.14s ease;
+}
+
+.editor-scm-notewrap.open {
+  max-height: 180px;
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .editor-scm-notewrap {
+    transition: none;
+  }
+}
+
 /* Git's own reply, verbatim: "Everything up-to-date" is an answer, and a
    rejected push explains itself better than any rewording would. */
 .editor-scm-note {
@@ -4073,9 +4169,40 @@
   color: #6e7681;
 }
 
+/* A chip, not bare digits: monospace hex on its own does not read as
+   something you can press, and the background is what says "this is an object
+   and it goes somewhere". */
 .editor-scm-sha {
-  color: #5d636e;
+  color: #8b949e;
+  background: rgba(255, 255, 255, 0.07);
   font-family: ui-monospace, monospace;
+  padding: 0 4px;
+  border-radius: 3px;
+}
+
+.editor-remote-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  border-radius: 3px;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+
+.editor-remote-link:hover {
+  color: #a5b4fc;
+  background: rgba(99, 102, 241, 0.2);
+}
+
+/* The arrow only on hover: shown always it is a second glyph competing with a
+   seven-character SHA for a space that is already tight. */
+.editor-remote-link-icon {
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.editor-remote-link:hover .editor-remote-link-icon {
+  opacity: 0.8;
 }
 
 .editor-scm-merge {
@@ -4574,7 +4701,53 @@
 }
 
 
-/* ── Light theme: find, go to line, git ─────────────────────────────────── */
+/* ── Light theme: settings, find, go to line, git ───────────────────────── */
+
+.light .editor-settings {
+  background: #ffffff;
+  border-color: #e2e5eb;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.16);
+}
+
+.light .editor-settings-header {
+  background: #f7f8fa;
+  border-bottom-color: #e2e5eb;
+  color: #111827;
+}
+
+.light .editor-settings-title,
+.light .editor-settings-hint {
+  color: #9ca3af;
+}
+
+.light .editor-settings-section + .editor-settings-section {
+  border-top-color: #eceef2;
+}
+
+.light .editor-settings-row {
+  color: #374151;
+}
+
+.light .editor-settings-row:hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.light .editor-settings-input,
+.light .editor-settings-select {
+  background: #ffffff;
+  border-color: #e2e5eb;
+  color: #1a1d27;
+}
+
+.light .editor-settings-input:focus,
+.light .editor-settings-select:focus {
+  border-color: #4f46e5;
+}
+
+.light .editor-settings-input::placeholder {
+  color: #9ca3af;
+}
+
 
 .light .editor-find-host {
   background: rgba(0, 0, 0, 0.015);
@@ -4760,6 +4933,11 @@
   color: #b3bac6;
 }
 
+.light .editor-scm-syncbtn.busy:disabled {
+  color: #374151;
+  background: rgba(79, 70, 229, 0.1);
+}
+
 .light .editor-scm-note {
   background: rgba(0, 0, 0, 0.04);
   color: #6b7280;
@@ -4823,9 +5001,18 @@
   color: #111827;
 }
 
-.light .editor-scm-meta,
-.light .editor-scm-sha {
+.light .editor-scm-meta {
   color: #9ca3af;
+}
+
+.light .editor-scm-sha {
+  color: #6b7280;
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.light .editor-remote-link:hover {
+  color: #4338ca;
+  background: rgba(79, 70, 229, 0.12);
 }
 
 .light .editor-scm-merge {
