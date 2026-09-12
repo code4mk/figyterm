@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { DiffLayout, DiffStyle, EditorSettings } from "../../services/editor-session";
 import { lsp, LspServerState } from "../../services/lsp/manager";
+import { installHint } from "../../services/lsp/servers";
 
 /**
  * The editor's own settings, in the editor's own window.
@@ -575,7 +576,7 @@ function LanguageServers({
             {state.phase === "missing" ? (
               <>
                 <code>{state.def.program}</code> is not on your PATH — install it
-                with <code>{state.def.install}</code>
+                with <code>{installHint(state.def)}</code>
               </>
             ) : state.error ? (
               /*
@@ -591,7 +592,7 @@ function LanguageServers({
               <>
                 {state.error}
                 <br />
-                Try <code>{state.def.install}</code>
+                Try <code>{installHint(state.def)}</code>
               </>
             ) : (
               <code>{state.path ?? state.def.program}</code>

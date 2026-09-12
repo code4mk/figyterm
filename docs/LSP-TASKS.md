@@ -82,23 +82,27 @@ that has to be told about the solution out-of-band.
 | C / C++ / Objective-C | `clangd` | Ships with LLVM |
 | PHP | `intelephense --stdio` | `npm i -g intelephense` |
 | Ruby | `ruby-lsp` | `gem install ruby-lsp` |
-| Swift | `sourcekit-lsp` | Included with Xcode or a swift.org toolchain |
-| Zig | `zls` | `brew install zls` |
+| Swift | `sourcekit-lsp` | Included with a swift.org toolchain |
+| Zig | `zls` | Download from github.com/zigtools/zls/releases |
 | Dart | `dart language-server` | Included with the Dart and Flutter SDKs |
-| Kotlin | `kotlin-language-server` | `brew install kotlin-language-server` |
+| Kotlin | `kotlin-language-server` | Download from github.com/fwcd/kotlin-language-server/releases |
 | C# | `csharp-ls` | `dotnet tool install --global csharp-ls` |
 | Svelte | `svelteserver --stdio` | `npm i -g svelte-language-server` |
-| Terraform | `terraform-ls serve` | `brew install hashicorp/tap/terraform-ls` |
-| TOML | `taplo lsp stdio` | `brew install taplo` |
-| Markdown | `marksman server` | `brew install marksman` |
+| Terraform | `terraform-ls serve` | Download from releases.hashicorp.com/terraform-ls |
+| TOML | `taplo lsp stdio` | `cargo install taplo-cli --features lsp` |
+| Markdown | `marksman server` | Download from github.com/artempyanykh/marksman/releases |
 | Dockerfile | `docker-langserver --stdio` | `npm i -g dockerfile-language-server-nodejs` |
 | JSON | `vscode-json-language-server --stdio` | `npm i -g vscode-langservers-extracted` |
 | CSS / SCSS / Less | `vscode-css-language-server --stdio` | as above |
 | HTML | `vscode-html-language-server --stdio` | as above |
 | YAML | `yaml-language-server --stdio` | `npm i -g yaml-language-server` |
 | Shell | `bash-language-server start` | `npm i -g bash-language-server` |
-| Lua | `lua-language-server` | `brew install lua-language-server` |
+| Lua | `lua-language-server` | Download from github.com/LuaLS/lua-language-server/releases |
 | **Tailwind CSS** (companion) | `tailwindcss-language-server --stdio` | `npm i -g @tailwindcss/language-server` |
+
+The install column is the **platform-neutral** instruction. Where a package
+manager is quicker — `brew`, `apt`, `winget` — the settings panel shows that one
+instead; see `installOn` in `servers.ts`.
 
 A missing server is a **first-class state**, not a silent no-op: the settings
 panel says "not on PATH" against it and shows the install line, and the status
@@ -619,6 +623,60 @@ pointer that outlived what it pointed at.
       servers now complete the handshake on this machine.
 
 This generalises: it fixes any `dotnet tool`, not just this one.
+
+---
+
+## 17. Windows and Linux
+
+The transport was written to be portable — `lsp/server.rs`, `framing.rs` and
+`registry.rs` carry no `cfg` branches at all, and `spawn.rs` already handled
+`PATHEXT` and `CREATE_NO_WINDOW` because `shell_exec` needed them first. An
+audit found one real gap and two smaller ones.
+
+- [x] **Job objects, so stopping a server kills the tree.** The real gap, and
+      the same one `terminal/pty.rs` documents for shells. Every Node-based
+      server installs its entry point as a `.cmd` shim, so the process we spawn
+      on Windows is `cmd.exe` and the server is a `node.exe` below it —
+      `TerminateProcess` on the shim leaves an orphaned
+      `typescript-language-server` behind pipes nobody holds. Each server now
+      gets a job object with `KILL_ON_JOB_CLOSE`, which also covers the case
+      where `stop` never runs at all: a panic, or the app being killed outright.
+
+      One job per server, not one for the app, so stopping one server does not
+      take the others with it. `ProcessGroup` is a no-op off Windows, so
+      `server.rs` still has no platform branches.
+- [x] **UNC paths.** `\\server\share\file` was becoming
+      `file:////server/share/file` — an empty host and a path beginning
+      `//server`, which is a different file and one nothing can open. The server
+      is the URI's authority, so it is `file://server/share/file`, with two
+      slashes.
+- [x] **Per-platform install lines.** Eight entries said `brew install`, which
+      reaches a Linux or Windows user as a confident instruction that cannot
+      work. `installOn` overrides per platform and the shared `install` line is
+      now always platform-neutral — with a test holding it that way, because
+      that fallback is what everyone without an override sees.
+- [x] **`uri.test.ts`** — ten cases over the Windows shapes: drive letters get
+      three slashes, the letter is uppercased (servers compare URIs as strings),
+      spaces encode, UNC keeps its authority, and a non-`file:` scheme is
+      refused rather than guessed at.
+
+### What is still unproven
+
+`ring`, via the updater plugin, needs a Windows C toolchain, so the crate
+**cannot be cross-checked as a whole** — the same limitation
+[`WINDOWS-TASKS.md`](./WINDOWS-TASKS.md) records. The job-object module was
+compiled and linted for `x86_64-pc-windows-msvc` in an isolated crate, which is
+what caught `JOBOBJECT_EXTENDED_LIMIT_INFORMATION` being gated behind the
+`Win32_System_Threading` feature rather than `Win32_System_JobObjects`.
+
+That isolation has the blind spot the Windows port already paid for once: it
+checks the code *this work wrote*, not pre-existing code the Windows target
+newly compiles. A real build is still the authority.
+
+- [ ] **Manual, Windows** — a Node-based server resolves through `PATHEXT`,
+      stops cleanly, and leaves no `node.exe` behind in Task Manager.
+- [ ] **Manual, Linux** — a server starts under a GUI launch, which is where
+      the login-shell `PATH` probe earns its place.
 
 ---
 

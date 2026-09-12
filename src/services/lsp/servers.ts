@@ -34,6 +34,7 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
+import { platform, type Platform } from "../platform";
 import type { LspServerOverride } from "../editor-session";
 
 export interface LspServerDef {
@@ -51,8 +52,21 @@ export interface LspServerDef {
   extensions: Record<string, string>;
   /** Whole filenames, lowercased, for files that have no useful extension. */
   filenames?: Record<string, string>;
-  /** Shown verbatim when the program isn't on `PATH`. */
+  /**
+   * How to install it, where one command works everywhere.
+   *
+   * `npm i -g`, `cargo install` and `go install` are the same on all three
+   * platforms; package managers are not, which is what `installOn` is for.
+   */
   install: string;
+  /**
+   * Per-platform overrides, for the entries where `install` names a tool that
+   * platform doesn't have.
+   *
+   * Showing `brew install marksman` to someone on Linux is worse than showing
+   * nothing: it is a confident instruction that cannot work.
+   */
+  installOn?: Partial<Record<Platform, string>>;
   /** Server-specific `initializationOptions`, where one is needed to be useful. */
   initializationOptions?: Record<string, unknown>;
   /**
@@ -126,7 +140,12 @@ export const SERVERS: LspServerDef[] = [
       m: "objective-c",
       mm: "objective-cpp",
     },
-    install: "Ships with LLVM — brew install llvm, or apt install clangd",
+    install: "Ships with LLVM",
+    installOn: {
+      mac: "brew install llvm",
+      linux: "apt install clangd, or your distribution's LLVM package",
+      windows: "winget install LLVM.LLVM",
+    },
   },
   {
     id: "json",
@@ -179,7 +198,8 @@ export const SERVERS: LspServerDef[] = [
     program: "lua-language-server",
     args: [],
     extensions: { lua: "lua" },
-    install: "brew install lua-language-server",
+    install: "Download from github.com/LuaLS/lua-language-server/releases",
+    installOn: { mac: "brew install lua-language-server" },
   },
 
   // ── Added for coverage of the languages people actually work in ──────────
@@ -210,7 +230,8 @@ export const SERVERS: LspServerDef[] = [
     args: [],
     extensions: { swift: "swift" },
     // Ships inside the toolchain rather than being installed separately.
-    install: "Included with Xcode or a swift.org toolchain",
+    install: "Included with a swift.org toolchain",
+    installOn: { mac: "Included with Xcode, or a swift.org toolchain" },
   },
   {
     id: "zig",
@@ -218,7 +239,8 @@ export const SERVERS: LspServerDef[] = [
     program: "zls",
     args: [],
     extensions: { zig: "zig", zon: "zig" },
-    install: "brew install zls, or build from github.com/zigtools/zls",
+    install: "Download from github.com/zigtools/zls/releases",
+    installOn: { mac: "brew install zls" },
   },
   {
     id: "toml",
@@ -226,7 +248,8 @@ export const SERVERS: LspServerDef[] = [
     program: "taplo",
     args: ["lsp", "stdio"],
     extensions: { toml: "toml" },
-    install: "brew install taplo, or cargo install taplo-cli --features lsp",
+    install: "cargo install taplo-cli --features lsp",
+    installOn: { mac: "brew install taplo" },
   },
   {
     id: "terraform",
@@ -234,7 +257,8 @@ export const SERVERS: LspServerDef[] = [
     program: "terraform-ls",
     args: ["serve"],
     extensions: { tf: "terraform", tfvars: "terraform-vars" },
-    install: "brew install hashicorp/tap/terraform-ls",
+    install: "Download from releases.hashicorp.com/terraform-ls",
+    installOn: { mac: "brew install hashicorp/tap/terraform-ls", windows: "winget install Hashicorp.terraform-ls" },
   },
   {
     id: "markdown",
@@ -242,7 +266,8 @@ export const SERVERS: LspServerDef[] = [
     program: "marksman",
     args: ["server"],
     extensions: { md: "markdown", markdown: "markdown" },
-    install: "brew install marksman",
+    install: "Download from github.com/artempyanykh/marksman/releases",
+    installOn: { mac: "brew install marksman" },
   },
   {
     id: "svelte",
@@ -266,7 +291,8 @@ export const SERVERS: LspServerDef[] = [
     program: "kotlin-language-server",
     args: [],
     extensions: { kt: "kotlin", kts: "kotlin" },
-    install: "brew install kotlin-language-server",
+    install: "Download from github.com/fwcd/kotlin-language-server/releases",
+    installOn: { mac: "brew install kotlin-language-server" },
   },
   {
     id: "csharp",
@@ -381,6 +407,17 @@ export function resolveServer(def: LspServerDef, overrides: LspOverrides): LspSe
     program: override.program?.trim() || def.program,
     args: override.args ?? def.args,
   };
+}
+
+/**
+ * The install instruction for the platform this is running on.
+ *
+ * A command that cannot work on the machine reading it is worse than a vaguer
+ * one that can — it reads as authoritative and sends people looking for a
+ * package manager they do not have.
+ */
+export function installHint(def: LspServerDef): string {
+  return def.installOn?.[platform] ?? def.install;
 }
 
 export function isEnabled(id: string, overrides: LspOverrides): boolean {

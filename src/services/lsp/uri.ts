@@ -26,6 +26,23 @@ function encodeSegment(segment: string): string {
 export function pathToUri(path: string): string {
   let normalized = path.replace(/\\/g, "/");
 
+  /*
+    A UNC path — `\\server\share\file` — is the one case with a real
+    authority. The server name goes *before* the path, so `file://server/share`,
+    with two slashes rather than three. Treating it like any other absolute path
+    produced `file:////server/share`, which names a host of "" and a path
+    beginning `//server` — not the same file, and not a file a server can open.
+  */
+  const unc = /^\/\/([^/]+)(\/.*)?$/.exec(normalized);
+  if (unc) {
+    const host = encodeSegment(unc[1]);
+    const rest = (unc[2] ?? "/")
+      .split("/")
+      .map((segment) => encodeSegment(segment))
+      .join("/");
+    return `file://${host}${rest}`;
+  }
+
   // A drive letter becomes an authority-less absolute path, hence three
   // slashes. Uppercased because servers compare URIs as strings, and a `c:`
   // from us against a `C:` from them is two different documents.
@@ -55,8 +72,19 @@ export function pathToUri(path: string): string {
 export function uriToPath(uri: string): string | null {
   if (!uri.startsWith("file://")) return null;
 
-  // Strip the scheme and the (always empty, for files) authority.
-  let path = decodeURIComponent(uri.slice("file://".length));
+  const body = uri.slice("file://".length);
+
+  /*
+    An authority that isn't empty means UNC: `file://server/share` came from
+    `\\server\share`, and has to go back as one. Everything else has an empty
+    authority and a path starting at the third slash.
+  */
+  if (body && !body.startsWith("/")) {
+    const decoded = decodeURIComponent(body);
+    return isWindows ? `\\\\${decoded.replace(/\//g, "\\")}` : `//${decoded}`;
+  }
+
+  let path = decodeURIComponent(body);
   if (!path.startsWith("/")) path = `/${path}`;
 
   // `/C:/src` is a Windows path wearing a URI's leading slash.
