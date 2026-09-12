@@ -1,6 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, Check, GitBranch, WrapText } from "lucide-react";
 import { GitRepo } from "../../services/git";
+import { lsp, LspServerState } from "../../services/lsp/manager";
+import {
+  defaultInterpreter,
+  Interpreter,
+  interpreterLabel,
+} from "../../services/lsp/python";
 import { scrollIntoViewWithin } from "../../services/scroll";
 import { FileEncoding, LineEnding } from "../../services/editor-fs";
 import { availableLanguages, labelFor } from "../../services/editor-lang";
@@ -69,6 +75,15 @@ interface EditorStatusBarProps {
   onSetEncoding: (encoding: FileEncoding) => void;
   onGoToLine: () => void;
   onResizeStart: (e: React.PointerEvent) => void;
+  /** The workspace, for finding environments inside it. */
+  pythonRoot: string | null;
+  /** The interpreter the user chose for this workspace, if any. */
+  pythonPath: string | null;
+  /** Detected interpreters, owned by the modal so they are found once. */
+  pythonInterpreters: Interpreter[];
+  pythonLoading: boolean;
+  onSetPythonPath: (path: string | null) => void;
+  onRefreshInterpreters: () => void;
 }
 
 export function EditorStatusBar({
@@ -87,6 +102,12 @@ export function EditorStatusBar({
   onSetEncoding,
   onGoToLine,
   onResizeStart,
+  pythonRoot,
+  pythonPath,
+  pythonInterpreters,
+  pythonLoading,
+  onSetPythonPath,
+  onRefreshInterpreters,
 }: EditorStatusBarProps) {
   const [open, setOpen] = useState<
     "language" | "lineEnding" | "encoding" | "indent" | null
@@ -170,6 +191,19 @@ export function EditorStatusBar({
               onSelect: () => onSetEncoding(option.value),
             }))}
           />
+
+          {buffer.languageId === "python" && (
+            <PythonInterpreter
+              root={pythonRoot}
+              chosen={pythonPath}
+              found={pythonInterpreters}
+              loading={pythonLoading}
+              onChoose={onSetPythonPath}
+              onRefresh={onRefreshInterpreters}
+            />
+          )}
+
+          <LspIndicator path={buffer.path} />
 
           <button
             className={`editor-status-item ${wrapped ? "on" : ""}`}
@@ -292,6 +326,187 @@ export function EditorStatusBar({
   );
 }
 
+/**
+ * Which Python this project is analysed against.
+ *
+ * Shown only for Python files, next to the language — where VS Code puts it,
+ * because that is where people already look for it. It exists because pyright
+ * without an interpreter resolves against the system Python, and in a project
+ * with a `.venv` that means every third-party import is reported as missing:
+ * not a subtle degradation, a language server that appears broken.
+ *
+ * The list is detected each time it opens rather than cached, because creating
+ * a `.venv` in the terminal behind is exactly when someone opens this.
+ */
+function PythonInterpreter({
+  root,
+  chosen,
+  found,
+  loading,
+  onChoose,
+  onRefresh,
+}: {
+  root: string | null;
+  chosen: string | null;
+  found: Interpreter[];
+  loading: boolean;
+  onChoose: (path: string | null) => void;
+  onRefresh: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  /*
+    The list is owned by the modal, not fetched here.
+
+    Both were detecting independently, which meant two passes of
+    `python --version` subprocesses for one answer — and the modal's copy is the
+    one that has to exist anyway, because the *manager* needs the interpreter
+    before pyright resolves a single import, whether or not this picker is on
+    screen.
+
+    Opening still asks for a refresh: creating a `.venv` in the terminal behind
+    and then reaching for this menu is exactly the sequence to support.
+  */
+  useEffect(() => {
+    if (open) onRefresh();
+    // `onRefresh` is stable; re-running on its identity would refetch per render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const recommended = defaultInterpreter(found);
+  const active = chosen ?? recommended?.path ?? null;
+  const label = active ? interpreterLabel(active, root) : "Select interpreter";
+
+  /*
+    VS Code's shape: the version as the title, the environment or path beneath,
+    and the in-project one marked. The mark matters more than it looks — with
+    three Pythons listed and no guidance, the one that resolves the project's
+    imports is indistinguishable from two that don't.
+  */
+  const items: PopupItem[] = found.map((entry) => ({
+    key: entry.path,
+    label: entry.environment ? `${entry.label} ('${entry.environment}')` : entry.label,
+    detail: entry.detail,
+    badge: entry.path === recommended?.path ? "Recommended" : undefined,
+    selected: entry.path === active,
+    onSelect: () => onChoose(entry.path),
+  }));
+
+  // Only meaningful once a choice has been made; before that it is what is
+  // already happening.
+  if (chosen) {
+    items.push({
+      key: "__auto",
+      label: "Detect automatically",
+      detail: recommended ? interpreterLabel(recommended.path, root) : "none found",
+      selected: false,
+      onSelect: () => onChoose(null),
+    });
+  }
+
+  if (!found.length) {
+    items.push({
+      key: "__none",
+      label: loading ? "Looking for interpreters…" : "No interpreters found",
+      detail: loading ? undefined : "python3 -m venv .venv",
+      selected: false,
+      onSelect: () => {},
+    });
+  }
+
+  return (
+    <Popup
+      open={open}
+      onOpenChange={setOpen}
+      label={label}
+      title={
+        active
+          ? `Python interpreter — ${active}`
+          : "No Python interpreter selected; imports will resolve against the system Python"
+      }
+      items={items}
+    />
+  );
+}
+
+/**
+ * Which language server this file has, and what it is doing.
+ *
+ * **Visible cost.** A language server is a heavyweight process the user opted
+ * into, and "rust-analyzer: indexing" is the difference between an editor that
+ * is slow and one that looks broken. Silence here would mean a minute of cold
+ * start indistinguishable from a feature that doesn't work.
+ *
+ * Nothing at all is rendered for a file no server claims — which is most of
+ * them — so the bar doesn't grow a permanent empty slot for Markdown and TOML.
+ */
+function LspIndicator({ path }: { path: string | null }) {
+  /*
+    Keyed on the path, not the editor's language id. Those ids pick a
+    *highlighting grammar* and are approximate — `.kt` is highlighted as `cpp`
+    — so asking by language would report the C++ server's state on a Kotlin
+    file. See `servers.ts`.
+  */
+  const [state, setState] = useState<LspServerState | null>(() =>
+    path ? lsp.stateFor(path) : null
+  );
+
+  const refresh = useCallback(
+    () => setState(path ? lsp.stateFor(path) : null),
+    [path]
+  );
+
+  useEffect(() => {
+    refresh();
+    return lsp.onStatusChange(refresh);
+  }, [refresh]);
+
+  // `off` covers both "the master switch is off" and "this language is
+  // switched off", and in neither case has the user asked to be told about it.
+  if (!state || state.phase === "off" || state.phase === "idle") return null;
+
+  /*
+    Quiet when healthy, loud when not.
+
+    A ready server shows the dot and nothing else: the language is already named
+    by the picker immediately to the left, so spelling it out again is one more
+    thing to read in a bar that is mostly numbers. Anything the user might need
+    to act on — indexing, starting, missing, failed — says so in words.
+  */
+  const label =
+    state.phase === "indexing"
+      ? state.detail ?? "indexing"
+      : state.phase === "ready"
+        ? null
+        : state.phase === "starting"
+          ? "starting"
+          : state.phase === "missing"
+            ? "no server"
+            : state.phase;
+
+  const title =
+    state.phase === "missing"
+      ? `${state.def.program} is not on your PATH — install it with: ${state.def.install}`
+      : state.error
+        ? `${state.def.program}: ${state.error}`
+        : state.phase === "ready"
+          ? `${state.def.program} is running — click to restart`
+          : `${state.def.program} — click to restart`;
+
+  return (
+    <button
+      className={`editor-status-item editor-lsp-status is-${state.phase} text-[10px]`}
+      title={title}
+      onClick={() => {
+        if (state.phase !== "missing") void lsp.restart(state.def.id);
+      }}
+    >
+      <span className="editor-lsp-dot" aria-hidden />
+      {label}
+    </button>
+  );
+}
+
 function encodingLabel(encoding: FileEncoding): string {
   return ENCODINGS.find((option) => option.value === encoding)?.label ?? encoding;
 }
@@ -300,6 +515,13 @@ interface PopupItem {
   key: string;
   label: string;
   detail?: string;
+  /**
+   * A short marker after the label — "Recommended".
+   *
+   * Distinct from `detail`, which is dimmed and right-aligned for a value; this
+   * is a claim *about* the row and sits with the label it qualifies.
+   */
+  badge?: string;
   selected: boolean;
   onSelect: () => void;
 }
@@ -373,6 +595,11 @@ function Popup({
                 {item.selected && <Check size={11} />}
               </span>
               <span className="flex-1 min-w-0 truncate">{item.label}</span>
+              {item.badge && (
+                <span className="editor-status-option-badge text-[9px] shrink-0">
+                  {item.badge}
+                </span>
+              )}
               {item.detail && (
                 <span className="editor-status-option-detail text-[10px] shrink-0">
                   {item.detail}

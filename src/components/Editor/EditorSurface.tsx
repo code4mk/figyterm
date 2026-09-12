@@ -59,9 +59,12 @@ import {
   keymap,
   lineNumbers,
   rectangularSelection,
+  tooltips,
 } from "@codemirror/view";
 import { EditorSettings } from "../../services/editor-session";
 import { loadLanguage } from "../../services/editor-lang";
+import { lsp, LspSession } from "../../services/lsp/manager";
+import { closePopup, lspExtension } from "./lsp";
 import { indentGuides } from "./editorIndent";
 import { GitFileDiff } from "../../services/git";
 import { isMac } from "../../services/platform";
@@ -110,6 +113,12 @@ const tabComp = new Compartment();
 const guidesComp = new Compartment();
 const bracketsComp = new Compartment();
 const completionComp = new Compartment();
+/*
+  The language server's whole contribution — sync, diagnostics, tooltips and
+  keymap — in one compartment, so turning the feature off is one
+  reconfiguration rather than rebuilding the buffer and losing its history.
+*/
+const lspComp = new Compartment();
 
 /**
  * Above this, word completion stops scanning the document. It walks the whole
@@ -131,7 +140,16 @@ export type SurfaceCommand =
   | "selectAll"
   | "copy"
   | "cut"
-  | "paste";
+  | "paste"
+  // The language server's, so the context menu and the palette can reach them
+  // without a second route into `lsp/actions.ts`. Each is a no-op when the
+  // buffer has no server, which is most of them.
+  | "goToDefinition"
+  | "goToSymbol"
+  | "findReferences"
+  | "rename"
+  | "format"
+  | "codeActions";
 
 /**
  * What the clipboard should get, and which ranges a cut would remove.
@@ -371,6 +389,29 @@ export interface EditorSurfaceHandle {
    * was skipped and the status bar kept the previous tab's line number.
    */
   getCursor: (bufferId: string) => { line: number; column: number } | null;
+  /**
+   * Runs the language server's formatter over a buffer.
+   *
+   * Resolves false when there is no server, no formatter, or the buffer isn't
+   * the one in front — the caller uses that to save unformatted rather than to
+   * report a failure.
+   */
+  formatBuffer: (bufferId: string) => Promise<boolean>;
+  /** Tells the server the file was written. */
+  notifySaved: (bufferId: string) => void;
+  /**
+   * Applies a server's edits to an open buffer, by path.
+   *
+   * How a `WorkspaceEdit` — a rename, an organise-imports — reaches files the
+   * user already has open. False means no buffer has that path, and the caller
+   * should write it on disk instead.
+   */
+  applyServerEdits: (
+    path: string,
+    edits: { from: number; to: number; insert: string }[]
+  ) => boolean;
+  /** An open buffer's current text, by path, for resolving a server's ranges. */
+  textOf: (path: string) => string | null;
 }
 
 /**
@@ -382,26 +423,61 @@ export interface EditorSurfaceHandle {
  */
 function settingEffects(
   settings: EditorSettings,
+  record: BufferRecord | null,
   currentRecord: () => BufferRecord | null
 ): StateEffect<unknown>[] {
   return [
     guidesComp.reconfigure(settings.indentGuides ? indentGuides() : []),
     bracketsComp.reconfigure(settings.autoCloseBrackets ? closeBrackets() : []),
-    completionComp.reconfigure(
-      settings.wordCompletion
-        ? autocompletion({
-            override: [wordCompletionSource(currentRecord)],
-            activateOnTyping: false,
-          })
-        : []
-    ),
+    completionComp.reconfigure(wordCompletion(settings, record, currentRecord)),
   ];
+}
+
+/**
+ * The word-completion source, unless a language server has taken over.
+ *
+ * A server's completions *replace* these rather than joining them. Two sources
+ * in one list is worse than either alone here, because the words already in the
+ * file are mostly the identifiers the server is offering — so the list doubles
+ * up and the entries that know what they are talking about sink into it.
+ */
+function wordCompletion(
+  settings: EditorSettings,
+  record: BufferRecord | null,
+  currentRecord: () => BufferRecord | null
+): Extension {
+  if (record?.sessions.length) return [];
+  if (!settings.wordCompletion) return [];
+  return autocompletion({
+    override: [wordCompletionSource(currentRecord)],
+    activateOnTyping: false,
+  });
 }
 
 interface BufferRecord {
   state: EditorState;
   /** The document as it is on disk; dirtiness is a comparison against this. */
   savedDoc: Text;
+  /** Null for a scratch buffer, and what a `WorkspaceEdit` is matched against. */
+  path: string | null;
+  /**
+   * This buffer's connections to language servers — usually none, sometimes
+   * one, occasionally two when a companion like Tailwind is attached alongside
+   * the primary. Closed when the buffer is forgotten.
+   */
+  sessions: LspSession[];
+  /** Whether this buffer could have a server at all; see `createRecord`. */
+  serverEligible: boolean;
+  /**
+   * Which language-server configuration this buffer's session was built under.
+   *
+   * The same trick as `themeVersion` and `settingsVersion`, and it exists for a
+   * concrete bug: turning the setting on with twelve files already open used to
+   * do nothing to any of them, because a session is created when a record is
+   * and no record was being created. Now a record whose key is stale rebuilds
+   * its session the moment the setting changes.
+   */
+  lspKey: string;
   dirty: boolean;
   scrollTop: number;
   themeVersion: number;
@@ -422,6 +498,14 @@ interface BufferRecord {
 interface EditorSurfaceProps {
   /** Null when no file is open; the surface shows an empty read-only document. */
   bufferId: string | null;
+  /**
+   * The active buffer's path, read when its record is first built.
+   *
+   * A language server needs a `file://` URI, so a scratch buffer that has never
+   * been saved has no server — there is nothing on disk for one to resolve
+   * imports against.
+   */
+  path: string | null;
   /** Seed text, read once when a buffer is first shown. */
   initialContent: string;
   languageId: string;
@@ -434,6 +518,13 @@ interface EditorSurfaceProps {
   lineHeight: number;
   /** The editor's own preferences; see `EditorSettings`. */
   settings: EditorSettings;
+  /**
+   * The workspace a language server would be rooted at.
+   *
+   * Read together with the LSP settings to decide whether a buffer's session
+   * needs rebuilding — changing folder means a different server.
+   */
+  workspaceRoot: string | null;
 
   onDirtyChange: (bufferId: string, dirty: boolean) => void;
   onCursorChange: (line: number, column: number) => void;
@@ -624,6 +715,14 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
     const reported = useRef({ line: 0, column: 0 });
 
     /**
+     * The queued scroll restore for the buffer being activated, if any.
+     *
+     * Held so that an explicit `goTo` or `scrollToLine` can cancel it — see the
+     * activation effect for the race this settles.
+     */
+    const pendingRestore = useRef<{ cancelled: boolean } | null>(null);
+
+    /**
      * Props the CodeMirror keymap needs to reach.
      *
      * The keymap is baked into each buffer's state, so it can't close over
@@ -661,6 +760,20 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
 
     /** Bumped on every settings change, so stale buffer states can be spotted. */
     const settingsVersion = useRef(0);
+
+    /**
+     * Identifies the language-server configuration a session was built under.
+     *
+     * A string rather than a counter so that a record created *during* a change
+     * carries the right value without having to reason about effect ordering.
+     */
+    const lspKey = JSON.stringify([
+      props.workspaceRoot,
+      settings.lsp,
+      settings.lspServers,
+    ]);
+    const lspKeyRef = useRef(lspKey);
+    lspKeyRef.current = lspKey;
 
     const recordOf = useCallback(
       (id: string | null) => (id ? records.current.get(id) ?? null : null),
@@ -701,14 +814,40 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
         guidesComp.of(settingsRef.current.indentGuides ? indentGuides() : []),
         bracketMatching(),
         bracketsComp.of(settingsRef.current.autoCloseBrackets ? closeBrackets() : []),
-        completionComp.of(
-          settingsRef.current.wordCompletion
-            ? autocompletion({
-                override: [wordCompletionSource(currentRecord)],
-                activateOnTyping: false,
-              })
-            : []
-        ),
+        /*
+          `completionComp` is deliberately *not* here.
+
+          It has to be filled in by `createRecord`, which is the only place that
+          knows whether this buffer got a language server — and the two cannot
+          both be in the state at once. `autocompletion()` contributes an
+          `override` config, and CodeMirror refuses to merge two of those:
+          building a state holding the word-completion source *and* the server's
+          throws "Config merge conflict for field override" out of
+          `EditorState.create`, before any later reconfigure could fix it. That
+          threw during record creation, so the buffer never appeared at all.
+        */
+        /*
+          Tooltips may only occupy the code area.
+
+          CodeMirror assumes the whole window is available, so a hover on line 1
+          flips *upward* and lands on the breadcrumb bar — which is not part of
+          the editor at all, so nothing stops it and it covers the file path.
+          Bounding the space to the scroller makes it flip down instead, and
+          keeps the completion list off the status bar at the other end.
+        */
+        tooltips({
+          tooltipSpace: (view) => {
+            const box = view.scrollDOM.getBoundingClientRect();
+            // A hair of inset, so a tooltip never sits flush against the
+            // chrome above or below it.
+            return {
+              top: box.top + 2,
+              left: box.left + 2,
+              bottom: box.bottom - 2,
+              right: box.right - 2,
+            };
+          },
+        }),
         rectangularSelection(),
         crosshairCursor(),
         highlightActiveLine(),
@@ -862,7 +1001,8 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
         content: string,
         language: string,
         readonly: boolean,
-        withHighlight: boolean
+        withHighlight: boolean,
+        filePath: string | null
       ): Promise<BufferRecord> => {
         const languageExtension = withHighlight ? await loadLanguage(language) : null;
         const doc = Text.of(content.split("\n"));
@@ -878,6 +1018,25 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
           : { useTabs: false, width: Math.max(1, unit.length) };
         const theme = themeRef.current;
 
+        /*
+          Not synced at all when the buffer is read-only or too large to
+          highlight. Over `LARGE_FILE_BYTES` the editor already opens read-only
+          with the grammar off, and a server has nothing to add to a file nobody
+          can edit while having a great deal to consume parsing it. A scratch
+          buffer has no path, and so no URI to be about.
+        */
+        const wantsServer = Boolean(filePath) && !readonly && withHighlight;
+
+        /*
+          The record doesn't exist yet, and the session needs to be able to read
+          the buffer's *current* text — a server can take minutes to start, and
+          what it must be told at `didOpen` is the text as it is by then, not as
+          it was here.
+        */
+        const holder: { record: BufferRecord | null } = { record: null };
+        const getText = () => holder.record?.state.doc.toString() ?? content;
+        const sessions = wantsServer ? lsp.open(filePath!, getText) : [];
+
         const state = EditorState.create({
           doc,
           extensions: [
@@ -888,12 +1047,36 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
             wrapComp.of(wrappedRef.current ? EditorView.lineWrapping : []),
             indentComp.of(indentUnit.of(unit)),
             tabComp.of(EditorState.tabSize.of(indent.width)),
+            lspComp.of(
+              lspExtension(sessions, { indent: () => holder.record?.indent ?? indent })
+            ),
+            /*
+              Exactly one completion source, chosen here. A server's completions
+              replace the word list rather than joining it — see
+              `wordCompletion` — and more than a preference, it is a hard
+              constraint: two `autocompletion()`s in one state is a config
+              conflict that throws out of `EditorState.create`.
+            */
+            completionComp.of(
+              sessions.length
+                ? []
+                : settingsRef.current.wordCompletion
+                  ? autocompletion({
+                      override: [wordCompletionSource(currentRecord)],
+                      activateOnTyping: false,
+                    })
+                  : []
+            ),
           ],
         });
 
-        return {
+        const record: BufferRecord = {
           state,
           savedDoc: doc,
+          path: filePath,
+          sessions,
+          serverEligible: wantsServer,
+          lspKey: lspKeyRef.current,
           dirty: false,
           scrollTop: 0,
           themeVersion: themeVersion.current,
@@ -901,6 +1084,8 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
           languageId: language,
           indent,
         };
+        holder.record = record;
+        return record;
       },
       [baseExtensions]
     );
@@ -942,6 +1127,9 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
       return () => {
         if (frame) cancelAnimationFrame(frame);
         view.scrollDOM.removeEventListener("scroll", onScroll);
+        // Same reason as the buffer swap: these are not CodeMirror's to clean
+        // up, and the editor closing must not leave one on screen.
+        closePopup();
         view.destroy();
         viewRef.current = null;
       };
@@ -952,6 +1140,19 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
     useEffect(() => {
       const view = viewRef.current;
       if (!view) return;
+
+      /*
+        Anything floating over the outgoing buffer goes with it.
+
+        The language-server overlays — the references picker, the code-action
+        menu, the rename box — are plain DOM appended to the editor rather than
+        CodeMirror tooltips, because they anchor to a character position. That
+        means swapping the view's state does *not* remove them: leave a
+        references list open, click another tab, and it stays there listing
+        places in a file you are no longer looking at. Which is exactly what
+        "I opened b.py and it is showing a.py" looks like.
+      */
+      closePopup();
 
       // Remember where the outgoing buffer was scrolled to; an `EditorState`
       // doesn't carry that.
@@ -981,9 +1182,16 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
             initialContent,
             languageId,
             readOnly,
-            highlight
+            highlight,
+            props.path
           );
-          if (cancelled) return;
+          if (cancelled) {
+            // The buffer was switched away from while its grammar loaded, and
+            // this record will never be used — so its server session has to go
+            // or it holds a document open that nothing is showing.
+            record.sessions.forEach((session) => session.close());
+            return;
+          }
           records.current.set(bufferId, record);
         }
 
@@ -998,7 +1206,7 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
         // And the same for a setting changed while it was in the background.
         if (record.settingsVersion !== settingsVersion.current) {
           record.state = record.state.update({
-            effects: settingEffects(settingsRef.current, currentRecord),
+            effects: settingEffects(settingsRef.current, record, currentRecord),
           }).state;
           record.settingsVersion = settingsVersion.current;
         }
@@ -1015,10 +1223,29 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
         // Both deferred a frame: the view has just been handed a new state and
         // hasn't measured it, so focusing lands against stale geometry and a
         // scroll offset set now is undone when CodeMirror re-anchors.
+        /*
+          The restore is cancellable, and that matters more than it looks.
+
+          "Open this file at line 200" is applied by the modal in a
+          `requestAnimationFrame` of its own, because a buffer's state is built
+          asynchronously and there is nothing to move the cursor in until it
+          exists. Two frames were therefore racing: whichever ran second won,
+          and when this one did it put the scroll back to the buffer's saved
+          offset — zero, for a file being opened for the first time. The symptom
+          was go-to-definition and find-references opening the right file at the
+          top of it, intermittently.
+
+          An explicit `goTo` now cancels this, because a caller asking for a
+          line outranks a remembered scroll position.
+        */
         const restore = record.scrollTop;
+        const token = { cancelled: false };
+        pendingRestore.current = token;
         requestAnimationFrame(() => {
           if (cancelled || viewRef.current !== view) return;
-          view.scrollDOM.scrollTop = restore;
+          if (pendingRestore.current === token) pendingRestore.current = null;
+          // Focus regardless: only the scroll is contentious.
+          if (!token.cancelled) view.scrollDOM.scrollTop = restore;
           view.focus();
         });
 
@@ -1029,7 +1256,35 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
         handlers.current.onCursorChange(line.number, column);
       };
 
-      void activate();
+      /*
+        Caught rather than left to become an unhandled rejection.
+
+        Everything that builds a buffer's state happens in here, and a throw
+        anywhere in it used to leave the view holding whatever it had before —
+        which, on the first file opened, is the empty placeholder. The symptom
+        was an editor that opened blank with only a console message to say why,
+        and the cause was a genuine one: two extensions contributing the same
+        config (see `completionComp` in `createRecord`). The feature that broke
+        it should not be able to take the editor with it.
+      */
+      void activate().catch((error) => {
+        console.error("editor: could not open the buffer", error);
+        if (cancelled || viewRef.current !== view) return;
+        // A read-only view of the text, with no extensions to go wrong, is a
+        // far better failure than an empty pane.
+        currentRef.current = null;
+        view.setState(
+          EditorState.create({
+            doc: initialContent,
+            extensions: [
+              themeComp.of(editorTheme(themeRef.current)),
+              EditorState.readOnly.of(true),
+              lineNumbers(),
+            ],
+          })
+        );
+      });
+
       return () => {
         cancelled = true;
       };
@@ -1071,10 +1326,53 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
       const record = currentRecord();
       if (!view || !record) return;
       settingsVersion.current++;
-      view.dispatch({ effects: settingEffects(settings, currentRecord) });
+      view.dispatch({ effects: settingEffects(settings, record, currentRecord) });
       record.state = view.state;
       record.settingsVersion = settingsVersion.current;
     }, [settings, currentRecord]);
+
+    // --- Language servers on buffers that are already open -------------------
+
+    /**
+     * Attaches or detaches servers when the setting or the workspace changes.
+     *
+     * Unlike the other settings, this one cannot wait for a buffer to be
+     * reactivated: switching language servers on is a thing you do *because* of
+     * the file in front of you, and having to close and reopen it first would
+     * make the setting look broken. So every record is rebuilt, not just the
+     * one on screen — a background tab with a stale session would otherwise keep
+     * a document open on a server that is no longer wanted.
+     */
+    useEffect(() => {
+      const view = viewRef.current;
+
+      records.current.forEach((record, id) => {
+        if (record.lspKey === lspKey) return;
+        record.lspKey = lspKey;
+
+        record.sessions.forEach((session) => session.close());
+        const sessions = record.serverEligible
+          ? lsp.open(record.path!, () => record.state.doc.toString())
+          : [];
+        record.sessions = sessions;
+
+        const effects = [
+          lspComp.reconfigure(lspExtension(sessions, { indent: () => record.indent })),
+          // The word list steps aside for a server, and comes back when the
+          // server goes away.
+          completionComp.reconfigure(
+            wordCompletion(settingsRef.current, record, currentRecord)
+          ),
+        ];
+
+        if (currentRef.current === id && view) {
+          view.dispatch({ effects });
+          record.state = view.state;
+        } else {
+          record.state = record.state.update({ effects }).state;
+        }
+      });
+    }, [lspKey, currentRecord]);
 
     // --- Language and read-only changes on the open buffer -------------------
 
@@ -1161,6 +1459,16 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
             record.state = record.state.update({
               changes: { from: 0, to: record.state.doc.length, insert: content },
             }).state;
+            /*
+              A background buffer has no live view, so the document-sync plugin
+              that would normally notice this isn't running. Without this the
+              server keeps answering about the text the file had before the
+              watcher reloaded it — forever, since nothing else will tell it.
+
+              The buffer in front doesn't need it: the change above goes through
+              the view, and the plugin turns it into an incremental `didChange`.
+            */
+            record.sessions.forEach((session) => session.didChangeFull(content));
           }
 
           if (clean) {
@@ -1181,11 +1489,15 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
         },
 
         forget: (id) => {
+          // `didClose` before the record goes, or the server keeps answering
+          // about a document nobody has open.
+          records.current.get(id)?.sessions.forEach((session) => session.close());
           records.current.delete(id);
           if (currentRef.current === id) currentRef.current = null;
         },
 
         forgetAll: () => {
+          records.current.forEach((record) => record.sessions.forEach((s) => s.close()));
           records.current.clear();
           currentRef.current = null;
         },
@@ -1201,6 +1513,7 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
         scrollToLine: (line) => {
           const view = viewRef.current;
           if (!view) return;
+          if (pendingRestore.current) pendingRestore.current.cancelled = true;
           const target = Math.max(1, Math.min(line, view.state.doc.lines));
           const pos = view.state.doc.line(target).from;
           view.dispatch({ effects: EditorView.scrollIntoView(pos, { y: "start" }) });
@@ -1211,6 +1524,9 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
         goTo: (line, column = 1) => {
           const view = viewRef.current;
           if (!view) return;
+          // Outranks a queued scroll restore from a buffer that was just
+          // activated; see the activation effect.
+          if (pendingRestore.current) pendingRestore.current.cancelled = true;
           // Clamped: a stack trace can name a line past the end of a file that
           // has since been edited.
           const target = Math.max(1, Math.min(line, view.state.doc.lines));
@@ -1283,6 +1599,44 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
                 .catch(() => {});
               break;
             }
+            case "goToDefinition":
+            case "goToSymbol":
+            case "findReferences":
+            case "rename":
+            case "format":
+            case "codeActions": {
+              const record = currentRecord();
+              if (!record?.sessions.length) break;
+              // The primary; see `lspExtension` for why companions are excluded
+              // from the one-answer commands.
+              const session = record.sessions[0];
+              // Imported lazily, like undo below: these are reached from a menu
+              // and a keymap that is only installed when a server is attached,
+              // so nothing needs them in the initial editor chunk.
+              void import("./lsp/actions").then((actions) => {
+                const live = viewRef.current;
+                if (!live) return;
+                switch (command) {
+                  case "goToDefinition":
+                    return void actions.goToDefinition(live, session);
+                  case "goToSymbol":
+                    return void actions.goToSymbol(live, session);
+                  case "findReferences":
+                    return void actions.findReferences(live, session);
+                  case "rename":
+                    return void actions.renameSymbol(live, session);
+                  case "codeActions":
+                    return void actions.codeActions(live, session);
+                  case "format":
+                    return void actions.formatDocument(live, session, {
+                      tabSize: record.indent.width,
+                      insertSpaces: !record.indent.useTabs,
+                    });
+                }
+              });
+              break;
+            }
+
             case "undo":
             case "redo": {
               // Imported lazily: the palette and the menu are the only callers,
@@ -1329,6 +1683,60 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
             record.state = view.state;
             record.indent = { useTabs, width };
           }
+        },
+
+        formatBuffer: async (id) => {
+          const record = records.current.get(id);
+          const view = viewRef.current;
+          // Only the buffer in front can be formatted: the result is applied as
+          // an undoable transaction, and a background buffer has no view to
+          // dispatch one into.
+          if (!record?.sessions.length || !view || currentRef.current !== id) return false;
+          const { formatDocument } = await import("./lsp/actions");
+          // The primary: a companion has no formatter for the whole document.
+          return formatDocument(view, record.sessions[0], {
+            tabSize: record.indent.width,
+            insertSpaces: !record.indent.useTabs,
+          });
+        },
+
+        notifySaved: (id) => {
+          records.current.get(id)?.sessions.forEach((session) => session.didSave());
+        },
+
+        applyServerEdits: (path, edits) => {
+          const found = [...records.current.entries()].find(
+            ([, candidate]) => candidate.path === path
+          );
+          if (!found) return false;
+          const [targetId, record] = found;
+
+          const view = viewRef.current;
+          if (currentRef.current === targetId && view) {
+            view.dispatch({ changes: edits, userEvent: "input.lsp" });
+            record.state = view.state;
+          } else {
+            record.state = record.state.update({ changes: edits }).state;
+            // As in `setContent`: no view, so no sync plugin to notice.
+            record.sessions.forEach((s) => s.didChangeFull(record.state.doc.toString()));
+          }
+
+          // A file edited by a rename is a file with unsaved changes, and the
+          // tab strip has to say so — otherwise the work is invisible and easy
+          // to close without saving.
+          const dirty = !record.state.doc.eq(record.savedDoc);
+          if (dirty !== record.dirty) {
+            record.dirty = dirty;
+            onDirtyChange(targetId, dirty);
+          }
+          return true;
+        },
+
+        textOf: (path) => {
+          const found = [...records.current.values()].find(
+            (record) => record.path === path
+          );
+          return found ? found.state.doc.toString() : null;
         },
 
         getCursor: (id) => {

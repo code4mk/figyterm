@@ -61,6 +61,16 @@ export interface Workspace {
   expanded: string[];
   /** Epoch millis, for ordering the switcher. */
   lastOpenedAt: number;
+  /**
+   * The Python interpreter chosen for this folder, if the user picked one.
+   *
+   * Per workspace rather than global because an interpreter is a property of a
+   * *project*: two Python checkouts open in turn want two different `.venv`s,
+   * and a single editor-wide setting would be wrong for one of them every time.
+   *
+   * Absent means "detect it" — an in-project environment if there is one.
+   */
+  pythonPath?: string;
 }
 
 export interface PersistedSession {
@@ -128,8 +138,47 @@ export interface EditorSettings {
   /** Whether new buffers start wrapped; the status bar still toggles per session. */
   wordWrap: boolean;
   autoCloseBrackets: boolean;
-  /** Completion from the words already in the document, in place of an LSP. */
+  /**
+   * Completion from the words already in the document.
+   *
+   * What ⌃Space offers when no language server is attached. A server replaces
+   * it rather than sitting beside it — two completion sources in one list is a
+   * worse experience than either alone.
+   */
   wordCompletion: boolean;
+  /**
+   * Whether language servers may run at all.
+   *
+   * **Off by default, and deliberately so.** A language server is a heavyweight
+   * child process — `rust-analyzer` on a large repository is measured in
+   * gigabytes — and this is a terminal that starts fast. It runs because the
+   * user asked for it, not because a file happened to open. See `docs/LSP.md`.
+   */
+  lsp: boolean;
+  /**
+   * Per-server settings, keyed by the ids in `services/lsp/servers.ts`.
+   *
+   * Absent means the defaults: enabled, with the program and arguments from the
+   * table. This is where a user turns one language off without turning the lot
+   * off, and where they point an entry at their own build of a server.
+   */
+  lspServers: Record<string, LspServerOverride>;
+  /** Run the server's formatter when a file is saved, where it has one. */
+  lspFormatOnSave: boolean;
+}
+
+/**
+ * What the user changed about one entry in the language-server table.
+ *
+ * Declared here rather than imported from `services/lsp/servers.ts` so that the
+ * session module — which every launch reads — stays free of the LSP code, which
+ * is lazily loaded with the editor.
+ */
+export interface LspServerOverride {
+  /** Absent means on, once `lsp` is on. */
+  enabled?: boolean;
+  program?: string;
+  args?: string[];
 }
 
 /** Both halves of one file, or one column with the removals in place. */
@@ -168,6 +217,9 @@ export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   wordWrap: false,
   autoCloseBrackets: true,
   wordCompletion: true,
+  lsp: false,
+  lspServers: {},
+  lspFormatOnSave: false,
 };
 
 const DEFAULT_SESSION: PersistedSession = {
@@ -192,6 +244,38 @@ const DEFAULT_SESSION: PersistedSession = {
 function clamp(value: number, low: number, high: number): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return low;
   return Math.min(high, Math.max(low, value));
+}
+
+/**
+ * Checks the stored language-server overrides before anything acts on them.
+ *
+ * This one is worth more care than the rest of the session: `program` and `args`
+ * end up as a process to spawn, and `localStorage` is user-editable. Nothing
+ * here is a security boundary — a user who can edit their own storage can also
+ * type into the terminal — but a malformed entry reaching `Command::new` should
+ * fail as "not on your PATH" rather than as something stranger, and a stored
+ * `args` of `"rm -rf"` should not arrive as a string where a list is expected.
+ */
+function sanitizeLspServers(stored: unknown): Record<string, LspServerOverride> {
+  if (!stored || typeof stored !== "object" || Array.isArray(stored)) return {};
+
+  const clean: Record<string, LspServerOverride> = {};
+  for (const [id, value] of Object.entries(stored as Record<string, unknown>)) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+    const entry = value as Record<string, unknown>;
+    const override: LspServerOverride = {};
+
+    if (typeof entry.enabled === "boolean") override.enabled = entry.enabled;
+    if (typeof entry.program === "string" && entry.program.trim()) {
+      override.program = entry.program.trim();
+    }
+    if (Array.isArray(entry.args) && entry.args.every((arg) => typeof arg === "string")) {
+      override.args = entry.args as string[];
+    }
+
+    if (Object.keys(override).length) clean[id] = override;
+  }
+  return clean;
 }
 
 const DIFF_LAYOUTS: DiffLayout[] = ["unified", "split"];
@@ -234,6 +318,8 @@ export function loadSession(): PersistedSession {
     merged.settings.fontSize = clamp(merged.settings.fontSize, 0, 40);
     merged.settings.lineHeight = clamp(merged.settings.lineHeight, 1, 3);
     merged.settings.indentWidth = clamp(merged.settings.indentWidth, 1, 8);
+    merged.settings.lsp = merged.settings.lsp === true;
+    merged.settings.lspServers = sanitizeLspServers(parsed.settings?.lspServers);
     return merged;
   } catch {
     return { ...DEFAULT_SESSION };

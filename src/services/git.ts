@@ -114,6 +114,37 @@ export function gitStatus(dir: string): Promise<GitRepo> {
   return invoke<GitRepo>("git_status", { dir });
 }
 
+/**
+ * The paths git is ignoring, with directories collapsed.
+ *
+ * `node_modules` comes back as one entry rather than forty thousand, so
+ * membership is "this path, or any directory above it" — see [`isIgnored`].
+ */
+export function gitIgnored(dir: string): Promise<string[]> {
+  return invoke<string[]>("git_ignored", { dir });
+}
+
+/**
+ * Whether `path` is ignored, given the collapsed set from [`gitIgnored`].
+ *
+ * Walks up rather than matching directly, because the set holds `…/node_modules`
+ * and the question is usually about a file several levels inside it. Bounded by
+ * the path's own depth, and the common answer — an empty set — costs nothing.
+ */
+export function isIgnored(path: string, ignored: ReadonlySet<string>): boolean {
+  if (!ignored.size) return false;
+  if (ignored.has(path)) return true;
+
+  let at = path;
+  for (;;) {
+    const cut = Math.max(at.lastIndexOf("/"), at.lastIndexOf("\\"));
+    // Stop at the filesystem root rather than looping on "/" forever.
+    if (cut <= 0) return false;
+    at = at.slice(0, cut);
+    if (ignored.has(at)) return true;
+  }
+}
+
 export function gitFileHunks(dir: string, path: string): Promise<GitFileDiff> {
   return invoke<GitFileDiff>("git_file_hunks", { dir, path });
 }

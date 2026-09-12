@@ -28,7 +28,7 @@ import {
   renamePath,
   revealPath,
 } from "../../services/editor-fs";
-import { changeBadge, changeLabel, GitChange } from "../../services/git";
+import { changeBadge, changeLabel, GitChange, isIgnored } from "../../services/git";
 import { platform } from "../../services/platform";
 import { ContextMenu, ContextMenuItem, ContextMenuSeparator } from "./ContextMenu";
 import { FileIcon } from "./fileIcons";
@@ -62,6 +62,17 @@ export interface ExplorerChange {
   token: number;
 }
 
+/**
+ * The path segment marking the inline "new file" row.
+ *
+ * A NUL is used because no filesystem allows one in a name, so this can never
+ * collide with a real path — which is the whole point of the sentinel. It is
+ * written as an escape and named once rather than spelled as a literal byte at
+ * each use: a raw NUL in the source makes the file read as *binary* to `grep`,
+ * `git diff` and every editor's search, which is a high price for two strings.
+ */
+const DRAFT_MARK = "\u0000draft";
+
 interface FileExplorerProps {
   root: string;
   activePath: string | null;
@@ -93,6 +104,14 @@ interface FileExplorerProps {
   gitFiles: Map<string, GitChange>;
   /** Directories with something changed inside them, so a collapsed one says so. */
   gitDirs: Set<string>;
+  /**
+   * Paths git is ignoring, with directories collapsed.
+   *
+   * Rows under one of these are dimmed. `node_modules` and `dist` are part of
+   * the folder but not part of the *project*, and a tree that says so without
+   * being read is the difference between scanning it and searching it.
+   */
+  gitIgnored: ReadonlySet<string>;
 }
 
 interface Row {
@@ -131,6 +150,7 @@ export function FileExplorer({
   change,
   gitFiles,
   gitDirs,
+  gitIgnored,
 }: FileExplorerProps) {
   const [children, setChildren] = useState<Map<string, FileEntry[]>>(new Map());
   const [scrollTop, setScrollTop] = useState(0);
@@ -278,7 +298,7 @@ export function FileExplorer({
         out.push({
           entry: {
             name: "",
-            path: joinPath(dir, " draft"),
+            path: joinPath(dir, DRAFT_MARK),
             isDir: draft.isDir,
             isHidden: false,
             isSymlink: false,
@@ -483,7 +503,7 @@ export function FileExplorer({
         <div style={{ height: rows.length * ROW_HEIGHT, position: "relative" }}>
           {visible.map((row, index) => {
             const absolute = first + index;
-            const isDraftRow = row.entry.name === "" && row.entry.path.includes(" draft");
+            const isDraftRow = row.entry.name === "" && row.entry.path.includes(DRAFT_MARK);
             /*
               A file carries its own status; a directory carries the fact that
               something under it changed. The two are drawn differently — a
@@ -492,6 +512,7 @@ export function FileExplorer({
             */
             const gitChange = gitFiles.get(row.entry.path) ?? null;
             const gitInside = !gitChange && row.entry.isDir && gitDirs.has(row.entry.path);
+            const ignored = isIgnored(row.entry.path, gitIgnored);
 
             return (
               <div
@@ -515,7 +536,12 @@ export function FileExplorer({
                 } ${menu?.entry?.path === row.entry.path ? "context-target" : ""} ${
                   dragOver === row.entry.path ? "drag-over" : ""
                 } ${row.entry.isHidden ? "hidden-entry" : ""} ${
-                  gitChange ? `git-${gitChange}` : gitInside ? "git-inside" : ""
+                  ignored ? "ignored-entry" : ""
+                } ${
+                  /* An ignored path has no meaningful git status — it is
+                     untracked by definition — so the badge is suppressed rather
+                     than marking every build artefact as new. */
+                  ignored ? "" : gitChange ? `git-${gitChange}` : gitInside ? "git-inside" : ""
                 }`}
                 draggable={!isDraftRow && renaming !== row.entry.path}
                 onDragStart={(e) => {

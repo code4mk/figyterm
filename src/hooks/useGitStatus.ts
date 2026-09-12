@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { effectiveChange, gitRemoteUrl, gitStatus, GitChange, GitRepo, NO_REPO } from "../services/git";
+import {
+  effectiveChange,
+  gitIgnored,
+  gitRemoteUrl,
+  gitStatus,
+  GitChange,
+  GitRepo,
+  NO_REPO,
+} from "../services/git";
 import { parseRemote, Remote } from "../services/git-forge";
 
 /**
@@ -23,6 +31,17 @@ import { parseRemote, Remote } from "../services/git-forge";
 const COALESCE_MS = 250;
 
 /**
+ * Minimum gap between two *ignored* runs.
+ *
+ * Far longer than the status gap, because the answer only changes when someone
+ * edits a `.gitignore` — while `git status` changes on every save. Asking for
+ * both on every watcher burst would double the processes for a fact that moves
+ * once a month, and on a large repository the ignore walk is the slower of the
+ * two. Ten seconds is well inside "I edited .gitignore and the tree caught up".
+ */
+const IGNORED_GAP_MS = 10_000;
+
+/**
  * A ceiling on how long coalescing may delay a run.
  *
  * Belt and braces for the case below: even if something contrives to keep
@@ -40,6 +59,10 @@ export interface GitDecorations {
 export function useGitStatus(root: string | null, enabled: boolean) {
   const [repo, setRepo] = useState<GitRepo>(NO_REPO);
   const [error, setError] = useState<string | null>(null);
+  /** Ignored paths, directories collapsed; see `isIgnored`. */
+  const [ignored, setIgnored] = useState<ReadonlySet<string>>(() => new Set());
+  const ignoredAt = useRef(0);
+  const ignoredFor = useRef<string | null>(null);
 
   const running = useRef(false);
   const again = useRef(false);
@@ -50,9 +73,34 @@ export function useGitStatus(root: string | null, enabled: boolean) {
   const wanted = useRef<string | null>(root);
   wanted.current = enabled ? root : null;
 
+  /**
+   * The ignore list, refetched only when it is plausibly stale.
+   *
+   * Always on a change of folder — a different project ignores different things
+   * — and otherwise at most once per [`IGNORED_GAP_MS`].
+   */
+  const refreshIgnored = useCallback(async (dir: string) => {
+    const changedFolder = ignoredFor.current !== dir;
+    if (!changedFolder && Date.now() - ignoredAt.current < IGNORED_GAP_MS) return;
+
+    ignoredAt.current = Date.now();
+    ignoredFor.current = dir;
+    // A fresh folder starts with nothing ignored rather than the last one's
+    // list, which would grey out rows in a project it knows nothing about.
+    if (changedFolder) setIgnored(new Set());
+
+    try {
+      const paths = await gitIgnored(dir);
+      if (wanted.current === dir) setIgnored(new Set(paths));
+    } catch {
+      // Not a repository, or git is missing — the status run reports that.
+    }
+  }, []);
+
   const run = useCallback(async (dir: string) => {
     running.current = true;
     try {
+      void refreshIgnored(dir);
       const next = await gitStatus(dir);
       if (wanted.current === dir) {
         setRepo(next);
@@ -73,7 +121,7 @@ export function useGitStatus(root: string | null, enabled: boolean) {
         if (wanted.current) void run(wanted.current);
       }
     }
-  }, []);
+  }, [refreshIgnored]);
 
   /**
    * Asks for a status run, soon.
@@ -120,6 +168,8 @@ export function useGitStatus(root: string | null, enabled: boolean) {
     if (!enabled || !root) {
       setRepo(NO_REPO);
       setError(null);
+      setIgnored(new Set());
+      ignoredFor.current = null;
       return;
     }
     refresh();
@@ -186,5 +236,5 @@ export function useGitStatus(root: string | null, enabled: boolean) {
     return { files, dirs };
   }, [repo]);
 
-  return { repo, error, refresh, decorations, remote };
+  return { repo, error, refresh, decorations, remote, ignored };
 }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
+  AlignLeft,
   ArrowLeft,
   ArrowRight,
   ChevronDown,
@@ -8,6 +9,7 @@ import {
   CircleAlert,
   ClipboardPaste,
   Copy,
+  Crosshair,
   Eye,
   FilePlus,
   FolderInput,
@@ -17,6 +19,7 @@ import {
   Maximize2,
   Minimize2,
   PanelRight,
+  PenLine,
   PictureInPicture2,
   Redo2,
   Save,
@@ -27,6 +30,7 @@ import {
   TextSearch,
   TextSelect,
   Undo2,
+  Wand2,
   X,
 } from "lucide-react";
 import { open as openFolderDialog } from "@tauri-apps/plugin-dialog";
@@ -73,9 +77,17 @@ import {
   gitPush,
   gitStage,
   gitUnstage,
+  isIgnored,
   repoRelative,
 } from "../../services/git";
 import { useGitStatus } from "../../hooks/useGitStatus";
+import { lsp } from "../../services/lsp/manager";
+import {
+  defaultInterpreter,
+  findInterpreters,
+  Interpreter,
+} from "../../services/lsp/python";
+import { setLspHost } from "./lsp";
 import { findBySlug, parseOutline } from "../../services/markdown-outline";
 import { isLinux, isMac, platform } from "../../services/platform";
 import { normalizeDir } from "../../services/recent-dirs";
@@ -314,6 +326,7 @@ export function EditorModal({
     setDiffLayout,
     setDiffStyle,
     setEditorSettings,
+    setPythonPath,
     resetEditorSettings,
     toggleExpanded,
     collapse,
@@ -525,6 +538,7 @@ export function EditorModal({
     error: gitError,
     refresh: refreshGit,
     decorations: gitDecorations,
+    ignored: gitIgnoredPaths,
     remote: gitRemote,
   } = useGitStatus(rootReady ? root : null, visible);
 
@@ -767,6 +781,114 @@ export function EditorModal({
 
   openPathRef.current = openPath;
 
+  // --- Language servers ------------------------------------------------------
+
+  /**
+   * Points the language-server manager at this workspace, and tells it what the
+   * user has switched on.
+   *
+   * Changing either stops whatever was running: a server is scoped to a root,
+   * and one left alive against a folder nobody has open is a process holding
+   * memory for no reason. Turning the master switch off stops everything, which
+   * is what makes the setting mean what it says.
+   */
+  /**
+   * The interpreter chosen for this folder, if any.
+   *
+   * Null means "detect it", which the status-bar picker resolves to the
+   * in-project environment when there is one — so the manager is told what the
+   * user picked, and the picker owns the default.
+   */
+  const pythonPath = useMemo(
+    () => workspaces.find((workspace) => workspace.root === root)?.pythonPath ?? null,
+    [workspaces, root]
+  );
+
+  /**
+   * The interpreter actually in force, which is the chosen one or the detected
+   * one. Held here rather than in the picker because the *manager* needs it —
+   * pyright has to be told before it resolves a single import — and the picker
+   * is only rendered while a Python file is in front.
+   */
+  const [pythonInterpreters, setPythonInterpreters] = useState<Interpreter[]>([]);
+  const [pythonLoading, setPythonLoading] = useState(false);
+
+  const refreshInterpreters = useCallback(() => {
+    if (!editorSettings.lsp) {
+      setPythonInterpreters([]);
+      return;
+    }
+    setPythonLoading(true);
+    void findInterpreters(useEditorStore.getState().root)
+      .then(setPythonInterpreters)
+      .catch(() => setPythonInterpreters([]))
+      .finally(() => setPythonLoading(false));
+  }, [editorSettings.lsp]);
+
+  useEffect(() => {
+    if (!rootReady || !root || !editorSettings.lsp) {
+      setPythonInterpreters([]);
+      return;
+    }
+    refreshInterpreters();
+  }, [root, rootReady, editorSettings.lsp, refreshInterpreters]);
+
+  /** The in-project environment, when the user hasn't chosen one. */
+  const detectedPython = useMemo(
+    () => defaultInterpreter(pythonInterpreters)?.path ?? null,
+    [pythonInterpreters]
+  );
+
+  useEffect(() => {
+    lsp.configure({
+      enabled: editorSettings.lsp,
+      overrides: editorSettings.lspServers,
+      root: rootReady ? root : null,
+      pythonPath: pythonPath ?? detectedPython,
+    });
+  }, [
+    editorSettings.lsp,
+    editorSettings.lspServers,
+    root,
+    rootReady,
+    pythonPath,
+    detectedPython,
+  ]);
+
+  /**
+   * Everything the language-server features need from the editor around them.
+   *
+   * All outcomes rather than mechanisms — open this file, say this, apply these
+   * edits — so `lsp/actions.ts` decides what should happen and this decides how
+   * it looks. The edit paths matter most: they are how a rename reaches a file
+   * the user has open, and they go through the surface so the change is one
+   * undoable step rather than a write behind the buffer's back.
+   */
+  useEffect(() => {
+    setLspHost({
+      openPath: (path, line, column) => void openPath(path, line, column),
+      root: () => useEditorStore.getState().root,
+      report: setError,
+      applyToOpenBuffer: (path, edits) =>
+        surfaceRef.current?.applyServerEdits(path, edits) ?? false,
+      openText: (path) => surfaceRef.current?.textOf(path) ?? null,
+    });
+  }, [openPath]);
+
+  /**
+   * Stops every server when the editor closes for good.
+   *
+   * Not when the modal is merely hidden: it is a modal that gets closed and
+   * reopened constantly, and killing a `rust-analyzer` mid-index every time
+   * would make the feature useless. The idle timer in the manager is what
+   * handles a modal that stays closed — the debounce belongs on the stop.
+   */
+  useEffect(() => {
+    return () => {
+      void lsp.stopAll();
+    };
+  }, []);
+
   /**
    * First open: establish a root, then put back the tabs from last time.
    *
@@ -951,8 +1073,7 @@ export function EditorModal({
   const saveBuffer = useCallback(
     async (bufferId: string, options?: { force?: boolean }): Promise<boolean> => {
       const buffer = useEditorStore.getState().buffers.find((b) => b.id === bufferId);
-      const content = surfaceRef.current?.getContent(bufferId);
-      if (!buffer || content === null || content === undefined) return false;
+      if (!buffer) return false;
 
       if (!buffer.path) {
         setSaveAsFor(bufferId);
@@ -962,6 +1083,28 @@ export function EditorModal({
         setError(`${buffer.name} is read-only`);
         return false;
       }
+
+      /*
+        Formatted before the text is read, not after: the formatter rewrites the
+        buffer through CodeMirror as one undoable edit, so what gets written is
+        the formatted text and a ⌘Z puts back what was typed. Reading the content
+        first would save the unformatted version and leave the buffer dirty again
+        the moment the edit landed.
+
+        A server without a formatter, or a buffer without a server, resolves
+        false and the save carries on unformatted — that is not a failure worth
+        a message.
+      */
+      if (useEditorStore.getState().settings.lspFormatOnSave) {
+        try {
+          await surfaceRef.current?.formatBuffer(bufferId);
+        } catch {
+          // Formatting is a convenience; never let it stop a save.
+        }
+      }
+
+      const content = surfaceRef.current?.getContent(bufferId);
+      if (content === null || content === undefined) return false;
 
       try {
         const outcome = await writeTextFile(
@@ -982,6 +1125,10 @@ export function EditorModal({
 
         markSaved(bufferId, outcome.mtime);
         surfaceRef.current?.markSaved(bufferId);
+        // Several servers only run their heavier checks on save — and some only
+        // re-resolve imports then — so a save the server isn't told about is a
+        // save whose diagnostics never update.
+        surfaceRef.current?.notifySaved(bufferId);
         clearDraft(bufferId);
         return true;
       } catch (e) {
@@ -1625,10 +1772,27 @@ export function EditorModal({
 
   // --- Git -----------------------------------------------------------------
 
+  /**
+   * Whether the file in front is one git has been told to ignore.
+   *
+   * Worth its own check because an ignored file is *untracked*, and git reports
+   * an untracked file as wholly new — so the change gutter marks every line as
+   * added. On a build artefact, a lock file or a `.env` that is a column of
+   * green down the whole buffer describing nothing: the file was never going to
+   * be committed, so "all of this is new work" is not true in any useful sense.
+   */
+  const activeIgnored = useMemo(
+    () => (activeBuffer?.path ? isIgnored(activeBuffer.path, gitIgnoredPaths) : false),
+    [activeBuffer?.path, gitIgnoredPaths]
+  );
+
   /** The file in front, as git names it. Null outside a repository. */
   const gitPath = useMemo(
-    () => (git.root && activeBuffer?.path ? repoRelative(git.root, activeBuffer.path) : null),
-    [git.root, activeBuffer?.path]
+    () =>
+      git.root && activeBuffer?.path && !activeIgnored
+        ? repoRelative(git.root, activeBuffer.path)
+        : null,
+    [git.root, activeBuffer?.path, activeIgnored]
   );
 
   /**
@@ -2496,6 +2660,7 @@ export function EditorModal({
                 <EditorSurface
                   ref={surfaceRef}
                   bufferId={activeBufferId}
+                  path={activeBuffer?.path ?? null}
                   initialContent={activeBuffer?.initialContent ?? ""}
                   languageId={activeBuffer?.languageId ?? "plaintext"}
                   readOnly={activeBuffer?.readonly ?? true}
@@ -2505,6 +2670,7 @@ export function EditorModal({
                   fontSize={editorFont.size}
                   lineHeight={editorSettings.lineHeight}
                   settings={editorSettings}
+                  workspaceRoot={rootReady ? root : null}
                   onDirtyChange={setDirty}
                   onCursorChange={onCursorChange}
                   onEdited={onEdited}
@@ -2606,6 +2772,7 @@ export function EditorModal({
                       change={treeChange}
                       gitFiles={gitDecorations.files}
                       gitDirs={gitDecorations.dirs}
+                      gitIgnored={gitIgnoredPaths}
                     />
                   ) : null}
                 </div>
@@ -2637,6 +2804,12 @@ export function EditorModal({
             onSetEncoding={(value: FileEncoding) =>
               activeBufferId && setEncoding(activeBufferId, value)
             }
+            pythonRoot={rootReady ? root : null}
+            pythonPath={pythonPath}
+            pythonInterpreters={pythonInterpreters}
+            pythonLoading={pythonLoading}
+            onSetPythonPath={setPythonPath}
+            onRefreshInterpreters={refreshInterpreters}
             onGoToLine={openGoToLine}
             onResizeStart={onResizeStart}
           />
@@ -2743,6 +2916,55 @@ export function EditorModal({
                     disabled={activeBuffer.readonly}
                     onClick={() => runSurfaceCommand("redo")}
                   />
+
+                  {/*
+                    Only with a server attached. Offering "Go to Definition" on
+                    a file nothing can answer for would be a menu item that
+                    silently does nothing, which is worse than its absence.
+                  */}
+                  {editorSettings.lsp && activeBuffer.path && lsp.clientFor(activeBuffer.path) && (
+                    <>
+                      <ContextMenuSeparator />
+                      <ContextMenuItem
+                        icon={<Crosshair size={12} />}
+                        label="Go to Definition"
+                        hint="F12"
+                        onClick={() => runSurfaceCommand("goToDefinition")}
+                      />
+                      <ContextMenuItem
+                        icon={<Search size={12} />}
+                        label="Find References"
+                        hint="⇧F12"
+                        onClick={() => runSurfaceCommand("findReferences")}
+                      />
+                      <ContextMenuItem
+                        icon={<TextSearch size={12} />}
+                        label="Go to Symbol…"
+                        hint={chord("O", "shift")}
+                        onClick={() => runSurfaceCommand("goToSymbol")}
+                      />
+                      <ContextMenuItem
+                        icon={<PenLine size={12} />}
+                        label="Rename Symbol…"
+                        hint="F2"
+                        disabled={activeBuffer.readonly}
+                        onClick={() => runSurfaceCommand("rename")}
+                      />
+                      <ContextMenuItem
+                        icon={<Wand2 size={12} />}
+                        label="Quick Fix…"
+                        hint={chord(".")}
+                        disabled={activeBuffer.readonly}
+                        onClick={() => runSurfaceCommand("codeActions")}
+                      />
+                      <ContextMenuItem
+                        icon={<AlignLeft size={12} />}
+                        label="Format Document"
+                        disabled={activeBuffer.readonly}
+                        onClick={() => runSurfaceCommand("format")}
+                      />
+                    </>
+                  )}
 
                   <ContextMenuSeparator />
                   <ContextMenuItem

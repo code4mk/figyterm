@@ -2083,6 +2083,27 @@
   opacity: 0.55;
 }
 
+/*
+  A path git is ignoring — `node_modules`, `dist`, a `.env`.
+  
+  Dimmed rather than hidden: it is still there and still openable, but it is not
+  part of the project, and the tree should say so without being read. The same
+  weight as a hidden entry, and the two compound when a row is both.
+*/
+.editor-row.ignored-entry {
+  opacity: 0.45;
+}
+
+.editor-row.ignored-entry.hidden-entry {
+  opacity: 0.38;
+}
+
+/* Selection has to stay legible through the dimming. */
+.editor-row.ignored-entry.active,
+.editor-row.ignored-entry:hover {
+  opacity: 0.85;
+}
+
 .editor-row-chevron {
   width: 12px;
   color: #6e7681;
@@ -3674,6 +3695,45 @@
   color: #6e7681;
 }
 
+/*
+  The tab rail. Its own ground rather than the panel's, so the boundary between
+  "where you are" and "what you are changing" is legible without a rule.
+*/
+.editor-settings-sidebar {
+  background: rgba(0, 0, 0, 0.16);
+  border-right: 1px solid #2a2f37;
+}
+
+.editor-settings-tab {
+  color: #8b949e;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.editor-settings-tab:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #c9d1d9;
+}
+
+.editor-settings-tab.active {
+  background: rgba(99, 102, 241, 0.18);
+  color: #e6edf3;
+  font-weight: 500;
+}
+
+.editor-settings-panel-head {
+  color: #e6edf3;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.editor-settings-subhead {
+  color: #6e7681;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
 .editor-settings-section + .editor-settings-section {
   border-top: 1px solid rgba(255, 255, 255, 0.05);
   margin-top: 4px;
@@ -4750,6 +4810,35 @@
   border-top-color: #eceef2;
 }
 
+.light .editor-settings-sidebar {
+  background: #f7f8fa;
+  border-right-color: #e2e5eb;
+}
+
+.light .editor-settings-tab {
+  color: #6b7280;
+}
+
+.light .editor-settings-tab:hover {
+  background: rgba(0, 0, 0, 0.045);
+  color: #24292f;
+}
+
+.light .editor-settings-tab.active {
+  background: rgba(79, 70, 229, 0.12);
+  color: #111827;
+}
+
+.light .editor-settings-panel-head {
+  color: #111827;
+  border-bottom-color: #eceef2;
+}
+
+.light .editor-settings-subhead {
+  color: #9ca3af;
+  border-bottom-color: #eceef2;
+}
+
 .light .editor-settings-row {
   color: #374151;
 }
@@ -5284,3 +5373,950 @@
   border-color: #4f46e5;
 }
 
+
+/* ─── Language server ─────────────────────────────────────────────────────── */
+
+/*
+  The status-bar indicator, the settings chips, and the three overlays the LSP
+  features put over the text: hover and signature tooltips, and the menu and
+  rename box in `components/Editor/lsp/popup.ts`.
+
+  The overlays are plain DOM rather than React — they anchor to a character
+  position, which only CodeMirror knows — so their styling lives here beside the
+  rest of the editor chrome rather than in a component.
+*/
+
+.editor-lsp-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.editor-lsp-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #3fb950;
+  flex-shrink: 0;
+}
+
+.editor-lsp-status.is-starting .editor-lsp-dot,
+.editor-lsp-status.is-indexing .editor-lsp-dot {
+  background: #e3b341;
+  /* Something is happening and it is not finished; a still dot says "ready". */
+  animation: editor-lsp-pulse 1.4s ease-in-out infinite;
+}
+
+.editor-lsp-status.is-failed .editor-lsp-dot {
+  background: #f85149;
+}
+
+.editor-lsp-status.is-missing .editor-lsp-dot,
+.editor-lsp-status.is-stopped .editor-lsp-dot {
+  background: #6e7681;
+}
+
+@keyframes editor-lsp-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.editor-lsp-chip {
+  color: #8b949e;
+  background: rgba(255, 255, 255, 0.06);
+  line-height: 14px;
+  white-space: nowrap;
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.editor-lsp-chip.is-ready {
+  color: #3fb950;
+  background: rgba(63, 185, 80, 0.13);
+}
+
+.editor-lsp-chip.is-indexing,
+.editor-lsp-chip.is-starting {
+  color: #e3b341;
+  background: rgba(210, 153, 34, 0.14);
+}
+
+.editor-lsp-chip.is-failed {
+  color: #f85149;
+  background: rgba(248, 81, 73, 0.13);
+}
+
+/*
+  A server that isn't installed is still listed — that is the point — but it is
+  dimmed, so the eye goes to the rows that can actually do something.
+*/
+.editor-settings-row.is-unavailable {
+  opacity: 0.62;
+}
+
+.editor-settings-row.is-unavailable:hover {
+  opacity: 1;
+}
+
+/*
+  A claim about the row it sits beside — "Recommended" on the interpreter that
+  actually resolves the project's imports. With three Pythons listed and no
+  guidance, the right one is indistinguishable from two wrong ones.
+*/
+.editor-status-option-badge {
+  color: #3fb950;
+  background: rgba(63, 185, 80, 0.14);
+  border-radius: 3px;
+  padding: 0 4px;
+  line-height: 14px;
+  white-space: nowrap;
+}
+
+.light .editor-status-option-badge {
+  color: #15803d;
+  background: rgba(22, 163, 74, 0.12);
+}
+
+/* The search box above the server table. */
+.editor-lsp-search-icon {
+  position: absolute;
+  left: 7px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #6e7681;
+  pointer-events: none;
+}
+
+.editor-lsp-search-clear {
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: #8b949e;
+  cursor: pointer;
+}
+
+.editor-lsp-search-clear:hover {
+  background: rgba(255, 255, 255, 0.09);
+  color: #e6edf3;
+}
+
+.light .editor-lsp-search-icon {
+  color: #9ca3af;
+}
+
+.light .editor-lsp-search-clear:hover {
+  background: rgba(0, 0, 0, 0.07);
+  color: #24292f;
+}
+
+.editor-lsp-servers code {
+  font-size: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 3px;
+  padding: 0 3px;
+}
+
+/* --- Tooltips ------------------------------------------------------------ */
+
+.cm-lsp-tooltip {
+  max-width: 520px;
+  max-height: 320px;
+  overflow: auto;
+  padding: 6px 8px;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.cm-lsp-doc-text {
+  white-space: pre-wrap;
+  /* A type signature is not prose: it must break, but only where it has to. */
+  overflow-wrap: anywhere;
+}
+
+.cm-lsp-doc-text + .cm-lsp-doc-code,
+.cm-lsp-doc-code + .cm-lsp-doc-text {
+  margin-top: 6px;
+}
+
+.cm-lsp-doc-code {
+  margin: 0;
+  padding: 5px 7px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  overflow-x: auto;
+  white-space: pre;
+}
+
+/*
+  The signature — the first fenced block, which is the line the tooltip exists
+  to show. Given no background and a little more weight so it reads as a
+  heading rather than as one sample among several.
+*/
+.cm-lsp-doc-code.is-signature {
+  background: none;
+  padding: 0;
+  font-weight: 500;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.cm-lsp-doc hr {
+  border: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  margin: 6px 0;
+}
+
+.light .cm-lsp-doc hr {
+  border-top-color: rgba(0, 0, 0, 0.1);
+}
+
+.cm-lsp-doc code {
+  background: rgba(255, 255, 255, 0.07);
+  border-radius: 3px;
+  padding: 0 3px;
+}
+
+.cm-lsp-signature-label {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.cm-lsp-signature-active {
+  font-weight: 600;
+  color: #79c0ff;
+}
+
+.cm-lsp-signature-doc,
+.cm-lsp-signature-count {
+  margin-top: 4px;
+  font-size: 10.5px;
+  color: #8b949e;
+}
+
+.cm-lsp-info {
+  max-width: 420px;
+  padding: 2px 0;
+  font-size: 11px;
+}
+
+.cm-lsp-info-detail {
+  color: #8b949e;
+  margin-bottom: 4px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* --- Popups -------------------------------------------------------------- */
+
+.cm-lsp-popup {
+  /*
+    `fixed`, matching the strategy `popup.ts` asks Floating UI for. Absolute
+    positioning inside the editor would be re-measured against whichever
+    ancestor happens to be positioned, and the editor modal is draggable — so
+    the overlay would drift away from its character the moment the window moved.
+  */
+  position: fixed;
+  z-index: 30;
+  min-width: 280px;
+  max-width: 460px;
+  border-radius: 6px;
+  /*
+    The editor's tooltip palette from `editorTheme.ts`, not the app-chrome
+    shade the status popups use. These float over the code, next to CodeMirror's
+    own tooltips, and two greys that nearly match read as a mistake.
+  */
+  background: #1e2228;
+  border: 1px solid #2a2f37;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  font-size: 11.5px;
+  color: #c9d1d9;
+  overflow: hidden;
+}
+
+.cm-lsp-popup-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 10px;
+  border-bottom: 1px solid #2a2f37;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.cm-lsp-popup-title {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #c9d1d9;
+  white-space: nowrap;
+}
+
+.cm-lsp-popup-subtitle {
+  flex: 1;
+  min-width: 0;
+  font-size: 10px;
+  color: #6e7681;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cm-lsp-popup-close {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #8b949e;
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.cm-lsp-popup-close:hover {
+  background: rgba(255, 255, 255, 0.09);
+  color: #e6edf3;
+}
+
+.cm-lsp-menu-list {
+  /*
+    `--cm-lsp-available` is written by Floating UI's `size` middleware: it is
+    how much room the overlay actually has before the edge of the window. The
+    fixed value is the cap for the common case and the fallback when the
+    variable hasn't been set yet.
+  */
+  max-height: min(300px, var(--cm-lsp-available, 300px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px;
+}
+
+.cm-lsp-popup-hint {
+  padding: 5px 10px;
+  border-top: 1px solid #2a2f37;
+  font-size: 10px;
+  color: #6e7681;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.cm-lsp-menu-item {
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+/* The first line of a row: name, then where it is, then the line number. */
+.cm-lsp-menu-line {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+/*
+  The source line the reference sits on.
+
+  This is the difference between a list you can choose from and a list of line
+  numbers you have to visit one by one to understand.
+*/
+.cm-lsp-menu-preview {
+  margin-top: 1px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  color: #8b949e;
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cm-lsp-menu-item.is-active .cm-lsp-menu-preview {
+  color: #c9d1d9;
+}
+
+/* The line number, held to the right so the column of them lines up. */
+.cm-lsp-menu-badge {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+  color: #6e7681;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 3px;
+  padding: 0 4px;
+}
+
+.cm-lsp-menu-item.is-active {
+  /* The theme's `tooltipSelected`, so a highlighted row here and a
+     highlighted completion match. */
+  background: rgba(99, 102, 241, 0.22);
+}
+
+.cm-lsp-menu-item.is-disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.cm-lsp-menu-label {
+  flex-shrink: 0;
+  max-width: 60%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+
+/* Where the file is. Dimmed and allowed to shrink first. */
+.cm-lsp-menu-detail {
+  flex: 1;
+  min-width: 0;
+  font-size: 10px;
+  color: #6e7681;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cm-lsp-input-field {
+  display: block;
+  width: calc(100% - 16px);
+  margin: 6px 8px 0;
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid #2a2f37;
+  color: #e6edf3;
+  font: inherit;
+  outline: none;
+}
+
+.cm-lsp-input-field:focus {
+  border-color: #6366f1;
+}
+
+/* --- Light ---------------------------------------------------------------- */
+
+.light .editor-lsp-chip {
+  color: #4b5163;
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.light .editor-lsp-chip.is-ready {
+  color: #15803d;
+  background: rgba(22, 163, 74, 0.12);
+}
+
+.light .editor-lsp-chip.is-indexing,
+.light .editor-lsp-chip.is-starting {
+  color: #92400e;
+  background: rgba(217, 119, 6, 0.14);
+}
+
+.light .editor-lsp-chip.is-failed {
+  color: #b91c1c;
+  background: rgba(220, 38, 38, 0.12);
+}
+
+.light .editor-lsp-servers code,
+.light .cm-lsp-doc code,
+.light .cm-lsp-doc-code {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.light .cm-lsp-signature-active {
+  color: #0969da;
+}
+
+.light .cm-lsp-signature-doc,
+.light .cm-lsp-signature-count,
+.light .cm-lsp-info-detail,
+.light .cm-lsp-menu-detail,
+.light .cm-lsp-popup-hint {
+  color: #6b7280;
+}
+
+.light .cm-lsp-popup {
+  background: #ffffff;
+  border: 1px solid #e2e5eb;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14);
+  color: #24292f;
+}
+
+.light .cm-lsp-menu-item.is-active {
+  background: rgba(79, 70, 229, 0.12);
+}
+
+.light .cm-lsp-input-field:focus {
+  border-color: #4f46e5;
+}
+
+.light .cm-lsp-popup-header,
+.light .cm-lsp-popup-hint {
+  border-color: #e2e5eb;
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.light .cm-lsp-popup-title {
+  color: #24292f;
+}
+
+.light .cm-lsp-popup-close:hover {
+  background: rgba(0, 0, 0, 0.07);
+  color: #24292f;
+}
+
+.light .cm-lsp-menu-preview,
+.light .cm-lsp-menu-badge,
+.light .cm-lsp-popup-subtitle {
+  color: #6b7280;
+}
+
+.light .cm-lsp-menu-badge {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.light .cm-lsp-menu-item.is-active .cm-lsp-menu-preview {
+  color: #24292f;
+}
+
+.light .cm-lsp-input-field {
+  background: #ffffff;
+  border: 1px solid #d0d7de;
+  color: #24292f;
+}
+
+/* --- ⌘-hover definition link -------------------------------------------- */
+
+/*
+  The affordance is a promise: it is only drawn where the server confirmed a
+  definition exists, so an underline always navigates. See `definitionLink.ts`.
+*/
+.cm-lsp-link {
+  text-decoration: underline;
+  text-decoration-color: #58a6ff;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+  cursor: pointer;
+}
+
+.light .cm-lsp-link {
+  text-decoration-color: #0969da;
+}
+
+/* --- Completion ---------------------------------------------------------- */
+
+/*
+  Built to the same standard as the pickers in `lsp/popup.ts`: a bordered card
+  with generous rows, one clear accent for the selection, and a keyboard hint
+  along the bottom. CodeMirror owns the markup — `li > icon + label + detail` —
+  so everything here hangs off that, and every rule is scoped under
+  `.cm-lsp-completions` (set via `tooltipClass`) so the library's own
+  single-class selectors cannot win on load order.
+
+  The one thing the pickers have that this does not is a header. Deliberate: a
+  completion list opens on almost every keystroke, and a title bar on something
+  that transient reads as heavy rather than considered.
+*/
+.cm-tooltip-autocomplete.cm-lsp-completions {
+  overflow: hidden;
+  /* Wide enough that a three-item list isn't a stub, bounded so a long
+     signature doesn't push it across the editor. */
+  min-width: 260px;
+  max-width: 520px;
+  padding: 0;
+}
+
+.cm-tooltip-autocomplete.cm-lsp-completions > ul {
+  max-height: 17em;
+  padding: 4px;
+  margin: 0;
+  overscroll-behavior: contain;
+}
+
+/* A thin scrollbar, matching the pickers rather than the platform default. */
+.cm-tooltip-autocomplete.cm-lsp-completions > ul::-webkit-scrollbar {
+  width: 8px;
+}
+
+.cm-tooltip-autocomplete.cm-lsp-completions > ul::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+.cm-tooltip-autocomplete.cm-lsp-completions > ul::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.24);
+  background-clip: content-box;
+}
+
+/*
+  The keyboard hint, as a footer.
+
+  Generated content rather than a DOM node because CodeMirror's autocomplete
+  has no slot for one — `addToOptions` injects per *option*, and there is no
+  per-dialog equivalent. It is a static hint, so nothing is lost by it not
+  being real text.
+*/
+.cm-tooltip-autocomplete.cm-lsp-completions::after {
+  content: "↑↓ navigate · ↵ accept · Esc dismiss";
+  display: block;
+  padding: 5px 10px;
+  border-top: 1px solid #2a2f37;
+  background: rgba(255, 255, 255, 0.02);
+  font-size: 10px;
+  color: #6e7681;
+  white-space: nowrap;
+}
+
+.cm-tooltip-autocomplete.cm-lsp-completions > ul > li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 7px;
+  border-radius: 4px;
+  line-height: 1.5;
+  /* An accent bar appears on the selected row; the transparent border keeps
+     every other row from shifting sideways when it does. */
+  border-left: 2px solid transparent;
+}
+
+.cm-tooltip-autocomplete.cm-lsp-completions > ul > li[aria-selected] {
+  border-left-color: #6366f1;
+  background: rgba(99, 102, 241, 0.18);
+}
+
+.cm-tooltip-autocomplete.cm-lsp-completions .cm-completionLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+  What the user has typed so far, inside the label.
+
+  Weight and colour rather than the library's underline: at this size an
+  underline on two characters of every row is a row of dashes, and it collides
+  with the ⌘-hover link underline elsewhere in the editor.
+*/
+.cm-tooltip-autocomplete.cm-lsp-completions .cm-completionMatchedText {
+  text-decoration: none;
+  font-weight: 700;
+  color: #58a6ff;
+}
+
+.cm-tooltip-autocomplete.cm-lsp-completions li[aria-selected] .cm-completionMatchedText {
+  color: #a5d6ff;
+}
+
+/*
+  The type signature the server sent. Dimmed and shrinking first: it is context
+  for the label, and it must never push the label out of view.
+*/
+.cm-tooltip-autocomplete.cm-lsp-completions .cm-completionDetail {
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-style: normal;
+  font-size: 10.5px;
+  color: #6e7681;
+}
+
+/* A deprecated API: struck through and dimmed, the whole row. */
+.cm-tooltip-autocomplete.cm-lsp-completions li.is-deprecated .cm-completionLabel {
+  text-decoration: line-through;
+}
+
+.cm-tooltip-autocomplete.cm-lsp-completions li.is-deprecated {
+  opacity: 0.6;
+}
+
+/*
+  The kind badge.
+
+  CodeMirror's defaults are bare italic letters — `ƒ`, `𝑐`, `𝑥` — at 90% size
+  and 0.6 opacity. In a list of forty Tailwind classes that is a column of grey
+  specks: noise, not information. A filled, rounded badge with a colour per
+  family gives the list a scannable left edge, which is the entire job of an
+  icon column.
+*/
+.cm-tooltip-autocomplete.cm-lsp-completions .cm-completionIcon {
+  box-sizing: content-box;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  font-style: normal;
+  font-family: ui-sans-serif, -apple-system, system-ui, sans-serif;
+  line-height: 1;
+  opacity: 1;
+  /* Neutral until a kind claims it, so an unmapped kind is still a badge. */
+  color: #8b949e;
+  background: rgba(139, 148, 158, 0.16);
+  flex-shrink: 0;
+}
+
+/* One glyph per kind, replacing the library's. */
+.cm-lsp-completions .cm-completionIcon-function::after,
+.cm-lsp-completions .cm-completionIcon-method::after,
+.cm-lsp-completions .cm-completionIcon-constructor::after { content: "ƒ"; }
+.cm-lsp-completions .cm-completionIcon-class::after { content: "C"; }
+.cm-lsp-completions .cm-completionIcon-interface::after { content: "I"; }
+.cm-lsp-completions .cm-completionIcon-type::after { content: "T"; }
+.cm-lsp-completions .cm-completionIcon-variable::after { content: "V"; }
+.cm-lsp-completions .cm-completionIcon-constant::after { content: "K"; }
+.cm-lsp-completions .cm-completionIcon-property::after { content: "P"; }
+.cm-lsp-completions .cm-completionIcon-enum::after { content: "E"; }
+.cm-lsp-completions .cm-completionIcon-keyword::after { content: "K"; }
+.cm-lsp-completions .cm-completionIcon-namespace::after { content: "N"; }
+.cm-lsp-completions .cm-completionIcon-snippet::after { content: "S"; }
+.cm-lsp-completions .cm-completionIcon-text::after { content: "A"; }
+.cm-lsp-completions .cm-completionIcon-value::after { content: "V"; }
+.cm-lsp-completions .cm-completionIcon-unit::after { content: "U"; }
+.cm-lsp-completions .cm-completionIcon-event::after { content: "E"; }
+.cm-lsp-completions .cm-completionIcon-operator::after { content: "O"; }
+.cm-lsp-completions .cm-completionIcon-reference::after { content: "R"; }
+.cm-lsp-completions .cm-completionIcon-file::after { content: "F"; }
+.cm-lsp-completions .cm-completionIcon-folder::after { content: "D"; }
+.cm-lsp-completions .cm-completionIcon-color::after { content: "#"; }
+
+/* Colour per family, so the column is scannable before it is read. */
+.cm-lsp-completions .cm-completionIcon-function,
+.cm-lsp-completions .cm-completionIcon-method,
+.cm-lsp-completions .cm-completionIcon-constructor {
+  color: #d2a8ff;
+  background: rgba(210, 168, 255, 0.16);
+}
+
+.cm-lsp-completions .cm-completionIcon-class,
+.cm-lsp-completions .cm-completionIcon-interface,
+.cm-lsp-completions .cm-completionIcon-type {
+  color: #f0883e;
+  background: rgba(240, 136, 62, 0.16);
+}
+
+.cm-lsp-completions .cm-completionIcon-variable,
+.cm-lsp-completions .cm-completionIcon-value {
+  color: #79c0ff;
+  background: rgba(121, 192, 255, 0.16);
+}
+
+.cm-lsp-completions .cm-completionIcon-constant,
+.cm-lsp-completions .cm-completionIcon-color {
+  color: #ffa657;
+  background: rgba(255, 166, 87, 0.16);
+}
+
+.cm-lsp-completions .cm-completionIcon-property,
+.cm-lsp-completions .cm-completionIcon-enum,
+.cm-lsp-completions .cm-completionIcon-event {
+  color: #7ee787;
+  background: rgba(126, 231, 135, 0.16);
+}
+
+.cm-lsp-completions .cm-completionIcon-keyword,
+.cm-lsp-completions .cm-completionIcon-operator {
+  color: #ff7b72;
+  background: rgba(255, 123, 114, 0.16);
+}
+
+.cm-lsp-completions .cm-completionIcon-snippet {
+  color: #a5d6ff;
+  background: rgba(165, 214, 255, 0.16);
+}
+
+/* --- Diagnostics --------------------------------------------------------- */
+
+.cm-tooltip.cm-tooltip-lint {
+  padding: 2px;
+}
+
+.cm-diagnostic {
+  border-left-width: 3px;
+  border-radius: 3px;
+  padding: 5px 8px;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.cm-diagnostic-error {
+  border-left-color: #f85149;
+}
+
+.cm-diagnostic-warning {
+  border-left-color: #e3b341;
+}
+
+.cm-diagnostic-info {
+  border-left-color: #58a6ff;
+}
+
+.cm-diagnostic-hint {
+  border-left-color: #8b949e;
+}
+
+/* Which tool said it — `ts(2322)`. Set as `source` in `diagnostics.ts`. */
+.cm-diagnosticSource {
+  font-size: 10px;
+  opacity: 0.65;
+  display: block;
+  margin-bottom: 2px;
+}
+
+/* The "Quick fix" button inside a diagnostic tooltip. */
+.cm-diagnosticAction {
+  background: rgba(88, 166, 255, 0.16);
+  color: #79c0ff;
+  border-radius: 3px;
+  padding: 1px 6px;
+  margin-left: 0;
+  margin-right: 6px;
+  font-size: 10.5px;
+  cursor: pointer;
+}
+
+.cm-diagnosticAction:hover {
+  background: rgba(88, 166, 255, 0.28);
+}
+
+.cm-lintRange-error {
+  /* The default is a wavy underline drawn from a background image, which goes
+     blurry on a fractional-DPI display. */
+  text-decoration: underline wavy #f85149;
+  text-decoration-skip-ink: none;
+  text-underline-offset: 3px;
+  background-image: none;
+}
+
+.cm-lintRange-warning {
+  text-decoration: underline wavy #e3b341;
+  text-decoration-skip-ink: none;
+  text-underline-offset: 3px;
+  background-image: none;
+}
+
+.cm-lintRange-info,
+.cm-lintRange-hint {
+  text-decoration: underline dotted #58a6ff;
+  text-underline-offset: 3px;
+  background-image: none;
+}
+
+/* --- Light --------------------------------------------------------------- */
+
+.light .cm-tooltip-autocomplete.cm-lsp-completions::after {
+  border-top-color: #e2e5eb;
+  background: rgba(0, 0, 0, 0.02);
+  color: #6b7280;
+}
+
+.light .cm-tooltip-autocomplete.cm-lsp-completions > ul::-webkit-scrollbar-thumb,
+.light .cm-tooltip.cm-completionInfo::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.16);
+  background-clip: content-box;
+}
+
+.light .cm-tooltip-autocomplete.cm-lsp-completions > ul > li[aria-selected] {
+  border-left-color: #4f46e5;
+  background: rgba(79, 70, 229, 0.12);
+}
+
+.light .cm-tooltip-autocomplete.cm-lsp-completions .cm-completionDetail {
+  color: #6b7280;
+}
+
+.light .cm-tooltip-autocomplete .cm-completionMatchedText {
+  color: #0969da;
+}
+
+.light .cm-tooltip-autocomplete li[aria-selected] .cm-completionMatchedText {
+  color: #0550ae;
+}
+
+/*
+  The neutral badge, first — the per-kind colours below are the same
+  specificity, so this has to lose on order. It was after them, which flattened
+  every icon in the light theme back to grey.
+*/
+.light .cm-tooltip-autocomplete .cm-completionIcon {
+  color: #6b7280;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.light .cm-tooltip-autocomplete .cm-completionIcon-function,
+.light .cm-tooltip-autocomplete .cm-completionIcon-method,
+.light .cm-tooltip-autocomplete .cm-completionIcon-constructor {
+  color: #8250df;
+  background: rgba(130, 80, 223, 0.12);
+}
+
+.light .cm-tooltip-autocomplete .cm-completionIcon-class,
+.light .cm-tooltip-autocomplete .cm-completionIcon-interface,
+.light .cm-tooltip-autocomplete .cm-completionIcon-type {
+  color: #bc4c00;
+  background: rgba(188, 76, 0, 0.12);
+}
+
+.light .cm-tooltip-autocomplete .cm-completionIcon-variable,
+.light .cm-tooltip-autocomplete .cm-completionIcon-value {
+  color: #0969da;
+  background: rgba(9, 105, 218, 0.12);
+}
+
+.light .cm-tooltip-autocomplete .cm-completionIcon-constant,
+.light .cm-tooltip-autocomplete .cm-completionIcon-color {
+  color: #9a6700;
+  background: rgba(154, 103, 0, 0.12);
+}
+
+.light .cm-tooltip-autocomplete .cm-completionIcon-property,
+.light .cm-tooltip-autocomplete .cm-completionIcon-enum,
+.light .cm-tooltip-autocomplete .cm-completionIcon-event {
+  color: #1a7f37;
+  background: rgba(26, 127, 55, 0.12);
+}
+
+.light .cm-tooltip-autocomplete .cm-completionIcon-keyword,
+.light .cm-tooltip-autocomplete .cm-completionIcon-operator {
+  color: #cf222e;
+  background: rgba(207, 34, 46, 0.12);
+}
+
+.light .cm-tooltip-autocomplete .cm-completionIcon-snippet {
+  color: #0550ae;
+  background: rgba(5, 80, 174, 0.12);
+}
+
+.light .cm-diagnosticAction {
+  background: rgba(9, 105, 218, 0.12);
+  color: #0550ae;
+}

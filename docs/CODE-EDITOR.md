@@ -14,7 +14,9 @@ built here, and what it needs to be worth opening twice.
 
 Related: [`WINDOWS-SUPPORT.md`](./WINDOWS-SUPPORT.md) and
 [`LINUX-SUPPORT.md`](./LINUX-SUPPORT.md) for the per-platform assumptions any
-filesystem-touching feature has to respect.
+filesystem-touching feature has to respect, and
+[`CODE-INTELLIGENCE.md`](./CODE-INTELLIGENCE.md) for how the editor gets
+smarter without one.
 
 ---
 
@@ -105,10 +107,14 @@ What we give up, and the honest answer for each:
 - **Minimap** — no first-party equivalent. Community add-ons exist
   (`@replit/codemirror-minimap`); Phase 5 at the earliest, and arguably not
   missed in a modal this size.
-- **TS IntelliSense** — Monaco ships it free. For us that's an LSP client, and
-  it is explicitly a later phase (see [Non-goals](#non-goals)). Highlighting,
-  bracket-aware indent and word/path completion cover the "peek and patch a
-  file next to my shell" case this is for.
+- **TS IntelliSense** — Monaco ships it free. For us it was an LSP client, and
+  it is now written: [`LSP.md`](./LSP.md) for the design,
+  [`LSP-TASKS.md`](./LSP-TASKS.md) for what was built. It is off unless asked
+  for, so the default experience is still highlighting, bracket-aware indent and
+  word/path completion — which cover the "peek and patch a file next to my
+  shell" case this is for. [`CODE-INTELLIGENCE.md`](./CODE-INTELLIGENCE.md)
+  remains the cheap tier, and is the only one that works for languages no server
+  covers.
 
 If we later decide the VS Code feel is non-negotiable, the swap is contained:
 everything CM6-specific should live behind `src/components/Editor/EditorSurface.tsx`
@@ -1198,7 +1204,9 @@ What was built, against the plan above.
 - [ ] Outline, multi-root workspaces, a keymap section in Settings, minimap
 
 **Phase 6 — Later**
-- [ ] Stage/revert *hunks*, branch switching, push/pull, dock-as-pane, LSP client
+- [ ] Stage/revert *hunks*, branch switching, pull, dock-as-pane
+- [x] **Language servers** — diagnostics, hover, completion, signature help, go-to-definition, references, rename, formatting and code actions, off by default and opt-in per language. Design in [`LSP.md`](./LSP.md), build in [`LSP-TASKS.md`](./LSP-TASKS.md)
+- [ ] Code intelligence without a server — [`CODE-INTELLIGENCE.md`](./CODE-INTELLIGENCE.md): outline, project index, diagnostics harvested from the build already running in the pane behind. Still worth having, and now *alongside* LSP rather than instead of it — it is the tier that works for languages no server covers
 
 ---
 
@@ -1208,8 +1216,14 @@ Worth naming so they don't creep in.
 
 - **Not an IDE.** No debugger, no test runner UI, no extension host. There's a
   terminal right there.
-- **No LSP before Phase 6.** It's a language-server lifecycle manager, a
-  protocol client and a per-language install story — a project of its own.
+- **LSP is opt-in, and stays that way.** It was Phase 6 and it is now built —
+  see [`LSP.md`](./LSP.md) and [`LSP-TASKS.md`](./LSP-TASKS.md) — but the
+  argument that kept it out for so long still holds: a language server is a
+  heavyweight child process, `rust-analyzer` on a large repository is measured
+  in gigabytes, and this is a terminal that starts fast. So it is **off by
+  default**, started per language on the first buffer that needs one, stopped
+  when idle, and never on a file opened from a terminal link — that path exists
+  to be fast. Nothing starts because a file happened to open.
 - **No AI features here.** Whatever comes later, it shouldn't ride in on the
   editor's first version.
 - **No remote/SSH editing.** The path-confinement model assumes local paths.

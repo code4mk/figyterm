@@ -18,5 +18,13 @@
     "forceConsistentCasingInFileNames": true
   },
   "include": ["src"],
+  /*
+    Tests run under Node, not in the webview: they import `node:assert` and read
+    `process.exit`, neither of which this config has types for, and installing
+    `@types/node` to typecheck two hundred lines of arithmetic would pull Node's
+    globals into the app's own type space. They are transpiled and run by
+    `scripts/run-ts-tests.mjs` instead — see the comment there.
+  */
+  "exclude": ["src/**/*.test.ts"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

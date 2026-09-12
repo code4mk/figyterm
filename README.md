@@ -31,7 +31,7 @@ Inspired by [Fig](https://fig.io) (now part of AWS), FigyTerm is an open-source 
 - **Split Panes** — Up to 4 resizable terminal panes per tab (Cmd+D / Cmd+Shift+D)
 - **Multiple Tabs** — Browser-style tab bar with drag-to-reorder and rename support
 - **Embedded Browser** — In-app browser modal with tabs, address bar, and back/forward/reload (`⌘⇧B`); uses a native child webview so real sites load (not an iframe). On Linux it's positioned through a `gtk::Fixed` of our own, since Tauri can't place child webviews on GTK ([tauri#10420](https://github.com/tauri-apps/tauri/issues/10420))
-- **Embedded Code Editor** — A real editor beside the shell (`⌘⇧E`): CodeMirror 6, file tabs, a breadcrumb, and a resizable file tree. Click a `path:line:col` in terminal output and it opens there. Atomic saves with conflict detection, CRLF and BOM preserved, crash-safe drafts. Workspaces remember their own open tabs; fuzzy file finder (`⌘P`) and streamed project search (`⌘⇧F`). Loaded on first open, so it costs nothing at launch — see [the design notes](docs/CODE-EDITOR.md)
+- **Embedded Code Editor** — A real editor beside the shell (`⌘⇧E`): CodeMirror 6, file tabs, a breadcrumb, and a resizable file tree. Opt-in [language server support](docs/LSP.md) for diagnostics, hover, completion, go-to-definition and rename, using the servers you already have installed. Click a `path:line:col` in terminal output and it opens there. Atomic saves with conflict detection, CRLF and BOM preserved, crash-safe drafts. Workspaces remember their own open tabs; fuzzy file finder (`⌘P`) and streamed project search (`⌘⇧F`). Loaded on first open, so it costs nothing at launch — see [the design notes](docs/CODE-EDITOR.md)
 - **Git in the Editor** — Changed files badged in the tree, changed lines marked in the gutter, a branch indicator in the status bar, and a GitHub Desktop-style panel: tick the files, write a summary, commit. A history tab where a commit opens into a drawer with its message and files, plus fetch and push. Discards to the trash, and runs your own `git`, so your hooks and credential helper apply
 - **A Real Diff Viewer** — Unified or split, with word-level highlighting inside changed lines, and five presets (GitHub, GitLab, VS Code, delta, plain `git diff`) so it reads like the tool you already use
 - **Markdown Preview** — GitHub-flavoured rendering with a live outline, scroll synced both ways, and clickable in-page and sibling-file links. No `dangerouslySetInnerHTML` anywhere, so a document can't inject markup
@@ -256,6 +256,11 @@ that would collide (`Ctrl+Shift+T` and `Ctrl+Shift+D` are already taken) fall ba
 | `⌘ B` | `Ctrl+B` | Toggle the file tree |
 | `⌘ /` | `Ctrl+/` | Toggle comment |
 | `⌘ D` | `Ctrl+D` | Select next occurrence |
+| `F12` / `⌘⌥ ↓` | `F12` | Go to definition (also ⌘-click / Ctrl-click) |
+| `⇧ F12` | `Shift+F12` | Find references |
+| `F2` | `F2` | Rename symbol |
+| `⌘ .` | `Ctrl+.` | Quick fix |
+| `⇧ ⌥ F` | `Ctrl+Shift+I` | Format document |
 | `⌘ 1-9` | `Ctrl+1-9` | Nth file tab |
 | `Esc` | `Esc` | Close the editor |
 
@@ -282,15 +287,47 @@ matters.
 **It has its own settings** — the gear in the toolbar. Font, size and line
 height are the editor's, not the terminal's, since code and a shell rarely want
 the same one; leave them blank and they follow the terminal. Indentation
-guides, word wrap, bracket closing, word completion, hidden files and the diff
-style all live there too, and every control applies as you change it.
+guides, word wrap, bracket closing, word completion, language servers, hidden
+files and the diff style all live there too, and every control applies as you
+change it.
 
 **Editing** is CodeMirror 6 — multi-cursor, folding, bracket matching,
 indentation guides that highlight the block you are in, a real find-and-replace
 panel with a match count, and
 per-language grammars fetched on demand so opening a `.tsx` doesn't pay for
-Rust and Python. There's no language server; word completion
-from the open document covers the "finish this identifier" case.
+Rust and Python. Word completion from the open document covers the "finish this
+identifier" case without any of the machinery below.
+
+**Language servers are there when you want them, and off until you do.** Switch
+them on in the editor's settings and FigyTerm speaks LSP to the servers already
+installed on your machine — nothing is bundled and nothing is downloaded, the
+same reasoning that has it shell out to `git`. That gets you real diagnostics in
+the gutter, hover types, completion that knows what `foo` is, signature help,
+go-to-definition and find-references, rename across files, formatting, and quick
+fixes on the error under the cursor.
+
+It stays off by default on purpose: a language server is a heavyweight process —
+`rust-analyzer` on a large repository is measured in gigabytes — and this is a
+terminal that starts fast. One starts on the first file of its language, stops
+when idle, restarts if it crashes (three times, then it stops and says so), and
+is reaped when the app quits. The status bar shows which server is attached and
+what it is doing, because "rust-analyzer: indexing" is the difference between an
+editor that is slow and one that looks broken.
+
+**Twenty-four servers** are known out of the box, and the settings panel lists
+every one with whether it is on your `PATH` and the single command that installs
+it if not: TypeScript/JavaScript, Rust, Python, Go, C/C++/Objective-C, PHP,
+Ruby, Swift, Zig, Dart, Kotlin, C#, Svelte, Terraform, TOML, Markdown, Dockerfile,
+JSON, CSS/SCSS/Less, HTML, YAML, Shell, Lua — and **Tailwind CSS**, which runs
+*alongside* whichever server already owns the file rather than replacing it, so
+class-name completion in a `.tsx` costs you nothing. Each can be switched off on
+its own, or pointed at your own build.
+
+Servers needing bespoke bootstrapping are deliberately absent — `jdtls` wants a
+per-workspace data directory, and Roslyn's server wants the solution opened
+through a notification that isn't in the specification — because those need
+handling, not a table row. See [the design notes](docs/LSP.md) and
+[what was built](docs/LSP-TASKS.md).
 
 **Saving is the part that had to be right.** Writes go to a sibling temp file
 and are renamed over the target, so a crash can't leave a half-written file.
@@ -418,11 +455,13 @@ figyterm/
 │   │   ├── AppShell/             # Main layout, tab & pane management
 │   │   ├── Browser/              # Embedded browser modal
 │   │   ├── Editor/               # Code editor: surface, tabs, tree, preview
+│   │   │   └── lsp/              # CodeMirror ⇄ LSP: diagnostics, hover, actions
 │   │   ├── Overlay/              # Overlay portal & error boundary
 │   │   ├── Terminal/             # Terminal, TabBar, HistorySearch, SystemMonitor
 │   │   └── Settings/             # Settings modal (tabbed)
 │   ├── hooks/                    # Draggable modals, file watching
 │   ├── services/                 # Autocomplete, browser & editor IPC, specs
+│   │   └── lsp/                  # Language-server client, lifecycle, positions
 │   ├── specs/                    # Command completion specs (git, docker, etc.)
 │   ├── stores/                   # Zustand stores (settings, theme, editor)
 │   └── types/                    # TypeScript definitions (figy, terminal)
@@ -434,12 +473,17 @@ figyterm/
 │       │   ├── autocomplete.rs   # Path completions & shell history
 │       │   ├── fs.rs             # Editor filesystem, confined to roots
 │       │   ├── fs_watch.rs       # File watching, debounced
+│       │   ├── lsp.rs            # Language-server start/send/stop/status
 │       │   ├── system.rs         # CPU/memory stats
 │       │   └── shell_exec.rs     # Shell command execution
 │       ├── filesystem/           # Read, atomic write, search, hidden files
+│       ├── lsp/                  # Server processes & Content-Length framing
+│       ├── spawn.rs              # Finding the user's tools: PATH, PATHEXT
 │       └── lib.rs                # App entry point
 ├── docs/                         # Documentation
 │   ├── CODE-EDITOR.md            # Editor design notes & decisions
+│   ├── LSP.md                    # Language server design & rationale
+│   ├── LSP-TASKS.md              # What was built, and what is still unproven
 │   ├── CONTRIBUTING.md           # Contribution guidelines
 │   └── SPECS.md                  # Spec authoring guide
 ├── public/                       # Static assets (logo, icons)
@@ -462,6 +506,7 @@ figyterm/
 - [x] Embedded browser with tabs (`⌘⇧B`)
 - [x] Embedded code editor with file tree (`⌘⇧E`)
 - [x] Markdown preview with a synced outline
+- [x] Language server support in the editor, opt-in per language
 - [ ] Git status in the editor's file tree and gutter
 - [ ] Plugin system for custom specs
 - [ ] AI-powered command suggestions (local models)

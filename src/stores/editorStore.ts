@@ -104,6 +104,12 @@ interface EditorStore {
   settings: EditorSettings;
 
   setRoot: (root: string | null) => void;
+  /**
+   * Remembers which Python interpreter this folder is analysed against.
+   *
+   * Null clears the choice and puts detection back in charge.
+   */
+  setPythonPath: (path: string | null) => void;
   setRestoring: (restoring: boolean) => void;
 
   /**
@@ -250,6 +256,19 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   diffLayout: stored.diffLayout,
   diffStyle: stored.diffStyle,
   settings: stored.settings,
+
+  setPythonPath: (path) => {
+    const { root, workspaces } = get();
+    if (!root) return;
+    set({
+      workspaces: workspaces.map((workspace) =>
+        workspace.root === root
+          ? { ...workspace, pythonPath: path ?? undefined }
+          : workspace
+      ),
+    });
+    persist(get());
+  },
 
   setRoot: (root) => {
     set((state) => {

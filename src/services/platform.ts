@@ -22,6 +22,7 @@ function detect(): Platform {
 export const platform: Platform = detect();
 export const isMac = platform === "mac";
 export const isLinux = platform === "linux";
+export const isWindows = platform === "windows";
 
 /**
  * Whether the in-app browser can be offered.
