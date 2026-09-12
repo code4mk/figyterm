@@ -3,7 +3,8 @@ use std::io::{BufReader, Read, Write};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use super::session::{SessionStatus, TerminalSession};
+use super::session::{PtyCommand, SessionStatus, TerminalSession};
+use crate::spawn;
 
 /// Arguments that make the shell re-read the user's profile, so a new tab
 /// behaves like a freshly opened terminal.
@@ -184,13 +185,24 @@ pub struct PtyInstance {
 }
 
 impl PtyInstance {
+    /// Opens a pty and starts something in it.
+    ///
+    /// `command` is the whole of the difference between a terminal pane and the
+    /// Claude window. `None` runs the user's login shell, exactly as this has
+    /// always done. `Some` runs a named program with an argv, resolved and
+    /// given a `PATH` the way `spawn.rs` resolves a language server — because
+    /// the problem is identical: a GUI launch inherits a stripped environment,
+    /// and the tool the user installed lives somewhere only their profile knows
+    /// about.
     pub fn new(
         session_id: String,
         shell: String,
+        command: Option<PtyCommand>,
         cwd: String,
         cols: u16,
         rows: u16,
         output_callback: Arc<dyn Fn(String, Vec<u8>) + Send + Sync>,
+        exit_callback: Arc<dyn Fn(String) + Send + Sync>,
     ) -> Result<Self, String> {
         let pty_system = native_pty_system();
 
@@ -205,12 +217,45 @@ impl PtyInstance {
             .openpty(size)
             .map_err(|e| format!("Failed to open PTY: {}", e))?;
 
-        let mut cmd = CommandBuilder::new(&shell);
-        for arg in LOGIN_ARGS {
-            cmd.arg(arg);
+        /*
+          The program actually spawned, which is the shell unless a command was
+          asked for. Kept as a string because it is also what the session
+          reports back to the UI, and what the title is derived from.
+        */
+        let program = match &command {
+            Some(spec) => spawn::find_program(&spec.program)
+                .map(|path| path.to_string_lossy().into_owned())
+                .unwrap_or_else(|| spec.program.clone()),
+            None => shell.clone(),
+        };
+
+        let mut cmd = CommandBuilder::new(&program);
+        match &command {
+            Some(spec) => {
+                for arg in &spec.args {
+                    cmd.arg(arg);
+                }
+            }
+            None => {
+                for arg in LOGIN_ARGS {
+                    cmd.arg(arg);
+                }
+            }
         }
         cmd.cwd(&cwd);
         configure_environment(&mut cmd, &shell);
+
+        /*
+          A login shell rebuilds `PATH` by sourcing the user's profile. A program
+          started directly sources nothing, so it would inherit the minimal
+          `PATH` `configure_environment` sets — enough to find the program we
+          already resolved by absolute path, and not enough for anything *it*
+          shells out to. Claude Code runs `git`, `rg` and `node`; a session whose
+          `PATH` is missing them is subtly broken rather than obviously so.
+        */
+        if command.is_some() {
+            cmd.env("PATH", spawn::search_path());
+        }
 
         // The `Child` itself is still dropped — dropping it does not kill the
         // process — but a killer is split off it first. Dropping the pty is
@@ -221,7 +266,7 @@ impl PtyInstance {
         let child = pair
             .slave
             .spawn_command(cmd)
-            .map_err(|e| format!("Failed to spawn shell: {}", e))?;
+            .map_err(|e| format!("Failed to spawn {}: {}", program, e))?;
         let shell_pid = child.process_id();
         let killer = child.clone_killer();
 
@@ -257,6 +302,22 @@ impl PtyInstance {
                     Err(_) => break,
                 }
             }
+
+            /*
+              The pty has closed, which means the child is gone.
+
+              A terminal pane doesn't care — a shell that exits takes its pane
+              with it, and the UI finds out because the user asked for that. The
+              Claude window does: a conversation whose process has ended is
+              still a readable buffer and still resumable, and it has to stop
+              being drawn as live. Nothing reads this unless it asks to.
+
+              Not emitted for a session we shut down ourselves; the caller
+              already knows, and a closing tab does not need to hear back.
+            */
+            if !*shutdown_clone.lock().unwrap() {
+                exit_callback(session_id_clone);
+            }
         });
 
         let now = std::time::SystemTime::now()
@@ -264,11 +325,20 @@ impl PtyInstance {
             .unwrap()
             .as_millis() as u64;
 
+        // Reported as the shell, because from the UI's side it is whatever this
+        // session is running — a pane says `zsh`, a Claude conversation says
+        // `claude`.
+        let title = program
+            .rsplit(['/', '\\'])
+            .next()
+            .unwrap_or("terminal")
+            .to_string();
+
         let session = TerminalSession {
             id: session_id,
-            shell: shell.clone(),
+            shell: program,
             cwd,
-            title: shell.split('/').last().unwrap_or("terminal").to_string(),
+            title,
             created_at: now,
             status: SessionStatus::Running,
         };

@@ -67,6 +67,11 @@ export const SHORTCUTS = define({
   // ⌘P, ⌘B…) are scoped inside its modal — see `EditorModal.onKeyDown`, which
   // stops them here.
   editor: { key: "e", label: "E", mac: MOD_SHIFT, other: CTRL_SHIFT },
+  // `A` for Ask. Free in both schemes, and claimed by no shell — Ctrl+A is
+  // start-of-line, and this is Ctrl+Shift+A. Inside the window almost every
+  // key belongs to Claude Code itself, Escape above all, so it takes only the
+  // chords that are unambiguously the window's; see `ClaudeModal.onKeyDown`.
+  claude: { key: "a", label: "A", mac: MOD_SHIFT, other: CTRL_SHIFT },
   find: { key: "f", label: "F", mac: MOD_ONLY, other: CTRL_SHIFT },
   history: { key: "r", label: "R", mac: MOD_ONLY, other: CTRL_SHIFT },
   copy: { key: "c", label: "C", mac: MOD_ONLY, other: CTRL_SHIFT },

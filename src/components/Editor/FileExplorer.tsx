@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { emit } from "@tauri-apps/api/event";
 import {
   ChevronDown,
   ChevronRight,
@@ -10,6 +11,7 @@ import {
   FoldVertical,
   Folder,
   FolderOpen,
+  MessageSquare,
   Pencil,
   RefreshCw,
   SquareArrowOutUpRight,
@@ -681,6 +683,22 @@ export function FileExplorer({
               label="Open in Terminal"
               onClick={() => {
                 onOpenTerminal(menu.entry!.path);
+                setMenu(null);
+              }}
+            />
+          )}
+          {/*
+            Hands the path to the Claude window as an `@` mention, which is how
+            the CLI takes a file reference. It types into the conversation
+            rather than sending anything: what to ask about the file is the
+            user's to write, and a prompt we composed would be a guess.
+          */}
+          {menu.entry && (
+            <ContextMenuItem
+              icon={<MessageSquare size={12} />}
+              label="Ask Claude about this"
+              onClick={() => {
+                void emit("claude://mention", { path: menu.entry!.path });
                 setMenu(null);
               }}
             />

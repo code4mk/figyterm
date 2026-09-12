@@ -6320,3 +6320,363 @@
   background: rgba(9, 105, 218, 0.12);
   color: #0550ae;
 }
+
+/* ────────────────────────────────────────────────────────────────────────────
+   Claude Code window
+
+   Built on the editor's modal chrome rather than beside it: `.editor-modal`,
+   `.editor-chrome`, `.editor-pip` and the dialog classes are shared verbatim,
+   so the two windows can't drift apart the next time one of them is adjusted.
+   What follows is only what this window has and the editor doesn't — a project
+   button, conversation tabs with a liveness dot, and the folders strip.
+
+   Everything reads from the `--ft-*` tokens, so light mode is one block at the
+   end rather than a second stylesheet.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/*
+  The brand mark: FigyTerm's logo and Claude Code's, side by side. Two marks
+  rather than one because the window is exactly that — FigyTerm hosting
+  somebody else's program, and the header should say whose.
+*/
+.claude-logo {
+  height: 13px;
+  width: auto;
+  border-radius: 2px;
+}
+
+.claude-tabstrip {
+  /* Conversation tabs are shorter than a browser's; keep the strip tight. */
+  min-height: 32px;
+}
+
+/*
+  The toolbar, where a browser puts the address bar. The project *is* the
+  address here: it is the answer to "where is this running", and clicking it
+  goes somewhere else, exactly as a URL field does.
+*/
+.claude-project-field {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--ft-border-subtle);
+  color: var(--ft-text);
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.claude-project-field:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: var(--ft-border);
+}
+
+.claude-project-path {
+  color: var(--ft-text-muted);
+  min-width: 0;
+}
+
+/*
+  A conversation tab is a browser tab with a status light. `.browser-tab`
+  supplies the shape, the hover and the active state; only the sizing differs,
+  because a conversation's title is shorter than a page's.
+*/
+.claude-tab {
+  color: var(--ft-text-secondary);
+}
+
+.claude-tab.active {
+  color: var(--ft-text);
+}
+
+/*
+  Liveness, in one dot. Hollow is a conversation whose process has ended — its
+  buffer is still readable and opening it resumes the conversation, so it is
+  not an error state and must not look like one.
+*/
+.claude-dot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 1px solid var(--ft-text-muted);
+}
+
+.claude-dot.live {
+  background: var(--ft-success);
+  border-color: var(--ft-success);
+}
+
+.claude-live-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ft-text-secondary);
+}
+
+.claude-body {
+  background: var(--ft-bg);
+}
+
+.claude-surface {
+  padding: 6px 8px;
+}
+
+/* xterm sits directly on the body colour; no second background behind it. */
+.claude-surface .xterm {
+  height: 100%;
+}
+
+.claude-muted {
+  color: var(--ft-text-secondary);
+  line-height: 1.5;
+}
+
+.claude-error {
+  max-width: 560px;
+  max-height: 140px;
+  overflow: auto;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(248, 81, 73, 0.08);
+  border: 1px solid rgba(248, 81, 73, 0.25);
+  color: var(--ft-text-secondary);
+  font-size: 10px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* Folders strip */
+
+.claude-folders {
+  height: 30px;
+  background: rgba(255, 255, 255, 0.02);
+  border-top: 1px solid var(--ft-border-subtle);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.claude-folders::-webkit-scrollbar {
+  display: none;
+}
+
+.claude-folder-primary {
+  color: var(--ft-text-secondary);
+  flex-shrink: 0;
+}
+
+/*
+  A chip states what a conversation can reach. It is not a control and has no
+  ✕: folders are add-only, and a chip you could click to remove would promise
+  a revocation the CLI cannot perform.
+*/
+.claude-chip {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--ft-border-subtle);
+  color: var(--ft-text-secondary);
+  white-space: nowrap;
+}
+
+/* Granted to the project, not to this conversation. Clicking sends /add-dir. */
+.claude-chip.pending {
+  background: transparent;
+  border-style: dashed;
+  color: var(--ft-text-muted);
+  cursor: pointer;
+}
+
+.claude-chip.pending:hover {
+  color: var(--ft-text);
+  border-color: var(--ft-accent);
+}
+
+.claude-sent-note {
+  color: var(--ft-text-muted);
+}
+
+.claude-sent-note code {
+  color: var(--ft-text-secondary);
+}
+
+/* Setup dialog */
+
+.claude-field-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ft-text-muted);
+}
+
+.claude-field-hint {
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--ft-text-muted);
+}
+
+.claude-input {
+  background: var(--ft-bg);
+  border: 1px solid var(--ft-border);
+  color: var(--ft-text);
+  outline: none;
+}
+
+.claude-input:focus {
+  border-color: var(--ft-accent);
+}
+
+.claude-folder-row {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--ft-border-subtle);
+  color: var(--ft-text-secondary);
+}
+
+.claude-disclosure {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--ft-text-secondary);
+  cursor: pointer;
+}
+
+.claude-disclosure:hover {
+  color: var(--ft-text);
+}
+
+/* Light theme */
+
+.light .claude-project-field {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.light .claude-project-field:hover {
+  background: rgba(0, 0, 0, 0.07);
+}
+
+.light .claude-folders {
+  background: #f2f4f7;
+}
+
+.light .claude-chip {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.light .claude-folder-row {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+
+/*
+  Resume, for a conversation whose process has ended. Quiet rather than
+  alarming: ending is a normal state, and its history is intact on disk.
+*/
+.claude-resume {
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--ft-border-subtle);
+  background: transparent;
+  color: var(--ft-text-secondary);
+  cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease;
+}
+
+.claude-resume:hover {
+  color: var(--ft-text);
+  border-color: var(--ft-accent);
+}
+
+/*
+  A conversation that rang the bell while you were elsewhere.
+
+  Amber rather than red — it is a question, not a failure — and it overrides
+  the live/ended colour because "this one needs you" is the more urgent fact
+  about a dot that would otherwise just say "running".
+*/
+.claude-dot.wants-you,
+.claude-dot.live.wants-you {
+  background: var(--ft-warning);
+  border-color: var(--ft-warning);
+  animation: claude-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes claude-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* Someone who has asked for less motion gets the colour and no pulse. */
+@media (prefers-reduced-motion: reduce) {
+  .claude-dot.wants-you,
+  .claude-dot.live.wants-you {
+    animation: none;
+  }
+}
+
+/*
+  This folder's history, inline under the empty state.
+
+  A panel rather than a bare list: it sits below a heading and two buttons, and
+  without an edge of its own it read as part of them rather than as a separate
+  thing you can scroll.
+*/
+.claude-history-panel {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--ft-border-subtle);
+}
+
+.claude-history-head {
+  color: var(--ft-text-muted);
+  border-bottom: 1px solid var(--ft-border-subtle);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+/*
+  The "working on" menu, hanging off the project field the way a browser's
+  address bar drops its suggestions.
+*/
+.claude-project-menu {
+  background: var(--ft-elevated);
+  border: 1px solid var(--ft-border);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+.claude-menu-footer {
+  background: rgba(255, 255, 255, 0.02);
+  border-top: 1px solid var(--ft-border-subtle);
+  color: var(--ft-text-secondary);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.claude-menu-footer:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ft-text);
+}
+
+.light .claude-history-panel,
+.light .claude-history-head,
+.light .claude-menu-footer {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.light .claude-menu-footer:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.light .claude-project-menu {
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14);
+}
+
+/* The icon on a question that stops work if answered yes. */
+.claude-warn {
+  color: var(--ft-warning);
+}
+
+/*
+  The branch a past conversation was working on. Quiet — it is context for
+  telling two conversations apart, not a control and not a status.
+*/
+.claude-branch {
+  color: var(--ft-text-muted);
+  min-width: 0;
+}

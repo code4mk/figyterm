@@ -3,6 +3,7 @@ pub mod browser;
 /// Linux needs its own container to position child webviews; see the module docs.
 #[cfg(target_os = "linux")]
 pub mod browser_layout;
+pub mod claude;
 pub mod fs;
 pub mod fs_watch;
 pub mod git;

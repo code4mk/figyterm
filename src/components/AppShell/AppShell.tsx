@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef, lazy, Suspense } from "react";
 import { listen, emit } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { confirm } from "@tauri-apps/plugin-dialog";
 import { TabBar } from "../Terminal/TabBar";
 import { StatusBar } from "../Terminal/StatusBar";
 import { SystemMonitor } from "../Terminal/SystemMonitor";
@@ -25,6 +26,7 @@ import { TerminalSession } from "../../types/terminal";
 import { SHORTCUTS, keys, matches } from "../../services/shortcuts";
 // Type-only, so importing it doesn't pull the editor into the startup bundle.
 import type { EditorOpenRequest } from "../Editor/EditorModal";
+import type { ClaudeMentionRequest } from "../Claude/ClaudeModal";
 import { isMac, EMBEDDED_BROWSER_SUPPORTED } from "../../services/platform";
 
 const MAX_PANES_PER_TAB = 4;
@@ -39,6 +41,19 @@ const MAX_PANES_PER_TAB = 4;
  */
 const EditorModal = lazy(() =>
   import("../Editor/EditorModal").then((module) => ({ default: module.EditorModal }))
+);
+
+/**
+ * The Claude window is fetched the first time it's opened, like the editor.
+ *
+ * It carries a second xterm setup and the project machinery, and most sessions
+ * never open it — but once opened it stays mounted for the rest of the session,
+ * because unmounting it would kill every conversation running inside it. That
+ * is a stronger version of the editor's rule: there, hiding protects undo
+ * history; here it protects a running process.
+ */
+const ClaudeModal = lazy(() =>
+  import("../Claude/ClaudeModal").then((module) => ({ default: module.ClaudeModal }))
 );
 
 /**
@@ -65,6 +80,17 @@ export function AppShell() {
   const [monitorOpen, setMonitorOpen] = useState(false);
   const [browserOpen, setBrowserOpen] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
+  const [claudeOpen, setClaudeOpen] = useState(false);
+  /** Latches on the first open; the window then stays mounted. See above. */
+  const [claudeMounted, setClaudeMounted] = useState(false);
+  /** Counts the ⌘W presses handed to the Claude window. */
+  const [claudeCloseTab, setClaudeCloseTab] = useState(0);
+  /** Conversations with a live process, reported by the Claude window. */
+  const [claudeLive, setClaudeLive] = useState(0);
+  /** Conversations waiting for an answer, reported the same way. */
+  const [claudeAttention, setClaudeAttention] = useState(0);
+  /** A file the editor's tree asked Claude to look at. */
+  const [claudeMention, setClaudeMention] = useState<ClaudeMentionRequest | null>(null);
   /** Latches on the first open, so the editor is fetched once and then stays. */
   const [editorMounted, setEditorMounted] = useState(false);
   /** The file a clicked path in terminal output asked the editor to open. */
@@ -350,6 +376,10 @@ export function AppShell() {
     if (editorOpen) setEditorMounted(true);
   }, [editorOpen]);
 
+  useEffect(() => {
+    if (claudeOpen) setClaudeMounted(true);
+  }, [claudeOpen]);
+
   /**
    * Read by the ⌘W listener, which is registered once and must not be torn
    * down and rebuilt every time the editor is toggled.
@@ -377,6 +407,25 @@ export function AppShell() {
     else setEditorOpen(true);
   }, [closeEditor]);
 
+  /** Read by the ⌘W listener, which must not be rebuilt on every toggle. */
+  const claudeOpenRef = useRef(claudeOpen);
+  claudeOpenRef.current = claudeOpen;
+
+  /**
+   * Closing the window hands the keyboard back to the shell — and stops
+   * nothing. Conversations are ptys owned by the backend; hiding their window
+   * is not a reason to end them, any more than closing a tab strip would be.
+   */
+  const closeClaude = useCallback(() => {
+    setClaudeOpen(false);
+    focusActivePane();
+  }, [focusActivePane]);
+
+  const toggleClaude = useCallback(() => {
+    if (claudeOpenRef.current) closeClaude();
+    else setClaudeOpen(true);
+  }, [closeClaude]);
+
   /** The editor's undo/redo, while it is mounted and holding the keyboard. */
   const editorHistoryRef = useRef<((command: "undo" | "redo") => boolean) | null>(null);
 
@@ -395,19 +444,45 @@ export function AppShell() {
 
   /** A path clicked in terminal output; see the link provider in `Terminal.tsx`. */
   useEffect(() => {
-    const pending = listen<{ path: string; line?: number; column?: number }>(
-      "editor://open-path",
-      (event) => {
-        setEditorOpen(true);
-        setEditorRequest((prev) => ({
-          path: event.payload.path,
-          line: event.payload.line,
-          column: event.payload.column,
-          // The token is what lets the same path be asked for twice.
-          token: (prev?.token ?? 0) + 1,
-        }));
-      }
-    );
+    const pending = listen<{
+      path: string;
+      line?: number;
+      column?: number;
+      root?: string;
+    }>("editor://open-path", (event) => {
+      setEditorOpen(true);
+      setEditorRequest((prev) => ({
+        path: event.payload.path,
+        line: event.payload.line,
+        column: event.payload.column,
+        // Where the link came from, so the editor can adopt that folder when
+        // the file is outside the one it has open.
+        root: event.payload.root,
+        // The token is what lets the same path be asked for twice.
+        token: (prev?.token ?? 0) + 1,
+      }));
+    });
+    return () => {
+      pending.then((off) => off()).catch(() => {});
+    };
+  }, []);
+
+  /**
+   * "Ask Claude about this", from the editor's file tree.
+   *
+   * Handed down as a request rather than left as an event for the window to
+   * hear, because the window may never have been mounted — the same reason the
+   * editor takes a clicked path this way. Opening it here is what mounts it.
+   */
+  useEffect(() => {
+    const pending = listen<{ path: string }>("claude://mention", (event) => {
+      setClaudeOpen(true);
+      setClaudeMention((previous) => ({
+        path: event.payload.path,
+        // The token is what lets the same file be handed over twice.
+        token: (previous?.token ?? 0) + 1,
+      }));
+    });
     return () => {
       pending.then((off) => off()).catch(() => {});
     };
@@ -418,6 +493,41 @@ export function AppShell() {
     setUpdatesOpen(true);
     checkForUpdatesNow();
   }, [hideToast, checkForUpdatesNow]);
+
+  /**
+   * Quitting with conversations running asks first.
+   *
+   * A terminal does not normally ask — a shell sitting at a prompt loses
+   * nothing — but an agent halfway through editing files is not that, and
+   * FigyTerm deliberately runs no background sessions, so quitting really does
+   * stop them. Nothing is *lost*: every conversation is resumable next launch,
+   * because its id is ours and its transcript is the CLI's. What is lost is a
+   * turn in flight, which is worth one dialog.
+   *
+   * `destroy` rather than `close` on the way out: `close` would raise this same
+   * event again and the confirmation would ask forever.
+   */
+  const claudeLiveRef = useRef(claudeLive);
+  claudeLiveRef.current = claudeLive;
+
+  useEffect(() => {
+    const pending = getCurrentWindow().onCloseRequested(async (event) => {
+      const live = claudeLiveRef.current;
+      if (live === 0) return;
+
+      event.preventDefault();
+      const ok = await confirm(
+        `${live} Claude ${live === 1 ? "conversation is" : "conversations are"} running. ` +
+          "Quitting stops them — you can resume each one next time, with its history.",
+        { title: "Quit FigyTerm?", kind: "warning", okLabel: "Quit", cancelLabel: "Cancel" }
+      );
+      if (ok) await getCurrentWindow().destroy();
+    });
+
+    return () => {
+      pending.then((unlisten) => unlisten()).catch(() => {});
+    };
+  }, []);
 
   useEffect(() => {
     if (!initialCreated.current) {
@@ -436,6 +546,7 @@ export function AppShell() {
       listen("menu://clear-terminal", () => handleClearTerminal()),
       listen("menu://browser", () => setBrowserOpen((open) => !open)),
       listen("menu://editor", () => toggleEditor()),
+      listen("menu://claude", () => toggleClaude()),
       listen("menu://monitor", () => setMonitorOpen((open) => !open)),
       listen("menu://command-palette", () => setCommandPaletteOpen((open) => !open)),
       listen("menu://settings", () => setSettingsOpen(true)),
@@ -447,8 +558,13 @@ export function AppShell() {
         belongs to its tab strip, the way it does in every editor; with the
         editor closed it means what the menu says.
       */
+      /*
+        Three claimants now, and the order is "whichever window is in front of
+        you": the Claude window opens over the editor, so it answers first.
+      */
       listen("menu://close-window", () => {
-        if (editorOpenRef.current) setEditorCloseTab((count) => count + 1);
+        if (claudeOpenRef.current) setClaudeCloseTab((count) => count + 1);
+        else if (editorOpenRef.current) setEditorCloseTab((count) => count + 1);
         else void getCurrentWindow().close();
       }),
       listen("menu://undo", () => runHistoryCommand("undo")),
@@ -469,6 +585,7 @@ export function AppShell() {
     handleOpenUpdates,
     toggleTheme,
     toggleEditor,
+    toggleClaude,
     runHistoryCommand,
   ]);
 
@@ -510,6 +627,9 @@ export function AppShell() {
       } else if (matches(e, SHORTCUTS.editor)) {
         e.preventDefault();
         toggleEditor();
+      } else if (matches(e, SHORTCUTS.claude)) {
+        e.preventDefault();
+        toggleClaude();
       } else if (matches(e, SHORTCUTS.splitDown)) {
         e.preventDefault();
         handleSplitPane("vertical");
@@ -533,7 +653,7 @@ export function AppShell() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleNewTab, handleNewTabInSameDir, handleClosePane, handleClearTerminal, switchToNextTab, switchToPreviousTab, handleSplitPane, handleSwitchTab, tabs, toggleTheme, toggleEditor]);
+  }, [handleNewTab, handleNewTabInSameDir, handleClosePane, handleClearTerminal, switchToNextTab, switchToPreviousTab, handleSplitPane, handleSwitchTab, tabs, toggleTheme, toggleEditor, toggleClaude]);
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
 
@@ -580,6 +700,7 @@ export function AppShell() {
       ? [{ id: "browser", label: "Open Browser", shortcut: keys(SHORTCUTS.browser), action: () => setBrowserOpen(true) }]
       : []),
     { id: "editor", label: "Open Code Editor", shortcut: keys(SHORTCUTS.editor), action: () => setEditorOpen(true) },
+    { id: "claude", label: "Open Claude Code", shortcut: keys(SHORTCUTS.claude), action: () => setClaudeOpen(true) },
     { id: "monitor", label: "System Monitor", shortcut: keys(SHORTCUTS.monitor), action: () => setMonitorOpen(true) },
     { id: "settings", label: "Settings", shortcut: keys(SHORTCUTS.settings), action: () => setSettingsOpen(true) },
     { id: "check-updates", label: "Check for Updates", action: handleOpenUpdates },
@@ -627,6 +748,9 @@ export function AppShell() {
           onOpenMonitor={() => setMonitorOpen(true)}
           updateAvailable={updateAvailable}
           onOpenUpdates={handleOpenUpdates}
+          // Only while the window is closed; an open one marks the tab itself.
+          claudeAttention={claudeOpen ? 0 : claudeAttention}
+          onOpenClaude={() => setClaudeOpen(true)}
         />
       </div>
       <CommandPalette
@@ -670,6 +794,26 @@ export function AppShell() {
               openRequest={editorRequest}
               closeTabRequest={editorCloseTab}
               historyRef={editorHistoryRef}
+            />
+          </Suspense>
+        </OverlayBoundary>
+      )}
+      {/*
+        Mounted once and then kept, whether or not it is open — every
+        conversation inside it is a live process, and unmounting would end them
+        all because the window happened to be dismissed.
+      */}
+      {claudeMounted && (
+        <OverlayBoundary label="Claude Code" onDismiss={closeClaude}>
+          <Suspense fallback={null}>
+            <ClaudeModal
+              visible={claudeOpen}
+              onClose={closeClaude}
+              cwd={getActiveCwd()}
+              closeTabRequest={claudeCloseTab}
+              onLiveCountChange={setClaudeLive}
+              onAttentionCountChange={setClaudeAttention}
+              mentionRequest={claudeMention}
             />
           </Suspense>
         </OverlayBoundary>

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Terminal, Folder, Sun, Moon, Circle, Settings, Cpu, MemoryStick, Activity, ArrowUpCircle } from "lucide-react";
+import { Terminal, Folder, Sun, Moon, Circle, Settings, Cpu, MemoryStick, Activity, ArrowUpCircle, MessageSquare } from "lucide-react";
 import { useThemeStore } from "../../stores/themeStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { invoke } from "@tauri-apps/api/core";
@@ -13,6 +13,14 @@ interface StatusBarProps {
   onOpenMonitor?: () => void;
   updateAvailable?: boolean;
   onOpenUpdates?: () => void;
+  /**
+   * Conversations in the Claude window waiting for an answer.
+   *
+   * Shown only while that window is closed — an open one says so on the tab
+   * itself, and two places claiming the same thing is one too many.
+   */
+  claudeAttention?: number;
+  onOpenClaude?: () => void;
 }
 
 export interface SystemStats {
@@ -48,6 +56,8 @@ export function StatusBar({
   onOpenMonitor,
   updateAvailable,
   onOpenUpdates,
+  claudeAttention = 0,
+  onOpenClaude,
 }: StatusBarProps) {
   const shellName = shell.split("/").pop() ?? shell;
   const { theme, toggleTheme } = useThemeStore();
@@ -114,6 +124,23 @@ export function StatusBar({
                 </span>
               </div>
             </div>
+            <div className="w-px h-3 bg-ft-border-subtle" />
+          </>
+        )}
+
+        {/* Claude, when a conversation is waiting and its window is closed */}
+        {claudeAttention > 0 && (
+          <>
+            <button
+              onClick={onOpenClaude}
+              className="flex items-center gap-1 h-5 px-1.5 rounded hover:bg-ft-elevated transition-colors"
+              title={`${claudeAttention} Claude ${
+                claudeAttention === 1 ? "conversation is" : "conversations are"
+              } waiting for you`}
+            >
+              <MessageSquare size={10} className="text-ft-accent" />
+              <span className="text-ft-accent">{claudeAttention}</span>
+            </button>
             <div className="w-px h-3 bg-ft-border-subtle" />
           </>
         )}
