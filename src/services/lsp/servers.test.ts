@@ -14,7 +14,7 @@
  */
 
 import assert from "node:assert/strict";
-import { primaryServerForPath, serversForPath, SERVERS } from "./servers";
+import { installHint, primaryServerForPath, serversForPath, SERVERS } from "./servers";
 
 let failures = 0;
 function test(name: string, run: () => void) {
@@ -146,6 +146,41 @@ test("only one primary can claim a given extension", () => {
       const already = claimed.get(ext);
       assert.ok(!already, `.${ext} is claimed by both ${already} and ${def.id}`);
       claimed.set(ext, def.id);
+    }
+  }
+});
+
+test("every server has an install hint", () => {
+  for (const def of SERVERS) {
+    assert.ok(installHint(def).trim(), `${def.id} has no install hint`);
+    for (const [os, hint] of Object.entries(def.installOn ?? {})) {
+      assert.ok(hint.trim(), `${def.id} has an empty ${os} hint`);
+    }
+  }
+});
+
+test("the shared install line names no platform-specific package manager", () => {
+  /*
+    The real invariant, and the one worth guarding.
+
+    `install` is the fallback shown wherever `installOn` has no entry, so it has
+    to be true everywhere — `npm i -g`, `cargo install`, `go install`, a
+    download link. A `brew` line there reaches Linux and Windows users as a
+    confident instruction that cannot work, which is worse than a vaguer one
+    that can.
+
+    Note this checks the *data*, not what `installHint` returns here: `platform`
+    reads `navigator.userAgent`, which does not exist under Node, so it reports
+    "linux" in this runner regardless of the host. Asserting on the resolved
+    hint would be asserting on that fallback rather than on anything real.
+  */
+  const specific = ["brew ", "apt ", "apt-get ", "winget ", "choco ", "dnf ", "pacman "];
+  for (const def of SERVERS) {
+    for (const tool of specific) {
+      assert.ok(
+        !def.install.toLowerCase().includes(tool),
+        `${def.id}'s shared install line names "${tool.trim()}": ${def.install}`
+      );
     }
   }
 });

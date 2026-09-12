@@ -8,5 +8,6 @@
 //! `Content-Length` header and hands the body over as an opaque string.
 
 pub mod framing;
+pub mod job;
 pub mod registry;
 pub mod server;

@@ -40,6 +40,19 @@ ignore = "0.4"
 regex = "1"
 trash = "5"
 
+# Job objects, so stopping a language server kills the whole tree. Every
+# Node-based server is a `.cmd` shim on Windows, which means the process we
+# spawn is `cmd.exe` and the server is a `node.exe` below it — see `lsp/job.rs`.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_JobObjects",
+    # Gates JOBOBJECT_EXTENDED_LIMIT_INFORMATION, which lives in JobObjects but
+    # is feature-gated on Threading.
+    "Win32_System_Threading",
+] }
+
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"
 

@@ -20,6 +20,7 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 
 use super::framing::{encode, Decoder};
+use super::job::ProcessGroup;
 use crate::spawn;
 
 /// How much of a server's stderr is kept.
@@ -100,6 +101,8 @@ pub struct Server {
     stopping: Arc<AtomicBool>,
     exited: Arc<AtomicBool>,
     stderr: Arc<Mutex<VecDeque<String>>>,
+    /// The kill-group for this server and anything it spawns; see `job.rs`.
+    group: Arc<ProcessGroup>,
 }
 
 impl Server {
@@ -135,6 +138,17 @@ impl Server {
         let mut child = command
             .spawn()
             .map_err(|e| format!("could not start {program}: {e}"))?;
+
+        /*
+          Adopted before anything else is done with the child.
+
+          On Windows the process just spawned is very often `cmd.exe` — every
+          Node-based server installs its entry point as a `.cmd` shim — and the
+          server itself is a `node.exe` below it. Without the group, stopping
+          the server kills the shim and leaves the server running.
+        */
+        let group = Arc::new(ProcessGroup::new());
+        group.adopt(&child);
 
         let pid = Some(child.id());
         let stdin = child.stdin.take();
@@ -226,6 +240,7 @@ impl Server {
             started_at: now_millis(),
             stdin: Mutex::new(stdin),
             child,
+            group,
             stopping,
             exited,
             stderr: tail,
@@ -268,8 +283,13 @@ impl Server {
         }
 
         let child = self.child.clone();
+        let group = self.group.clone();
         thread::spawn(move || {
             if reap(&child, EXIT_DEADLINE).is_none() {
+                // The group first: on Windows it is the only thing that reaches
+                // a server behind a `.cmd` shim. Elsewhere it does nothing and
+                // the kill below is the mechanism.
+                group.terminate();
                 if let Ok(mut child) = child.lock() {
                     let _ = child.kill();
                 }
@@ -287,6 +307,7 @@ impl Server {
             stdin.take();
         }
         if reap(&self.child, EXIT_DEADLINE).is_none() {
+            self.group.terminate();
             if let Ok(mut child) = self.child.lock() {
                 let _ = child.kill();
                 // Reaped so the child doesn't linger as a zombie for the moment

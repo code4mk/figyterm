@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, Check, GitBranch, WrapText } from "lucide-react";
 import { GitRepo } from "../../services/git";
 import { lsp, LspServerState } from "../../services/lsp/manager";
+import { installHint } from "../../services/lsp/servers";
 import {
   defaultInterpreter,
   Interpreter,
@@ -486,7 +487,7 @@ function LspIndicator({ path }: { path: string | null }) {
 
   const title =
     state.phase === "missing"
-      ? `${state.def.program} is not on your PATH — install it with: ${state.def.install}`
+      ? `${state.def.program} is not on your PATH — install it with: ${installHint(state.def)}`
       : state.error
         ? `${state.def.program}: ${state.error}`
         : state.phase === "ready"
