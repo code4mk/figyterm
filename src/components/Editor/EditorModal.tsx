@@ -147,6 +147,17 @@ export interface EditorOpenRequest {
   path: string;
   line?: number;
   column?: number;
+  /**
+   * The folder the request came from — a pane's working directory, or the
+   * Claude project the path was printed in.
+   *
+   * The editor reads only inside the folder it has open, so a file from
+   * anywhere else is refused by the backend. This is what lets it adopt the
+   * right workspace instead of reporting that the file the user just clicked
+   * is "outside the folders open in the editor", which is true, unhelpful, and
+   * not something they can act on.
+   */
+  root?: string;
   /** Bumped per request, so the same path can be asked for twice. */
   token: number;
 }
@@ -266,6 +277,21 @@ interface SurfaceMenu {
  * means the editor decides it needs to switch workspace on every open, which
  * loops.
  */
+/**
+ * Whether `path` is inside `dir`, by the same rule the backend confines with.
+ *
+ * Segment-aware on purpose: a plain `startsWith` makes `/work/api-old` look
+ * like it is inside `/work/api`, which would send the editor to the wrong
+ * workspace and then fail to read the file anyway.
+ */
+function within(dir: string, path: string): boolean {
+  const base = normalizeDir(dir);
+  const target = isLinux ? path : path.toLowerCase();
+  const root = isLinux ? base : base.toLowerCase();
+  if (target === root) return true;
+  return target.startsWith(root) && /[\\/]/.test(target.charAt(root.length));
+}
+
 function sameFolder(a: string | null, b: string | null): boolean {
   if (!a || !b) return false;
   const left = normalizeDir(a);
@@ -476,6 +502,8 @@ export function EditorModal({
    */
   const [goToToken, setGoToToken] = useState(0);
   const lastRequest = useRef(0);
+  /** The request a workspace switch has already been asked for, once. */
+  const workspaceAsked = useRef(0);
   /** Tracks the visible transition, so adoption happens on open and only then. */
   const wasVisible = useRef(false);
   /** The folder an open is waiting to adopt, once the root is registered. */
@@ -990,9 +1018,35 @@ export function EditorModal({
   useEffect(() => {
     if (!openRequest || !visible || !root || !rootReady) return;
     if (openRequest.token === lastRequest.current) return;
+
+    /*
+      A file from somewhere else entirely — another project's folder, printed
+      by a Claude conversation or a command run there. The backend confines
+      reads to the open folder, so this has to move the workspace before the
+      file can be read at all.
+
+      The request isn't consumed here. `requestWorkspace` may take a detour
+      through the unsaved-changes prompt, and when the root does change this
+      effect runs again with the path now inside it and opens the file — which
+      is also what makes a declined switch simply do nothing rather than lose
+      the request.
+    */
+    if (!within(root, openRequest.path)) {
+      if (workspaceAsked.current !== openRequest.token) {
+        workspaceAsked.current = openRequest.token;
+        // The folder the link came from, when the file is actually inside it —
+        // a Claude project can reach folders outside its own root, and adopting
+        // a root the file isn't under would fail the same way again. Otherwise
+        // the file's own directory, which is always a folder that contains it.
+        const origin = openRequest.root;
+        requestWorkspace(origin && within(origin, openRequest.path) ? origin : dirname(openRequest.path));
+      }
+      return;
+    }
+
     lastRequest.current = openRequest.token;
     void openPath(openRequest.path, openRequest.line, openRequest.column);
-  }, [openRequest, visible, root, rootReady, openPath]);
+  }, [openRequest, visible, root, rootReady, openPath, requestWorkspace]);
 
   /**
    * Reads the newly activated buffer's cursor into the status bar.

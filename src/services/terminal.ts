@@ -11,15 +11,45 @@ interface RawTerminalSession {
   status: "running" | "exited";
 }
 
+/**
+ * A program for the pty to run instead of the user's login shell.
+ *
+ * `args` is a list and stays one all the way to `CommandBuilder`, so a folder
+ * path with a space — or a `$(` — in it is one argument and not shell source.
+ */
+export interface PtyCommand {
+  program: string;
+  args: string[];
+}
+
+export interface CreateSessionOptions {
+  cwd?: string;
+  /** Absent means the login shell, which is every caller but the Claude window. */
+  command?: PtyCommand;
+  /**
+   * Decide the session's id here rather than in the backend.
+   *
+   * Only the Claude window needs this: `claude --session-id <uuid>` has to be
+   * told the id before the process starts, so the id cannot be something the
+   * backend hands back afterwards.
+   */
+  sessionId?: string;
+}
+
 export async function createTerminalSession(
   cols: number,
   rows: number,
-  cwd?: string
+  cwdOrOptions?: string | CreateSessionOptions
 ): Promise<TerminalSession> {
+  const options: CreateSessionOptions =
+    typeof cwdOrOptions === "string" ? { cwd: cwdOrOptions } : cwdOrOptions ?? {};
+
   const raw = await invoke<RawTerminalSession>("create_terminal_session", {
     cols,
     rows,
-    cwd: cwd ?? null,
+    cwd: options.cwd ?? null,
+    command: options.command ?? null,
+    sessionId: options.sessionId ?? null,
   });
   return {
     id: raw.id,

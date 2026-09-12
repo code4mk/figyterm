@@ -2,18 +2,24 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use super::pty::PtyInstance;
-use super::session::TerminalSession;
+use super::session::{PtyCommand, TerminalSession};
 
 pub struct TerminalManager {
     sessions: HashMap<String, PtyInstance>,
     output_callback: Arc<dyn Fn(String, Vec<u8>) + Send + Sync>,
+    /// Called from a reader thread when a session's child goes away on its own.
+    exit_callback: Arc<dyn Fn(String) + Send + Sync>,
 }
 
 impl TerminalManager {
-    pub fn new(output_callback: Arc<dyn Fn(String, Vec<u8>) + Send + Sync>) -> Self {
+    pub fn new(
+        output_callback: Arc<dyn Fn(String, Vec<u8>) + Send + Sync>,
+        exit_callback: Arc<dyn Fn(String) + Send + Sync>,
+    ) -> Self {
         Self {
             sessions: HashMap::new(),
             output_callback,
+            exit_callback,
         }
     }
 
@@ -21,19 +27,36 @@ impl TerminalManager {
         &mut self,
         session_id: String,
         shell: String,
+        command: Option<PtyCommand>,
         cwd: String,
         cols: u16,
         rows: u16,
     ) -> Result<TerminalSession, String> {
-        log::info!("Creating PTY session: id={}, shell={}, cwd={}", session_id, shell, cwd);
+        match &command {
+            Some(spec) => log::info!(
+                "Creating PTY session: id={}, program={}, args={:?}, cwd={}",
+                session_id,
+                spec.program,
+                spec.args,
+                cwd
+            ),
+            None => log::info!(
+                "Creating PTY session: id={}, shell={}, cwd={}",
+                session_id,
+                shell,
+                cwd
+            ),
+        }
 
         let pty = PtyInstance::new(
             session_id.clone(),
             shell,
+            command,
             cwd,
             cols,
             rows,
             self.output_callback.clone(),
+            self.exit_callback.clone(),
         )?;
 
         let session = pty.session.clone();
@@ -100,6 +123,7 @@ pub type SharedTerminalManager = Arc<Mutex<TerminalManager>>;
 
 pub fn create_shared_manager(
     output_callback: Arc<dyn Fn(String, Vec<u8>) + Send + Sync>,
+    exit_callback: Arc<dyn Fn(String) + Send + Sync>,
 ) -> SharedTerminalManager {
-    Arc::new(Mutex::new(TerminalManager::new(output_callback)))
+    Arc::new(Mutex::new(TerminalManager::new(output_callback, exit_callback)))
 }

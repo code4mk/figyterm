@@ -1,12 +1,18 @@
 use tauri::{AppHandle, Emitter, State};
 
 use crate::state::app_state::AppState;
-use crate::terminal::session::TerminalSession;
+use crate::terminal::session::{PtyCommand, TerminalSession};
 
 #[derive(serde::Serialize, Clone)]
 struct TerminalOutput {
     session_id: String,
     data: Vec<u8>,
+}
+
+/// A session whose child ended on its own, rather than being closed.
+#[derive(serde::Serialize, Clone)]
+struct TerminalExit {
+    session_id: String,
 }
 
 /// Finds an executable on `PATH`, the way a shell would.
@@ -93,6 +99,15 @@ fn resolve_cwd(cwd: Option<String>) -> String {
 /// `async` so opening a pty and spawning a shell happens off the main thread.
 /// On Windows that pair is `CreatePseudoConsole` plus `CreateProcess`, which is
 /// slow enough to be felt as a stutter every time a tab or pane is created.
+///
+/// `command` is how the Claude window asks for a pty that runs a program rather
+/// than the user's shell. Omitting it is every other caller, and means exactly
+/// what it always did.
+///
+/// `session_id` is likewise optional, and exists for one caller: Claude Code
+/// takes `--session-id <uuid>`, so the conversation's id has to be decided
+/// *before* the process starts in order to be passed to it. Everyone else lets
+/// the backend mint one.
 #[tauri::command(async)]
 pub fn create_terminal_session(
     app: AppHandle,
@@ -100,8 +115,12 @@ pub fn create_terminal_session(
     cols: u16,
     rows: u16,
     cwd: Option<String>,
+    command: Option<PtyCommand>,
+    session_id: Option<String>,
 ) -> Result<TerminalSession, String> {
-    let session_id = uuid::Uuid::new_v4().to_string();
+    let session_id = session_id
+        .filter(|id| !id.trim().is_empty())
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let shell = detect_shell();
     let cwd = resolve_cwd(cwd);
 
@@ -116,14 +135,22 @@ pub fn create_terminal_session(
         );
     });
 
+    let exit_app = app.clone();
+    let exit_callback = std::sync::Arc::new(move |sid: String| {
+        let _ = exit_app.emit("terminal-exit", TerminalExit { session_id: sid });
+    });
+
     let mut manager = state.terminal_manager.lock().map_err(|e| e.to_string())?;
 
     if manager.is_none() {
-        *manager = Some(crate::terminal::manager::TerminalManager::new(output_callback.clone()));
+        *manager = Some(crate::terminal::manager::TerminalManager::new(
+            output_callback.clone(),
+            exit_callback.clone(),
+        ));
     }
 
     let mgr = manager.as_mut().unwrap();
-    mgr.create_session(session_id, shell, cwd, cols, rows)
+    mgr.create_session(session_id, shell, command, cwd, cols, rows)
 }
 
 #[tauri::command]
