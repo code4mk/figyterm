@@ -6,6 +6,7 @@ pub mod browser_layout;
 pub mod fs;
 pub mod fs_watch;
 pub mod git;
+pub mod lsp;
 pub mod shell_exec;
 pub mod specs;
 pub mod system;

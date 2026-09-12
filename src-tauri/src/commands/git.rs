@@ -37,6 +37,17 @@ pub fn git_status(state: State<FsState>, dir: String) -> Result<GitRepo, String>
     operations::status(&resolved)
 }
 
+/// Which paths git is ignoring, for greying them out in the tree.
+///
+/// `async` because it shells out and the explorer asks for it on the same
+/// watcher events as `git_status`; a synchronous command would run it on the
+/// UI thread.
+#[tauri::command(async)]
+pub fn git_ignored(state: State<FsState>, dir: String) -> Result<Vec<String>, String> {
+    let resolved = resolve(&state, &dir)?;
+    operations::ignored(&resolved)
+}
+
 #[tauri::command]
 pub fn git_file_hunks(
     state: State<FsState>,

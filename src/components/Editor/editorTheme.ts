@@ -352,16 +352,48 @@ export function editorTheme({
             : "0 8px 24px rgba(0, 0, 0, 0.12)",
           fontSize: "11px",
         },
-        ".cm-tooltip.cm-tooltip-autocomplete > ul": {
-          fontFamily,
-          maxHeight: "180px",
+        /*
+          The hover and signature tooltips.
+
+          They inherit the box from `.cm-tooltip` above; what they need on top
+          is room to breathe and a ceiling. A language server's hover can be an
+          entire doc comment, and without a bound it grows until it covers the
+          code it is describing.
+        */
+        ".cm-tooltip.cm-tooltip-hover": {
+          padding: "0",
+          maxWidth: "min(560px, 90vw)",
         },
-        ".cm-tooltip.cm-tooltip-autocomplete > ul > li": { padding: "3px 8px" },
+        /*
+          CodeMirror draws the arrow with two stacked triangles — a border
+          colour behind a background colour. Both are hardcoded in its base
+          theme, so without this the arrow keeps the library's grey and points
+          at the tooltip with a visible seam.
+        */
+        ".cm-tooltip.cm-tooltip-hover .cm-tooltip-arrow:before": {
+          borderTopColor: p.border,
+          borderBottomColor: p.border,
+        },
+        ".cm-tooltip.cm-tooltip-hover .cm-tooltip-arrow:after": {
+          borderTopColor: p.tooltip,
+          borderBottomColor: p.tooltip,
+        },
+        // Two hovers at one position — a type and a diagnostic, say — arrive as
+        // separate sections and need a rule between them.
+        ".cm-tooltip-section + .cm-tooltip-section": {
+          borderTop: `1px solid ${p.border}`,
+        },
+        /*
+          The completion list's *font* only. Its row layout, icons and selected
+          state live in `styles.css` alongside the rest of the LSP presentation
+          — two owners for one list is how the icons ended up at 0.6 opacity in
+          one file and 1 in the other.
+        */
+        ".cm-tooltip.cm-tooltip-autocomplete > ul": { fontFamily },
         ".cm-tooltip-autocomplete ul li[aria-selected]": {
           backgroundColor: p.tooltipSelected,
           color: p.foreground,
         },
-        ".cm-completionIcon": { opacity: 0.6, paddingRight: "6px" },
       },
       { dark }
     ),

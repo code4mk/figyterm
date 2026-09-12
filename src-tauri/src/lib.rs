@@ -1,7 +1,9 @@
 pub mod commands;
 pub mod filesystem;
 pub mod git;
+pub mod lsp;
 pub mod menu;
+pub mod spawn;
 pub mod state;
 pub mod terminal;
 pub mod updater;
@@ -9,6 +11,7 @@ pub mod updater;
 use commands::browser::BrowserState;
 use commands::fs::FsState;
 use commands::fs_watch::WatchState;
+use lsp::registry::LspState;
 use state::app_state::AppState;
 use tauri::{AppHandle, Manager, RunEvent};
 use updater::UpdaterState;
@@ -45,6 +48,7 @@ pub fn run() {
         .manage(BrowserState::default())
         .manage(FsState::default())
         .manage(WatchState::default())
+        .manage(LspState::default())
         .manage(UpdaterState::default())
         .setup(|app| {
             let menu = menu::build_app_menu(app.handle())?;
@@ -102,6 +106,7 @@ pub fn run() {
             commands::fs_watch::fs_watch_root,
             commands::fs_watch::fs_unwatch,
             commands::git::git_status,
+            commands::git::git_ignored,
             commands::git::git_file_hunks,
             commands::git::git_file_diff,
             commands::git::git_stage,
@@ -114,6 +119,11 @@ pub fn run() {
             commands::git::git_fetch,
             commands::git::git_push,
             commands::git::git_remote_url,
+            commands::lsp::lsp_detect,
+            commands::lsp::lsp_start,
+            commands::lsp::lsp_send,
+            commands::lsp::lsp_stop,
+            commands::lsp::lsp_status,
             updater::check_for_updates,
             updater::get_current_version,
             updater::running_foreground_commands,
@@ -127,6 +137,10 @@ pub fn run() {
             // the shells are still ours to close.
             if matches!(event, RunEvent::Exit) {
                 shutdown_terminals(app);
+                // Language servers for the same reason, and with more at stake:
+                // a `rust-analyzer` left behind holds a gigabyte for a window
+                // that no longer exists.
+                commands::lsp::shutdown_servers(app);
             }
         });
 }

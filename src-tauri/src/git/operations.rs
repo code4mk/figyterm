@@ -363,6 +363,50 @@ fn change_of(code: char) -> Option<GitChange> {
 }
 
 /// Branch, upstream divergence and every changed file.
+/// How many ignored entries are worth returning.
+///
+/// Directories are collapsed by `--directory`, so a normal project produces a
+/// handful — `node_modules`, `dist`, `.env`. A repository with tens of
+/// thousands of individually-ignored files exists, and listing all of them to
+/// grey out rows nobody will scroll to is not worth the memory.
+const MAX_IGNORED: usize = 5_000;
+
+/// The paths git is ignoring, with directories collapsed.
+///
+/// `--directory` is what makes this cheap: without it, a project with
+/// `node_modules` in `.gitignore` returns every file underneath it, and the
+/// answer is forty thousand paths describing one fact. With it, the answer is
+/// `node_modules/`, and the caller treats anything beneath a returned directory
+/// as ignored too.
+///
+/// Absolute paths, because that is what the explorer and the editor key on.
+pub fn ignored(dir: &Path) -> Result<Vec<String>, String> {
+    let Some(root) = top_level(dir) else {
+        return Ok(Vec::new());
+    };
+
+    let raw = git(
+        &root,
+        &[
+            "ls-files",
+            "--others",
+            "--ignored",
+            "--exclude-standard",
+            "--directory",
+            "-z",
+        ],
+    )?;
+
+    Ok(raw
+        .split('\0')
+        .filter(|entry| !entry.is_empty())
+        .take(MAX_IGNORED)
+        // git reports a directory with a trailing slash; the caller compares
+        // against filesystem paths, which do not have one.
+        .map(|entry| root.join(entry.trim_end_matches('/')).to_string_lossy().into_owned())
+        .collect())
+}
+
 pub fn status(dir: &Path) -> Result<GitRepo, String> {
     let Some(root) = top_level(dir) else {
         return Ok(GitRepo::not_a_repo());
