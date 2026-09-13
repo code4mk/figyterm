@@ -1488,6 +1488,12 @@
   cursor: default;
 }
 
+/* The held-down look for the mode buttons, in the browser's own accent. */
+.browser-btn.on {
+  color: #7dd3fc;
+  background: rgba(56, 189, 248, 0.14);
+}
+
 .browser-btn-close:hover:not(:disabled) {
   color: #fca5a5;
   background: rgba(248, 113, 113, 0.12);
@@ -1668,6 +1674,11 @@
 
 .light .browser-btn:disabled {
   color: #cbd2dc;
+}
+
+.light .browser-btn.on {
+  color: #0369a1;
+  background: rgba(2, 132, 199, 0.12);
 }
 
 .light .browser-btn-close:hover:not(:disabled) {
@@ -1913,7 +1924,15 @@
   cursor: default;
 }
 
-.editor-btn.on {
+/*
+  Picture-in-picture and fullscreen are modes, not one-shot actions, so the
+  button that turns one on has to look held down while it is on. The Claude
+  window's chrome uses `.editor-icon-btn` rather than `.editor-btn`, so it has
+  to be lit here too or its picture-in-picture button reads as untoggled the
+  whole time the window is floating.
+*/
+.editor-btn.on,
+.editor-icon-btn.on {
   color: #a5b4fc;
   background: rgba(99, 102, 241, 0.14);
 }
@@ -2567,7 +2586,8 @@
   color: #cbd2dc;
 }
 
-.light .editor-btn.on {
+.light .editor-btn.on,
+.light .editor-icon-btn.on {
   color: #4338ca;
   background: rgba(79, 70, 229, 0.12);
 }
