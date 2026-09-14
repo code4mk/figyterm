@@ -7,6 +7,7 @@ import { StatusBar } from "../Terminal/StatusBar";
 import { SystemMonitor } from "../Terminal/SystemMonitor";
 import { BrowserModal } from "../Browser/BrowserModal";
 import { OverlayBoundary } from "../Overlay/OverlayBoundary";
+import { useDrawingStore } from "../../stores/drawingStore";
 import { CommandPalette } from "../CommandPalette/CommandPalette";
 import { Settings } from "../Settings/Settings";
 import { UpdateModal } from "../Updates/UpdateModal";
@@ -57,6 +58,15 @@ const ClaudeModal = lazy(() =>
 );
 
 /**
+ * The drawing window is fetched the first time it is opened — Excalidraw and
+ * its fonts are a megabyte or two, and most sessions never draw. Like the
+ * editor, it latches mounted once opened.
+ */
+const DrawingModal = lazy(() =>
+  import("../Drawing/DrawingModal").then((module) => ({ default: module.DrawingModal }))
+);
+
+/**
  * ⌘1-9 / Ctrl+1-9 jumps to a tab by position. It lives here rather than in the
  * shortcut table because it's a range of keys, not one — but the modifier has to
  * agree with the table: plain ⌘ on macOS, plain Ctrl elsewhere (digits are not
@@ -83,6 +93,9 @@ export function AppShell() {
   const [claudeOpen, setClaudeOpen] = useState(false);
   /** Latches on the first open; the window then stays mounted. See above. */
   const [claudeMounted, setClaudeMounted] = useState(false);
+  const [drawingOpen, setDrawingOpen] = useState(false);
+  /** Latches on the first open; the drawing window then stays mounted. */
+  const [drawingMounted, setDrawingMounted] = useState(false);
   /** Counts the ⌘W presses handed to the Claude window. */
   const [claudeCloseTab, setClaudeCloseTab] = useState(0);
   /** Conversations with a live process, reported by the Claude window. */
@@ -380,6 +393,10 @@ export function AppShell() {
     if (claudeOpen) setClaudeMounted(true);
   }, [claudeOpen]);
 
+  useEffect(() => {
+    if (drawingOpen) setDrawingMounted(true);
+  }, [drawingOpen]);
+
   /**
    * Read by the ⌘W listener, which is registered once and must not be torn
    * down and rebuilt every time the editor is toggled.
@@ -425,6 +442,22 @@ export function AppShell() {
     if (claudeOpenRef.current) closeClaude();
     else setClaudeOpen(true);
   }, [closeClaude]);
+
+  /** Read by the shortcut handler, which is registered once and must not be
+   * torn down and rebuilt every time the window is toggled. */
+  const drawingOpenRef = useRef(drawingOpen);
+  drawingOpenRef.current = drawingOpen;
+
+  /** Closing the drawing window hands the keyboard back to the shell. */
+  const closeDrawing = useCallback(() => {
+    setDrawingOpen(false);
+    focusActivePane();
+  }, [focusActivePane]);
+
+  const toggleDrawing = useCallback(() => {
+    if (drawingOpenRef.current) closeDrawing();
+    else setDrawingOpen(true);
+  }, [closeDrawing]);
 
   /** The editor's undo/redo, while it is mounted and holding the keyboard. */
   const editorHistoryRef = useRef<((command: "undo" | "redo") => boolean) | null>(null);
@@ -547,6 +580,7 @@ export function AppShell() {
       listen("menu://browser", () => setBrowserOpen((open) => !open)),
       listen("menu://editor", () => toggleEditor()),
       listen("menu://claude", () => toggleClaude()),
+      listen("menu://drawing", () => toggleDrawing()),
       listen("menu://monitor", () => setMonitorOpen((open) => !open)),
       listen("menu://command-palette", () => setCommandPaletteOpen((open) => !open)),
       listen("menu://settings", () => setSettingsOpen(true)),
@@ -586,6 +620,7 @@ export function AppShell() {
     toggleTheme,
     toggleEditor,
     toggleClaude,
+    toggleDrawing,
     runHistoryCommand,
   ]);
 
@@ -630,6 +665,9 @@ export function AppShell() {
       } else if (matches(e, SHORTCUTS.claude)) {
         e.preventDefault();
         toggleClaude();
+      } else if (matches(e, SHORTCUTS.drawing)) {
+        e.preventDefault();
+        toggleDrawing();
       } else if (matches(e, SHORTCUTS.splitDown)) {
         e.preventDefault();
         handleSplitPane("vertical");
@@ -653,7 +691,7 @@ export function AppShell() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleNewTab, handleNewTabInSameDir, handleClosePane, handleClearTerminal, switchToNextTab, switchToPreviousTab, handleSplitPane, handleSwitchTab, tabs, toggleTheme, toggleEditor, toggleClaude]);
+  }, [handleNewTab, handleNewTabInSameDir, handleClosePane, handleClearTerminal, switchToNextTab, switchToPreviousTab, handleSplitPane, handleSwitchTab, tabs, toggleTheme, toggleEditor, toggleClaude, toggleDrawing]);
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
 
@@ -701,6 +739,17 @@ export function AppShell() {
       : []),
     { id: "editor", label: "Open Code Editor", shortcut: keys(SHORTCUTS.editor), action: () => setEditorOpen(true) },
     { id: "claude", label: "Open Claude Code", shortcut: keys(SHORTCUTS.claude), action: () => setClaudeOpen(true) },
+    { id: "drawing", label: "Open Drawing", shortcut: keys(SHORTCUTS.drawing), action: () => setDrawingOpen(true) },
+    {
+      id: "drawing-new",
+      label: "New Drawing",
+      action: () => {
+        setDrawingOpen(true);
+        // `create()` hydrates first, so this is safe in a window that has never
+        // been opened and whose project list has never been read.
+        void useDrawingStore.getState().create();
+      },
+    },
     { id: "monitor", label: "System Monitor", shortcut: keys(SHORTCUTS.monitor), action: () => setMonitorOpen(true) },
     { id: "settings", label: "Settings", shortcut: keys(SHORTCUTS.settings), action: () => setSettingsOpen(true) },
     { id: "check-updates", label: "Check for Updates", action: handleOpenUpdates },
@@ -815,6 +864,13 @@ export function AppShell() {
               onAttentionCountChange={setClaudeAttention}
               mentionRequest={claudeMention}
             />
+          </Suspense>
+        </OverlayBoundary>
+      )}
+      {drawingMounted && (
+        <OverlayBoundary label="drawing" onDismiss={closeDrawing}>
+          <Suspense fallback={null}>
+            <DrawingModal visible={drawingOpen} onClose={closeDrawing} />
           </Suspense>
         </OverlayBoundary>
       )}
