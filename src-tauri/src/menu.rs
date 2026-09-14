@@ -22,6 +22,7 @@ pub const MENU_CLEAR_TERMINAL: &str = "shell_clear_terminal";
 pub const MENU_BROWSER: &str = "shell_browser";
 pub const MENU_EDITOR: &str = "shell_editor";
 pub const MENU_CLAUDE: &str = "shell_claude";
+pub const MENU_DRAWING: &str = "shell_drawing";
 pub const MENU_MONITOR: &str = "shell_monitor";
 pub const MENU_COMMAND_PALETTE: &str = "shell_command_palette";
 pub const MENU_SETTINGS: &str = "shell_settings";
@@ -44,6 +45,7 @@ const EVENT_CLEAR_TERMINAL: &str = "menu://clear-terminal";
 const EVENT_BROWSER: &str = "menu://browser";
 const EVENT_EDITOR: &str = "menu://editor";
 const EVENT_CLAUDE: &str = "menu://claude";
+const EVENT_DRAWING: &str = "menu://drawing";
 const EVENT_MONITOR: &str = "menu://monitor";
 const EVENT_COMMAND_PALETTE: &str = "menu://command-palette";
 const EVENT_SETTINGS: &str = "menu://settings";
@@ -183,6 +185,13 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         true,
         accel("CmdOrCtrl+Shift+A", "Ctrl+Shift+A"),
     )?;
+    let drawing = MenuItem::with_id(
+        app,
+        MENU_DRAWING,
+        label("Drawing", "Ctrl+Shift+X"),
+        true,
+        accel("CmdOrCtrl+Shift+X", "Ctrl+Shift+X"),
+    )?;
     let monitor = MenuItem::with_id(
         app,
         MENU_MONITOR,
@@ -287,6 +296,7 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
             &browser,
             &editor,
             &claude,
+            &drawing,
             &monitor,
             &toggle_theme,
             &sep4,
@@ -464,6 +474,7 @@ pub fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
         MENU_BROWSER => app.emit(EVENT_BROWSER, ()),
         MENU_EDITOR => app.emit(EVENT_EDITOR, ()),
         MENU_CLAUDE => app.emit(EVENT_CLAUDE, ()),
+        MENU_DRAWING => app.emit(EVENT_DRAWING, ()),
         MENU_MONITOR => app.emit(EVENT_MONITOR, ()),
         MENU_COMMAND_PALETTE => app.emit(EVENT_COMMAND_PALETTE, ()),
         MENU_SETTINGS => app.emit(EVENT_SETTINGS, ()),

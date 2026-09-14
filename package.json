@@ -5,6 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "postinstall": "node scripts/copy-excalidraw-assets.mjs",
+    "predev": "node scripts/copy-excalidraw-assets.mjs",
+    "prebuild": "node scripts/copy-excalidraw-assets.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "node scripts/run-ts-tests.mjs",
@@ -33,6 +36,7 @@
     "@codemirror/search": "^6.7.2",
     "@codemirror/state": "^6.7.4",
     "@codemirror/view": "^6.43.11",
+    "@excalidraw/excalidraw": "^0.18.1",
     "@floating-ui/dom": "^1.8.0",
     "@headlessui/react": "^2.2.10",
     "@lezer/highlight": "^1.2.3",

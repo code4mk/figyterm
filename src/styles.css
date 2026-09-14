@@ -6700,3 +6700,31 @@
   color: var(--ft-text-muted);
   min-width: 0;
 }
+
+/* ─── Drawing window ───────────────────────────────────────────────────────
+ *
+ * Excalidraw sizes itself from its container, so the container has to resolve
+ * to a definite height rather than to `auto`. The chain is
+ * `.drawing-body` (flex-1, min-h-0) → `.drawing-canvas` (flex-1) → here.
+ *
+ * Phase 3 adds the rail and its rows; this is only what the canvas needs to
+ * come up at the right size.
+ */
+.drawing-canvas-surface,
+.drawing-canvas-surface .excalidraw {
+  height: 100%;
+  width: 100%;
+}
+
+/* The Excalidraw mark in the title bar, sized like the Claude window.s. */
+.drawing-logo {
+  height: 13px;
+  width: auto;
+  border-radius: 2px;
+}
+
+/* Excalidraw's own popovers and dialogs are positioned against the nearest
+ * containing block. Without this they escape the modal's rounded corners. */
+.drawing-canvas {
+  contain: paint;
+}

@@ -72,6 +72,9 @@ export const SHORTCUTS = define({
   // key belongs to Claude Code itself, Escape above all, so it takes only the
   // chords that are unambiguously the window's; see `ClaudeModal.onKeyDown`.
   claude: { key: "a", label: "A", mac: MOD_SHIFT, other: CTRL_SHIFT },
+  // `X` for Excalidraw. Free in both schemes — the shell's Ctrl+X is cut, and
+  // this is Ctrl+Shift+X — where `D`, the obvious letter, is taken by split.
+  drawing: { key: "x", label: "X", mac: MOD_SHIFT, other: CTRL_SHIFT },
   find: { key: "f", label: "F", mac: MOD_ONLY, other: CTRL_SHIFT },
   history: { key: "r", label: "R", mac: MOD_ONLY, other: CTRL_SHIFT },
   copy: { key: "c", label: "C", mac: MOD_ONLY, other: CTRL_SHIFT },

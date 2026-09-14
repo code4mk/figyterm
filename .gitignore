@@ -23,3 +23,5 @@ app-icon.png
 
 frontend/*
 docs/issues/*
+# Vendored by scripts/copy-excalidraw-assets.mjs
+public/excalidraw-assets/
