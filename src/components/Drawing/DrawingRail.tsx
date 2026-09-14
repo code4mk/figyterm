@@ -13,7 +13,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Copy, Pencil, Plus, Search, Star, Trash2, X } from "lucide-react";
+import { Copy, FileText, Pencil, Plus, Search, Star, Trash2, X } from "lucide-react";
 import { useDrawingStore } from "../../stores/drawingStore";
 import { DrawingProject, searchProjects } from "../../services/drawing-project";
 import { scrollIntoViewWithin } from "../../services/scroll";
@@ -226,8 +226,15 @@ export function DrawingRail() {
             >
               {project.name}
             </span>
-            <span className="mt-0.5 w-full truncate text-[10px] leading-tight text-ft-text-muted">
-              {itemsLabel(project.elementCount)} · {relativeTime(project.updatedAt)}
+            <span className="mt-0.5 flex w-full items-center gap-1 text-[10px] leading-tight text-ft-text-muted">
+              <span className="truncate">
+                {itemsLabel(project.elementCount)} · {relativeTime(project.updatedAt)}
+              </span>
+              {/* Marks a project whose notes have something in them, so the
+                  other half of it is not invisible from out here. */}
+              {(project.noteChars ?? 0) > 0 && (
+                <FileText size={9} className="shrink-0 opacity-70" aria-label="has notes" />
+              )}
             </span>
           </button>
         )}

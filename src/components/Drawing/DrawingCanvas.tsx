@@ -29,6 +29,7 @@ import "@excalidraw/excalidraw/index.css";
 import { useThemeStore } from "../../stores/themeStore";
 import { useDrawingStore } from "../../stores/drawingStore";
 import { pickAppState } from "../../services/drawing-project";
+import { useAutosave } from "./useAutosave";
 
 /**
  * Where Excalidraw looks for its fonts.
@@ -44,17 +45,6 @@ declare global {
 }
 window.EXCALIDRAW_ASSET_PATH = "/excalidraw-assets/";
 
-/** How long after the last change to write. */
-const IDLE_MS = 800;
-/**
- * The longest a change may go unwritten.
- *
- * Excalidraw's `onChange` fires continuously while the pointer is down, so an
- * idle debounce alone would never fire during a long drag. This is the ceiling
- * that makes a two-minute drag checkpoint anyway.
- */
-const CEILING_MS = 5000;
-
 // Excalidraw's own types are not imported: they would pull the package into
 // anything that touches a scene, and this is the one boundary that needs them.
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -67,29 +57,28 @@ interface DrawingCanvasProps {
   projectId: string;
 }
 
-/** What was last written, so an unchanged scene is not written again. */
-interface SavedMark {
-  version: number;
-  files: number;
-  appState: string;
+/** Everything one save needs, as `onChange` hands it over. */
+interface SceneSnapshot {
+  elements: SceneElements;
+  appState: SceneAppState;
+  files: SceneFiles;
 }
 
-function markOf(elements: SceneElements, appState: SceneAppState, files: SceneFiles): SavedMark {
-  return {
-    // Excalidraw exports this for exactly this purpose: a cheap integer that
-    // changes when the scene does, instead of stringifying megabytes.
-    // (`getSceneVersion` does the same and is deprecated in 0.18.)
-    version: hashElementsVersion(elements as never),
-    files: Object.keys(files).length,
-    // Small — twenty-odd scalars — so comparing it by value is cheap, and it is
-    // the only way to notice that someone changed the stroke colour and nothing
-    // else.
-    appState: JSON.stringify(pickAppState(appState)),
-  };
-}
-
-function sameMark(a: SavedMark | null, b: SavedMark): boolean {
-  return !!a && a.version === b.version && a.files === b.files && a.appState === b.appState;
+/**
+ * A cheap identity for a scene, so an unchanged one is not written twice.
+ *
+ * `hashElementsVersion` is Excalidraw's own — an integer that moves when the
+ * scene does, instead of stringifying megabytes. (`getSceneVersion` does the
+ * same and is deprecated in 0.18.) The file count catches a pasted image, and
+ * the whitelisted `appState` catches someone changing the stroke colour and
+ * nothing else.
+ */
+function sceneMark({ elements, appState, files }: SceneSnapshot): string {
+  return [
+    hashElementsVersion(elements as never),
+    Object.keys(files).length,
+    JSON.stringify(pickAppState(appState)),
+  ].join("|");
 }
 
 export function DrawingCanvas({ projectId }: DrawingCanvasProps) {
@@ -101,55 +90,17 @@ export function DrawingCanvas({ projectId }: DrawingCanvasProps) {
   const [initialData, setInitialData] = useState<Record<string, unknown> | null>(null);
 
   const apiRef = useRef<ExcalidrawApi>(null);
-  /**
-   * The scene as `onChange` last reported it, and the only thing a flush
-   * writes.
-   *
-   * Null until the first change, which is what makes an unmount that happens
-   * before anything was drawn a no-op rather than a write of `[]` over whatever
-   * is already stored.
-   */
-  const latestRef = useRef<{
-    elements: SceneElements;
-    appState: SceneAppState;
-    files: SceneFiles;
-  } | null>(null);
-  const savedRef = useRef<SavedMark | null>(null);
-  const idleTimer = useRef<number | null>(null);
-  const ceilingTimer = useRef<number | null>(null);
 
-  // The id the timers belong to. A flush that fires after a project switch must
-  // write to the project it was scheduled for, never to the one now on screen.
+  // The project a scheduled write belongs to. A flush that fires after a switch
+  // must write to the project it was scheduled for, never the one now on screen.
   const projectRef = useRef(projectId);
   projectRef.current = projectId;
 
-  const clearTimers = useCallback(() => {
-    if (idleTimer.current !== null) window.clearTimeout(idleTimer.current);
-    if (ceilingTimer.current !== null) window.clearTimeout(ceilingTimer.current);
-    idleTimer.current = null;
-    ceilingTimer.current = null;
-  }, []);
-
-  /** Writes the last reported scene. The only thing that saves. */
-  const flush = useCallback(() => {
-    clearTimers();
-
-    // Nothing has been reported, so nothing has changed since this scene was
-    // loaded. Writing here would be writing an empty canvas over a real one.
-    const latest = latestRef.current;
-    if (!latest) return;
-
-    const mark = markOf(latest.elements, latest.appState, latest.files);
-    if (sameMark(savedRef.current, mark)) return;
-    savedRef.current = mark;
-
-    void persistScene(projectRef.current, latest.elements, latest.appState, latest.files);
-  }, [clearTimers, persistScene]);
-
-  /** Flush is stable, but the listeners below are registered once — they read
-   * it through a ref so they never hold a stale closure. */
-  const flushRef = useRef(flush);
-  flushRef.current = flush;
+  const autosave = useAutosave<SceneSnapshot>({
+    mark: sceneMark,
+    write: ({ elements, appState, files }) =>
+      void persistScene(projectRef.current, elements, appState, files),
+  });
 
   // ─── Load ────────────────────────────────────────────────────────────────
   //
@@ -158,8 +109,7 @@ export function DrawingCanvas({ projectId }: DrawingCanvasProps) {
   useEffect(() => {
     let cancelled = false;
     setInitialData(null);
-    savedRef.current = null;
-    latestRef.current = null;
+    autosave.reset();
 
     void loadScene(projectId).then((scene) => {
       if (cancelled) return;
@@ -174,53 +124,14 @@ export function DrawingCanvas({ projectId }: DrawingCanvasProps) {
     return () => {
       cancelled = true;
     };
-  }, [projectId, loadScene]);
-
-  // ─── Flush on the way out ────────────────────────────────────────────────
-  //
-  // Unmount covers both closing the modal and switching projects, because the
-  // component is keyed by project id. The window listeners cover the app being
-  // hidden or quit with the modal still open.
-  useEffect(() => {
-    const onHide = () => {
-      if (document.visibilityState === "hidden") flushRef.current();
-    };
-    const onUnload = () => flushRef.current();
-
-    document.addEventListener("visibilitychange", onHide);
-    window.addEventListener("beforeunload", onUnload);
-
-    return () => {
-      document.removeEventListener("visibilitychange", onHide);
-      window.removeEventListener("beforeunload", onUnload);
-      flushRef.current();
-    };
-  }, []);
+  }, [projectId, loadScene, autosave]);
 
   const handleChange = useCallback(
     (elements: SceneElements, appState: SceneAppState, files: SceneFiles) => {
-      // Recorded before the early return: even a change that does not warrant a
-      // write is the freshest scene there is, and the flush on unmount reads it.
-      // `elements` here includes deleted ones — Excalidraw's undo needs the
-      // tombstones, and `visibleElementCount` filters them for the rail.
-      latestRef.current = { elements, appState, files };
-
-      const mark = markOf(elements, appState, files);
-      if (sameMark(savedRef.current, mark)) return;
-
-      // Idle: restarted by every change, so a burst writes once at the end.
-      if (idleTimer.current !== null) window.clearTimeout(idleTimer.current);
-      idleTimer.current = window.setTimeout(() => flushRef.current(), IDLE_MS);
-
-      // Ceiling: *not* restarted, so a change that never goes idle still lands.
-      if (ceilingTimer.current === null) {
-        ceilingTimer.current = window.setTimeout(() => flushRef.current(), CEILING_MS);
-      }
+      autosave.record({ elements, appState, files });
     },
-    []
+    [autosave]
   );
-
-  useEffect(() => clearTimers, [clearTimers]);
 
   if (!initialData) {
     return (

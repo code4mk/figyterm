@@ -29,6 +29,12 @@ export interface DrawingProject {
   updatedAt: number;
   /** Visible elements, for the row's subtitle — so the rail needs no scene. */
   elementCount: number;
+  /**
+   * Characters of written notes, so the rail can mark a project that has some
+   * without reading the document. Optional because projects created before
+   * notes existed do not have it.
+   */
+  noteChars?: number;
 }
 
 /**
@@ -45,6 +51,40 @@ export interface DrawingScene {
   appState: Record<string, unknown>;
   files: Record<string, unknown>;
 }
+
+/**
+ * A project's written notes, beside its drawing.
+ *
+ * Its own record rather than a field on the scene: the two are edited in
+ * different panes, saved independently, and the rail wants neither. Opening the
+ * canvas should not deserialise the prose.
+ */
+export interface DrawingDoc {
+  projectId: string;
+  /**
+   * Lexical's `editorState.toJSON()`, already stringified.
+   *
+   * A string rather than the object, because it is also the autosave's change
+   * mark — comparing two strings is the cheapest way to know the document has
+   * not moved — and because it goes into and out of storage untouched.
+   */
+  state: string;
+  /**
+   * The same content as plain text.
+   *
+   * Stored alongside rather than derived on read: it is what the rail counts,
+   * and recovering it otherwise means parsing the whole node tree.
+   */
+  text: string;
+}
+
+/**
+ * Which of a project's two halves is on screen.
+ *
+ * `both` is not a third document — it is the drawing and the notes side by
+ * side, which is the arrangement you want while turning a sketch into a plan.
+ */
+export type DrawingPane = "draw" | "notes" | "both";
 
 export const UNTITLED = "Untitled drawing";
 

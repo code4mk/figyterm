@@ -22,7 +22,6 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   PictureInPicture2,
-  Pencil,
   X,
 } from "lucide-react";
 import { OverlayPortal } from "../Overlay/OverlayPortal";
@@ -32,8 +31,11 @@ import {
   pictureInPictureRect,
   useDraggableModal,
 } from "../../hooks/useDraggableModal";
+import { Group, Panel, Separator } from "react-resizable-panels";
 import { useDrawingStore } from "../../stores/drawingStore";
+import { PaneTabs } from "./PaneTabs";
 import { DrawingCanvas } from "./DrawingCanvas";
+import { DrawingNotes } from "./DrawingNotes";
 import { DrawingRail } from "./DrawingRail";
 import { DrawingEmpty } from "./DrawingEmpty";
 
@@ -71,6 +73,8 @@ export function DrawingModal({ visible, onClose }: DrawingModalProps) {
   const create = useDrawingStore((s) => s.create);
   const railCollapsed = useDrawingStore((s) => s.railCollapsed);
   const toggleRail = useDrawingStore((s) => s.toggleRail);
+  const pane = useDrawingStore((s) => s.pane);
+  const setPane = useDrawingStore((s) => s.setPane);
 
   const active = projects.find((p) => p.id === activeId) ?? null;
 
@@ -217,8 +221,16 @@ export function DrawingModal({ visible, onClose }: DrawingModalProps) {
           >
             {railCollapsed ? <PanelLeftOpen size={14} /> : <PanelLeftClose size={14} />}
           </button>
-          <Pencil size={12} className="text-ft-text-muted shrink-0" />
-          <span className="text-[11px] text-ft-text truncate min-w-0">
+
+          {active && (
+            <PaneTabs
+              pane={pane}
+              onChange={setPane}
+              hasNotes={(active.noteChars ?? 0) > 0}
+            />
+          )}
+
+          <span className="min-w-0 truncate text-[11px] text-ft-text-muted">
             {active?.name ?? "No drawing"}
           </span>
         </div>
@@ -260,7 +272,24 @@ export function DrawingModal({ visible, onClose }: DrawingModalProps) {
         {!railCollapsed && <DrawingRail />}
         <div className="drawing-canvas relative flex-1 min-w-0">
           {active ? (
-            <DrawingCanvas key={active.id} projectId={active.id} />
+            // Keyed by project, so switching project remounts and flushes. The
+            // pane is *not* in the key: leaving `both` for `draw` should not
+            // reload the canvas that was already on screen.
+            pane === "both" ? (
+              <Group orientation="horizontal" className="h-full w-full">
+                <Panel minSize="25%" defaultSize="58%">
+                  <DrawingCanvas key={active.id} projectId={active.id} />
+                </Panel>
+                <Separator className="drawing-split-handle" />
+                <Panel minSize="25%" defaultSize="42%">
+                  <DrawingNotes key={active.id} projectId={active.id} />
+                </Panel>
+              </Group>
+            ) : pane === "draw" ? (
+              <DrawingCanvas key={active.id} projectId={active.id} />
+            ) : (
+              <DrawingNotes key={active.id} projectId={active.id} />
+            )
           ) : ready ? (
             <DrawingEmpty onCreate={() => void create()} />
           ) : (
@@ -278,7 +307,13 @@ export function DrawingModal({ visible, onClose }: DrawingModalProps) {
             <span className="text-red-400">{saveError}</span>
           ) : (
             <>
-              {active ? `${active.elementCount} item${active.elementCount === 1 ? "" : "s"}` : "—"}
+              {/* The count follows the pane, because "12 items" beside a page
+                  of prose is a number about something you cannot see. */}
+              {active
+                ? pane === "draw"
+                  ? `${active.elementCount} item${active.elementCount === 1 ? "" : "s"}`
+                  : `${active.noteChars ?? 0} character${(active.noteChars ?? 0) === 1 ? "" : "s"}`
+                : "—"}
               {" · "}
               {savedAtLabel(lastSavedAt)}
             </>

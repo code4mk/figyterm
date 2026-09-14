@@ -6728,3 +6728,1141 @@
 .drawing-canvas {
   contain: paint;
 }
+
+/* ─── Drawing: notes pane ──────────────────────────────────────────────────
+ *
+ * Lexical hangs these class names on the nodes it renders (see `THEME` in
+ * `DrawingNotes.tsx`). They are written against the `--ft-*` tokens rather than
+ * a palette of their own, so the prose follows the app's theme the way the rest
+ * of the window does.
+ */
+.drawing-note-input {
+  /* The wide left margin is the drag handle's gutter — it sits out there and
+     must not overlap the prose. */
+  padding: 18px 28px 40vh 48px;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--ft-text);
+  caret-color: var(--ft-accent);
+}
+
+/* The long tail of bottom padding above is deliberate: it lets the last
+ * paragraph of a long note scroll up to a comfortable reading position instead
+ * of being pinned to the bottom edge. */
+
+.drawing-note-placeholder {
+  top: 18px;
+  left: 48px;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.drawing-note-p {
+  margin: 0 0 0.6em;
+}
+
+.drawing-note-h1,
+.drawing-note-h2,
+.drawing-note-h3 {
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 1.1em 0 0.45em;
+  color: var(--ft-text);
+}
+.drawing-note-h1 { font-size: 1.5em; }
+.drawing-note-h2 { font-size: 1.25em; }
+.drawing-note-h3 { font-size: 1.08em; }
+/* A table is exempt: its top margin is where the column grips live, and zeroing
+ * it puts them outside the pane, where they are clipped. */
+.drawing-note-input > *:first-child:not(.drawing-note-table) { margin-top: 0; }
+
+.drawing-note-quote {
+  margin: 0 0 0.6em;
+  padding-left: 0.9em;
+  border-left: 2px solid var(--ft-border);
+  color: var(--ft-text-muted);
+}
+
+.drawing-note-ul,
+.drawing-note-ol {
+  margin: 0 0 0.6em;
+  padding-left: 1.4em;
+}
+.drawing-note-ul { list-style: disc; }
+.drawing-note-ol { list-style: decimal; }
+.drawing-note-li { margin: 0.15em 0; }
+/* A nested item is only a container for the list under it, so it must not draw
+ * a bullet of its own beside the bullets it holds. */
+.drawing-note-li-nested { list-style: none; }
+
+.drawing-note-link {
+  color: var(--ft-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.drawing-note-bold { font-weight: 600; }
+.drawing-note-italic { font-style: italic; }
+.drawing-note-strike { text-decoration: line-through; }
+
+.drawing-note-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+  padding: 0.12em 0.35em;
+  border-radius: 3px;
+  background: var(--ft-bg-tertiary);
+}
+
+.drawing-note-code-block {
+  display: block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+  margin: 0 0 0.6em;
+  padding: 0.7em 0.9em;
+  border-radius: 6px;
+  background: var(--ft-bg-secondary);
+  border: 1px solid var(--ft-border);
+  overflow-x: auto;
+  white-space: pre;
+  tab-size: 2;
+}
+
+/* ─── Drawing notes: to-dos, dividers, and the floating chrome ─────────────── */
+
+/* A checklist item draws its own box, so it has no marker and reserves room on
+ * the left for one. Lexical toggles `.checked` on the item itself. */
+.drawing-note-check {
+  position: relative;
+  list-style: none;
+  margin: 0.15em 0;
+  padding-left: 1.6em;
+  outline: none;
+}
+.drawing-note-check::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.32em;
+  width: 0.95em;
+  height: 0.95em;
+  border: 1.5px solid var(--ft-border);
+  border-radius: 3px;
+  background: var(--ft-bg);
+  cursor: pointer;
+}
+.drawing-note-check.checked::before {
+  background: var(--ft-accent);
+  border-color: var(--ft-accent);
+}
+/* The tick is drawn rather than a glyph, so it scales with the text and needs
+ * no font that might be missing. */
+.drawing-note-check.checked::after {
+  content: "";
+  position: absolute;
+  left: 0.3em;
+  top: 0.48em;
+  width: 0.28em;
+  height: 0.55em;
+  border: solid #fff;
+  border-width: 0 1.6px 1.6px 0;
+  transform: rotate(45deg);
+  pointer-events: none;
+}
+.drawing-note-check.checked {
+  color: var(--ft-text-muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--ft-border);
+}
+
+.drawing-note-hr {
+  border: none;
+  border-top: 1px solid var(--ft-border);
+  margin: 1.1em 0;
+  padding: 0;
+}
+.drawing-note-hr.selected {
+  border-top-color: var(--ft-accent);
+}
+
+/* ── The `/` menu ── */
+
+/*
+ * The anchor Lexical creates in `document.body` for the menu.
+ *
+ * It arrives `position: absolute` with no stacking order of its own, which puts
+ * it underneath the drawing window (an overlay in the 250s) — rendered, and
+ * invisible. This is the only rule it needs, and without it the slash menu
+ * looks broken rather than hidden.
+ */
+.drawing-slash-anchor {
+  z-index: 2000;
+}
+
+.drawing-slash-menu {
+  display: flex;
+  flex-direction: column;
+  width: 272px;
+  max-height: 336px;
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--ft-bg-secondary);
+  border: 1px solid var(--ft-border);
+  /* Two shadows: a tight one to seat the panel against the page, and a wide
+   * soft one for depth. One shadow doing both is either harsh or muddy. */
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 16%),
+    0 12px 34px rgb(0 0 0 / 30%);
+}
+
+.drawing-slash-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 5px;
+  scrollbar-width: thin;
+}
+
+.drawing-slash-group {
+  padding: 7px 7px 3px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ft-text-muted);
+  opacity: 0.75;
+}
+/* The first group sits against the panel's own padding and needs no lead-in. */
+.drawing-slash-list > div:first-child .drawing-slash-group {
+  padding-top: 2px;
+}
+
+.drawing-slash-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 7px;
+  border-radius: 6px;
+  text-align: left;
+  color: var(--ft-text);
+  background: transparent;
+  transition: background-color 90ms ease;
+}
+.drawing-slash-item.selected {
+  background: var(--ft-bg-tertiary);
+}
+
+/*
+ * The icon tile.
+ *
+ * A bordered, slightly recessed square rather than a bare glyph: it gives every
+ * row the same optical left edge whatever the icon's own width, which is what
+ * makes a list of mixed icons read as a column instead of a ragged stack.
+ */
+.drawing-slash-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  background: var(--ft-bg);
+  border: 1px solid var(--ft-border);
+  color: var(--ft-text-muted);
+  transition: color 90ms ease, border-color 90ms ease;
+}
+.drawing-slash-item.selected .drawing-slash-icon {
+  color: var(--ft-accent);
+  /* Plain accent first: `color-mix` is recent, and an engine that does not know
+   * it drops only the second declaration rather than the whole rule. The blend
+   * is a refinement, not the effect. */
+  border-color: var(--ft-accent);
+  border-color: color-mix(in srgb, var(--ft-accent) 45%, var(--ft-border));
+}
+
+.drawing-slash-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 1px;
+}
+.drawing-slash-title {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.25;
+}
+.drawing-slash-hint {
+  font-size: 10px;
+  line-height: 1.25;
+  color: var(--ft-text-muted);
+}
+
+.drawing-slash-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 5px 9px;
+  border-top: 1px solid var(--ft-border);
+  background: rgb(127 127 127 / 5%);
+  font-size: 9.5px;
+  color: var(--ft-text-muted);
+}
+.drawing-slash-filter {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.drawing-slash-filter strong {
+  color: var(--ft-text);
+  font-weight: 600;
+}
+
+.drawing-slash-keys {
+  display: flex;
+  gap: 3px;
+  flex-shrink: 0;
+}
+.drawing-slash-keys kbd {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 3px;
+  background: var(--ft-bg);
+  border: 1px solid var(--ft-border);
+  font-family: inherit;
+  font-size: 9px;
+  line-height: 1;
+  color: var(--ft-text-muted);
+}
+
+/* ── The selection toolbar ── */
+
+.drawing-note-toolbar {
+  position: absolute;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 3px;
+  border-radius: 7px;
+  background: var(--ft-bg-secondary);
+  border: 1px solid var(--ft-border);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 28%);
+}
+/* Only when it sits above: `top` is then the line's top edge and the bar has to
+ * be lifted clear of it by its own height. Below, `top` is already past the
+ * selection and no lift is wanted — applying it unconditionally is what puts
+ * the bar at a negative offset, where the pane clips it. */
+.drawing-note-toolbar.above {
+  transform: translateY(-100%);
+}
+
+.drawing-note-toolbar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 22px;
+  border-radius: 4px;
+  color: var(--ft-text-muted);
+}
+.drawing-note-toolbar-btn:hover {
+  background: var(--ft-bg-tertiary);
+  color: var(--ft-text);
+}
+.drawing-note-toolbar-btn.active {
+  color: var(--ft-accent);
+  background: var(--ft-bg-tertiary);
+}
+.drawing-note-toolbar-sep {
+  width: 1px;
+  height: 14px;
+  margin: 0 2px;
+  background: var(--ft-border);
+}
+
+/* ── Drag handle and drop target ── */
+
+.drawing-note-grip {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 20px;
+  border-radius: 4px;
+  color: var(--ft-text-muted);
+  opacity: 0;
+  cursor: grab;
+  will-change: transform;
+  transition: opacity 120ms ease, background-color 120ms ease;
+}
+/* Shown only while the pointer is in the pane: a grip beside every block all
+ * the time is noise, and this is a margin you also read past. */
+.drawing-notes:hover .drawing-note-grip {
+  opacity: 0.55;
+}
+.drawing-note-grip:hover {
+  opacity: 1;
+  background: var(--ft-bg-tertiary);
+}
+.drawing-note-grip:active {
+  cursor: grabbing;
+}
+
+.drawing-note-drop-line {
+  position: absolute;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--ft-accent);
+  opacity: 0;
+  will-change: transform;
+  pointer-events: none;
+}
+
+/* ─── Drawing: the Draw · Notes · Both control ─────────────────────────────── */
+
+.drawing-panes {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--ft-bg);
+  border: 1px solid var(--ft-border);
+}
+
+/*
+ * The sliding selection.
+ *
+ * One pill for the whole control rather than a background per button: it is
+ * what makes the change read as a control moving rather than two buttons
+ * swapping colour, and the active treatment then lives in exactly one rule.
+ * Width is a third of the track, so the segments must stay equal — see the
+ * `flex: 1 1 0` below.
+ */
+.drawing-panes-pill {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc((100% - 4px) / 3);
+  border-radius: 5px;
+  background: var(--ft-bg-tertiary);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 18%);
+  transition: transform 160ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.drawing-panes-seg {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--ft-text-muted);
+  transition: color 140ms ease;
+}
+.drawing-panes-seg:hover {
+  color: var(--ft-text);
+}
+.drawing-panes-seg.selected {
+  color: var(--ft-text);
+}
+.drawing-panes-seg:focus-visible {
+  outline: 1px solid var(--ft-accent);
+  outline-offset: 1px;
+}
+
+.drawing-panes-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--ft-accent);
+}
+
+/* The divider between canvas and notes in the Both view. The hit area is wider
+ * than the line, which is what makes it grabbable without looking heavy. */
+.drawing-split-handle {
+  position: relative;
+  width: 7px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background: transparent;
+}
+.drawing-split-handle::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: var(--ft-border);
+  transition: background-color 120ms ease, width 120ms ease;
+}
+/* `:active` rather than a data attribute: v4 of the panel library sets only
+ * `data-separator`, and the repo's own `SplitHandle` styles the drag state the
+ * same way. */
+.drawing-split-handle:hover::after,
+.drawing-split-handle:active::after {
+  width: 2px;
+  background: var(--ft-accent);
+}
+
+/* ─── Drawing notes: tables ────────────────────────────────────────────────
+ *
+ * Notion's proportions: hairline rules, generous cell padding, a quiet header
+ * row, no stripe and no shadow. The table should read as structure *in* the
+ * prose rather than as a widget dropped into it.
+ *
+ * `border-collapse: separate` with per-cell right/bottom borders rather than
+ * `collapse`: collapsed borders cannot be rounded, and the outer radius is what
+ * keeps the grid from looking like a spreadsheet.
+ */
+.drawing-note-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  width: 100%;
+  /* The top margin is the column grips' gutter as well as spacing. */
+  margin: 1.2em 0 0.9em;
+  border: 1px solid var(--ft-border);
+  border-radius: 6px;
+  /* Clips the corner cells to the outer radius. */
+  overflow: hidden;
+  font-size: 0.95em;
+}
+
+.drawing-note-td,
+.drawing-note-th {
+  position: relative;
+  min-width: 68px;
+  /* Enough that an empty row is still a row you can aim at. */
+  min-height: 2em;
+  padding: 7px 10px;
+  /*
+   * Inner rules are lighter than the outer border.
+   *
+   * A grid drawn at one weight throughout reads as heavy — the eye takes the
+   * outline as the object and the inner lines as texture, so they should not
+   * compete. `currentColor` at a low alpha tracks the theme without needing a
+   * second token.
+   */
+  border-right: 1px solid rgb(127 127 127 / 22%);
+  border-bottom: 1px solid rgb(127 127 127 / 22%);
+  vertical-align: top;
+  text-align: left;
+  outline: none;
+  transition: background-color 90ms ease;
+}
+/* The outer border already draws these two edges; drawing them again is the
+ * doubled hairline that makes a table look heavy. */
+.drawing-note-tr > *:last-child {
+  border-right: none;
+}
+.drawing-note-table tr:last-child > * {
+  border-bottom: none;
+}
+
+/*
+ * The header row is quiet on purpose: it is a label for the column, not a
+ * heading in the document. Medium weight and a muted colour separate it from
+ * the body without turning the first row into the loudest thing on the page.
+ */
+.drawing-note-th {
+  background: rgb(127 127 127 / 7%);
+  font-weight: 500;
+  font-size: 0.92em;
+  letter-spacing: 0.01em;
+  color: var(--ft-text-muted);
+}
+
+/* Paragraphs in a cell drop the block margin that separates paragraphs in the
+ * document, or every row grows a gap under its text. */
+.drawing-note-td > .drawing-note-p:last-child,
+.drawing-note-th > .drawing-note-p:last-child {
+  margin-bottom: 0;
+}
+
+/* Neutral grey rather than a token: it reads as a lift in the light theme and
+ * as a lift in the dark one, which no single token colour does. */
+.drawing-note-tr:hover > .drawing-note-td {
+  background: rgb(127 127 127 / 5%);
+}
+
+.drawing-note-td-selected::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: var(--ft-accent);
+  opacity: 0.14;
+}
+.drawing-note-table-selected {
+  outline: 1px solid var(--ft-accent);
+}
+
+/* ─── Drawing notes: table grips ──────────────────────────────────────────── */
+
+/* The chrome layer sits over the pane, not in the document: the note that gets
+ * saved holds a plain table and none of this. */
+.drawing-tbl-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+}
+.drawing-tbl-layer > * {
+  pointer-events: auto;
+}
+
+/*
+ * A grip is a rule, not a button.
+ *
+ * It is drawn in the table's own border colour and sized like a thickened
+ * gridline, so the chrome looks like part of the table rather than a toolbar
+ * parked beside it. Colour is what signals it is live, not weight.
+ */
+.drawing-tbl-grip {
+  position: absolute;
+  border-radius: 2px;
+  background: var(--ft-border);
+  opacity: 0.9;
+  cursor: pointer;
+  transition: background-color 110ms ease, opacity 110ms ease;
+}
+.drawing-tbl-grip:hover,
+.drawing-tbl-grip.open {
+  background: var(--ft-accent);
+  opacity: 1;
+}
+
+/*
+ * Visible whenever the layer exists, which is only while a table is hovered or
+ * holds the cursor — the component decides that, not CSS.
+ *
+ * It cannot be a `:hover` rule on the layer: the table is not inside the layer,
+ * so hovering the table never puts the layer in `:hover`, and the grips would
+ * appear only once you had already found one.
+ */
+.drawing-tbl-add {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ft-text-muted);
+  opacity: 0.5;
+  transition: opacity 110ms ease, background-color 110ms ease, color 110ms ease;
+}
+.drawing-tbl-add:hover {
+  opacity: 1;
+  background: rgb(127 127 127 / 12%);
+  color: var(--ft-text);
+}
+
+/* The square where the two `+` strips meet, which adds a row and a column at
+ * once — Notion's corner. */
+.drawing-tbl-corner {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ft-text-muted);
+  opacity: 0.4;
+  transition: opacity 110ms ease, background-color 110ms ease, color 110ms ease;
+}
+.drawing-tbl-corner:hover {
+  opacity: 1;
+  background: var(--ft-accent);
+  color: #fff;
+}
+
+/* ── The grip menu ── */
+
+.drawing-tbl-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+}
+
+.drawing-tbl-menu {
+  position: absolute;
+  z-index: 2;
+  min-width: 158px;
+  padding: 4px;
+  border-radius: 8px;
+  background: var(--ft-bg-secondary);
+  border: 1px solid var(--ft-border);
+  box-shadow: 0 8px 26px rgb(0 0 0 / 30%);
+}
+
+.drawing-tbl-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border-radius: 5px;
+  font-size: 11px;
+  text-align: left;
+  color: var(--ft-text);
+}
+.drawing-tbl-menu-item svg {
+  opacity: 0.65;
+}
+.drawing-tbl-menu-item:hover {
+  background: var(--ft-bg-tertiary);
+}
+.drawing-tbl-menu-item:hover svg {
+  opacity: 1;
+}
+.drawing-tbl-menu-item.danger {
+  color: var(--ft-text-muted);
+}
+.drawing-tbl-menu-item.danger:hover {
+  background: rgb(239 68 68 / 14%);
+  color: rgb(248 113 113);
+}
+
+.drawing-tbl-menu-sep {
+  display: block;
+  height: 1px;
+  margin: 3px 2px;
+  background: var(--ft-border);
+}
+
+/* ─── Drawing: the Draw · Notes · Both control ─────────────────────────────── */
+
+.drawing-panes {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--ft-bg);
+  border: 1px solid var(--ft-border);
+}
+
+/*
+ * The sliding selection.
+ *
+ * One pill for the whole control rather than a background per button: it is
+ * what makes the change read as a control moving rather than two buttons
+ * swapping colour, and the active treatment then lives in exactly one rule.
+ * Width is a third of the track, so the segments must stay equal — see the
+ * `flex: 1 1 0` below.
+ */
+.drawing-panes-pill {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc((100% - 4px) / 3);
+  border-radius: 5px;
+  background: var(--ft-bg-tertiary);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 18%);
+  transition: transform 160ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.drawing-panes-seg {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--ft-text-muted);
+  transition: color 140ms ease;
+}
+.drawing-panes-seg:hover {
+  color: var(--ft-text);
+}
+.drawing-panes-seg.selected {
+  color: var(--ft-text);
+}
+.drawing-panes-seg:focus-visible {
+  outline: 1px solid var(--ft-accent);
+  outline-offset: 1px;
+}
+
+.drawing-panes-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--ft-accent);
+}
+
+/* The divider between canvas and notes in the Both view. The hit area is wider
+ * than the line, which is what makes it grabbable without looking heavy. */
+.drawing-split-handle {
+  position: relative;
+  width: 7px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background: transparent;
+}
+.drawing-split-handle::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: var(--ft-border);
+  transition: background-color 120ms ease, width 120ms ease;
+}
+/* `:active` rather than a data attribute: v4 of the panel library sets only
+ * `data-separator`, and the repo's own `SplitHandle` styles the drag state the
+ * same way. */
+.drawing-split-handle:hover::after,
+.drawing-split-handle:active::after {
+  width: 2px;
+  background: var(--ft-accent);
+}
+
+/* ─── Drawing notes: tables ────────────────────────────────────────────────
+ *
+ * Notion's proportions: hairline rules, generous cell padding, a quiet header
+ * row, and no outer shadow or stripe. The table should read as structure in the
+ * prose rather than as a widget dropped into it.
+ *
+ * `border-collapse: separate` with per-cell right/bottom borders, rather than
+ * `collapse`: collapsed borders cannot be rounded, and the outer radius is what
+ * stops the grid looking like a spreadsheet.
+ */
+.drawing-note-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  width: 100%;
+  /* The top margin is the column grips' gutter as well as spacing. */
+  margin: 1.2em 0 0.9em;
+  border: 1px solid var(--ft-border);
+  border-radius: 6px;
+  /* Clips the corner cells to the outer radius. */
+  overflow: hidden;
+  font-size: 0.95em;
+}
+
+.drawing-note-td,
+.drawing-note-th {
+  position: relative;
+  min-width: 68px;
+  padding: 7px 10px;
+  border-right: 1px solid var(--ft-border);
+  border-bottom: 1px solid var(--ft-border);
+  vertical-align: top;
+  text-align: left;
+  outline: none;
+  transition: background-color 90ms ease;
+}
+/* The outer border already draws these two edges; drawing them again is the
+ * doubled hairline that makes a table look heavy. */
+.drawing-note-tr > *:last-child {
+  border-right: none;
+}
+.drawing-note-table tr:last-child > * {
+  border-bottom: none;
+}
+
+.drawing-note-th {
+  background: var(--ft-bg-secondary);
+  font-weight: 600;
+}
+
+/* Paragraphs in a cell drop the block margin that separates paragraphs in the
+ * document, or every row grows a gap under its text. */
+.drawing-note-td > .drawing-note-p:last-child,
+.drawing-note-th > .drawing-note-p:last-child {
+  margin-bottom: 0;
+}
+
+/* Neutral grey rather than a token: it reads as a lift in the light theme and
+ * as a lift in the dark one, which no single token colour does. */
+.drawing-note-tr:hover > .drawing-note-td {
+  background: rgb(127 127 127 / 6%);
+}
+
+.drawing-note-td-selected::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: var(--ft-accent);
+  opacity: 0.14;
+}
+.drawing-note-table-selected {
+  outline: 1px solid var(--ft-accent);
+}
+
+/* ─── Drawing notes: table grips ──────────────────────────────────────────── */
+
+/* The chrome layer sits over the pane, not in the document: the note that gets
+ * saved holds a plain table and none of this. */
+.drawing-tbl-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+}
+.drawing-tbl-layer > * {
+  pointer-events: auto;
+}
+
+.drawing-tbl-grip,
+.drawing-tbl-add {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  background: var(--ft-bg-tertiary);
+  color: var(--ft-text-muted);
+  transition: opacity 110ms ease, background-color 110ms ease;
+}
+
+/*
+ * Visible whenever the layer exists, which is only while a table is hovered or
+ * holds the cursor — the component decides that, not CSS.
+ *
+ * It cannot be a `:hover` rule on the layer: the table is not inside the layer,
+ * so hovering the table never puts the layer in `:hover`, and the grips would
+ * appear only once you had already found one.
+ */
+.drawing-tbl-grip,
+.drawing-tbl-add {
+  opacity: 0.45;
+}
+.drawing-tbl-grip:hover,
+.drawing-tbl-add:hover,
+.drawing-tbl-grip.open {
+  opacity: 1;
+  background: var(--ft-accent);
+  color: #fff;
+}
+.drawing-tbl-grip.col {
+  cursor: pointer;
+}
+.drawing-tbl-grip.row {
+  cursor: pointer;
+}
+
+.drawing-tbl-add.col {
+  flex-direction: column;
+}
+
+/* ── The grip menu ── */
+
+.drawing-tbl-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+}
+
+.drawing-tbl-menu {
+  position: absolute;
+  z-index: 2;
+  min-width: 150px;
+  padding: 4px;
+  border-radius: 7px;
+  background: var(--ft-bg-secondary);
+  border: 1px solid var(--ft-border);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 30%);
+}
+
+.drawing-tbl-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 5px 7px;
+  border-radius: 4px;
+  font-size: 11px;
+  text-align: left;
+  color: var(--ft-text);
+}
+.drawing-tbl-menu-item:hover {
+  background: var(--ft-bg-tertiary);
+}
+.drawing-tbl-menu-item.danger {
+  color: var(--ft-text-muted);
+}
+.drawing-tbl-menu-item.danger:hover {
+  background: rgb(239 68 68 / 15%);
+  color: rgb(248 113 113);
+}
+
+.drawing-tbl-menu-sep {
+  display: block;
+  height: 1px;
+  margin: 3px 2px;
+  background: var(--ft-border);
+}
+
+/* ─── Drawing: the Draw · Notes · Both control ─────────────────────────────── */
+
+.drawing-panes {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--ft-bg);
+  border: 1px solid var(--ft-border);
+}
+
+/*
+ * The sliding selection.
+ *
+ * One pill for the whole control rather than a background per button: it is
+ * what makes the change read as a control moving rather than two buttons
+ * swapping colour, and the active treatment then lives in exactly one rule.
+ * Width is a third of the track, so the segments must stay equal — see the
+ * `flex: 1 1 0` below.
+ */
+.drawing-panes-pill {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc((100% - 4px) / 3);
+  border-radius: 5px;
+  background: var(--ft-bg-tertiary);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 18%);
+  transition: transform 160ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.drawing-panes-seg {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--ft-text-muted);
+  transition: color 140ms ease;
+}
+.drawing-panes-seg:hover {
+  color: var(--ft-text);
+}
+.drawing-panes-seg.selected {
+  color: var(--ft-text);
+}
+.drawing-panes-seg:focus-visible {
+  outline: 1px solid var(--ft-accent);
+  outline-offset: 1px;
+}
+
+.drawing-panes-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--ft-accent);
+}
+
+/* The divider between canvas and notes in the Both view. The hit area is wider
+ * than the line, which is what makes it grabbable without looking heavy. */
+.drawing-split-handle {
+  position: relative;
+  width: 7px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background: transparent;
+}
+.drawing-split-handle::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: var(--ft-border);
+  transition: background-color 120ms ease, width 120ms ease;
+}
+/* `:active` rather than a data attribute: v4 of the panel library sets only
+ * `data-separator`, and the repo's own `SplitHandle` styles the drag state the
+ * same way. */
+.drawing-split-handle:hover::after,
+.drawing-split-handle:active::after {
+  width: 2px;
+  background: var(--ft-accent);
+}
+
+/* ─── Drawing notes: tables ────────────────────────────────────────────────── */
+
+.drawing-note-table {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 100%;
+  margin: 0 0 0.8em;
+  overflow: hidden;
+  border-radius: 5px;
+  border: 1px solid var(--ft-border);
+  font-size: 0.95em;
+}
+
+.drawing-note-td,
+.drawing-note-th {
+  position: relative;
+  min-width: 72px;
+  padding: 5px 8px;
+  border: 1px solid var(--ft-border);
+  vertical-align: top;
+  text-align: left;
+  outline: none;
+}
+.drawing-note-th {
+  background: var(--ft-bg-secondary);
+  font-weight: 600;
+}
+/* Paragraphs inside a cell must not carry the block margin that separates
+ * paragraphs in the document, or every row grows a gap under its text. */
+.drawing-note-td > .drawing-note-p:last-child,
+.drawing-note-th > .drawing-note-p:last-child {
+  margin-bottom: 0;
+}
+
+.drawing-note-td-selected::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: var(--ft-accent);
+  opacity: 0.16;
+}
+.drawing-note-table-selected {
+  outline: 1px solid var(--ft-accent);
+}
+

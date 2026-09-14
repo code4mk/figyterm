@@ -177,6 +177,132 @@ The feature as asked for.
         input, delete confirm, empty states
   - [x] Light theme falls out of the tokens — no `.light` overrides needed
 
+## Phase 4b — Notes
+
+A second pane in the same project: Lexical beside Excalidraw, so an idea can be
+written down next to the picture of it.
+
+- [x] `lexical` + `@lexical/react` and the node packages it needs
+      (`rich-text`, `list`, `link`, `markdown`, `code`, `utils`)
+- [x] `src/components/Drawing/useAutosave.ts` — the saving contract extracted
+      from the canvas so both panes share one copy. Idle debounce, ceiling,
+      flush on unmount/hide/close, and **nothing written until something is
+      recorded**, which is the rule that stops an untouched pane writing its
+      empty initial state over stored work
+  - [x] Returns a memoised object: callers put it in effect dependency arrays
+- [x] `drawing-db.ts` — version 2 adds the `docs` store; the upgrade only
+      creates missing stores, so existing drawings survive it
+  - [x] `readDoc` / `writeDoc`, the doc and its row in one transaction
+  - [x] `deleteProjectAndScene` → `deleteProjectData`, now all three stores
+- [x] `drawing-project.ts` — `DrawingDoc`, `DrawingPane`, `noteChars`
+- [x] `drawingStore.ts` — `pane` / `setPane`, `loadDoc`, `persistDoc`
+  - [x] Notes do **not** bump `updatedAt`: it is the rail's sort key and reads
+        as "when did this drawing last change"
+  - [x] `duplicate` copies the notes as well as the scene
+- [x] `src/components/Drawing/DrawingNotes.tsx`
+  - [x] Document awaited before the composer mounts — Lexical reads
+        `initialConfig.editorState` once, with no second chance (**defect #4's
+        shape, in a different editor**)
+  - [x] Markdown shortcuts, history, lists, links, tab indentation
+  - [x] Typing does not reach the shell's shortcuts; Escape still closes
+  - [x] A document that will not deserialise logs and opens empty rather than
+        taking the window down
+- [x] `DrawingModal` — segmented control in the title bar, keyed by pane so
+      switching flushes the outgoing one
+- [x] `DrawingRail` — a mark on projects that have notes
+- [x] Status bar counts items or characters, following the pane
+- [x] `.drawing-note-*` styles over the `--ft-*` tokens
+
+## Phase 4c — A Notion-shaped notes editor
+
+Everything below is a Lexical plugin wired up, not an editor written by hand.
+
+- [x] `@lexical/selection` for `$setBlocksType`
+- [x] `notes/SlashMenu.tsx` — `LexicalTypeaheadMenuPlugin` on `/`
+  - [x] Text, H1–H3, to-do, bulleted, numbered, quote, code, divider
+  - [x] Filtered by name and by synonyms (`/todo`, `/hr`, `/snippet`)
+  - [x] Does not trigger mid-word — `and/or` is not a command
+  - [x] Grouped into Basic / Lists / Advanced, with headings derived from runs
+        in the list so a filtered menu shows only the groups it still has
+        anything in
+  - [x] The menu body is a component, not markup inside `menuRenderFn`: keeping
+        the selected row in view needs a ref and an effect, and hooks cannot
+        live in a callback
+  - [x] Footer names the keys, because the menu is driven from the keyboard and
+        saying so is what stops people reaching for the mouse
+  - [x] Icon tiles give every row the same optical left edge whatever the
+        icon's width, so mixed icons read as a column and not a ragged stack
+  - [x] `color-mix` on the selected tile has a plain-accent fallback ahead of
+        it — an engine that does not know it drops one declaration, not the rule
+  - [x] `mousedown`, not `click`: a click moves focus first and collapses the
+        selection the insertion depends on
+  - [x] The typed `/heading` is removed before the block is replaced, or it
+        becomes the first line of the block it asked for
+- [x] `notes/FloatingToolbar.tsx` — bold, italic, strikethrough, code, link
+  - [x] Positioned against the scrolling pane, clamped to its edges
+  - [x] `preventDefault` on mousedown, or pressing a button collapses the
+        selection it is about to format
+  - [x] Listens to both `SELECTION_CHANGE_COMMAND` and `selectionchange`:
+        the first misses a drag that ends outside the editor
+- [x] `notes/DragHandle.tsx` — `DraggableBlockPlugin_EXPERIMENTAL`
+  - [x] Kept behind one small wrapper, since the upstream API may move
+  - [x] Grip appears on pane hover only; drop target is an accent line
+- [x] `CheckListPlugin` + `HorizontalRulePlugin`, and their nodes registered
+- [x] Checkbox and tick drawn in CSS — scales with the text, needs no font
+- [x] Left gutter on the prose so the grip has a margin to live in
+
+## Phase 4d — Tables, and a three-way pane
+
+- [x] `@lexical/table` + `TablePlugin`, nodes registered, `/table` inserts a
+      3 x 3 with a header row
+  - [x] `hasCellMerge` and `hasCellBackgroundColor` off — notes table, not a
+        spreadsheet
+  - [x] Cell paragraphs lose their block margin, or every row grows a gap
+- [x] `notes/TableControls.tsx` — Notion's table chrome
+  - [x] A grip over every column and beside every row, `+` on the right and
+        bottom edges; grips open a menu (insert either side, delete, delete
+        table), the `+` edges add at the end without one
+  - [x] An overlay measured from the table's DOM — nothing is injected into the
+        document, so a saved note holds a plain table
+  - [x] Actions are node- and index-addressed (`$insertTableColumnAtNode`,
+        `$removeTableRowAtIndex`), because a grip acts on the row or column you
+        pointed at, not the one the cursor is in
+  - [x] Column delete goes via the selection: `$deleteTableColumn(table, i)`
+        says it directly but is deprecated in 0.50
+  - [x] `$getNearestNodeFromDOMNode` to get from `<table>` back to the node,
+        rather than reading the `__lexicalKey_` property Lexical stamps on
+        elements — that is an implementation detail, keyed by editor instance
+  - [x] **`editor.read()`, never `editor.getEditorState().read()`.** The latter
+        makes an editor *state* active but no editor, and
+        `$getNearestNodeFromDOMNode` calls `getActiveEditor()` to map a DOM node
+        back to a key. It throws "Unable to find an active editor", which the
+        overlay boundary turns into a closed window. The same correction was
+        applied to the formatting toolbar
+  - [x] Bands measured with rectangles, not `offsetLeft`: a `<td>`'s offset
+        parent is not reliably the table, and the difference is silent
+  - [x] Pointer moving onto the chrome does not read as leaving the table
+  - [x] The reveal is not a `:hover` rule on the layer — the table is not inside
+        the layer, so that rule could only fire once you had found a grip
+  - [x] The table's top margin doubles as the column grips' gutter, and a
+        leading table is exempt from the `:first-child` margin reset that would
+        otherwise clip them out of the pane
+- [x] Table design
+  - [x] Rounded outer corners via `border-collapse: separate` — collapsed
+        borders cannot be rounded
+  - [x] Inner rules lighter than the outer border: drawn at one weight
+        throughout, the grid reads as heavy, because the outline is the object
+        and the inner lines are texture
+  - [x] Header row quiet — medium weight, muted colour. It labels a column; it
+        is not a heading in the document, and the first row should not be the
+        loudest thing on the page
+  - [x] Neutral-grey hover and header tints rather than tokens, so they lift in
+        both themes — no single token colour does
+  - [x] Doubled edge borders removed; empty cells keep a minimum height
+  - [x] Grips drawn as thickened gridlines in the table's border colour, inset
+        a pixel so neighbours read as separate bars. Colour signals live, not
+        weight — a button-sized grip is a toolbar parked against the edge
+  - [x] Corner `+` where the two strips meet, adding a row and a column at once
+
 ## Phase 4 — Polish
 
 - [x] Collapsible rail, state persisted

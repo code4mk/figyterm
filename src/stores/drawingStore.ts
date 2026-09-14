@@ -15,6 +15,8 @@
 
 import { create } from "zustand";
 import {
+  DrawingDoc,
+  DrawingPane,
   DrawingProject,
   DrawingScene,
   createProject,
@@ -27,11 +29,13 @@ import {
   visibleElementCount,
 } from "../services/drawing-project";
 import {
-  deleteProjectAndScene,
+  deleteProjectData,
   isEphemeral,
   listProjects,
   putProject,
+  readDoc,
   readScene,
+  writeDoc,
   writeScene,
 } from "../services/drawing-db";
 
@@ -52,6 +56,9 @@ interface DrawingState {
    * whenever the list is empty. */
   activeId: string | null;
   query: string;
+  /** Which half of the project is on screen. A view mode, not a property of the
+   * project: both halves exist whether or not you are looking at them. */
+  pane: DrawingPane;
   /** False until `hydrate()` has finished, so the modal can hold its frame. */
   ready: boolean;
   railCollapsed: boolean;
@@ -68,8 +75,11 @@ interface DrawingState {
   remove: (id: string) => Promise<void>;
   duplicate: (id: string) => Promise<string | null>;
   setQuery: (query: string) => void;
+  setPane: (pane: DrawingPane) => void;
   toggleRail: () => void;
   loadScene: (projectId: string) => Promise<DrawingScene | null>;
+  loadDoc: (projectId: string) => Promise<DrawingDoc | null>;
+  persistDoc: (projectId: string, state: string, text: string) => Promise<void>;
   persistScene: (
     projectId: string,
     elements: readonly unknown[],
@@ -121,6 +131,7 @@ export const useDrawingStore = create<DrawingState>((set, get) => ({
   projects: [],
   activeId: null,
   query: "",
+  pane: "draw",
   ready: false,
   railCollapsed: storedRailCollapsed(),
   lastSavedAt: null,
@@ -220,7 +231,7 @@ export const useDrawingStore = create<DrawingState>((set, get) => ({
   /** Deleting the open project selects the next most recent; deleting the last
    * one leaves nothing selected, which is the empty state. */
   remove: async (id) => {
-    await deleteProjectAndScene(id);
+    await deleteProjectData(id);
     set((state) => {
       const projects = state.projects.filter((p) => p.id !== id);
       const activeId = state.activeId === id ? projects[0]?.id ?? null : state.activeId;
@@ -234,24 +245,28 @@ export const useDrawingStore = create<DrawingState>((set, get) => ({
     const source = projects.find((p) => p.id === id);
     if (!source) return null;
 
-    const scene = await readScene(id);
+    // A duplicate is the whole project, both halves of it — copying the drawing
+    // and silently dropping the notes beside it would be a trap.
+    const [scene, doc] = await Promise.all([readScene(id), readDoc(id)]);
     const copy: DrawingProject = {
       ...createProject(duplicateName(source.name, projects.map((p) => p.name))),
       elementCount: source.elementCount,
+      noteChars: source.noteChars,
     };
 
     set((state) => ({ projects: insertProject(state.projects, copy), activeId: copy.id }));
     rememberActive(copy.id);
 
-    if (scene) {
-      await writeScene({ ...scene, projectId: copy.id }, copy);
-    } else {
-      await putProject(copy);
-    }
+    if (scene) await writeScene({ ...scene, projectId: copy.id }, copy);
+    if (doc) await writeDoc({ ...doc, projectId: copy.id }, copy);
+    if (!scene && !doc) await putProject(copy);
+
     return copy.id;
   },
 
   setQuery: (query) => set({ query }),
+
+  setPane: (pane) => set({ pane }),
 
   toggleRail: () =>
     set((state) => {
@@ -265,6 +280,32 @@ export const useDrawingStore = create<DrawingState>((set, get) => ({
     }),
 
   loadScene: (projectId) => readScene(projectId),
+
+  loadDoc: (projectId) => readDoc(projectId),
+
+  /**
+   * The notes' autosave, mirroring `persistScene`.
+   *
+   * `noteChars` is derived here rather than passed in, for the same reason the
+   * element count is: the row must describe the document being written beside
+   * it and cannot be given a number that disagrees.
+   *
+   * Notes deliberately do **not** bump `updatedAt`. That is the rail's sort key
+   * and its subtitle, and both read as "when did this drawing last change".
+   */
+  persistDoc: async (projectId, state, text) => {
+    const project = get().projects.find((p) => p.id === projectId);
+    if (!project) return;
+
+    const updated: DrawingProject = { ...project, noteChars: text.trim().length };
+    const ok = await writeDoc({ projectId, state, text }, updated);
+
+    set((s) => ({
+      projects: s.projects.map((p) => (p.id === projectId ? updated : p)),
+      lastSavedAt: ok ? Date.now() : s.lastSavedAt,
+      saveError: ok ? null : "Could not save — the drawing store is full or unavailable",
+    }));
+  },
 
   /**
    * Autosave's one entry point.

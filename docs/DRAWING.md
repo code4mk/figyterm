@@ -5,6 +5,24 @@ Claude window. Unlike those three, it owns its documents: a **project** is a
 named drawing that FigyTerm stores, lists, searches, favourites, renames and
 deletes. Drawing is autosaved; there is no Save button and nothing to lose.
 
+A project has **two halves** and three ways to look at them, chosen by a
+segmented control in the title bar:
+
+| Pane | What it is |
+|---|---|
+| **Draw** | The Excalidraw canvas. |
+| **Notes** | A Lexical rich-text document — what the drawing is *about*. |
+| **Both** | The two side by side, on a draggable split. |
+
+`both` is not a third document. The panes are keyed by project and **not** by
+pane, so leaving `Both` for `Draw` does not reload the canvas that was already
+on screen.
+
+They are two views of one project, not two documents: both always exist, both
+autosave independently, and duplicating or deleting a project takes both with
+it. The rail marks a project whose notes have something in them, and the Notes
+tab carries a dot when you are looking at the canvas.
+
 > **Nothing is being repaired here.** An earlier attempt — a single-canvas tool
 > backed by `localStorage`, described in a `DRAWING-APP.md` that no longer
 > exists — has been removed from the branch along with `src/components/Drawing/`
@@ -45,7 +63,12 @@ about the deleted code: Phase 5 is where they get fixed.
 | Question | Decision | Why |
 |---|---|---|
 | Storage | **IndexedDB**, database `figy-drawing` | See below. Not `localStorage`. |
-| Scene ↔ metadata | **Two object stores** | The picker lists 50 projects without deserialising 50 scenes. |
+| Scene ↔ notes ↔ metadata | **Three object stores** | The rail lists 50 projects without deserialising 50 scenes, and opening the canvas does not read the prose. |
+| Notes editor | **Lexical** (`lexical`, `@lexical/react`) | Meta's editor, MIT, React-native, and its `editorState` serialises to JSON — which is exactly the shape the scene store already takes. |
+| Note editing model | **Notion's**: `/` block menu, selection toolbar, drag handles, tables | What people mean by "a notes pane" now. Lexical ships all of it as plugins, so it is assembly rather than invention. |
+| Tables | **No cell merging, no cell colours** | This is a notes table, not a spreadsheet, and every extra affordance is another thing to style and keep working inside a modal. |
+| Table editing | **One bar above the table**, not Notion's edge handles | Edge handles need per-cell geometry kept in step with a table that reflows as you type, and they hide deletion behind a second click. A bar needs only the table's own rectangle. |
+| Note formatting | **No permanent toolbar** | For a pane this size a fixed strip is chrome you pay for on every line whether or not you are formatting. The two things it would hold already appear exactly when wanted. |
 | Save model | **Autosave only.** No Save button, no dirty state in the title bar | The user asked for auto-save. A document store with a Save button is a document store with lost work in it. |
 | Project identity | **Opaque `id`, user-visible `name`** | Renaming must not invalidate anything that points at the project. Unlike a Claude project, a drawing is not a folder and has a real name of its own. |
 | One canvas or many | **One `<Excalidraw>`, keyed by project id** | Remount on switch is what makes `initialData` correct (defect #4). Per-project undo history falls out of it. |
@@ -105,13 +128,33 @@ dialogs, `collaborators`) that must not be restored and, in the case of
 ### Object stores
 
 ```
-db "figy-drawing", version 1
+db "figy-drawing", version 2
 ├── "projects"  keyPath: "id"         ← the rail reads only this
-└── "scenes"    keyPath: "projectId"  ← read on open, written by autosave
+├── "scenes"    keyPath: "projectId"  ← the drawing
+└── "docs"      keyPath: "projectId"  ← the notes
 ```
 
-Deleting a project deletes from both, in one transaction spanning both stores,
-so a crash cannot leave an orphan scene or a row pointing at nothing.
+Version 2 added `docs`. The upgrade only ever creates missing stores, so an
+existing database gains the new one and keeps every drawing already in it.
+
+Deleting a project deletes from all three in one transaction, so a crash cannot
+leave an orphan scene or a row pointing at nothing.
+
+```ts
+interface DrawingDoc {
+  projectId: string;
+  /** Lexical's `editorState.toJSON()`, already stringified. It doubles as the
+   *  autosave's change mark: comparing two strings is the cheapest way to know
+   *  the document has not moved. */
+  state: string;
+  /** The same content as plain text — what the rail counts, stored rather than
+   *  derived so nothing has to parse the node tree to find out. */
+  text: string;
+}
+```
+
+Notes deliberately do **not** bump `updatedAt`. That is the rail's sort key and
+its subtitle, and both read as "when did this drawing last change".
 
 ---
 
@@ -124,7 +167,12 @@ src/services/drawing-db.ts             IndexedDB: open, read, write, delete.
 src/stores/drawingStore.ts             Zustand: project list, active id, actions.
 src/components/Drawing/DrawingModal.tsx    Modal frame, rail + canvas layout.
 src/components/Drawing/DrawingRail.tsx     Search, list, rename, favourite, delete.
-src/components/Drawing/DrawingCanvas.tsx   <Excalidraw>, autosave, theme sync.
+src/components/Drawing/DrawingCanvas.tsx   <Excalidraw>, theme sync
+src/components/Drawing/DrawingNotes.tsx    Lexical, the other half of a project
+src/components/Drawing/notes/SlashMenu.tsx       `/` block menu
+src/components/Drawing/notes/FloatingToolbar.tsx selection formatting
+src/components/Drawing/notes/DragHandle.tsx      margin grip, block reordering
+src/components/Drawing/useAutosave.ts      The saving contract, shared by both.
 src/components/Drawing/DrawingEmpty.tsx    No-projects and no-selection states.
 scripts/copy-excalidraw-assets.mjs         Vendors the fonts into public/.
 ```
