@@ -917,18 +917,20 @@ export function ClaudeModal({
               onPointerDown={(e) => e.stopPropagation()}
             >
               <button
-                className="editor-icon-btn p-1 rounded"
+                className={`editor-icon-btn p-1 rounded ${pipMode ? "on" : ""}`}
                 onClick={togglePip}
                 title={pipMode ? "Leave picture-in-picture" : "Picture-in-picture"}
                 aria-label="Picture in picture"
+                aria-pressed={pipMode}
               >
                 <PictureInPicture2 size={12} />
               </button>
               <button
-                className="editor-icon-btn p-1 rounded"
+                className={`editor-icon-btn p-1 rounded ${fullscreen ? "on" : ""}`}
                 onClick={toggleFullscreen}
                 title={fullscreen ? "Restore" : "Maximize"}
                 aria-label={fullscreen ? "Restore" : "Maximize"}
+                aria-pressed={fullscreen}
               >
                 {fullscreen ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
               </button>
