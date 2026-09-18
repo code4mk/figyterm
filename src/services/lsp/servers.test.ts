@@ -14,7 +14,14 @@
  */
 
 import assert from "node:assert/strict";
-import { installHint, primaryServerForPath, serversForPath, SERVERS } from "./servers";
+import {
+  allServers,
+  installHint,
+  primaryServerForPath,
+  serversForPath,
+  setCustomServers,
+  SERVERS,
+} from "./servers";
 
 let failures = 0;
 function test(name: string, run: () => void) {
@@ -183,6 +190,97 @@ test("the shared install line names no platform-specific package manager", () =>
       );
     }
   }
+});
+
+// ─── Servers the user added ─────────────────────────────────────────────────
+
+/** Leaves the table as it was found, whatever a test did to it. */
+function withCustom(servers: Parameters<typeof setCustomServers>[0], run: () => void) {
+  try {
+    setCustomServers(servers);
+    run();
+  } finally {
+    setCustomServers([]);
+  }
+}
+
+test("a server the user added claims its own extensions", () => {
+  withCustom(
+    [
+      {
+        id: "custom:elixir",
+        label: "Elixir",
+        extensions: ["ex", "exs"],
+        program: "elixir-ls",
+        args: ["--stdio"],
+      },
+    ],
+    () => {
+      const match = primaryServerForPath("/code/app/lib/user.ex");
+      assert.equal(match?.def.id, "custom:elixir");
+      // The language id is the first extension, which is what the server is
+      // told the file is.
+      assert.equal(match?.languageId, "ex");
+      assert.equal(primaryServerForPath("/code/app/test/user_test.exs")?.def.id, "custom:elixir");
+    }
+  );
+});
+
+test("adding one leaves the built-in table alone", () => {
+  const before = SERVERS.length;
+  withCustom(
+    [{ id: "custom:x", label: "X", extensions: ["x"], program: "x-ls", args: [] }],
+    () => {
+      assert.equal(allServers().length, before + 1);
+      // The shipped entries are untouched — this is a merge, not a mutation.
+      assert.equal(SERVERS.length, before);
+      assert.equal(primaryServerForPath("/code/main.rs")?.def.id, "rust");
+    }
+  );
+  assert.equal(allServers().length, before);
+});
+
+test("the user's own server wins the file it claims", () => {
+  // Somebody who adds a server for a language already in the table meant to
+  // use theirs. Anything else makes the entry look broken.
+  withCustom(
+    [
+      {
+        id: "custom:mine",
+        label: "My TypeScript",
+        extensions: ["ts"],
+        program: "my-ts-server",
+        args: [],
+      },
+    ],
+    () => {
+      assert.equal(primaryServerForPath("/code/app.ts")?.def.id, "custom:mine");
+      // And only the file it claimed: `.tsx` still goes to the built-in one.
+      assert.equal(primaryServerForPath("/code/app.tsx")?.def.id, "typescript");
+    }
+  );
+});
+
+test("a companion still runs alongside a user's server", () => {
+  withCustom(
+    [
+      {
+        id: "custom:css",
+        label: "My CSS",
+        extensions: ["css"],
+        program: "my-css-server",
+        args: [],
+      },
+    ],
+    () => {
+      const matches = serversForPath("/code/site.css");
+      assert.equal(matches[0].def.id, "custom:css");
+      assert.ok(
+        matches.some((match) => match.def.id === "tailwind"),
+        "Tailwind should still be offered for a CSS file"
+      );
+    }
+  );
 });
 
 if (failures) {

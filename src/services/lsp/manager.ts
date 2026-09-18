@@ -22,16 +22,18 @@
  */
 
 import type { Diagnostic, WorkspaceEdit } from "./protocol";
+import type { CustomLspServer } from "../editor-session";
 import { LspClient, LspPhase, LspStatus } from "./client";
 import {
+  allServers,
+  detectServers,
   isEnabled,
   LspOverrides,
   LspServerDef,
   primaryServerForPath,
   resolveServer,
   serversForPath,
-  SERVERS,
-  detectServers,
+  setCustomServers,
 } from "./servers";
 import { pathToUri } from "./uri";
 
@@ -74,6 +76,30 @@ const TAILWIND_SETTINGS = {
 /** How long a server with nothing open survives. */
 const IDLE_MS = 5 * 60 * 1000;
 
+/**
+ * How long "which servers are installed" is trusted before being asked again.
+ *
+ * It used to be cached for the life of the process, which meant installing a
+ * server while the editor was open did nothing until the app was restarted —
+ * and nothing in the interface said so. The check is a handful of filesystem
+ * lookups, so it can afford to be asked repeatedly; what it cannot afford is
+ * to be asked on every keystroke, hence a window rather than nothing.
+ */
+const DETECT_TTL_MS = 15_000;
+
+/**
+ * How soon a server that is wanted but missing is looked for again, and how
+ * far that backs off.
+ *
+ * Only while something is actually waiting for one — a buffer is open whose
+ * language has a server that isn't installed. It starts quick, because the
+ * likely reason anybody is in this state is that they are installing it right
+ * now, and it slows to a minute, because the other reason is that they have no
+ * intention of installing it and will have this file open all day.
+ */
+const RETRY_MS = 3_000;
+const RETRY_MAX_MS = 60_000;
+
 /** How long after an unexpected exit to try again, per consecutive failure. */
 const BACKOFF_MS = [1_000, 5_000, 15_000];
 
@@ -101,6 +127,8 @@ export interface LspServerState {
 export interface LspConfig {
   enabled: boolean;
   overrides: LspOverrides;
+  /** Servers the user added; merged into the table before anything reads it. */
+  custom: CustomLspServer[];
   root: string | null;
   /**
    * The Python interpreter this workspace should be analysed against.
@@ -229,7 +257,7 @@ export class LspSession {
 }
 
 export class LspManager {
-  private config: LspConfig = { enabled: false, overrides: {}, root: null };
+  private config: LspConfig = { enabled: false, overrides: {}, custom: [], root: null };
 
   private clients = new Map<string, LspClient>();
   /** In-flight starts, so twelve buffers opening at once start one server. */
@@ -252,6 +280,20 @@ export class LspManager {
   /** Server id → resolved path, or null for "not on PATH". */
   private detected = new Map<string, string | null>();
   private detecting: Promise<void> | null = null;
+  /** When `detected` was filled, for [`DETECT_TTL_MS`]. */
+  private detectedAt = 0;
+
+  /**
+   * Servers a buffer is waiting on because they were not installed.
+   *
+   * Kept so that installing one *now* connects the file that is already open,
+   * rather than the next one opened after it. Empty almost always, and the
+   * retry timer only exists while it isn't.
+   */
+  private waiting = new Map<string, { def: LspServerDef; root: string }>();
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The current back-off, reset whenever something new starts waiting. */
+  private retryDelay = RETRY_MS;
 
   /** uri → what the server last published. */
   private diagnostics = new Map<string, Diagnostic[]>();
@@ -272,6 +314,18 @@ export class LspManager {
   configure(config: LspConfig): void {
     const was = this.config;
     this.config = config;
+
+    /*
+      The user's own entries go into the table first, before anything below
+      reads it: `states`, detection and the stale-client sweep all ask for the
+      whole table, and a server added a moment ago has to be in it by then.
+    */
+    if (was.custom !== config.custom) {
+      setCustomServers(config.custom);
+      // A new entry has never been looked for, and a removed one should stop
+      // being reported as installed.
+      this.detected.clear();
+    }
 
     const rootChanged = was.root !== config.root;
     const turnedOff = was.enabled && !config.enabled;
@@ -295,7 +349,7 @@ export class LspManager {
       // A server the user just disabled, or repointed at another program, stops
       // now rather than at the next idle sweep.
       for (const [key, client] of this.clients) {
-        const def = SERVERS.find((server) => server.id === client.def.id);
+        const def = allServers().find((server) => server.id === client.def.id);
         const stale =
           !def ||
           !isEnabled(def.id, config.overrides) ||
@@ -305,6 +359,23 @@ export class LspManager {
     }
 
     if (!was.enabled && config.enabled) this.detected.clear();
+
+    /*
+      A settings change is the other moment worth looking again immediately:
+      somebody who has just pasted a path for a server that was missing should
+      not wait out a back-off that had wound its way to a minute while they
+      were typing it.
+    */
+    if (was.overrides !== config.overrides && this.waiting.size) {
+      this.detected.clear();
+      this.retryDelay = RETRY_MS;
+      if (this.retryTimer) {
+        clearTimeout(this.retryTimer);
+        this.retryTimer = null;
+      }
+      this.scheduleRetry();
+    }
+
     this.notifyStatus();
   }
 
@@ -395,15 +466,18 @@ export class LspManager {
    * the user's real `PATH`, since a GUI launch doesn't inherit one.
    */
   async detect(force = false): Promise<Map<string, string | null>> {
-    if (force) {
+    // Stale counts as forced: a result from before the user installed
+    // something is the thing this exists to stop being believed.
+    if (force || Date.now() - this.detectedAt > DETECT_TTL_MS) {
       this.detected.clear();
-      this.detecting = null;
+      if (force) this.detecting = null;
     }
     if (this.detected.size) return this.detected;
     if (!this.detecting) {
       this.detecting = detectServers(this.config.overrides)
         .then((found) => {
           this.detected = found;
+          this.detectedAt = Date.now();
           this.notifyStatus();
         })
         .catch((error) => {
@@ -517,6 +591,89 @@ export class LspManager {
     return attempt;
   }
 
+  /**
+   * Notes that a buffer wants a server that isn't installed, and starts
+   * looking for it.
+   *
+   * The timer runs only while something is waiting: on a machine with every
+   * server installed, or with none of their languages open, nothing here ever
+   * ticks.
+   */
+  private waitFor(key: string, def: LspServerDef, root: string): void {
+    const isNew = !this.waiting.has(key);
+    this.waiting.set(key, { def, root });
+
+    // Somebody opening a file of a new language is the moment to look eagerly
+    // again, whatever the back-off had wound itself out to.
+    if (isNew) this.retryDelay = RETRY_MS;
+    this.scheduleRetry();
+  }
+
+  private scheduleRetry(): void {
+    if (this.retryTimer || !this.waiting.size) return;
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      void this.retryMissing();
+    }, this.retryDelay);
+  }
+
+  /** Stops looking once nothing is waiting. */
+  private stopRetrying(): void {
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
+    this.retryDelay = RETRY_MS;
+  }
+
+  /**
+   * Looks again for the servers something is waiting on, and connects any that
+   * have appeared.
+   *
+   * This is what makes installing a language server take effect while the
+   * editor is open: `rustup component add rust-analyzer` in the pane behind,
+   * and a few seconds later the Rust file already on screen has diagnostics,
+   * with nothing clicked and nothing restarted.
+   */
+  private async retryMissing(): Promise<void> {
+    if (!this.waiting.size || !this.config.enabled) {
+      this.waiting.clear();
+      this.stopRetrying();
+      return;
+    }
+
+    const before = this.waiting.size;
+    const detected = await this.detect(true);
+
+    for (const [key, { def, root }] of [...this.waiting]) {
+      // The buffer that wanted it may have been closed in the meantime.
+      const group = this.sessions.get(key);
+      if (!group?.size) {
+        this.waiting.delete(key);
+        continue;
+      }
+      if (detected.get(def.id) === null) continue;
+
+      this.waiting.delete(key);
+      const client = await this.ensure(key, def, root);
+      // Bound here rather than by `open`, which handed these sessions a null
+      // client when the server was missing and has long since returned.
+      for (const session of group) session.bind(client);
+    }
+
+    if (!this.waiting.size) {
+      this.stopRetrying();
+      return;
+    }
+
+    // Nothing appeared, so ask less often — up to a minute, which is still
+    // "it works a moment after you install it" and no longer a poll.
+    if (this.waiting.size === before) {
+      this.retryDelay = Math.min(this.retryDelay * 2, RETRY_MAX_MS);
+    }
+    this.scheduleRetry();
+  }
+
   private async start(
     key: string,
     def: LspServerDef,
@@ -528,9 +685,13 @@ export class LspManager {
     // than as a failed start.
     const detected = await this.detect();
     if (detected.get(def.id) === null) {
+      // Remembered, so that installing it now connects the file that is
+      // already open rather than the next one opened after it.
+      this.waitFor(key, def, root);
       this.notifyStatus();
       return null;
     }
+    this.waiting.delete(key);
 
     try {
       const client = await LspClient.start(key, resolved, root, {
@@ -640,7 +801,7 @@ export class LspManager {
     const root = this.config.root;
     if (!root) return;
     const key = serverKey(root, serverId);
-    const def = SERVERS.find((server) => server.id === serverId);
+    const def = allServers().find((server) => server.id === serverId);
     await this.stop(key);
     this.failures.delete(key);
     if (!def || !this.config.enabled) return;
@@ -652,6 +813,12 @@ export class LspManager {
   }
 
   async stopAll(): Promise<void> {
+    // Nothing is waiting for a server once nothing is running one: a folder
+    // that was closed, or a master switch turned off, must not leave a timer
+    // looking for a language server nobody is going to use.
+    this.waiting.clear();
+    this.stopRetrying();
+
     const keys = [...this.clients.keys()];
     await Promise.all(keys.map((key) => this.stop(key)));
     for (const uri of [...this.diagnostics.keys()]) this.publish(uri, []);
@@ -693,7 +860,7 @@ export class LspManager {
   /** Every server in the table, with what it is currently doing. */
   states(): LspServerState[] {
     const root = this.config.root;
-    return SERVERS.map((def) => {
+    return allServers().map((def) => {
       const path = this.detected.get(def.id) ?? null;
       const client = root ? this.clients.get(serverKey(root, def.id)) : undefined;
 

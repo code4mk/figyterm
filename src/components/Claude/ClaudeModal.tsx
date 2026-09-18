@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open as openFolderDialog } from "@tauri-apps/plugin-dialog";
 import {
+  AlertTriangle,
   Check,
   ChevronDown,
   FolderOpen,
@@ -826,7 +827,7 @@ export function ClaudeModal({
         <div
           ref={modalRef}
           tabIndex={-1}
-          className={`editor-modal overflow-hidden shadow-2xl flex flex-col focus:outline-none ${
+          className={`editor-modal claude-window overflow-hidden flex flex-col focus:outline-none ${
             pipMode ? "editor-pip" : ""
           } ${fullscreen ? "editor-fullscreen" : "rounded-xl"}`}
           style={modalStyle}
@@ -834,90 +835,229 @@ export function ClaudeModal({
           onKeyDown={onKeyDown}
         >
           {/*
-            Two rows, the way the browser's chrome is built: a tab strip that
-            doubles as the title bar and drag handle, and a toolbar under it
-            holding the thing the tabs belong to. Here that thing is the
-            project — which is why the strip changes completely when you switch
-            projects, and why the toolbar says which one you are in.
+            The title bar, and the only place the window says what it is.
+
+            One row rather than a browser's two: the mark on the left, the
+            project in the middle — which is this window's answer to "where am
+            I?" — and the window's own controls on the right, set apart from
+            the project's by a hairline so that closing the window is never one
+            slip away from closing the project.
           */}
-          <div
-            className="browser-chrome browser-tabstrip claude-tabstrip flex items-center gap-1 px-2 pt-1.5 pb-0 select-none cursor-grab active:cursor-grabbing"
+          <header
+            className="claude-header flex items-center gap-2 px-2.5 select-none cursor-grab active:cursor-grabbing"
             onPointerDown={onDragStart}
           >
-            <div className="browser-brand flex items-center gap-2 pl-1 pr-2.5 mr-1 pb-1.5 shrink-0">
-              <img src="/logo.png" alt="" className="h-3.5 w-auto shrink-0" />
-              <img src="/claude-code.png" alt="" className="claude-logo shrink-0" />
-              <span className="browser-brand-title text-[11px] font-semibold whitespace-nowrap">
-                Claude Code
+            <div className="claude-brand flex items-center gap-2 shrink-0">
+              <span className="claude-mark">
+                <img src="/claude-code.png" alt="" />
               </span>
+              <span className="claude-brand-title">Claude Code</span>
             </div>
 
-            <div className="flex items-end gap-1 flex-1 min-w-0 overflow-x-auto browser-tabstrip-scroll">
-              {conversations.map((conversation, index) => {
-                const live = conversation.endedAt === null && isOpen(conversation.sessionId);
-                const active = conversation.sessionId === currentSessionId;
-                return (
-                  <div
-                    key={conversation.sessionId}
-                    role="tab"
-                    aria-selected={active}
-                    className={`browser-tab claude-tab group flex items-center gap-1.5 pl-2 pr-1 h-7 rounded-t-lg shrink-0 max-w-[180px] ${
-                      active ? "active" : ""
+            <span className="claude-sep" />
+
+            {/*
+              The project field, and the menu that hangs off it.
+
+              Wrapped in its own positioned box so the menu lines up with the
+              field rather than with the window, and so a click anywhere in it
+              is a click and not the start of a drag.
+            */}
+            <div
+              className="relative flex-1 min-w-0 flex justify-center"
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              <button
+                className={`claude-project-field flex items-center gap-2 min-w-0 w-full max-w-[420px] ${
+                  projectMenuOpen ? "open" : ""
+                }`}
+                onClick={() => setProjectMenuOpen((open) => !open)}
+                title={project ? project.root : "Choose a project"}
+                aria-expanded={projectMenuOpen}
+              >
+                <FolderOpen size={12} className="claude-project-icon shrink-0" />
+                <span className="claude-project-name truncate">
+                  {project ? projectName(project) : "No project"}
+                </span>
+                {project && (
+                  <span className="claude-project-path truncate">
+                    {collapseHome(project.root)}
+                  </span>
+                )}
+                <span className="flex-1" />
+                {liveTotal > 0 && (
+                  <span
+                    className="claude-live-count shrink-0"
+                    title={`${liveTotal} running ${
+                      liveTotal === 1 ? "conversation" : "conversations"
                     }`}
-                    // The strip is the drag handle; a tab is not.
-                    onPointerDown={(e) => e.stopPropagation()}
                   >
-                    <button
-                      className="flex items-center gap-1.5 min-w-0 flex-1"
-                      onClick={() => showConversation(conversation)}
-                      title={
-                        attention[conversation.sessionId]
-                          ? "Waiting for you"
-                          : live
-                            ? "Running"
-                            : "Not running — opening it resumes the conversation"
-                      }
-                    >
-                      <span
-                        className={`claude-dot shrink-0 ${live ? "live" : ""} ${
-                          attention[conversation.sessionId] ? "wants-you" : ""
-                        }`}
-                      />
-                      <span className="text-[11px] truncate">
-                        {conversationTitle(conversation, index)}
+                    <span className="claude-dot live" />
+                    {liveTotal}
+                  </span>
+                )}
+                <ChevronDown size={11} className="claude-project-caret shrink-0" />
+              </button>
+
+              {/*
+                What you are working on *right now*, and nothing else.
+
+                The full list is a modal reached from "All projects…" and from
+                the new-project button. This is the other question — you have
+                three things on the go and want the one that is running — and
+                answering both in one list would bury it. The current project is
+                included even when it hasn't got a live conversation, because a
+                switcher that can't show you where you are is disorienting.
+              */}
+              {projectMenuOpen && (
+                <>
+                  <div
+                    className="fixed inset-0 z-[15]"
+                    onMouseDown={() => setProjectMenuOpen(false)}
+                  />
+                  <div className="claude-menu absolute left-0 right-0 top-full z-[16] mt-1.5 rounded-xl overflow-hidden">
+                    <div className="claude-menu-head flex items-center gap-2 px-3 pt-2.5 pb-1.5">
+                      <span className="claude-menu-label">Working on</span>
+                      <span className="flex-1" />
+                      <span className="claude-menu-count">
+                        {workingProjects.length}{" "}
+                        {workingProjects.length === 1 ? "project" : "projects"}
                       </span>
-                    </button>
+                    </div>
+                    <div className="max-h-[260px] overflow-y-auto px-1.5 pb-1.5">
+                      {workingProjects.length === 0 && (
+                        <div className="claude-menu-empty px-3 py-5 text-center">
+                          Nothing open. Pick one below.
+                        </div>
+                      )}
+                      {workingProjects.map((row) => {
+                        const live = liveCounts[row.id] ?? 0;
+                        return (
+                          <div
+                            key={row.id}
+                            className={`claude-menu-row group flex items-center gap-2 ${
+                              row.id === activeProjectId ? "current" : ""
+                            }`}
+                          >
+                            <button
+                              className="flex items-center gap-2.5 flex-1 min-w-0 text-left px-2 py-1.5"
+                              onClick={() => {
+                                if (row.id !== activeProjectId) openProject(row.id);
+                                setProjectMenuOpen(false);
+                              }}
+                              title={row.root}
+                            >
+                              <span className="claude-menu-tick shrink-0">
+                                {row.id === activeProjectId && <Check size={11} />}
+                              </span>
+                              <span className="flex flex-col min-w-0 flex-1 gap-px">
+                                <span className="claude-menu-name truncate">
+                                  {projectName(row)}
+                                </span>
+                                <span className="claude-menu-path truncate">
+                                  {collapseHome(row.root)}
+                                </span>
+                              </span>
+                            </button>
+
+                            {live > 0 && (
+                              <span
+                                className="claude-live-count shrink-0"
+                                title={`${live} running ${
+                                  live === 1 ? "conversation" : "conversations"
+                                }`}
+                              >
+                                <span className="claude-dot live" />
+                                {live}
+                              </span>
+                            )}
+
+                            {/*
+                              Closes the project — takes it off the bench and
+                              keeps it. Not a delete: it stays in Projects with
+                              its folders and its history. What it does end is
+                              the work in progress, which the title says
+                              outright when there is any.
+                            */}
+                            <button
+                              className="claude-menu-remove mr-1.5 shrink-0"
+                              onClick={() => closeWorkingProject(row.id)}
+                              title={
+                                live > 0
+                                  ? `Close — stops ${live} running ${
+                                      live === 1 ? "conversation" : "conversations"
+                                    }. The project is kept.`
+                                  : "Close — the project is kept in Projects"
+                              }
+                              aria-label={`Close ${projectName(row)}`}
+                            >
+                              <X size={11} />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
                     <button
-                      className="browser-tab-close editor-icon-btn p-0.5 rounded shrink-0"
-                      onClick={() => closeConversation(conversation)}
-                      title={live ? "Close — stops this conversation" : "Close"}
-                      aria-label="Close conversation"
+                      className="claude-menu-footer flex items-center gap-2 px-3 py-2.5 w-full text-left"
+                      onClick={() => {
+                        setProjectMenuOpen(false);
+                        setPickerOpen(true);
+                      }}
                     >
-                      <X size={10} />
+                      <FolderOpen size={11} className="opacity-70" />
+                      All projects…
                     </button>
                   </div>
-                );
-              })}
-
-              {project && (
-                <button
-                  className="browser-btn editor-icon-btn p-1 rounded shrink-0 mb-1.5"
-                  onClick={() => startNewConversation(project)}
-                  onPointerDown={(e) => e.stopPropagation()}
-                  title="New conversation (⌘T)"
-                  aria-label="New conversation"
-                >
-                  <Plus size={12} />
-                </button>
+                </>
               )}
             </div>
 
             <div
-              className="flex items-center gap-0.5 pl-1 pb-1.5 shrink-0"
+              className="flex items-center gap-0.5 shrink-0"
               onPointerDown={(e) => e.stopPropagation()}
             >
+              {project && (
+                <>
+                  <button
+                    className="claude-iconbtn"
+                    onClick={() => setHistoryOpen(true)}
+                    title="Earlier conversations in this folder"
+                    aria-label="Earlier conversations"
+                  >
+                    <History size={13} />
+                  </button>
+                  <button
+                    className="claude-iconbtn"
+                    onClick={() => void addFolder()}
+                    title="Add a folder Claude may also reach"
+                    aria-label="Add folder"
+                  >
+                    <FolderPlus size={13} />
+                  </button>
+                </>
+              )}
+              {/*
+                Projects, not *new* project. The list is where both answers
+                live: pick one you already have, or make one from its footer.
+                Going straight to the setup dialog made "I want my other
+                project" the long way round, which is the commoner of the two.
+
+                With nothing to pick from yet there is no list to show, so the
+                first project skips it.
+              */}
               <button
-                className={`editor-icon-btn p-1 rounded ${pipMode ? "on" : ""}`}
+                className="claude-iconbtn"
+                onClick={() => (projects.length ? setPickerOpen(true) : setSetupOpen(true))}
+                title="Projects…"
+                aria-label="Projects"
+              >
+                <Plus size={13} />
+              </button>
+
+              <span className="claude-sep" />
+
+              <button
+                className={`claude-iconbtn ${pipMode ? "on" : ""}`}
                 onClick={togglePip}
                 title={pipMode ? "Leave picture-in-picture" : "Picture-in-picture"}
                 aria-label="Picture in picture"
@@ -926,7 +1066,7 @@ export function ClaudeModal({
                 <PictureInPicture2 size={12} />
               </button>
               <button
-                className={`editor-icon-btn p-1 rounded ${fullscreen ? "on" : ""}`}
+                className={`claude-iconbtn ${fullscreen ? "on" : ""}`}
                 onClick={toggleFullscreen}
                 title={fullscreen ? "Restore" : "Maximize"}
                 aria-label={fullscreen ? "Restore" : "Maximize"}
@@ -935,7 +1075,7 @@ export function ClaudeModal({
                 {fullscreen ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
               </button>
               <button
-                className="editor-icon-btn p-1 rounded"
+                className="claude-iconbtn danger"
                 onClick={onClose}
                 title="Close — conversations keep running"
                 aria-label="Close"
@@ -943,209 +1083,112 @@ export function ClaudeModal({
                 <X size={13} />
               </button>
             </div>
-          </div>
+          </header>
 
           {/*
-            The toolbar. Where a browser puts the address of the page you are
-            looking at, this puts the project the conversation is running in —
-            it is the same question, and the same answer to "where am I?".
+            The conversation rail.
+
+            Segments rather than browser tabs: a conversation is one of several
+            threads in the same project, not a separate page, and a row of
+            evenly weighted pills says that better than a stack of folder tabs
+            does. With no project there is nothing to list, so the rail is not
+            drawn at all rather than sitting there empty.
           */}
-          <div className="browser-chrome browser-toolbar claude-toolbar relative flex items-center gap-1 px-2 py-1.5">
-            <button
-              className="claude-project-field flex items-center gap-2 min-w-0 flex-1 px-2.5 py-1 rounded-md"
-              onClick={() => setProjectMenuOpen((open) => !open)}
-              title={project ? project.root : "Choose a project"}
-              aria-expanded={projectMenuOpen}
+          {project && (
+            <div
+              className="claude-rail flex items-center gap-1.5 px-2 select-none cursor-grab active:cursor-grabbing"
+              onPointerDown={onDragStart}
             >
-              <FolderOpen size={12} className="shrink-0 opacity-60" />
-              <span className="text-[11px] font-medium truncate">
-                {project ? projectName(project) : "No project"}
-              </span>
-              {project && (
-                <span className="claude-project-path text-[10px] truncate">
-                  {collapseHome(project.root)}
-                </span>
-              )}
-              <span className="flex-1" />
-              <ChevronDown size={11} className="shrink-0 opacity-60" />
-            </button>
-
-            {/*
-              What you are working on *right now*, and nothing else.
-
-              The full list is a modal reached from "All projects…" and from the
-              new-project button. This is the other question — you have three
-              things on the go and want the one that is running — and answering
-              both in one list would bury it. Every row here has a live
-              conversation behind it; the current project is included even when
-              it hasn't got one, because a switcher that can't show you where
-              you are is disorienting.
-            */}
-            {projectMenuOpen && (
-              <>
-                <div
-                  className="fixed inset-0 z-[15]"
-                  onMouseDown={() => setProjectMenuOpen(false)}
-                />
-                <div className="claude-project-menu absolute left-2 right-2 top-full z-[16] mt-0.5 rounded-lg overflow-hidden">
-                  <div className="claude-history-head flex items-center gap-2 px-3 py-1.5">
-                    <span className="text-[10px] font-semibold uppercase tracking-wide">
-                      Working on
-                    </span>
-                    <span className="flex-1" />
-                    <span className="text-[10px] claude-muted">
-                      {workingProjects.length}{" "}
-                      {workingProjects.length === 1 ? "project" : "projects"}
-                    </span>
-                  </div>
-                  <div className="max-h-[240px] overflow-y-auto py-1">
-                    {workingProjects.length === 0 && (
-                      <div className="editor-workspace-empty px-3 py-4 text-center text-[11px]">
-                        Nothing open. Pick one below.
-                      </div>
-                    )}
-                    {workingProjects.map((row) => {
-                      const live = liveCounts[row.id] ?? 0;
-                      return (
-                        <div
-                          key={row.id}
-                          className={`editor-workspace-item group flex items-center gap-2.5 px-3 py-1.5 ${
-                            row.id === activeProjectId ? "current" : ""
+              <div className="claude-rail-scroll flex items-center gap-1 flex-1 min-w-0 overflow-x-auto">
+                {conversations.map((conversation, index) => {
+                  const live = conversation.endedAt === null && isOpen(conversation.sessionId);
+                  const active = conversation.sessionId === currentSessionId;
+                  return (
+                    <div
+                      key={conversation.sessionId}
+                      role="tab"
+                      aria-selected={active}
+                      className={`claude-conv group shrink-0 flex items-center ${
+                        active ? "active" : ""
+                      }`}
+                      // The rail is the drag handle; a conversation is not.
+                      onPointerDown={(e) => e.stopPropagation()}
+                    >
+                      <button
+                        className="claude-conv-main flex items-center gap-1.5 min-w-0"
+                        onClick={() => showConversation(conversation)}
+                        title={
+                          attention[conversation.sessionId]
+                            ? "Waiting for you"
+                            : live
+                              ? "Running"
+                              : "Not running — opening it resumes the conversation"
+                        }
+                      >
+                        <span
+                          className={`claude-dot shrink-0 ${live ? "live" : ""} ${
+                            attention[conversation.sessionId] ? "wants-you" : ""
                           }`}
-                        >
-                          <button
-                            className="flex items-center gap-2.5 flex-1 min-w-0 text-left"
-                            onClick={() => {
-                              if (row.id !== activeProjectId) openProject(row.id);
-                              setProjectMenuOpen(false);
-                            }}
-                            title={row.root}
-                          >
-                            <span className="w-3 shrink-0 flex items-center">
-                              {row.id === activeProjectId && (
-                                <Check size={11} className="editor-workspace-check" />
-                              )}
-                            </span>
-                            <span className="flex flex-col min-w-0 flex-1">
-                              <span className="text-[11px] truncate">{projectName(row)}</span>
-                              <span className="editor-workspace-path text-[10px] truncate">
-                                {collapseHome(row.root)}
-                              </span>
-                            </span>
-                          </button>
+                        />
+                        <span className="claude-conv-title truncate">
+                          {conversationTitle(conversation, index)}
+                        </span>
+                      </button>
+                      <button
+                        className="claude-conv-close shrink-0"
+                        onClick={() => closeConversation(conversation)}
+                        title={live ? "Close — stops this conversation" : "Close"}
+                        aria-label="Close conversation"
+                      >
+                        <X size={10} />
+                      </button>
+                    </div>
+                  );
+                })}
 
-                          {live > 0 && (
-                            <span
-                              className="claude-live-count text-[10px] shrink-0"
-                              title={`${live} running ${
-                                live === 1 ? "conversation" : "conversations"
-                              }`}
-                            >
-                              <span className="claude-dot live" /> {live}
-                            </span>
-                          )}
-
-                          {/*
-                            Closes the project — takes it off the bench and
-                            keeps it. Not a delete: it stays in Projects with
-                            its folders and its history. What it does end is the
-                            work in progress, which the title says outright
-                            when there is any.
-                          */}
-                          <button
-                            className="editor-workspace-remove p-1 rounded shrink-0"
-                            onClick={() => closeWorkingProject(row.id)}
-                            title={
-                              live > 0
-                                ? `Close — stops ${live} running ${
-                                    live === 1 ? "conversation" : "conversations"
-                                  }. The project is kept.`
-                                : "Close — the project is kept in Projects"
-                            }
-                            aria-label={`Close ${projectName(row)}`}
-                          >
-                            <X size={11} />
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <button
-                    className="claude-menu-footer flex items-center gap-2 px-3 py-2 w-full text-left text-[11px]"
-                    onClick={() => {
-                      setProjectMenuOpen(false);
-                      setPickerOpen(true);
-                    }}
-                  >
-                    <FolderOpen size={11} className="opacity-60" />
-                    All projects…
-                  </button>
-                </div>
-              </>
-            )}
-
-            {project && (
-              <>
                 <button
-                  className="browser-btn editor-icon-btn p-1.5 rounded shrink-0"
-                  onClick={() => setHistoryOpen(true)}
-                  title="Earlier conversations in this folder"
-                  aria-label="Earlier conversations"
+                  className={`claude-newconv shrink-0 flex items-center gap-1 ${
+                    conversations.length === 0 ? "solo" : ""
+                  }`}
+                  onClick={() => startNewConversation(project)}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  title="New conversation (⌘T)"
+                  aria-label="New conversation"
                 >
-                  <History size={13} />
+                  <Plus size={12} />
+                  {conversations.length === 0 && <span>New conversation</span>}
                 </button>
-                <button
-                  className="browser-btn editor-icon-btn p-1.5 rounded shrink-0"
-                  onClick={() => void addFolder()}
-                  title="Add a folder Claude may also reach"
-                  aria-label="Add folder"
-                >
-                  <FolderPlus size={13} />
-                </button>
-              </>
-            )}
-            {/*
-              Projects, not *new* project. The list is where both answers live:
-              pick one you already have, or make one from its footer. Going
-              straight to the setup dialog made "I want my other project" the
-              long way round, which is the commoner of the two.
-
-              With nothing to pick from yet there is no list to show, so the
-              first project skips it.
-            */}
-            <button
-              className="browser-btn editor-icon-btn p-1.5 rounded shrink-0"
-              onClick={() => (projects.length ? setPickerOpen(true) : setSetupOpen(true))}
-              title="Projects…"
-              aria-label="Projects"
-            >
-              <Plus size={13} />
-            </button>
-          </div>
+              </div>
+            </div>
+          )}
 
           {/* Body */}
           <div className="flex-1 min-h-0 relative claude-body">
             {probing && !probe && (
               <Centered>
-                <span className="text-[12px]">Looking for Claude Code…</span>
+                <span className="claude-spinner" />
+                <span className="claude-empty-body">Looking for Claude Code…</span>
               </Centered>
             )}
 
             {notInstalled && (
               <Centered>
-                <span className="text-[13px] font-semibold">Claude Code isn’t installed</span>
-                <span className="text-[11px] claude-muted max-w-[520px] text-center">
+                <span className="claude-medallion warn">
+                  <AlertTriangle size={18} />
+                </span>
+                <span className="claude-empty-title">Claude Code isn’t installed</span>
+                <span className="claude-empty-body max-w-[460px] text-center">
                   FigyTerm runs the <code>claude</code> CLI; it doesn’t bundle one. Install it,
                   then check again — the search includes your login shell’s PATH, so a version
                   manager’s directory counts.
                 </span>
                 {probe?.error && <pre className="claude-error">{probe.error}</pre>}
                 <button
-                  className="editor-dialog-btn primary px-3 py-1.5 rounded-md text-[11px]"
+                  className="claude-btn primary"
                   onClick={() => void runProbe()}
                   disabled={probing}
                 >
-                  <RotateCcw size={11} className="inline mr-1.5 -mt-0.5" />
+                  <RotateCcw size={12} />
                   Check again
                 </button>
               </Centered>
@@ -1153,13 +1196,14 @@ export function ClaudeModal({
 
             {brokenInstall && (
               <Centered>
-                <span className="text-[13px] font-semibold">Claude Code wouldn’t start</span>
-                <span className="text-[11px] claude-muted">{probe?.path}</span>
+                <span className="claude-medallion warn">
+                  <AlertTriangle size={18} />
+                </span>
+                <span className="claude-empty-title">Claude Code wouldn’t start</span>
+                <span className="claude-empty-body font-mono">{probe?.path}</span>
                 {probe?.error && <pre className="claude-error">{probe.error}</pre>}
-                <button
-                  className="editor-dialog-btn primary px-3 py-1.5 rounded-md text-[11px]"
-                  onClick={() => void runProbe()}
-                >
+                <button className="claude-btn primary" onClick={() => void runProbe()}>
+                  <RotateCcw size={12} />
                   Check again
                 </button>
               </Centered>
@@ -1175,49 +1219,47 @@ export function ClaudeModal({
               both cases the next thing to do is pick something.
             */}
             {probe?.found && probe.version && !project && !setupOpen && (
-              <div className="absolute inset-0 flex flex-col items-center pt-[6vh] pb-5 px-6 gap-4 overflow-hidden">
+              <div className="claude-empty absolute inset-0 flex flex-col items-center overflow-hidden">
                 <div className="flex flex-col items-center gap-3 shrink-0">
-                  <span className="text-[13px] font-semibold">
+                  <span className="claude-medallion">
+                    <FolderOpen size={18} />
+                  </span>
+                  <span className="claude-empty-title">
                     {projects.length ? "Nothing open" : "No project yet"}
                   </span>
-                  <span className="text-[11px] claude-muted max-w-[460px] text-center">
+                  <span className="claude-empty-body max-w-[440px] text-center">
                     {projects.length
                       ? "Open one to pick up where you left off — everything is where you left it. You can have several open at once."
                       : "A project is a folder Claude works in, plus any other folders it may reach. It takes the folder’s name."}
                   </span>
-                  <button
-                    className="editor-dialog-btn primary flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px]"
-                    onClick={() => setSetupOpen(true)}
-                  >
+                  <button className="claude-btn primary" onClick={() => setSetupOpen(true)}>
                     <FolderPlus size={12} />
                     New project…
                   </button>
                 </div>
 
                 {projects.length > 0 && (
-                  <div className="claude-history-panel flex flex-col flex-1 min-h-0 w-full max-w-[560px] rounded-lg overflow-hidden">
-                    <div className="claude-history-head flex items-center gap-2 px-3.5 py-2 shrink-0">
-                      <FolderOpen size={11} className="editor-palette-icon" />
-                      <span className="text-[10px] font-semibold uppercase tracking-wide">
-                        Recent projects
-                      </span>
+                  <div className="claude-panel flex flex-col flex-1 min-h-0 w-full max-w-[520px] overflow-hidden">
+                    <div className="claude-panel-head flex items-center gap-2 shrink-0">
+                      <FolderOpen size={11} />
+                      <span>Recent projects</span>
                     </div>
-                    <div className="flex-1 min-h-0 overflow-y-auto py-1">
+                    <div className="flex-1 min-h-0 overflow-y-auto p-1.5">
                       {recentProjects.map((row) => (
                         <button
                           key={row.id}
-                          className="editor-workspace-item flex items-center gap-2.5 px-3.5 py-2 w-full text-left"
+                          className="claude-row flex items-center gap-2.5 w-full text-left"
                           onClick={() => openProject(row.id)}
                           title={row.root}
                         >
-                          <span className="flex flex-col min-w-0 flex-1">
-                            <span className="text-[12px] truncate">{projectName(row)}</span>
-                            <span className="editor-workspace-path text-[10px] truncate">
+                          <span className="flex flex-col min-w-0 flex-1 gap-px">
+                            <span className="claude-row-name truncate">{projectName(row)}</span>
+                            <span className="claude-row-path truncate">
                               {collapseHome(row.root)}
                             </span>
                           </span>
                           {row.conversations.length > 0 && (
-                            <span className="claude-field-hint shrink-0">
+                            <span className="claude-badge shrink-0">
                               {row.conversations.length}{" "}
                               {row.conversations.length === 1 ? "conversation" : "conversations"}
                             </span>
@@ -1237,12 +1279,15 @@ export function ClaudeModal({
               none of them has a process yet.
             */}
             {probe?.found && probe.version && project && !setupOpen && !currentIsMounted && (
-              <div className="absolute inset-0 flex flex-col items-center pt-[6vh] pb-5 px-6 gap-4 overflow-hidden">
+              <div className="claude-empty absolute inset-0 flex flex-col items-center overflow-hidden">
                 <div className="flex flex-col items-center gap-3 shrink-0">
-                  <span className="text-[13px] font-semibold">
+                  <span className="claude-medallion">
+                    <img src="/claude-code.png" alt="" />
+                  </span>
+                  <span className="claude-empty-title">
                     {conversations.length ? "Nothing open" : "No conversation yet"}
                   </span>
-                  <span className="text-[11px] claude-muted max-w-[460px] text-center">
+                  <span className="claude-empty-body max-w-[440px] text-center">
                     {conversations.length
                       ? "Pick up where you left off, or start something new."
                       : `Claude will run in ${projectName(project)}, and can reach ${
@@ -1255,16 +1300,13 @@ export function ClaudeModal({
                   </span>
                   <div className="flex items-center gap-2">
                     {current && (
-                      <button
-                        className="editor-dialog-btn flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px]"
-                        onClick={() => resumeConversation(current)}
-                      >
+                      <button className="claude-btn" onClick={() => resumeConversation(current)}>
                         <RotateCcw size={12} />
                         Resume “{conversationTitle(current, 0)}”
                       </button>
                     )}
                     <button
-                      className="editor-dialog-btn primary flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px]"
+                      className="claude-btn primary"
                       onClick={() => startNewConversation(project)}
                     >
                       <Plus size={12} />
@@ -1279,12 +1321,10 @@ export function ClaudeModal({
                   "what was I doing here last time" is the question, and the
                   answer is more often one of these than a blank conversation.
                 */}
-                <div className="claude-history-panel flex flex-col flex-1 min-h-0 w-full max-w-[560px] rounded-lg overflow-hidden">
-                  <div className="claude-history-head flex items-center gap-2 px-3.5 py-2 shrink-0">
-                    <History size={11} className="editor-palette-icon" />
-                    <span className="text-[10px] font-semibold uppercase tracking-wide">
-                      Earlier in this folder
-                    </span>
+                <div className="claude-panel flex flex-col flex-1 min-h-0 w-full max-w-[520px] overflow-hidden">
+                  <div className="claude-panel-head flex items-center gap-2 shrink-0">
+                    <History size={11} />
+                    <span>Earlier in this folder</span>
                   </div>
                   <div className="flex-1 min-h-0 overflow-y-auto py-1">
                     <HistoryList
@@ -1383,18 +1423,23 @@ export function ClaudeModal({
             )}
           </div>
 
-          {/* Folders strip */}
+          {/*
+            The status bar: what this conversation can reach, and nothing else
+            that competes with it. It reads left to right as one sentence —
+            the folder it runs in, then every other folder it was granted.
+          */}
           <div className="claude-folders flex items-center gap-2 px-3 shrink-0">
             {project ? (
               <>
-                <span className="claude-folder-primary text-[10px] truncate" title={project.root}>
+                <FolderOpen size={10} className="claude-folder-icon shrink-0" />
+                <span className="claude-folder-primary truncate" title={project.root}>
                   {collapseHome(project.root)}
                 </span>
 
                 {current?.launchedWith.extraDirs.map((dir) => (
                   <span
                     key={dir}
-                    className="claude-chip text-[10px] shrink-0"
+                    className="claude-chip shrink-0"
                     title={`${dir} — this conversation can reach it`}
                   >
                     {collapseHome(dir)}
@@ -1410,7 +1455,7 @@ export function ClaudeModal({
                   ungrantedDirs(project, current).map((dir) => (
                     <button
                       key={dir}
-                      className="claude-chip pending text-[10px] shrink-0"
+                      className="claude-chip pending shrink-0"
                       onClick={() => grantToConversation(dir)}
                       title={`${dir} — not in this conversation yet. Sends /add-dir.`}
                     >
@@ -1419,13 +1464,13 @@ export function ClaudeModal({
                   ))}
 
                 {current && sentNotes[current.sessionId] && (
-                  <span className="claude-sent-note text-[10px] truncate">
+                  <span className="claude-sent-note truncate">
                     sent <code>/add-dir {collapseHome(sentNotes[current.sessionId])}</code>
                   </span>
                 )}
               </>
             ) : (
-              <span className="claude-folder-primary text-[10px]">No folder</span>
+              <span className="claude-folder-primary">No folder</span>
             )}
 
             <div className="flex-1" />
@@ -1439,7 +1484,7 @@ export function ClaudeModal({
             */}
             {current && current.endedAt !== null && currentIsMounted && (
               <button
-                className="claude-resume flex items-center gap-1.5 text-[10px] shrink-0"
+                className="claude-resume flex items-center gap-1.5 shrink-0"
                 onClick={() => resumeConversation(current)}
                 title="Start a new process and continue this conversation"
               >
@@ -1488,7 +1533,7 @@ function relativeToRoot(root: string | undefined, path: string): string {
 
 function Centered({ children }: { children: React.ReactNode }) {
   return (
-    <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6">
+    <div className="absolute inset-0 flex flex-col items-center justify-center gap-3.5 px-6">
       {children}
     </div>
   );

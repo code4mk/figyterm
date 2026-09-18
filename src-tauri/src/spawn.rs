@@ -16,6 +16,18 @@
 //! shim directory, so none of the Node-based servers. The user's shell profile
 //! is where those were added, and nothing has sourced it. [`search_path`]
 //! rebuilds what they would have had.
+//!
+//! **Windows has the same problem for a different reason.** Its `PATH` is not
+//! assembled by a profile but held in the registry, and a process is handed a
+//! *copy* of it at launch: install a server with winget while the app is open
+//! and it stays invisible until the app is restarted, because nothing tells a
+//! running process that the environment moved. So the registry is read
+//! directly, and the directories each installer is known to write to are added
+//! whether or not anybody put them on `PATH` — winget's shim directory, npm's
+//! global prefix, scoop's shims, Chocolatey's bin, `.cargo\bin`, `go\bin`.
+//!
+//! Everything here is cached for the life of the process except where it says
+//! otherwise, and costs nothing on machines where the directories don't exist.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -28,8 +40,12 @@ use std::sync::OnceLock;
 const SYSTEM_PREFIXES: &str =
     "/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
 
+/// Linux, where `/snap/bin` is the one people are surprised by: a snap puts
+/// its commands there and adds it to `PATH` from `/etc/profile.d`, which a
+/// `.desktop` launch never reads.
 #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
-const SYSTEM_PREFIXES: &str = "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/usr/games";
+const SYSTEM_PREFIXES: &str =
+    "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/usr/games:/snap/bin:/var/lib/flatpak/exports/bin";
 
 /// Per-toolchain bin directories, relative to `$HOME`.
 ///
@@ -52,6 +68,27 @@ const HOME_PREFIXES: &[&str] = &[
     ".volta/bin",
     ".yarn/bin",
     ".npm-global/bin",
+    // pnpm's global bin, which is where `pnpm add -g` puts a server.
+    ".local/share/pnpm",
+    // Nix, per-user.
+    ".nix-profile/bin",
+    ".local/state/nix/profile/bin",
+    // Flatpak's per-user exports, the counterpart to the system one above.
+    ".local/share/flatpak/exports/bin",
+    /*
+      Version-manager shim directories.
+
+      The login shell below is the real answer for these — a shim directory is
+      useless without the manager's own environment — but it is not always
+      reachable: a `.desktop` launch may have no `SHELL`, and a profile that
+      hangs is given up on. A shim found here still resolves to the right
+      version through the manager's config, so it is a better fallback than
+      nothing.
+    */
+    ".asdf/shims",
+    ".local/share/mise/shims",
+    ".rbenv/shims",
+    ".pyenv/shims",
 ];
 
 /// How long the login shell gets to report its `PATH` before we give up on it.
@@ -62,6 +99,79 @@ const HOME_PREFIXES: &[&str] = &[
 /// a user will sit through.
 #[cfg(not(target_os = "windows"))]
 const LOGIN_SHELL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// How to ask a shell for its `PATH`, which is not the same question everywhere.
+///
+/// `printf %s "$PATH"` is the POSIX answer and is wrong in two shells people
+/// actually use:
+///
+/// - **fish** keeps `PATH` as a *list*, and quoting one joins it with spaces.
+///   The reply comes back `/usr/bin /bin /opt/homebrew/bin` — which passes a
+///   naive "looks like a path" check, splits on `:` into a single nonsense
+///   entry, and quietly finds nothing. `string join` is fish's own way to
+///   produce the colon-separated form.
+/// - **nushell** is not POSIX at all: no `-lic`, no `$PATH` string, and `$env.PATH`
+///   is a list. It gets its own spelling too.
+///
+/// `-l` sources the profile, which is the point of asking. `-i` as well, because
+/// on zsh — the macOS default — `PATH` additions overwhelmingly live in
+/// `.zshrc`, which only an interactive shell reads.
+#[cfg_attr(target_os = "windows", allow(dead_code))]
+fn probe_script(shell: &str) -> (&'static str, &'static str) {
+    let name = Path::new(shell)
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+
+    match name.as_str() {
+        "fish" => ("-lic", "string join : $PATH"),
+        "nu" | "nushell" => ("-lc", "$env.PATH | str join (char esep)"),
+        _ => ("-lic", "printf %s \"$PATH\""),
+    }
+}
+
+/// Whether what a shell printed is a `PATH` rather than a greeting.
+///
+/// Profiles print things — version notices, fortunes, a prompt framework's
+/// first run. What comes back has to look like a list of absolute directories
+/// before it is searched: colon-separated, or a single absolute path with no
+/// spaces around it. A line of prose passes neither test.
+#[cfg_attr(target_os = "windows", allow(dead_code))]
+fn usable_path(text: &str) -> Option<&str> {
+    let text = text.trim();
+    if text.is_empty() {
+        return None;
+    }
+
+    // The last line only: anything a profile printed came before it.
+    let candidate = text.lines().next_back()?.trim();
+    if candidate.is_empty() {
+        return None;
+    }
+
+    if candidate.contains(':') {
+        /*
+          Colon-separated, so this is the shape being asked for. At least one
+          entry has to be an absolute directory — that is what separates a
+          `PATH` from a sentence that happens to contain a colon — but not all
+          of them, because a `.` or a relative entry in somebody's `PATH` is
+          their business and no reason to throw the rest away.
+
+          Spaces inside an entry are fine and deliberate: `/Applications/My
+          App/bin` is a real directory on a real Mac.
+        */
+        let any_absolute = candidate
+            .split(':')
+            .any(|entry| entry.starts_with('/') && entry.len() > 1);
+        return any_absolute.then_some(candidate);
+    }
+
+    // No colon: either a single directory, or fish having joined its list with
+    // spaces. ` /` is what tells those apart — one directory has no second one
+    // starting inside it.
+    let single_directory = candidate.starts_with('/') && !candidate.contains(" /");
+    single_directory.then_some(candidate)
+}
 
 /// The `PATH` the user's login shell would have, asked for once.
 ///
@@ -83,14 +193,10 @@ fn login_path() -> Option<&'static str> {
                 return None;
             }
 
-            // `-l` sources the profile, which is the whole point. `-i` as well,
-            // because on zsh — the macOS default — `PATH` additions overwhelmingly
-            // live in `.zshrc`, which only an interactive shell reads.
+            let (flags, script) = probe_script(&shell);
             let (sender, receiver) = std::sync::mpsc::channel();
             std::thread::spawn(move || {
-                let output = Command::new(&shell)
-                    .args(["-lic", "printf %s \"$PATH\""])
-                    .output();
+                let output = Command::new(&shell).args([flags, script]).output();
                 // The receiver is gone on timeout; nothing to do about it here.
                 let _ = sender.send(output);
             });
@@ -100,12 +206,8 @@ fn login_path() -> Option<&'static str> {
                 return None;
             }
 
-            // Profiles print things. Anything that isn't a plausible PATH — no
-            // separator and no leading slash — is somebody's greeting, not an
-            // answer, and is better ignored than searched.
             let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            let plausible = path.contains(':') || path.starts_with('/');
-            (!path.is_empty() && plausible).then_some(path)
+            usable_path(&path).map(str::to_string)
         })
         .as_deref()
 }
@@ -141,12 +243,262 @@ pub fn search_path() -> String {
     parts.join(":")
 }
 
-/// Windows inherits a usable `PATH` — there is no "launched from Finder with a
-/// stripped environment" equivalent, and no profile to source — so it is used
-/// exactly as it arrives.
+/// Where each Windows installer puts the things it installs.
+///
+/// Every one of these is a real answer to "I installed it and the editor still
+/// says it isn't there". They are tried whether or not they are on `PATH`,
+/// because the `PATH` this process was handed is a snapshot from launch time
+/// and an install that happened since is not in it.
+///
+/// `{L}` is `LOCALAPPDATA`, `{A}` is `APPDATA`, `{U}` is `USERPROFILE`, `{D}`
+/// is `ProgramData` and `{P}` is `ProgramFiles` — spelled short here because
+/// the table is the point, not the expansion.
+#[cfg(target_os = "windows")]
+const WINDOWS_PREFIXES: &[&str] = &[
+    // winget's shim directory. Added to the user `PATH` by the installer,
+    // which only helps processes started afterwards.
+    r"{L}\Microsoft\WinGet\Links",
+    // `npm i -g`, which is how most of the servers in the table are installed.
+    r"{A}\npm",
+    // scoop, per-user and global.
+    r"{U}\scoop\shims",
+    r"{D}\scoop\shims",
+    // Chocolatey.
+    r"{D}\chocolatey\bin",
+    // rustup, for rust-analyzer.
+    r"{U}\.cargo\bin",
+    // `go install`, for gopls.
+    r"{U}\go\bin",
+    // `dotnet tool install --global`, for csharp-ls.
+    r"{U}\.dotnet\tools",
+    // The Node-adjacent runtimes, each of which installs global binaries.
+    r"{U}\.bun\bin",
+    r"{U}\.deno\bin",
+    r"{L}\Volta\bin",
+    r"{L}\Yarn\bin",
+    r"{L}\pnpm",
+    // The MSI installers, for node itself and for clangd.
+    r"{P}\nodejs",
+    r"{P}\LLVM\bin",
+];
+
+/// Directories to look inside for a `Scripts` folder, `pip --user` style.
+///
+/// Python's user install location carries the version in its name —
+/// `Python311\Scripts` — so it cannot be written as a fixed string. These are
+/// the two parents worth enumerating.
+#[cfg(target_os = "windows")]
+const WINDOWS_PYTHON_PARENTS: &[&str] = &[r"{A}\Python", r"{L}\Programs\Python"];
+
+/// How long `reg.exe` gets to answer before the registry is given up on.
+#[cfg(target_os = "windows")]
+const REG_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// The `Path` value out of `reg query` output.
+///
+/// Its shape is `    Path    REG_EXPAND_SZ    C:\…;C:\…`, with the value free
+/// to contain spaces — so it is split off after the type rather than by
+/// counting columns. Parsed as its own function, and compiled — and tested —
+/// on every platform: this is Windows-only logic, and the machine writing it is
+/// not a Windows machine. A test that only runs where the bug cannot be
+/// reproduced is the one worth having.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn parse_reg_path(output: &str) -> Option<String> {
+    for line in output.lines() {
+        let trimmed = line.trim_start();
+        // `continue`, never `?`: `reg query` opens with a blank line and then
+        // the key's own name, neither of which has a second column. Giving up
+        // on the first of them would mean never reading the value at all.
+        let Some((name, rest)) = trimmed.split_once(char::is_whitespace) else {
+            continue;
+        };
+        if !name.eq_ignore_ascii_case("Path") {
+            continue;
+        }
+        let rest = rest.trim_start();
+        let Some((kind, value)) = rest.split_once(char::is_whitespace) else {
+            continue;
+        };
+        if !kind.starts_with("REG_") {
+            continue;
+        }
+        let value = value.trim();
+        if !value.is_empty() {
+            return Some(value.to_string());
+        }
+    }
+    None
+}
+
+/// Expands `%NAME%` references the way the registry's `REG_EXPAND_SZ` means them.
+///
+/// An unknown name is left exactly as written: a `PATH` entry naming a variable
+/// this process doesn't have is a directory that doesn't exist, and a wrong
+/// guess would be a directory that does.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn expand_windows_vars(value: &str, lookup: &dyn Fn(&str) -> Option<String>) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut rest = value;
+
+    while let Some(start) = rest.find('%') {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 1..];
+        match after.find('%') {
+            Some(end) => {
+                let name = &after[..end];
+                match lookup(name) {
+                    Some(expanded) => out.push_str(&expanded),
+                    None => {
+                        out.push('%');
+                        out.push_str(name);
+                        out.push('%');
+                    }
+                }
+                rest = &after[end + 1..];
+            }
+            // An unpaired `%` is literal text, not the start of anything.
+            None => {
+                out.push('%');
+                out.push_str(after);
+                return out;
+            }
+        }
+    }
+
+    out.push_str(rest);
+    out
+}
+
+/// The `PATH` the registry holds, user and system, asked for once.
+///
+/// This is what a *newly started* program would be given, which is exactly what
+/// a running one cannot see. Reading it is how an install that happened while
+/// the app was open becomes visible without a restart.
+#[cfg(target_os = "windows")]
+fn registry_path() -> Vec<String> {
+    {
+        const KEYS: [&str; 2] = [
+            r"HKCU\Environment",
+            r"HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment",
+        ];
+
+        KEYS.iter()
+            .filter_map(|key| {
+                // Through a thread with a deadline: `reg.exe` is ordinarily
+                // instant, but it talks to a service, and a machine where that
+                // is wedged must not take the editor's startup with it.
+                let key = key.to_string();
+                let (sender, receiver) = std::sync::mpsc::channel();
+                std::thread::spawn(move || {
+                    let mut command = Command::new("reg");
+                    command.args(["query", &key, "/v", "Path"]);
+                    {
+                        use std::os::windows::process::CommandExt;
+                        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+                        command.creation_flags(CREATE_NO_WINDOW);
+                    }
+                    let _ = sender.send(command.output());
+                });
+
+                let output = receiver.recv_timeout(REG_TIMEOUT).ok()?.ok()?;
+                if !output.status.success() {
+                    return None;
+                }
+                let raw = String::from_utf8_lossy(&output.stdout);
+                let value = parse_reg_path(&raw)?;
+                Some(expand_windows_vars(&value, &|name| std::env::var(name).ok()))
+            })
+            .collect()
+    }
+}
+
+/// How long a computed Windows search path is reused for.
+///
+/// Long enough that one detection pass — two dozen programs, each asking —
+/// reads the registry and the Python directories once. Short enough that
+/// "Check again", pressed after installing something, actually checks again:
+/// nobody installs a language server in ten seconds.
+#[cfg(target_os = "windows")]
+const SEARCH_PATH_TTL: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Every directory a program might be found in, in search order.
+///
+/// The inherited `PATH` leads — it is what the user's shell would use, and a
+/// development run from a terminal should not be second-guessed — then the
+/// registry, then the places installers write to.
 #[cfg(target_os = "windows")]
 pub fn search_path() -> String {
-    std::env::var("PATH").unwrap_or_default()
+    use std::sync::Mutex;
+    use std::time::Instant;
+
+    static CACHE: Mutex<Option<(Instant, String)>> = Mutex::new(None);
+
+    if let Ok(cache) = CACHE.lock() {
+        if let Some((at, path)) = cache.as_ref() {
+            if at.elapsed() < SEARCH_PATH_TTL {
+                return path.clone();
+            }
+        }
+    }
+
+    let mut parts: Vec<String> = Vec::new();
+    let mut push = |dir: &str| {
+        let dir = dir.trim_end_matches('\\');
+        if !dir.is_empty() && !parts.iter().any(|seen| seen.eq_ignore_ascii_case(dir)) {
+            parts.push(dir.to_string());
+        }
+    };
+
+    if let Ok(inherited) = std::env::var("PATH") {
+        inherited.split(';').for_each(&mut push);
+    }
+    for value in registry_path() {
+        value.split(';').for_each(&mut push);
+    }
+
+    let expand = |template: &str| -> Option<String> {
+        let mut out = template.to_string();
+        for (token, var) in [
+            ("{L}", "LOCALAPPDATA"),
+            ("{A}", "APPDATA"),
+            ("{U}", "USERPROFILE"),
+            ("{D}", "ProgramData"),
+            ("{P}", "ProgramFiles"),
+        ] {
+            if out.contains(token) {
+                out = out.replace(token, &std::env::var(var).ok()?);
+            }
+        }
+        Some(out)
+    };
+
+    for template in WINDOWS_PREFIXES {
+        if let Some(dir) = expand(template) {
+            push(&dir);
+        }
+    }
+
+    // `…\Python313\Scripts`, whichever versions are installed.
+    for template in WINDOWS_PYTHON_PARENTS {
+        let Some(parent) = expand(template) else {
+            continue;
+        };
+        let Ok(entries) = std::fs::read_dir(&parent) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let scripts = entry.path().join("Scripts");
+            if scripts.is_dir() {
+                push(&scripts.to_string_lossy());
+            }
+        }
+    }
+
+    let joined = parts.join(";");
+    if let Ok(mut cache) = CACHE.lock() {
+        *cache = Some((Instant::now(), joined.clone()));
+    }
+    joined
 }
 
 /// Whether `path` is a file this platform would agree to execute.
@@ -173,6 +525,12 @@ fn is_executable(path: &Path) -> bool {
 /// through in that case, so the error they get is the ordinary one; callers
 /// *asking whether it is installed* read `None` as the answer.
 pub fn find_program(command: &str) -> Option<PathBuf> {
+    // `~` is the shell's, not the filesystem's, and a path typed into the
+    // settings panel never passed through one. Expanded here so that pasting
+    // `~/dev/tools/my-server` means what it looks like it means.
+    let expanded = expand_home(command);
+    let command = expanded.as_deref().unwrap_or(command);
+
     // An explicit path is already an answer, give or take the extension.
     let has_separator = command.contains('/') || command.contains('\\');
 
@@ -216,6 +574,21 @@ pub fn find_program(command: &str) -> Option<PathBuf> {
 
     let path = search_path();
     std::env::split_paths(&path).find_map(|dir| candidates(&dir))
+}
+
+/// `~/…` against the user's home, or `None` when there is no `~` to expand.
+///
+/// Only a leading `~/` (or `~\\` on Windows): a bare `~` is a directory nobody
+/// means to execute, and `~other/bin` is another user's home, which this has no
+/// business guessing at.
+fn expand_home(command: &str) -> Option<String> {
+    let rest = command.strip_prefix('~')?;
+    let rest = rest.strip_prefix('/').or_else(|| rest.strip_prefix('\\'))?;
+
+    let home = std::env::var("HOME")
+        .ok()
+        .or_else(|| std::env::var("USERPROFILE").ok())?;
+    Some(format!("{}/{rest}", home.trim_end_matches(['/', '\\'])))
 }
 
 /// The directory holding a `.NET` runtime, for tools that cannot find one.
@@ -295,12 +668,22 @@ pub fn command(program: &str) -> Command {
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
 
+    /*
+      The repaired `PATH` goes to the child on every platform, and on Windows
+      that is not decoration.
+
+      A Node-based server is a `.cmd` shim whose first act is to run `node`, and
+      `rust-analyzer` shells out to `cargo`. Resolving the shim while handing it
+      the *unrepaired* environment means the thing we just found starts and then
+      fails to find its own runtime — which surfaces as a language server that
+      exits immediately for no visible reason, on exactly the machines this
+      module exists for.
+    */
+    cmd.env("PATH", search_path());
+
     #[cfg(not(target_os = "windows"))]
-    {
-        cmd.env("PATH", search_path());
-        if let Ok(home) = std::env::var("HOME") {
-            cmd.env("HOME", home);
-        }
+    if let Ok(home) = std::env::var("HOME") {
+        cmd.env("HOME", home);
     }
 
     // Only when the user hasn't decided for themselves. Someone who set
@@ -319,11 +702,103 @@ pub fn command(program: &str) -> Command {
 mod tests {
     use super::*;
 
+    /*
+      The tests below cover Windows and fish, neither of which this is being
+      written on. That is the point: the logic they check is precisely the
+      logic nobody here can reproduce a bug in, so it is kept as pure functions
+      compiled everywhere rather than hidden behind a `cfg` that would make
+      them unrunnable.
+    */
+
+    #[test]
+    fn a_registry_path_is_read_from_after_its_type() {
+        // `reg query` output, verbatim: a blank line, the key, then the value
+        // — whose own spaces must not be mistaken for column separators.
+        let output = "\r\nHKEY_CURRENT_USER\\Environment\r\n    Path    REG_EXPAND_SZ    C:\\Users\\Sam\\AppData\\Local\\Microsoft\\WinGet\\Links;C:\\Program Files\\nodejs\r\n\r\n";
+        assert_eq!(
+            parse_reg_path(output).as_deref(),
+            Some("C:\\Users\\Sam\\AppData\\Local\\Microsoft\\WinGet\\Links;C:\\Program Files\\nodejs")
+        );
+    }
+
+    #[test]
+    fn a_registry_read_survives_the_lines_that_are_not_values() {
+        // The bug this test exists for: the key's own name has no second
+        // column, and giving up there meant never reading the value below it.
+        assert_eq!(parse_reg_path("\r\nHKEY_CURRENT_USER\\Environment\r\n"), None);
+        assert_eq!(parse_reg_path(""), None);
+        // A different value in the same key is not the one being asked for.
+        assert_eq!(parse_reg_path("    TEMP    REG_SZ    C:\\Temp"), None);
+    }
+
+    #[test]
+    fn registry_variables_expand_and_unknown_ones_are_left_alone() {
+        let lookup = |name: &str| match name {
+            "USERPROFILE" => Some("C:\\Users\\Sam".to_string()),
+            _ => None,
+        };
+        assert_eq!(
+            expand_windows_vars("%USERPROFILE%\\.cargo\\bin", &lookup),
+            "C:\\Users\\Sam\\.cargo\\bin"
+        );
+        // Unknown: kept as written, so it resolves to a directory that does not
+        // exist rather than to the wrong one.
+        assert_eq!(expand_windows_vars("%NOPE%\\bin", &lookup), "%NOPE%\\bin");
+        // A lone `%` is literal text.
+        assert_eq!(expand_windows_vars("100%", &lookup), "100%");
+        assert_eq!(expand_windows_vars("C:\\bin", &lookup), "C:\\bin");
+    }
+
+    #[test]
+    #[cfg(not(target_os = "windows"))]
+    fn each_shell_is_asked_in_its_own_language() {
+        assert_eq!(probe_script("/bin/zsh").1, "printf %s \"$PATH\"");
+        assert_eq!(probe_script("/bin/bash").1, "printf %s \"$PATH\"");
+        // fish joins a quoted list with spaces, so it is asked for colons.
+        assert_eq!(probe_script("/opt/homebrew/bin/fish").1, "string join : $PATH");
+        assert_eq!(probe_script("/usr/local/bin/nu").0, "-lc");
+    }
+
+    #[test]
+    #[cfg(not(target_os = "windows"))]
+    fn a_shell_reply_is_only_used_when_it_looks_like_a_path() {
+        assert_eq!(
+            usable_path("/usr/bin:/bin:/opt/homebrew/bin"),
+            Some("/usr/bin:/bin:/opt/homebrew/bin")
+        );
+        // A directory with a space in it is a real directory.
+        assert_eq!(
+            usable_path("/Applications/My App/bin:/usr/bin"),
+            Some("/Applications/My App/bin:/usr/bin")
+        );
+        // A profile that greets you, and then answers.
+        assert_eq!(usable_path("Welcome back!\n/usr/bin:/bin"), Some("/usr/bin:/bin"));
+        // fish's space-joined list, which used to be accepted and searched as
+        // a single directory nobody has.
+        assert_eq!(usable_path("/usr/bin /bin /opt/homebrew/bin"), None);
+        // Prose with a colon in it is not a PATH.
+        assert_eq!(usable_path("note: nothing to do"), None);
+        assert_eq!(usable_path(""), None);
+        // One directory, which is a legitimate if unusual answer.
+        assert_eq!(usable_path("/usr/bin"), Some("/usr/bin"));
+    }
+
     /// The one program POSIX guarantees, at the one path it guarantees it at.
     #[test]
     #[cfg(not(target_os = "windows"))]
     fn finds_a_program_on_the_path() {
         assert!(find_program("sh").is_some());
+    }
+
+    #[test]
+    fn a_pasted_tilde_path_resolves_against_home() {
+        let home = std::env::var("HOME").expect("HOME is set on every platform this runs on");
+        assert_eq!(expand_home("~/dev/tools/server"), Some(format!("{home}/dev/tools/server")));
+        // Not a home reference, and not ours to guess at.
+        assert_eq!(expand_home("~"), None);
+        assert_eq!(expand_home("~other/bin/server"), None);
+        assert_eq!(expand_home("/usr/bin/server"), None);
+        assert_eq!(expand_home("server"), None);
     }
 
     #[test]

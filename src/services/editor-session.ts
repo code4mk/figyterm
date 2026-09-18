@@ -163,6 +163,8 @@ export interface EditorSettings {
    * off, and where they point an entry at their own build of a server.
    */
   lspServers: Record<string, LspServerOverride>;
+  /** Servers the user added, beyond the built-in table. */
+  lspCustom: CustomLspServer[];
   /** Run the server's formatter when a file is saved, where it has one. */
   lspFormatOnSave: boolean;
 }
@@ -174,6 +176,29 @@ export interface EditorSettings {
  * session module — which every launch reads — stays free of the LSP code, which
  * is lazily loaded with the editor.
  */
+/**
+ * A language server the user added themselves.
+ *
+ * The built-in table is two dozen servers and will never be everybody's two
+ * dozen: somebody works in Elixir, or Nim, or an in-house language with an
+ * in-house server. This is the same information the table holds, asked for in
+ * the four parts a person can answer without reading the LSP specification —
+ * what to call it, which files it handles, what to run, and any arguments.
+ *
+ * Declared here rather than in `services/lsp/servers.ts` for the same reason as
+ * [`LspServerOverride`]: this module is read on every launch and stays free of
+ * the LSP code, which loads with the editor.
+ */
+export interface CustomLspServer {
+  /** Stable, generated when it is added, and prefixed so it cannot collide. */
+  id: string;
+  label: string;
+  /** Extensions it claims, lowercased and without the dot. */
+  extensions: string[];
+  program: string;
+  args: string[];
+}
+
 export interface LspServerOverride {
   /** Absent means on, once `lsp` is on. */
   enabled?: boolean;
@@ -219,6 +244,7 @@ export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   wordCompletion: true,
   lsp: false,
   lspServers: {},
+  lspCustom: [],
   lspFormatOnSave: false,
 };
 
@@ -256,6 +282,52 @@ function clamp(value: number, low: number, high: number): number {
  * fail as "not on your PATH" rather than as something stranger, and a stored
  * `args` of `"rm -rf"` should not arrive as a string where a list is expected.
  */
+/**
+ * User-added servers, kept only where every part that matters is present.
+ *
+ * An entry with no program, no extensions or no id is not half a server — it
+ * is one that can never start and can never claim a file, and keeping it would
+ * put a permanently broken row in the settings panel with no way to tell where
+ * it came from.
+ */
+function sanitizeLspCustom(stored: unknown): CustomLspServer[] {
+  if (!Array.isArray(stored)) return [];
+
+  const clean: CustomLspServer[] = [];
+  const seen = new Set<string>();
+
+  for (const value of stored) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+    const entry = value as Record<string, unknown>;
+
+    const id = typeof entry.id === "string" ? entry.id.trim() : "";
+    const label = typeof entry.label === "string" ? entry.label.trim() : "";
+    const program = typeof entry.program === "string" ? entry.program.trim() : "";
+    if (!id || !label || !program || seen.has(id)) continue;
+
+    const extensions = Array.isArray(entry.extensions)
+      ? [
+          ...new Set(
+            entry.extensions
+              .filter((ext): ext is string => typeof ext === "string")
+              .map((ext) => ext.trim().replace(/^[.*]+/, "").toLowerCase())
+              .filter(Boolean)
+          ),
+        ]
+      : [];
+    if (!extensions.length) continue;
+
+    const args = Array.isArray(entry.args)
+      ? entry.args.filter((arg): arg is string => typeof arg === "string")
+      : [];
+
+    seen.add(id);
+    clean.push({ id, label, extensions, program, args });
+  }
+
+  return clean;
+}
+
 function sanitizeLspServers(stored: unknown): Record<string, LspServerOverride> {
   if (!stored || typeof stored !== "object" || Array.isArray(stored)) return {};
 
@@ -320,6 +392,7 @@ export function loadSession(): PersistedSession {
     merged.settings.indentWidth = clamp(merged.settings.indentWidth, 1, 8);
     merged.settings.lsp = merged.settings.lsp === true;
     merged.settings.lspServers = sanitizeLspServers(parsed.settings?.lspServers);
+    merged.settings.lspCustom = sanitizeLspCustom(parsed.settings?.lspCustom);
     return merged;
   } catch {
     return { ...DEFAULT_SESSION };

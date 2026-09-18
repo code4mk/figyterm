@@ -18,7 +18,8 @@ use tauri::State;
 
 use crate::commands::fs::{resolve, FsState};
 use crate::git::operations::{
-    self, GitCommit, GitCommitDetail, GitFileDiff, GitRepo, LOG_PAGE,
+    self, GitBranch, GitCommit, GitCommitDetail, GitCommitFile, GitConflictFile, GitFileDiff,
+    GitRepo, GitStash, Side, LOG_PAGE,
 };
 
 /// Resolves the workspace directory, then asks git where the repository is.
@@ -121,17 +122,150 @@ pub fn git_commit_diff(
     operations::commit_diff(&root, &sha, &path)
 }
 
+/*
+  The three that reach the network are `async`, which for a non-async function
+  means "run it on the threadpool". The default is `Blocking`, and blocking
+  here is the event loop: a fetch over a slow link held the main thread for as
+  long as it took — up to the two-minute timeout — with the window unable to
+  answer anything, including the IPC that would have reported it. The panel's
+  own spinner was being driven by a thread that was not going to come back.
+*/
+
 /// Updates the remote-tracking refs. Touches nothing in the working tree.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_fetch(state: State<FsState>, dir: String) -> Result<String, String> {
     let root = repo_root(&state, &dir)?;
     operations::fetch(&root)
 }
 
-#[tauri::command]
+/// Merges (or rebases, if that is what the repository is configured for) the
+/// upstream into the current branch. Unlike fetch, this touches the tree.
+#[tauri::command(async)]
+pub fn git_pull(state: State<FsState>, dir: String) -> Result<String, String> {
+    let root = repo_root(&state, &dir)?;
+    operations::pull(&root)
+}
+
+#[tauri::command(async)]
 pub fn git_push(state: State<FsState>, dir: String) -> Result<String, String> {
     let root = repo_root(&state, &dir)?;
     operations::push(&root)
+}
+
+/// Where the markers are in each conflicted file, for the "why can't I
+/// commit" dialog.
+#[tauri::command(async)]
+pub fn git_conflict_marks(
+    state: State<FsState>,
+    dir: String,
+    paths: Vec<String>,
+) -> Result<Vec<GitConflictFile>, String> {
+    let root = repo_root(&state, &dir)?;
+    operations::conflict_marks(&root, &paths)
+}
+
+/// Takes one whole side of a conflict, and marks those files resolved.
+#[tauri::command(async)]
+pub fn git_resolve_with(
+    state: State<FsState>,
+    dir: String,
+    paths: Vec<String>,
+    side: String,
+) -> Result<(), String> {
+    let root = repo_root(&state, &dir)?;
+    let side = match side.as_str() {
+        "ours" => Side::Ours,
+        "theirs" => Side::Theirs,
+        other => return Err(format!("{other} is not a side of a conflict")),
+    };
+    operations::resolve_with(&root, &paths, side)
+}
+
+/// Marks conflicted files resolved as they stand — the hand-edited case.
+#[tauri::command(async)]
+pub fn git_mark_resolved(
+    state: State<FsState>,
+    dir: String,
+    paths: Vec<String>,
+) -> Result<(), String> {
+    let root = repo_root(&state, &dir)?;
+    operations::mark_resolved(&root, &paths)
+}
+
+#[tauri::command(async)]
+pub fn git_merge_abort(state: State<FsState>, dir: String) -> Result<String, String> {
+    let root = repo_root(&state, &dir)?;
+    operations::merge_abort(&root)
+}
+
+/// Every local and remote-tracking branch, for the picker.
+#[tauri::command(async)]
+pub fn git_branches(state: State<FsState>, dir: String) -> Result<Vec<GitBranch>, String> {
+    let root = repo_root(&state, &dir)?;
+    operations::branches(&root)
+}
+
+/// Checks out a branch, creating a tracking one for a remote.
+///
+/// `async` like the network three: a checkout rewrites the working tree, which
+/// on a large repository is seconds of disk.
+#[tauri::command(async)]
+pub fn git_switch(
+    state: State<FsState>,
+    dir: String,
+    name: String,
+    remote: bool,
+) -> Result<String, String> {
+    let root = repo_root(&state, &dir)?;
+    operations::switch_branch(&root, &name, remote)
+}
+
+#[tauri::command(async)]
+pub fn git_stash_list(state: State<FsState>, dir: String) -> Result<Vec<GitStash>, String> {
+    let root = repo_root(&state, &dir)?;
+    operations::stash_list(&root)
+}
+
+#[tauri::command(async)]
+pub fn git_stash_push(
+    state: State<FsState>,
+    dir: String,
+    message: String,
+) -> Result<String, String> {
+    let root = repo_root(&state, &dir)?;
+    operations::stash_push(&root, &message)
+}
+
+/// Applies a stash, and with `pop` removes it once it has applied cleanly.
+///
+/// Keyed by the stash's own commit rather than its `stash@{n}` position; see
+/// `stash_ref` for why that distinction is not pedantry.
+#[tauri::command(async)]
+pub fn git_stash_restore(
+    state: State<FsState>,
+    dir: String,
+    sha: String,
+    pop: bool,
+) -> Result<String, String> {
+    let root = repo_root(&state, &dir)?;
+    operations::stash_restore(&root, &sha, pop)
+}
+
+/// The files a stash would bring back, with their line counts.
+#[tauri::command(async)]
+pub fn git_stash_files(
+    state: State<FsState>,
+    dir: String,
+    sha: String,
+) -> Result<Vec<GitCommitFile>, String> {
+    let root = repo_root(&state, &dir)?;
+    operations::stash_files(&root, &sha)
+}
+
+#[tauri::command(async)]
+pub fn git_stash_drop(state: State<FsState>, dir: String, sha: String) -> Result<String, String> {
+    let root = repo_root(&state, &dir)?;
+    operations::stash_drop(&root, &sha)
 }
 
 /// The tracked remote's URL, raw. Empty when the repository has no remote.

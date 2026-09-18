@@ -1914,9 +1914,14 @@
 
 .editor-newtab-btn:hover,
 .editor-btn:hover:not(:disabled),
-.editor-icon-btn:hover {
+.editor-icon-btn:hover:not(:disabled) {
   color: #e6edf3;
   background: rgba(255, 255, 255, 0.08);
+}
+
+.editor-icon-btn:disabled {
+  color: #3a3f48;
+  cursor: default;
 }
 
 .editor-btn:disabled {
@@ -4134,8 +4139,29 @@
   color: #b6bec8;
 }
 
+/*
+  The ahead / behind counts beside the branch name.
+
+  Chips, like the tab counts: a bare "↑2 ↓1" next to a branch name reads as
+  part of the name at 10px, and these two numbers are the reason the buttons
+  below are lit the way they are.
+*/
 .editor-scm-count {
-  color: #8b949e;
+  gap: 1px;
+  padding: 0 4px;
+  height: 14px;
+  border-radius: 7px;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.1);
+  color: #b6bec8;
+}
+
+/* Behind: what the remote has and this branch hasn't. Blue rather than amber
+   — it is not a warning, it is a thing to go and get, and amber is already
+   saying "you have work nobody else has". */
+.editor-scm-count.behind {
+  background: rgba(99, 102, 241, 0.26);
+  color: #c7d2fe;
 }
 
 /* ── Source control: remote and history ─────────────────────────────────── */
@@ -4166,6 +4192,56 @@
 .editor-scm-syncbtn.busy:disabled {
   color: #b6bec8;
   background: rgba(99, 102, 241, 0.14);
+}
+
+/*
+  A progress line along the bottom of the running button.
+
+  Nothing spins, and nothing sweeps across the label. A rotating cloud is a
+  cloud that is turning over, which is not what a push is doing, and a
+  shimmer behind text is a loading *placeholder* — the pattern that stands in
+  for content that hasn't arrived. A progress line is the thing that actually
+  means "in progress", which is why every browser, installer and download puts
+  one exactly here.
+
+  Indeterminate, because git reports no progress worth interpolating: the bar
+  is a fifth of the width and travels the button in 1.4s, which reads as steady
+  work at a glance and doesn't demand to be watched.
+*/
+.editor-scm-syncbtn.busy {
+  position: relative;
+  overflow: hidden;
+  cursor: default;
+}
+
+.editor-scm-syncbtn.busy::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: 20%;
+  border-radius: 1px;
+  background: #6366f1;
+  animation: editor-scm-progress 1.4s ease-in-out infinite;
+}
+
+@keyframes editor-scm-progress {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(500%);
+  }
+}
+
+/* Still says it is working, without anything moving. */
+@media (prefers-reduced-motion: reduce) {
+  .editor-scm-syncbtn.busy::after {
+    animation: none;
+    width: 100%;
+    opacity: 0.6;
+  }
 }
 
 /*
@@ -4217,6 +4293,149 @@
 .editor-scm-tab.on {
   color: #e6edf3;
   border-bottom-color: #6366f1;
+}
+
+/* ── Merge conflicts ──────────────────────────────────────────────────────
+   Red, and at the top. A stopped merge is a state the repository is in, not an
+   item in a list, and everything below it is unavailable until it is over —
+   so it is allowed to shout where the rest of the panel murmurs. */
+
+.editor-conflict {
+  background: rgba(248, 81, 73, 0.07);
+  border-bottom: 1px solid rgba(248, 81, 73, 0.28);
+}
+
+.editor-conflict-head {
+  color: #f85149;
+}
+
+.editor-conflict-what {
+  color: #8b949e;
+}
+
+.editor-conflict-ref {
+  color: #e6edf3;
+  font-weight: 600;
+}
+
+.editor-conflict-row + .editor-conflict-row {
+  border-top: 1px solid rgba(248, 81, 73, 0.14);
+}
+
+.editor-conflict-file {
+  color: #c9d1d9;
+  transition: background 0.12s ease;
+}
+
+.editor-conflict-file:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.editor-conflict-btn {
+  color: #b6bec8;
+  background: rgba(255, 255, 255, 0.07);
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.editor-conflict-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.13);
+  color: #e6edf3;
+}
+
+.editor-conflict-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* The one that ends the conflict reads as the finish, not as a third option. */
+.editor-conflict-btn.done {
+  background: rgba(63, 185, 80, 0.16);
+  color: #56d364;
+}
+
+.editor-conflict-btn.done:hover:not(:disabled) {
+  background: rgba(63, 185, 80, 0.26);
+  color: #7ee787;
+}
+
+.light .editor-conflict {
+  background: rgba(207, 34, 46, 0.06);
+  border-bottom: 1px solid rgba(207, 34, 46, 0.22);
+}
+
+.light .editor-conflict-head {
+  color: #b91c1c;
+}
+
+.light .editor-conflict-what {
+  color: #6b7280;
+}
+
+.light .editor-conflict-ref {
+  color: #111827;
+}
+
+.light .editor-conflict-row + .editor-conflict-row {
+  border-top: 1px solid rgba(207, 34, 46, 0.12);
+}
+
+.light .editor-conflict-file {
+  color: #374151;
+}
+
+.light .editor-conflict-file:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.light .editor-conflict-btn {
+  background: rgba(0, 0, 0, 0.06);
+  color: #374151;
+}
+
+.light .editor-conflict-btn:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.1);
+  color: #111827;
+}
+
+.light .editor-conflict-btn.done {
+  background: rgba(26, 127, 55, 0.14);
+  color: #1a7f37;
+}
+
+/* The count on a tab. Tabular figures so 1 and 11 sit at the same width. */
+.editor-scm-tabcount {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 15px;
+  height: 14px;
+  padding: 0 4px;
+  border-radius: 7px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  background: rgba(255, 255, 255, 0.1);
+  color: #b6bec8;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+/* On the tab you are looking at, the chip picks up the tab's own accent. */
+.editor-scm-tabcount.on {
+  background: rgba(99, 102, 241, 0.32);
+  color: #e0e7ff;
+}
+
+/* Conflicts count differently: the number is what is blocking the commit. */
+.editor-scm-tabcount.conflict,
+.editor-scm-tabcount.conflict.on {
+  background: rgba(248, 81, 73, 0.24);
+  color: #ff7b72;
+}
+
+.light .editor-scm-tabcount.conflict,
+.light .editor-scm-tabcount.conflict.on {
+  background: rgba(207, 34, 46, 0.16);
+  color: #b91c1c;
 }
 
 .editor-scm-commit-row {
@@ -4384,6 +4603,23 @@
   opacity: 0.8;
 }
 
+/*
+  The icon-only variant is the whole control, so it cannot fade out when the
+  pointer is elsewhere — there would be nothing left to point at. Dimmed
+  instead, so it still sits behind the branch name it belongs to.
+*/
+.editor-remote-link.icon-only {
+  padding: 2px;
+}
+
+.editor-remote-link.icon-only .editor-remote-link-icon {
+  opacity: 0.55;
+}
+
+.editor-remote-link.icon-only:hover .editor-remote-link-icon {
+  opacity: 1;
+}
+
 .editor-scm-merge {
   color: #a5b4fc;
 }
@@ -4394,7 +4630,11 @@
   button. Amber rather than red — it is something to do, not something wrong.
 */
 .editor-scm-unpushed,
-.editor-scm-count.pending,
+.editor-scm-count.pending {
+  background: rgba(210, 153, 34, 0.22);
+  color: #f0c674;
+}
+
 .editor-status-ahead {
   color: #e3b341;
 }
@@ -4412,6 +4652,158 @@
 .editor-scm-syncbtn.pending:hover:not(:disabled) {
   background: rgba(210, 153, 34, 0.26);
   color: #f5d99a;
+}
+
+/* The branch name, which is also the switcher. */
+.editor-scm-branchbtn {
+  color: inherit;
+  transition: background 0.12s ease;
+}
+
+.editor-scm-branchbtn:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+/* Branch picker */
+
+.editor-branch-row.current {
+  color: #a5b4fc;
+  cursor: default;
+}
+
+.editor-branch-check {
+  color: #3fb950;
+}
+
+/* Remote branches are offered, and marked: picking one makes a local branch. */
+.editor-branch-remote {
+  color: #8b949e;
+}
+
+.editor-branch-when {
+  color: #6e7681;
+}
+
+.editor-branch-dirty,
+.editor-branch-explain {
+  color: #8b949e;
+  border-top: 1px solid #2a2f37;
+}
+
+.editor-branch-actions {
+  border-top: 1px solid #2a2f37;
+}
+
+/* Stashes */
+
+.editor-stash-row {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  transition: opacity 0.12s ease;
+}
+
+.editor-stash-row.busy {
+  opacity: 0.5;
+}
+
+.editor-stash-msg {
+  color: #c9d1d9;
+}
+
+.editor-stash-when {
+  color: #6e7681;
+}
+
+/* The title line doubles as the disclosure for the file list. */
+.editor-stash-head {
+  color: inherit;
+  transition: background 0.12s ease;
+}
+
+.editor-stash-head:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* What is inside a stash. Indented under its title, and quieter than it: the
+   list is an answer to a question the title raised, not a second list. */
+.editor-stash-files {
+  margin: 2px 0 2px 16px;
+  border-left: 1px solid rgba(255, 255, 255, 0.07);
+  padding-left: 6px;
+  color: #8b949e;
+}
+
+.editor-stash-file {
+  color: #b6bec8;
+}
+
+.editor-stash-add {
+  color: #3fb950;
+}
+
+.editor-stash-del {
+  color: #f85149;
+}
+
+.editor-stash-drop:hover:not(:disabled) {
+  color: #f85149;
+}
+
+.light .editor-scm-branchbtn:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.light .editor-branch-row.current {
+  color: #4338ca;
+}
+
+.light .editor-branch-check {
+  color: #1a7f37;
+}
+
+.light .editor-branch-remote,
+.light .editor-branch-when,
+.light .editor-stash-when,
+.light .editor-stash-files {
+  color: #6b7280;
+}
+
+.light .editor-stash-head:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.light .editor-stash-files {
+  border-left: 1px solid #e2e5eb;
+}
+
+.light .editor-stash-file {
+  color: #374151;
+}
+
+.light .editor-stash-add {
+  color: #1a7f37;
+}
+
+.light .editor-stash-del {
+  color: #b91c1c;
+}
+
+.light .editor-branch-dirty,
+.light .editor-branch-explain,
+.light .editor-branch-actions {
+  color: #4b5163;
+  border-top: 1px solid #e2e5eb;
+}
+
+.light .editor-stash-row {
+  border-bottom: 1px solid #e9ecf1;
+}
+
+.light .editor-stash-msg {
+  color: #111827;
+}
+
+.light .editor-stash-drop:hover:not(:disabled) {
+  color: #b91c1c;
 }
 
 /* A branch or tag pointing at this commit. */
@@ -4548,6 +4940,127 @@
   background: rgba(255, 255, 255, 0.04);
   color: #4a5361;
   cursor: default;
+}
+
+/*
+  Blocked by a conflict, and still pressable — pressing it says where they are.
+  Red rather than grey for that reason: grey is what a button that does nothing
+  looks like, and this one does something.
+*/
+.editor-scm-button.blocked {
+  background: rgba(248, 81, 73, 0.16);
+  color: #ff7b72;
+}
+
+.editor-scm-button.blocked:hover:not(:disabled) {
+  background: rgba(248, 81, 73, 0.26);
+  color: #ffa198;
+}
+
+/* ── The "why can't I commit" report ────────────────────────────────────── */
+
+.editor-report {
+  padding: 0;
+}
+
+.editor-report-head {
+  background: rgba(248, 81, 73, 0.1);
+  border-bottom: 1px solid rgba(248, 81, 73, 0.24);
+  color: #f85149;
+}
+
+.editor-report-sub {
+  color: #8b949e;
+}
+
+.editor-report-row + .editor-report-row {
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.editor-report-file {
+  color: #c9d1d9;
+  transition: background 0.12s ease;
+}
+
+.editor-report-file:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #e6edf3;
+}
+
+.editor-report-count {
+  color: #8b949e;
+}
+
+/* Each line is a place to go, so it is shaped like something you press. */
+.editor-report-line {
+  background: rgba(248, 81, 73, 0.14);
+  color: #ff7b72;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.editor-report-line:hover {
+  background: rgba(248, 81, 73, 0.26);
+  color: #ffa198;
+}
+
+.editor-report-note,
+.editor-report-hint {
+  color: #6e7681;
+}
+
+.editor-report-foot {
+  border-top: 1px solid #2a2f37;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.light .editor-scm-button.blocked {
+  background: rgba(207, 34, 46, 0.12);
+  color: #b91c1c;
+}
+
+.light .editor-scm-button.blocked:hover:not(:disabled) {
+  background: rgba(207, 34, 46, 0.2);
+  color: #991b1b;
+}
+
+.light .editor-report-head {
+  background: rgba(207, 34, 46, 0.07);
+  border-bottom: 1px solid rgba(207, 34, 46, 0.2);
+  color: #b91c1c;
+}
+
+.light .editor-report-sub,
+.light .editor-report-count,
+.light .editor-report-note,
+.light .editor-report-hint {
+  color: #6b7280;
+}
+
+.light .editor-report-row + .editor-report-row {
+  border-top: 1px solid #e9ecf1;
+}
+
+.light .editor-report-file {
+  color: #374151;
+}
+
+.light .editor-report-file:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: #111827;
+}
+
+.light .editor-report-line {
+  background: rgba(207, 34, 46, 0.1);
+  color: #b91c1c;
+}
+
+.light .editor-report-line:hover {
+  background: rgba(207, 34, 46, 0.18);
+}
+
+.light .editor-report-foot {
+  border-top: 1px solid #e2e5eb;
+  background: rgba(0, 0, 0, 0.02);
 }
 
 .editor-scm-error {
@@ -5119,7 +5632,8 @@
 }
 
 .light .editor-scm-count {
-  color: #6b7280;
+  background: rgba(0, 0, 0, 0.08);
+  color: #4b5163;
 }
 
 .light .editor-tab-diff.active {
@@ -5172,6 +5686,11 @@
   background: rgba(79, 70, 229, 0.1);
 }
 
+/* The progress line again, at the weight a near-white button can carry. */
+.light .editor-scm-syncbtn.busy::after {
+  background: #4f46e5;
+}
+
 .light .editor-scm-note {
   background: rgba(0, 0, 0, 0.04);
   color: #6b7280;
@@ -5179,6 +5698,16 @@
 
 .light .editor-scm-tab {
   color: #9ca3af;
+}
+
+.light .editor-scm-tabcount {
+  background: rgba(0, 0, 0, 0.08);
+  color: #4b5163;
+}
+
+.light .editor-scm-tabcount.on {
+  background: rgba(79, 70, 229, 0.18);
+  color: #3730a3;
 }
 
 .light .editor-scm-tab:hover {
@@ -5254,7 +5783,16 @@
 }
 
 .light .editor-scm-unpushed,
-.light .editor-scm-count.pending,
+.light .editor-scm-count.pending {
+  background: rgba(154, 103, 0, 0.16);
+  color: #7a5200;
+}
+
+.light .editor-scm-count.behind {
+  background: rgba(79, 70, 229, 0.16);
+  color: #3730a3;
+}
+
 .light .editor-status-ahead {
   color: #9a6700;
 }
@@ -5543,6 +6081,87 @@
   50% {
     opacity: 0.35;
   }
+}
+
+/*
+  "Set path", which has to look like an offer.
+
+  As a plain text button it was indistinguishable from Restart beside it and
+  from the hint text it sits on, so the one control that rescues a server the
+  editor cannot find was the least visible thing in the row. It gets the
+  editor's accent and a pencil: a tinted chip reads as "you can change this"
+  where grey text reads as a label.
+*/
+.editor-lsp-pathbtn {
+  color: #a5b4fc;
+  background: rgba(99, 102, 241, 0.14);
+  border: 1px solid rgba(99, 102, 241, 0.28);
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.editor-lsp-pathbtn:hover {
+  background: rgba(99, 102, 241, 0.26);
+  border-color: rgba(99, 102, 241, 0.5);
+  color: #e0e7ff;
+}
+
+/* Once a path has been set it is a *state*, not an invitation — amber, the
+   same colour this editor uses everywhere for "you changed something". */
+.editor-lsp-pathbtn.is-set {
+  color: #e3b341;
+  background: rgba(210, 153, 34, 0.16);
+  border-color: rgba(210, 153, 34, 0.32);
+}
+
+.editor-lsp-pathbtn.is-set:hover {
+  background: rgba(210, 153, 34, 0.26);
+  border-color: rgba(210, 153, 34, 0.5);
+  color: #f0c674;
+}
+
+.light .editor-lsp-pathbtn {
+  color: #4338ca;
+  background: rgba(79, 70, 229, 0.1);
+  border: 1px solid rgba(79, 70, 229, 0.22);
+}
+
+.light .editor-lsp-pathbtn:hover {
+  background: rgba(79, 70, 229, 0.18);
+  border-color: rgba(79, 70, 229, 0.4);
+  color: #3730a3;
+}
+
+.light .editor-lsp-pathbtn.is-set {
+  color: #7a5200;
+  background: rgba(154, 103, 0, 0.12);
+  border-color: rgba(154, 103, 0, 0.28);
+}
+
+.light .editor-lsp-pathbtn.is-set:hover {
+  background: rgba(154, 103, 0, 0.2);
+  border-color: rgba(154, 103, 0, 0.45);
+}
+
+/* The chip on a row whose path was set by hand, matching that button. */
+.editor-lsp-chip.is-custom {
+  color: #e3b341;
+  background: rgba(210, 153, 34, 0.16);
+}
+
+.light .editor-lsp-chip.is-custom {
+  color: #7a5200;
+  background: rgba(154, 103, 0, 0.14);
+}
+
+/* The add-a-server form, set apart from the rows above it. */
+.editor-lsp-add {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid #2a2f37;
+}
+
+.light .editor-lsp-add {
+  background: rgba(0, 0, 0, 0.02);
+  border: 1px solid #e2e5eb;
 }
 
 .editor-lsp-chip {
@@ -6443,72 +7062,299 @@
 /* ────────────────────────────────────────────────────────────────────────────
    Claude Code window
 
-   Built on the editor's modal chrome rather than beside it: `.editor-modal`,
-   `.editor-chrome`, `.editor-pip` and the dialog classes are shared verbatim,
-   so the two windows can't drift apart the next time one of them is adjusted.
-   What follows is only what this window has and the editor doesn't — a project
-   button, conversation tabs with a liveness dot, and the folders strip.
+   The window keeps the editor's shell — `.editor-modal`, `.editor-pip`,
+   `.editor-fullscreen` and the dialog classes are shared verbatim — and draws
+   its own chrome on top of it. It used to borrow the browser window's tab strip
+   as well, and that was the wrong loan: a conversation is not a page, a project
+   is not a URL, and the folder-tab shape kept saying otherwise. What follows is
+   this window's own language — one title bar, a rail of conversation pills, and
+   a status bar that states what Claude can reach.
 
    Everything reads from the `--ft-*` tokens, so light mode is one block at the
    end rather than a second stylesheet.
    ──────────────────────────────────────────────────────────────────────────── */
 
+.claude-window {
+  background: var(--ft-surface);
+  border: 1px solid var(--ft-border);
+  /* Two shadows: the cast one for depth, a hairline for the lit top edge. */
+  box-shadow:
+    0 32px 80px -16px rgba(0, 0, 0, 0.7),
+    0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+
+/* ─── Title bar ─────────────────────────────────────────────────────────── */
+
 /*
-  The brand mark: FigyTerm's logo and Claude Code's, side by side. Two marks
-  rather than one because the window is exactly that — FigyTerm hosting
-  somebody else's program, and the header should say whose.
+  One row, and the only place the window says what it is: the mark, the project
+  it is running in, and the window's own controls. The gradient is what makes it
+  read as chrome rather than as the first line of content.
 */
+.claude-header {
+  position: relative;
+  z-index: 3;
+  height: 44px;
+  flex-shrink: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.05),
+    rgba(255, 255, 255, 0.012)
+  );
+  border-bottom: 1px solid var(--ft-border-subtle);
+}
+
+/*
+  The mark: Claude Code's, in a tile of its own. One mark rather than two —
+  whose window this is belongs in the title, and a second logo beside the first
+  only made the corner busy.
+*/
+.claude-mark {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.035));
+  border: 1px solid var(--ft-border-subtle);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.claude-mark img,
 .claude-logo {
+  display: block;
   height: 13px;
   width: auto;
-  border-radius: 2px;
+  border-radius: 3px;
 }
 
-.claude-tabstrip {
-  /* Conversation tabs are shorter than a browser's; keep the strip tight. */
-  min-height: 32px;
+.claude-brand-title {
+  font-size: 11.5px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--ft-text);
+  white-space: nowrap;
+}
+
+/* A hairline, wherever one group of controls ends and another begins. */
+.claude-sep {
+  flex: none;
+  width: 1px;
+  height: 18px;
+  margin: 0 4px;
+  background: var(--ft-border-subtle);
 }
 
 /*
-  The toolbar, where a browser puts the address bar. The project *is* the
-  address here: it is the answer to "where is this running", and clicking it
-  goes somewhere else, exactly as a URL field does.
+  The project field — this window's answer to "where am I?", centred because it
+  is the subject of the window rather than one more control on the end of a row.
 */
 .claude-project-field {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--ft-border-subtle);
+  height: 26px;
+  padding: 0 7px 0 9px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid transparent;
   color: var(--ft-text);
   cursor: pointer;
-  transition: background 0.12s ease, border-color 0.12s ease;
+  transition: background 0.13s ease, border-color 0.13s ease, box-shadow 0.13s ease;
 }
 
 .claude-project-field:hover {
-  background: rgba(255, 255, 255, 0.07);
-  border-color: var(--ft-border);
+  background: rgba(255, 255, 255, 0.075);
+  border-color: var(--ft-border-subtle);
+}
+
+.claude-project-field.open {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--ft-accent);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.16);
+}
+
+.claude-project-icon,
+.claude-project-caret {
+  color: var(--ft-text-muted);
+}
+
+.claude-project-name {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 .claude-project-path {
+  font-size: 10px;
   color: var(--ft-text-muted);
   min-width: 0;
 }
 
 /*
-  A conversation tab is a browser tab with a status light. `.browser-tab`
-  supplies the shape, the hover and the active state; only the sizing differs,
-  because a conversation's title is shorter than a page's.
+  The window's icon buttons. Square, softly rounded and the same size whatever
+  is in them, so the row on the right reads as one control cluster.
 */
-.claude-tab {
+.claude-iconbtn {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
   color: var(--ft-text-secondary);
+  cursor: pointer;
+  transition: color 0.12s ease, background 0.12s ease;
 }
 
-.claude-tab.active {
+.claude-iconbtn:hover:not(:disabled) {
   color: var(--ft-text);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.claude-iconbtn:disabled {
+  color: var(--ft-text-muted);
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Picture-in-picture and fullscreen are modes: on has to look held down. */
+.claude-iconbtn.on {
+  color: #a5b4fc;
+  background: rgba(99, 102, 241, 0.16);
+}
+
+.claude-iconbtn.danger:hover:not(:disabled) {
+  color: #fca5a5;
+  background: rgba(248, 113, 113, 0.13);
+}
+
+/* ─── Conversation rail ─────────────────────────────────────────────────── */
+
+/*
+  Segments, not tabs. Every conversation here is a thread in the same project,
+  so they carry the same weight and the current one is simply lit rather than
+  raised out of the strip.
+*/
+.claude-rail {
+  position: relative;
+  z-index: 2;
+  height: 34px;
+  flex-shrink: 0;
+  background: var(--ft-bg);
+  border-bottom: 1px solid var(--ft-border-subtle);
+}
+
+.claude-rail-scroll {
+  scrollbar-width: none;
+}
+
+.claude-rail-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.claude-conv {
+  height: 24px;
+  max-width: 200px;
+  padding-right: 2px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  color: var(--ft-text-secondary);
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.claude-conv:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ft-text);
+}
+
+.claude-conv.active {
+  background: rgba(99, 102, 241, 0.13);
+  border-color: rgba(99, 102, 241, 0.34);
+  color: var(--ft-text);
+}
+
+.claude-conv-main {
+  height: 100%;
+  padding: 0 4px 0 8px;
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.claude-conv-title {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.claude-conv-close {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--ft-text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+
+.claude-conv:hover .claude-conv-close,
+.claude-conv.active .claude-conv-close {
+  opacity: 1;
+}
+
+.claude-conv-close:hover {
+  color: var(--ft-text);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/*
+  Two jobs, two weights.
+
+  Beside existing conversations it is one more control on the rail and stays
+  quiet — a dashed outline there read as an empty slot rather than a button, and
+  lighting it with the accent on hover put it in competition with the pill for
+  the conversation you are actually in. With the rail empty it is the only thing
+  to do in the window, so `.solo` gives it the accent and its label; a lone ✛ on
+  a blank rail would be a puzzle.
+*/
+.claude-newconv {
+  height: 24px;
+  padding: 0 7px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ft-text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+}
+
+.claude-newconv:hover {
+  color: var(--ft-text);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.claude-newconv.solo {
+  padding: 0 10px;
+  background: rgba(99, 102, 241, 0.14);
+  border-color: rgba(99, 102, 241, 0.34);
+  color: #a5b4fc;
+}
+
+.claude-newconv.solo:hover {
+  background: rgba(99, 102, 241, 0.2);
+  border-color: rgba(99, 102, 241, 0.5);
+  color: #c7d2fe;
 }
 
 /*
   Liveness, in one dot. Hollow is a conversation whose process has ended — its
-  buffer is still readable and opening it resumes the conversation, so it is
-  not an error state and must not look like one.
+  buffer is still readable and opening it resumes the conversation, so it is not
+  an error state and must not look like one.
 */
 .claude-dot {
   width: 6px;
@@ -6521,14 +7367,158 @@
 .claude-dot.live {
   background: var(--ft-success);
   border-color: var(--ft-success);
+  box-shadow: 0 0 0 2px rgba(63, 185, 80, 0.16);
 }
 
 .claude-live-count {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
   color: var(--ft-text-secondary);
 }
+
+/*
+  A conversation that rang the bell while you were elsewhere.
+
+  Amber rather than red — it is a question, not a failure — and it overrides the
+  live/ended colour because "this one needs you" is the more urgent fact about a
+  dot that would otherwise just say "running".
+*/
+.claude-dot.wants-you,
+.claude-dot.live.wants-you {
+  background: var(--ft-warning);
+  border-color: var(--ft-warning);
+  box-shadow: 0 0 0 2px rgba(210, 153, 34, 0.18);
+  animation: claude-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes claude-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* Someone who has asked for less motion gets the colour and no pulse. */
+@media (prefers-reduced-motion: reduce) {
+  .claude-dot.wants-you,
+  .claude-dot.live.wants-you {
+    animation: none;
+  }
+}
+
+/* ─── The "working on" menu ─────────────────────────────────────────────── */
+
+.claude-menu {
+  background: var(--ft-elevated);
+  border: 1px solid var(--ft-border);
+  box-shadow:
+    0 18px 44px -10px rgba(0, 0, 0, 0.65),
+    0 0 0 1px rgba(255, 255, 255, 0.03);
+  animation: claude-menu-in 0.13s ease-out;
+}
+
+@keyframes claude-menu-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .claude-menu { animation: none; }
+}
+
+.claude-menu-label {
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--ft-text-muted);
+}
+
+.claude-menu-count,
+.claude-menu-empty {
+  font-size: 10px;
+  color: var(--ft-text-muted);
+}
+
+.claude-menu-empty {
+  font-size: 11px;
+}
+
+.claude-menu-row {
+  border-radius: 8px;
+  transition: background 0.12s ease;
+}
+
+.claude-menu-row:hover {
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.claude-menu-row.current {
+  background: rgba(99, 102, 241, 0.13);
+}
+
+.claude-menu-row button {
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.claude-menu-tick {
+  display: inline-flex;
+  width: 12px;
+  color: var(--ft-accent-hover);
+}
+
+.claude-menu-name {
+  font-size: 11.5px;
+  font-weight: 550;
+  color: var(--ft-text);
+}
+
+.claude-menu-path {
+  font-size: 10px;
+  color: var(--ft-text-muted);
+}
+
+.claude-menu-remove {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  color: var(--ft-text-muted);
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+
+.claude-menu-row:hover .claude-menu-remove,
+.claude-menu-remove:focus-visible {
+  opacity: 1;
+}
+
+.claude-menu-remove:hover {
+  color: #fca5a5;
+  background: rgba(248, 113, 113, 0.13);
+}
+
+.claude-menu-footer {
+  font-size: 11px;
+  background: rgba(255, 255, 255, 0.025);
+  border-top: 1px solid var(--ft-border-subtle);
+  color: var(--ft-text-secondary);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.claude-menu-footer:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ft-text);
+}
+
+/* ─── Body ──────────────────────────────────────────────────────────────── */
 
 .claude-body {
   background: var(--ft-bg);
@@ -6548,12 +7538,82 @@
   line-height: 1.5;
 }
 
+/* ─── Empty states ──────────────────────────────────────────────────────── */
+
+.claude-empty {
+  padding: 7vh 24px 20px;
+  gap: 18px;
+}
+
+/*
+  The medallion. An empty screen needs somewhere for the eye to land before it
+  reads anything, and a framed icon does that without shouting.
+*/
+.claude-medallion {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.03));
+  border: 1px solid var(--ft-border-subtle);
+  color: var(--ft-text-secondary);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 8px 20px -10px rgba(0, 0, 0, 0.7);
+}
+
+.claude-medallion img {
+  height: 20px;
+  width: auto;
+  border-radius: 5px;
+}
+
+.claude-medallion.warn {
+  color: var(--ft-warning);
+  border-color: rgba(210, 153, 34, 0.32);
+  background: linear-gradient(160deg, rgba(210, 153, 34, 0.16), rgba(210, 153, 34, 0.04));
+}
+
+.claude-empty-title {
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  color: var(--ft-text);
+}
+
+.claude-empty-body {
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--ft-text-secondary);
+}
+
+.claude-empty-body code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.07);
+  font-size: 10.5px;
+}
+
+.claude-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--ft-border);
+  border-top-color: var(--ft-accent);
+  border-radius: 50%;
+  animation: claude-spin 0.7s linear infinite;
+}
+
+@keyframes claude-spin {
+  to { transform: rotate(360deg); }
+}
+
 .claude-error {
-  max-width: 560px;
+  max-width: 480px;
   max-height: 140px;
   overflow: auto;
   padding: 8px 10px;
-  border-radius: 6px;
+  border-radius: 8px;
   background: rgba(248, 81, 73, 0.08);
   border: 1px solid rgba(248, 81, 73, 0.25);
   color: var(--ft-text-secondary);
@@ -6563,18 +7623,127 @@
   word-break: break-all;
 }
 
-/* Folders strip */
+/* ─── Buttons ───────────────────────────────────────────────────────────── */
+
+.claude-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 13px;
+  border-radius: 8px;
+  font-size: 11.5px;
+  font-weight: 550;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--ft-border-subtle);
+  color: var(--ft-text);
+  cursor: pointer;
+  transition: background 0.13s ease, border-color 0.13s ease, transform 0.1s ease;
+}
+
+.claude-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: var(--ft-border);
+}
+
+.claude-btn:active:not(:disabled) {
+  transform: translateY(0.5px);
+}
+
+.claude-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.claude-btn.primary {
+  background: var(--ft-accent);
+  border-color: transparent;
+  color: #fff;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14);
+}
+
+.claude-btn.primary:hover:not(:disabled) {
+  background: var(--ft-accent-hover);
+  border-color: transparent;
+}
+
+/* ─── Panels and rows ───────────────────────────────────────────────────── */
+
+/*
+  A list with an edge of its own. It sits below a heading and two buttons, and
+  without one it read as part of them rather than as a separate thing you can
+  scroll.
+*/
+.claude-panel {
+  background: rgba(255, 255, 255, 0.022);
+  border: 1px solid var(--ft-border-subtle);
+  border-radius: 12px;
+}
+
+.claude-panel-head {
+  padding: 9px 12px;
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--ft-text-muted);
+  border-bottom: 1px solid var(--ft-border-subtle);
+}
+
+.claude-row {
+  padding: 7px 9px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.claude-row:hover {
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.claude-row-name {
+  font-size: 11.5px;
+  color: var(--ft-text);
+}
+
+.claude-row-path {
+  font-size: 10px;
+  color: var(--ft-text-muted);
+}
+
+.claude-badge {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--ft-text-muted);
+  white-space: nowrap;
+}
+
+/* ─── Status bar ────────────────────────────────────────────────────────── */
 
 .claude-folders {
-  height: 30px;
-  background: rgba(255, 255, 255, 0.02);
+  height: 28px;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.022);
   border-top: 1px solid var(--ft-border-subtle);
+  font-size: 10px;
   overflow-x: auto;
   scrollbar-width: none;
 }
 
 .claude-folders::-webkit-scrollbar {
   display: none;
+}
+
+.claude-folder-icon {
+  color: var(--ft-text-muted);
 }
 
 .claude-folder-primary {
@@ -6584,13 +7753,13 @@
 
 /*
   A chip states what a conversation can reach. It is not a control and has no
-  ✕: folders are add-only, and a chip you could click to remove would promise
-  a revocation the CLI cannot perform.
+  ✕: folders are add-only, and a chip you could click to remove would promise a
+  revocation the CLI cannot perform.
 */
 .claude-chip {
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.05);
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.055);
   border: 1px solid var(--ft-border-subtle);
   color: var(--ft-text-secondary);
   white-space: nowrap;
@@ -6617,7 +7786,28 @@
   color: var(--ft-text-secondary);
 }
 
-/* Setup dialog */
+/*
+  Resume, for a conversation whose process has ended. Quiet rather than
+  alarming: ending is a normal state, and its history is intact on disk.
+*/
+.claude-resume {
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--ft-border-subtle);
+  background: transparent;
+  color: var(--ft-text-secondary);
+  font-size: 10px;
+  cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+
+.claude-resume:hover {
+  color: var(--ft-text);
+  border-color: var(--ft-accent);
+  background: rgba(99, 102, 241, 0.09);
+}
+
+/* ─── Setup dialog ──────────────────────────────────────────────────────── */
 
 .claude-field-label {
   font-size: 10px;
@@ -6638,10 +7828,12 @@
   border: 1px solid var(--ft-border);
   color: var(--ft-text);
   outline: none;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
 }
 
 .claude-input:focus {
   border-color: var(--ft-accent);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.14);
 }
 
 .claude-folder-row {
@@ -6662,130 +7854,6 @@
   color: var(--ft-text);
 }
 
-/* Light theme */
-
-.light .claude-project-field {
-  background: rgba(0, 0, 0, 0.04);
-}
-
-.light .claude-project-field:hover {
-  background: rgba(0, 0, 0, 0.07);
-}
-
-.light .claude-folders {
-  background: #f2f4f7;
-}
-
-.light .claude-chip {
-  background: rgba(0, 0, 0, 0.04);
-}
-
-.light .claude-folder-row {
-  background: rgba(0, 0, 0, 0.03);
-}
-
-
-/*
-  Resume, for a conversation whose process has ended. Quiet rather than
-  alarming: ending is a normal state, and its history is intact on disk.
-*/
-.claude-resume {
-  padding: 2px 8px;
-  border-radius: 4px;
-  border: 1px solid var(--ft-border-subtle);
-  background: transparent;
-  color: var(--ft-text-secondary);
-  cursor: pointer;
-  transition: color 0.12s ease, border-color 0.12s ease;
-}
-
-.claude-resume:hover {
-  color: var(--ft-text);
-  border-color: var(--ft-accent);
-}
-
-/*
-  A conversation that rang the bell while you were elsewhere.
-
-  Amber rather than red — it is a question, not a failure — and it overrides
-  the live/ended colour because "this one needs you" is the more urgent fact
-  about a dot that would otherwise just say "running".
-*/
-.claude-dot.wants-you,
-.claude-dot.live.wants-you {
-  background: var(--ft-warning);
-  border-color: var(--ft-warning);
-  animation: claude-pulse 1.6s ease-in-out infinite;
-}
-
-@keyframes claude-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
-}
-
-/* Someone who has asked for less motion gets the colour and no pulse. */
-@media (prefers-reduced-motion: reduce) {
-  .claude-dot.wants-you,
-  .claude-dot.live.wants-you {
-    animation: none;
-  }
-}
-
-/*
-  This folder's history, inline under the empty state.
-
-  A panel rather than a bare list: it sits below a heading and two buttons, and
-  without an edge of its own it read as part of them rather than as a separate
-  thing you can scroll.
-*/
-.claude-history-panel {
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid var(--ft-border-subtle);
-}
-
-.claude-history-head {
-  color: var(--ft-text-muted);
-  border-bottom: 1px solid var(--ft-border-subtle);
-  background: rgba(255, 255, 255, 0.02);
-}
-
-/*
-  The "working on" menu, hanging off the project field the way a browser's
-  address bar drops its suggestions.
-*/
-.claude-project-menu {
-  background: var(--ft-elevated);
-  border: 1px solid var(--ft-border);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
-}
-
-.claude-menu-footer {
-  background: rgba(255, 255, 255, 0.02);
-  border-top: 1px solid var(--ft-border-subtle);
-  color: var(--ft-text-secondary);
-  cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease;
-}
-
-.claude-menu-footer:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--ft-text);
-}
-
-.light .claude-history-panel,
-.light .claude-history-head,
-.light .claude-menu-footer {
-  background: rgba(0, 0, 0, 0.02);
-}
-
-.light .claude-menu-footer:hover {
-  background: rgba(0, 0, 0, 0.05);
-}
-
-.light .claude-project-menu {
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14);
-}
-
 /* The icon on a question that stops work if answered yes. */
 .claude-warn {
   color: var(--ft-warning);
@@ -6798,6 +7866,179 @@
 .claude-branch {
   color: var(--ft-text-muted);
   min-width: 0;
+}
+
+/* ─── Light theme ───────────────────────────────────────────────────────── */
+
+.light .claude-window {
+  background: var(--ft-surface);
+  box-shadow:
+    0 32px 80px -16px rgba(15, 23, 42, 0.22),
+    0 0 0 1px rgba(15, 23, 42, 0.04);
+}
+
+.light .claude-header {
+  background: linear-gradient(180deg, #ffffff, #f4f6f9);
+}
+
+/* `:not(.warn)`, or this would flatten the warning medallion's amber fill. */
+.light .claude-mark,
+.light .claude-medallion:not(.warn) {
+  background: linear-gradient(160deg, #ffffff, #eef1f6);
+}
+
+.light .claude-project-field {
+  background: rgba(15, 23, 42, 0.045);
+}
+
+.light .claude-project-field:hover {
+  background: rgba(15, 23, 42, 0.07);
+}
+
+.light .claude-project-field.open {
+  background: #ffffff;
+}
+
+.light .claude-iconbtn:hover:not(:disabled),
+.light .claude-conv:hover,
+.light .claude-menu-row:hover,
+.light .claude-row:hover {
+  background: rgba(15, 23, 42, 0.06);
+}
+
+.light .claude-iconbtn.on {
+  color: var(--ft-accent);
+  background: rgba(79, 70, 229, 0.12);
+}
+
+.light .claude-conv.active {
+  background: rgba(79, 70, 229, 0.1);
+  border-color: rgba(79, 70, 229, 0.3);
+}
+
+.light .claude-newconv {
+  background: rgba(15, 23, 42, 0.05);
+}
+
+.light .claude-newconv:hover {
+  background: rgba(15, 23, 42, 0.09);
+}
+
+/* The dark theme's pale indigo is unreadable on a light rail; use the ink one. */
+.light .claude-newconv.solo {
+  background: rgba(79, 70, 229, 0.1);
+  border-color: rgba(79, 70, 229, 0.3);
+  color: var(--ft-accent);
+}
+
+.light .claude-newconv.solo:hover {
+  background: rgba(79, 70, 229, 0.16);
+  border-color: rgba(79, 70, 229, 0.45);
+  color: var(--ft-accent-hover);
+}
+
+.light .claude-conv-close:hover {
+  background: rgba(15, 23, 42, 0.1);
+}
+
+.light .claude-menu-row.current {
+  background: rgba(79, 70, 229, 0.1);
+}
+
+.light .claude-menu-footer,
+.light .claude-panel,
+.light .claude-folders {
+  background: rgba(15, 23, 42, 0.022);
+}
+
+.light .claude-menu-footer:hover {
+  background: rgba(15, 23, 42, 0.06);
+}
+
+.light .claude-menu {
+  box-shadow:
+    0 18px 44px -10px rgba(15, 23, 42, 0.2),
+    0 0 0 1px rgba(15, 23, 42, 0.04);
+}
+
+/*
+  Secondary buttons only.
+
+  Without the `:not(.primary)` this rule matched the primary button too — same
+  specificity as `.claude-btn.primary` and further down the file, so it won the
+  background and left `color: #fff` behind it: a white label on a white button,
+  which is what the empty state's *New conversation* was in light mode. The
+  primary keeps the accent fill from the shared rule; only the quiet ones turn
+  white here, because a raised surface is how a light theme says "button" where
+  the dark theme uses a lighter wash.
+*/
+.light .claude-btn:not(.primary) {
+  background: #ffffff;
+  border-color: var(--ft-border);
+  color: var(--ft-text);
+}
+
+.light .claude-btn:not(.primary):hover:not(:disabled) {
+  background: #f4f6f9;
+  border-color: var(--ft-text-muted);
+}
+
+/* A black drop shadow under an indigo button muddies it; tint it to match. */
+.light .claude-btn.primary {
+  box-shadow:
+    0 1px 2px rgba(79, 70, 229, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+/*
+  `:not(.pending)` again: a pending chip is deliberately unfilled — dashed and
+  empty is what says "the project has this folder, this conversation doesn't" —
+  and a blanket light fill here would have erased the distinction.
+*/
+.light .claude-badge,
+.light .claude-chip:not(.pending),
+.light .claude-empty-body code {
+  background: rgba(15, 23, 42, 0.05);
+}
+
+.light .claude-folder-row {
+  background: rgba(15, 23, 42, 0.03);
+}
+
+/*
+  Text, on a light background.
+
+  `--ft-text-muted` is the quietest tone the palette has, and in the dark theme
+  that is fine: #6e7681 sits on near-black with room to spare. Against #f8f9fb
+  the light theme's #7a8094 is the *lightest* the palette goes, and at the 10px
+  this chrome uses for paths, hints and counts it drops under the contrast a
+  small font needs. So every muted string in the window steps up one tone here.
+  Icons are left muted — a glyph carries its meaning by shape, not by weight,
+  and lifting those too would make the chrome shouty.
+*/
+.light .claude-project-path,
+.light .claude-menu-label,
+.light .claude-menu-count,
+.light .claude-menu-empty,
+.light .claude-menu-path,
+.light .claude-row-path,
+.light .claude-badge,
+.light .claude-field-hint,
+.light .claude-field-label,
+.light .claude-branch,
+.light .claude-sent-note,
+.light .claude-chip.pending {
+  color: var(--ft-text-secondary);
+}
+
+/*
+  The pale reds are a dark-theme tint: on white they read as pink and vanish
+  against their own hover wash. Light mode takes the palette's own error tone.
+*/
+.light .claude-iconbtn.danger:hover:not(:disabled),
+.light .claude-menu-remove:hover {
+  color: var(--ft-error);
+  background: rgba(220, 38, 38, 0.1);
 }
 
 /* ─── Drawing window ───────────────────────────────────────────────────────

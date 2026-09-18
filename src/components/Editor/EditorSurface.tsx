@@ -69,6 +69,7 @@ import { indentGuides } from "./editorIndent";
 import { GitFileDiff } from "../../services/git";
 import { isMac } from "../../services/platform";
 import { editorTheme } from "./editorTheme";
+import { mergeConflicts } from "./mergeConflicts";
 import { FindPanel } from "./FindPanel";
 
 /**
@@ -804,6 +805,15 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
         highlightActiveLineGutter(),
         // Between the numbers and the fold arrows, as every editor puts it.
         gitChangeGutter,
+        /*
+          Merge conflicts, wherever they appear. Always on rather than switched
+          on when git says the file is conflicted: a conflicted file is just
+          text with markers in it, and it can also arrive from a patch, a
+          rebase the panel hasn't caught up with, or a colleague who committed
+          the markers by mistake. The scan pays for itself only when a marker
+          is actually there — see `conflictField`.
+        */
+        mergeConflicts(),
         highlightSpecialChars(),
         history(),
         foldGutter({ openText: "⌄", closedText: "›" }),
