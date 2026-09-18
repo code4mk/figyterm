@@ -2098,6 +2098,25 @@
   box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.5);
 }
 
+/*
+  The row being dragged. Faded rather than hidden: it is still where it came
+  from until the drop lands, and a row that vanished mid-drag would read as
+  having already moved.
+*/
+.editor-row.dragging {
+  opacity: 0.4;
+}
+
+/*
+  The project root as a drop target — the header, and the empty space below the
+  tree. Outlined rather than filled: the header holds five buttons and the
+  space below holds nothing, so a background wash would say less than an edge.
+*/
+.editor-explorer-header.drop-root,
+.editor-explorer-scroll.drop-root {
+  box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.65);
+}
+
 .editor-row.hidden-entry {
   opacity: 0.55;
 }
@@ -2234,6 +2253,60 @@
 
 .editor-palette-field {
   border-bottom: 1px solid #2a2f37;
+}
+
+/* Says what a palette is about when it is about one thing — "Move X to…". */
+.editor-palette-head {
+  color: #8b949e;
+  border-bottom: 1px solid #2a2f37;
+}
+
+.editor-palette-subject {
+  color: #e6edf3;
+  font-weight: 600;
+}
+
+/* The move picker's folder tree */
+
+.editor-move-row.picked {
+  background: rgba(99, 102, 241, 0.22);
+  box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.5);
+  color: #e6edf3;
+}
+
+/*
+  A folder that can't be taken: where the thing already is. Still drawn, and
+  still opens when clicked, because it is on the way to its own subfolders.
+*/
+.editor-move-row.disabled {
+  opacity: 0.5;
+}
+
+.editor-move-here {
+  color: #6e7681;
+}
+
+.editor-move-footer {
+  border-top: 1px solid #2a2f37;
+}
+
+.editor-move-target {
+  color: #8b949e;
+}
+
+.light .editor-move-row.picked {
+  background: rgba(79, 70, 229, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(79, 70, 229, 0.45);
+  color: #111827;
+}
+
+.light .editor-move-here,
+.light .editor-move-target {
+  color: #6b7280;
+}
+
+.light .editor-move-footer {
+  border-top: 1px solid #e2e5eb;
 }
 
 .editor-palette-icon {
@@ -2515,6 +2588,18 @@
   color: #fca5a5;
 }
 
+/*
+  Last, so it wins over the hover rules above: a button that can't be pressed
+  must not light up under the pointer as though it could.
+*/
+.editor-dialog-btn:disabled,
+.editor-dialog-btn:disabled:hover {
+  opacity: 0.45;
+  cursor: default;
+  background: rgba(255, 255, 255, 0.06);
+  color: #c9d1d9;
+}
+
 .editor-dialog-btn.danger:hover {
   background: rgba(248, 113, 113, 0.24);
   color: #ffffff;
@@ -2718,6 +2803,11 @@
   box-shadow: inset 0 0 0 1px rgba(79, 70, 229, 0.45);
 }
 
+.light .editor-explorer-header.drop-root,
+.light .editor-explorer-scroll.drop-root {
+  box-shadow: inset 0 0 0 1px rgba(79, 70, 229, 0.55);
+}
+
 .light .editor-row-chevron {
   color: #9ca3af;
 }
@@ -2809,6 +2899,15 @@
 
 .light .editor-palette-field {
   border-bottom: 1px solid #e2e5eb;
+}
+
+.light .editor-palette-head {
+  color: #4b5163;
+  border-bottom: 1px solid #e2e5eb;
+}
+
+.light .editor-palette-subject {
+  color: #111827;
 }
 
 .light .editor-palette-icon {

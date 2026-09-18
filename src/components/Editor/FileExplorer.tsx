@@ -7,6 +7,7 @@ import {
   Eye,
   EyeOff,
   FilePlus,
+  FolderInput,
   FolderPlus,
   FoldVertical,
   Folder,
@@ -30,11 +31,18 @@ import {
   renamePath,
   revealPath,
 } from "../../services/editor-fs";
+import {
+  canMoveInto,
+  cleanName,
+  isUnder,
+  newEntryParent,
+} from "../../services/explorer-paths";
 import { changeBadge, changeLabel, GitChange, isIgnored } from "../../services/git";
 import { platform } from "../../services/platform";
 import { ContextMenu, ContextMenuItem, ContextMenuSeparator } from "./ContextMenu";
 import { FileIcon } from "./fileIcons";
 import { EditorDialog } from "./EditorDialog";
+import { MoveToFolder } from "./MoveToFolder";
 
 /**
  * The file tree, pinned to the right of the editor.
@@ -56,6 +64,15 @@ const ROW_HEIGHT = 22;
 const OVERSCAN = 8;
 
 const INDENT = 12;
+
+/**
+ * How long a drag has to rest on a closed folder before it opens.
+ *
+ * Long enough that passing over a folder on the way somewhere else doesn't
+ * open it, short enough to be quicker than dropping the drag to click the
+ * chevron. The same "spring-loaded folder" delay Finder uses.
+ */
+const SPRING_DELAY = 600;
 
 export interface ExplorerChange {
   paths: string[];
@@ -85,6 +102,13 @@ interface FileExplorerProps {
   onCollapseAll: () => void;
   onOpenFile: (path: string) => void;
   onOpenTerminal: (dir: string) => void;
+  /**
+   * Reports a rename or a move that has landed on disk, so the tabs can follow.
+   *
+   * The explorer knows the two paths and nothing about what is open, which is
+   * why this leaves rather than being handled here.
+   */
+  onMoved: (from: string, to: string) => void;
   /**
    * Drops a remembered expansion that turned out not to exist.
    *
@@ -125,7 +149,6 @@ interface Row {
 interface Draft {
   parent: string;
   isDir: boolean;
-  depth: number;
 }
 
 interface Menu {
@@ -147,6 +170,7 @@ export function FileExplorer({
   onCollapseAll,
   onOpenFile,
   onOpenTerminal,
+  onMoved,
   onForgetExpanded,
   onError,
   change,
@@ -162,6 +186,8 @@ export function FileExplorer({
   const [renaming, setRenaming] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<FileEntry | null>(null);
+  /** The entry the "Move to Folder…" picker is open for. */
+  const [pendingMove, setPendingMove] = useState<FileEntry | null>(null);
   /**
    * Set when the root itself couldn't be read.
    *
@@ -294,9 +320,21 @@ export function FileExplorer({
       const entries = children.get(dir);
       if (!entries) return;
 
+      for (const entry of entries) {
+        out.push({ entry, depth });
+        if (entry.isDir && expandedSet.has(entry.path)) {
+          walk(entry.path, depth + 1);
+        }
+      }
+
       if (draft && draft.parent === dir) {
-        // The new-entry row sits at the top of its directory, where the eye
-        // already is after clicking "New File".
+        /*
+          The new-entry row goes *after* the directory's contents, which is
+          roughly where the created file will be a moment later. At the top it
+          sat above the folder's own listing, which read as belonging to
+          whatever was above it instead. The effect below is what keeps that
+          honest in a folder taller than the panel.
+        */
         out.push({
           entry: {
             name: "",
@@ -311,13 +349,6 @@ export function FileExplorer({
           depth,
         });
       }
-
-      for (const entry of entries) {
-        out.push({ entry, depth });
-        if (entry.isDir && expandedSet.has(entry.path)) {
-          walk(entry.path, depth + 1);
-        }
-      }
     };
 
     walk(root, 0);
@@ -330,6 +361,31 @@ export function FileExplorer({
     Math.ceil((scrollTop + viewportHeight) / ROW_HEIGHT) + OVERSCAN
   );
   const visible = rows.slice(first, last);
+
+  /** Where the new-entry row is, or -1 when nothing is being created. */
+  const draftIndex = useMemo(
+    () => (draft ? rows.findIndex((row) => row.entry.path.endsWith(DRAFT_MARK)) : -1),
+    [draft, rows]
+  );
+
+  /*
+    Brings the new-entry row into view.
+
+    It sits at the bottom of its folder now, which in a folder taller than the
+    panel means off-screen — a focused field nobody can see, where the typing
+    goes nowhere visible. Keyed on the index alone so that a reload of the
+    directory underneath doesn't drag the view back while the name is being
+    typed.
+  */
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || draftIndex < 0) return;
+    const top = draftIndex * ROW_HEIGHT;
+    if (top < el.scrollTop) el.scrollTop = top;
+    else if (top + ROW_HEIGHT > el.scrollTop + el.clientHeight) {
+      el.scrollTop = top + ROW_HEIGHT - el.clientHeight;
+    }
+  }, [draftIndex]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -361,15 +417,46 @@ export function FileExplorer({
   const startDraft = useCallback(
     (entry: FileEntry | null, isDir: boolean) => {
       const parent = targetDirOf(entry);
+      // A closed folder is opened first, or the row would be created into
+      // something the user can't see.
       if (entry?.isDir && !expandedSet.has(entry.path)) onToggleExpand(entry.path);
-      // Depth is the parent's depth plus one; found from the row we came from,
-      // falling back to the root's children.
-      const parentRow = rows.find((row) => row.entry.path === parent);
-      setDraft({ parent, isDir, depth: parentRow ? parentRow.depth + 1 : 0 });
+      setDraft({ parent, isDir });
       setMenu(null);
     },
-    [targetDirOf, expandedSet, onToggleExpand, rows]
+    [targetDirOf, expandedSet, onToggleExpand]
   );
+
+  /**
+   * Where the header's two buttons create.
+   *
+   * The last open folder as the tree is drawn — so a file made while a folder
+   * is open lands in it, and with everything collapsed it lands at the very
+   * bottom of the root. See `newEntryParent`.
+   */
+  const headerParent = useMemo(
+    () =>
+      newEntryParent(
+        rows.map((row) => ({
+          path: row.entry.path,
+          isDir: row.entry.isDir,
+          expanded: expandedSet.has(row.entry.path),
+        })),
+        root
+      ),
+    [rows, expandedSet, root]
+  );
+
+  const startHeaderDraft = useCallback(
+    (isDir: boolean) => {
+      setDraft({ parent: headerParent, isDir });
+      setMenu(null);
+    },
+    [headerParent]
+  );
+
+  /** How the header's buttons name their destination, for the tooltip. */
+  const headerLabel =
+    headerParent === root ? basename(root) || root : relativeTo(root, headerParent);
 
   const commitDraft = useCallback(
     async (name: string) => {
@@ -387,19 +474,41 @@ export function FileExplorer({
     [draft, load, onOpenFile, onError]
   );
 
+  /**
+   * Drops what was read under a path that has just moved away.
+   *
+   * The listings are keyed by directory, so after a folder moves its old key
+   * and every key beneath it describe somewhere that no longer exists. Left
+   * alone they are only wasted memory — nothing walks to them any more — but
+   * moving a folder *back* would then show the stale listing.
+   */
+  const forgetSubtree = useCallback((path: string) => {
+    setChildren((prev) => {
+      const next = new Map(prev);
+      for (const dir of prev.keys()) {
+        if (dir === path || isUnder(dir, path)) next.delete(dir);
+      }
+      return next;
+    });
+  }, []);
+
   const commitRename = useCallback(
     async (path: string, name: string) => {
       setRenaming(null);
       const trimmed = name.trim();
       if (!trimmed || trimmed === basename(path)) return;
       try {
-        await renamePath(path, joinPath(dirname(path), trimmed));
+        // The backend answers with the canonical destination, which is what the
+        // tabs have to be re-pointed at — not the path we asked for.
+        const moved = await renamePath(path, joinPath(dirname(path), trimmed));
+        forgetSubtree(path);
+        onMoved(path, moved);
         await load(dirname(path));
       } catch (error) {
         onError(String(error));
       }
     },
-    [load, onError]
+    [load, onError, onMoved, forgetSubtree]
   );
 
   const confirmDelete = useCallback(async () => {
@@ -416,20 +525,141 @@ export function FileExplorer({
 
   const move = useCallback(
     async (from: string, toDir: string) => {
-      // Moving a directory into itself or its own child would destroy it.
-      if (from === toDir || toDir.startsWith(from + "/") || toDir.startsWith(from + "\\")) {
-        return;
-      }
-      if (dirname(from) === toDir) return;
+      // Into itself, into its own child, or back where it already is.
+      if (!canMoveInto(from, toDir, dirname(from))) return;
       try {
-        await renamePath(from, joinPath(toDir, basename(from)));
+        const moved = await renamePath(from, joinPath(toDir, basename(from)));
+        forgetSubtree(from);
+        onMoved(from, moved);
         await Promise.all([load(dirname(from)), load(toDir)]);
       } catch (error) {
         onError(String(error));
       }
     },
-    [load, onError]
+    [load, onError, onMoved, forgetSubtree]
   );
+
+  /**
+   * Says that a name field dropped something, rather than doing it silently.
+   *
+   * What gets dropped is invisible by definition, so without this the field
+   * simply appears to ignore part of a paste.
+   */
+  const reportRejected = useCallback(
+    (count: number) => {
+      onError(
+        `Removed ${count} character${count === 1 ? "" : "s"} a file name can't contain`
+      );
+    },
+    [onError]
+  );
+
+  // --- Dragging ------------------------------------------------------------
+
+  /**
+   * What is being dragged, in a ref as well as in state.
+   *
+   * `dragover` fires continuously and is forbidden from reading
+   * `dataTransfer` — the payload is only readable on drop — so remembering
+   * what left is the only way to decide, while the pointer is still moving,
+   * whether this target may have it.
+   */
+  const draggingRef = useRef<string | null>(null);
+  const [dragging, setDraggingPath] = useState<string | null>(null);
+  const setDragging = useCallback((path: string | null) => {
+    draggingRef.current = path;
+    setDraggingPath(path);
+  }, []);
+
+  /** A collapsed folder waiting to spring open, and the timer that will do it. */
+  const springRef = useRef<{ path: string; timer: number } | null>(null);
+
+  const cancelSpring = useCallback((path?: string | null) => {
+    const pending = springRef.current;
+    if (!pending) return;
+    // With a path, only that folder's timer is cancelled: `dragenter` on the
+    // next row arrives *before* `dragleave` on the last one, so cancelling
+    // blindly would kill the spring the new row has just started.
+    if (path && pending.path !== path) return;
+    window.clearTimeout(pending.timer);
+    springRef.current = null;
+  }, []);
+
+  const springOpen = useCallback(
+    (path: string) => {
+      if (springRef.current?.path === path) return;
+      cancelSpring();
+      springRef.current = {
+        path,
+        timer: window.setTimeout(() => {
+          springRef.current = null;
+          // Only if the drag is still going: the timer outliving it would
+          // expand a folder seconds after the drop, for no visible reason.
+          if (draggingRef.current) onToggleExpand(path);
+        }, SPRING_DELAY),
+      };
+    },
+    [cancelSpring, onToggleExpand]
+  );
+
+  const endDrag = useCallback(() => {
+    cancelSpring();
+    setDragging(null);
+    setDragOver(null);
+  }, [cancelSpring, setDragging]);
+
+  /**
+   * Offers `toDir` as the drop target, and says whether it took it.
+   *
+   * Not calling `preventDefault` is what refuses a drop in HTML's drag and
+   * drop, and it is also what puts the "no" cursor under the pointer — so an
+   * illegal target says so before the mouse is released rather than swallowing
+   * the drop and doing nothing, which is what it did before.
+   */
+  const offerDrop = useCallback((e: React.DragEvent, toDir: string): boolean => {
+    const from = draggingRef.current;
+    if (!from || !canMoveInto(from, toDir, dirname(from))) {
+      setDragOver((prev) => (prev === null ? prev : null));
+      return false;
+    }
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setDragOver((prev) => (prev === toDir ? prev : toDir));
+    return true;
+  }, []);
+
+  const dropOn = useCallback(
+    (e: React.DragEvent, toDir: string) => {
+      e.preventDefault();
+      // The ref is the drag we started; the payload is the fallback, since a
+      // drag that began before this component re-rendered still carries it.
+      const from = draggingRef.current || e.dataTransfer.getData("text/plain");
+      endDrag();
+      if (from) void move(from, toDir);
+    },
+    [endDrag, move]
+  );
+
+  /** Nothing should be left ticking when the panel goes away mid-drag. */
+  useEffect(() => cancelSpring, [cancelSpring]);
+
+  /**
+   * Every folder the tree has seen, for the move picker.
+   *
+   * It builds its list from the project's *files*, which leaves out any folder
+   * holding none — so an empty folder, and a folder holding only ignored files,
+   * would be missing from the one place you would go to move something into it.
+   * Taken from the listings rather than their keys, which would only be the
+   * folders somebody had expanded.
+   */
+  const knownDirs = useMemo(() => {
+    const dirs = new Set<string>();
+    for (const [dir, entries] of children) {
+      dirs.add(dir);
+      for (const entry of entries) if (entry.isDir) dirs.add(entry.path);
+    }
+    return [...dirs];
+  }, [children]);
 
   const copyToClipboard = useCallback(
     (text: string) => {
@@ -445,23 +675,37 @@ export function FileExplorer({
 
   return (
     <div className="editor-explorer flex flex-col h-full min-h-0">
-      <div className="editor-explorer-header flex items-center gap-1 px-2 h-[26px] shrink-0">
+      {/*
+        The header doubles as the drop target for the project root. Without it
+        there is no way to drag something *out* of a folder once the tree is
+        long enough to fill the panel — the empty space below the rows, the
+        other root target, is then nowhere to be found.
+      */}
+      <div
+        className={`editor-explorer-header flex items-center gap-1 px-2 h-[26px] shrink-0 ${
+          dragOver === root ? "drop-root" : ""
+        }`}
+        onDragOver={(e) => offerDrop(e, root)}
+        onDrop={(e) => dropOn(e, root)}
+      >
         <span className="editor-explorer-title text-[10px] font-semibold uppercase tracking-wide truncate flex-1">
           {basename(root) || root}
         </span>
+        {/* Both say where they will create, because that is the one thing
+            about them that isn't obvious from the icon. */}
         <button
           className="editor-icon-btn p-0.5 rounded"
-          onClick={() => startDraft(null, false)}
-          title="New file"
-          aria-label="New file"
+          onClick={() => startHeaderDraft(false)}
+          title={`New file in ${headerLabel}`}
+          aria-label={`New file in ${headerLabel}`}
         >
           <FilePlus size={12} />
         </button>
         <button
           className="editor-icon-btn p-0.5 rounded"
-          onClick={() => startDraft(null, true)}
-          title="New folder"
-          aria-label="New folder"
+          onClick={() => startHeaderDraft(true)}
+          title={`New folder in ${headerLabel}`}
+          aria-label={`New folder in ${headerLabel}`}
         >
           <FolderPlus size={12} />
         </button>
@@ -493,8 +737,21 @@ export function FileExplorer({
 
       <div
         ref={scrollRef}
-        className="editor-explorer-scroll flex-1 min-h-0 overflow-y-auto overflow-x-hidden"
+        className={`editor-explorer-scroll flex-1 min-h-0 overflow-y-auto overflow-x-hidden ${
+          dragOver === root ? "drop-root" : ""
+        }`}
         onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+        /*
+          The empty space under the tree is the root. Guarded on the target
+          being this element itself, because a row's own dragover bubbles up
+          here and would otherwise re-aim every drop at the root.
+        */
+        onDragOver={(e) => {
+          if (e.target === e.currentTarget) offerDrop(e, root);
+        }}
+        onDrop={(e) => {
+          if (e.target === e.currentTarget) dropOn(e, root);
+        }}
         onContextMenu={(e) => {
           e.preventDefault();
           setMenu({ x: e.clientX, y: e.clientY, entry: null });
@@ -537,7 +794,9 @@ export function FileExplorer({
                   activePath === row.entry.path ? "active" : ""
                 } ${menu?.entry?.path === row.entry.path ? "context-target" : ""} ${
                   dragOver === row.entry.path ? "drag-over" : ""
-                } ${row.entry.isHidden ? "hidden-entry" : ""} ${
+                } ${dragging === row.entry.path ? "dragging" : ""} ${
+                  row.entry.isHidden ? "hidden-entry" : ""
+                } ${
                   ignored ? "ignored-entry" : ""
                 } ${
                   /* An ignored path has no meaningful git status — it is
@@ -549,20 +808,28 @@ export function FileExplorer({
                 onDragStart={(e) => {
                   e.dataTransfer.setData("text/plain", row.entry.path);
                   e.dataTransfer.effectAllowed = "move";
+                  setDragging(row.entry.path);
                 }}
+                onDragEnd={endDrag}
                 onDragOver={(e) => {
-                  if (!row.entry.isDir) return;
-                  e.preventDefault();
-                  e.dataTransfer.dropEffect = "move";
-                  setDragOver(row.entry.path);
+                  // A file's row means the folder it is in, so dropping next to
+                  // a file lands where that file is — which is how it reads.
+                  const target = row.entry.isDir ? row.entry.path : dirname(row.entry.path);
+                  if (!offerDrop(e, target)) return;
+                  // Held over a closed folder, it opens: dropping two levels
+                  // down should not mean giving up on the drag to go and click
+                  // the chevron first.
+                  if (row.entry.isDir && !expandedSet.has(row.entry.path)) {
+                    springOpen(row.entry.path);
+                  }
                 }}
-                onDragLeave={() => setDragOver((prev) => (prev === row.entry.path ? null : prev))}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  setDragOver(null);
-                  const from = e.dataTransfer.getData("text/plain");
-                  if (from && row.entry.isDir) void move(from, row.entry.path);
+                onDragLeave={() => {
+                  // Named, never blanket: a file's row has no timer of its own,
+                  // and cancelling without saying which would kill the one the
+                  // folder the pointer just entered has started.
+                  if (row.entry.isDir) cancelSpring(row.entry.path);
                 }}
+                onDrop={(e) => dropOn(e, row.entry.isDir ? row.entry.path : dirname(row.entry.path))}
                 onClick={() => {
                   if (isDraftRow || renaming === row.entry.path) return;
                   if (row.entry.isDir) {
@@ -606,12 +873,14 @@ export function FileExplorer({
                     placeholder={draft?.isDir ? "Folder name" : "File name"}
                     onCommit={commitDraft}
                     onCancel={() => setDraft(null)}
+                    onRejected={reportRejected}
                   />
                 ) : renaming === row.entry.path ? (
                   <NameInput
                     initial={row.entry.name}
                     onCommit={(name) => void commitRename(row.entry.path, name)}
                     onCancel={() => setRenaming(null)}
+                    onRejected={reportRejected}
                   />
                 ) : (
                   <>
@@ -725,6 +994,14 @@ export function FileExplorer({
                 }}
               />
               <ContextMenuItem
+                icon={<FolderInput size={12} />}
+                label="Move to Folder…"
+                onClick={() => {
+                  setPendingMove(menu.entry);
+                  setMenu(null);
+                }}
+              />
+              <ContextMenuItem
                 icon={<Copy size={12} />}
                 label="Copy Path"
                 onClick={() => copyToClipboard(menu.entry!.path)}
@@ -757,6 +1034,19 @@ export function FileExplorer({
         </ContextMenu>
       )}
 
+      {pendingMove && (
+        <MoveToFolder
+          root={root}
+          showHidden={showHidden}
+          path={pendingMove.path}
+          name={pendingMove.name}
+          knownDirs={knownDirs}
+          onMove={(toDir) => void move(pendingMove.path, toDir)}
+          onClose={() => setPendingMove(null)}
+          onError={onError}
+        />
+      )}
+
       {pendingDelete && (
         <EditorDialog
           title={pendingDelete.isDir ? "Move folder to trash?" : "Move file to trash?"}
@@ -783,13 +1073,19 @@ function NameInput({
   placeholder,
   onCommit,
   onCancel,
+  onRejected,
 }: {
   initial: string;
   placeholder?: string;
   onCommit: (name: string) => void;
   onCancel: () => void;
+  /** Says how many characters a name couldn't hold, so it isn't dropped silently. */
+  onRejected: (count: number) => void;
 }) {
-  const [value, setValue] = useState(initial);
+  // Cleaned on the way in as well as on the way through: a file that already
+  // has one of these in its name is renamed by pressing Enter on what this
+  // offers, which is the only repair the tree can make.
+  const [value, setValue] = useState(() => cleanName(initial));
   const ref = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -814,7 +1110,13 @@ function NameInput({
       spellCheck={false}
       autoComplete="off"
       className="editor-row-input flex-1 min-w-0 text-[12px] px-1 rounded"
-      onChange={(e) => setValue(e.target.value)}
+      onChange={(e) => {
+        const cleaned = cleanName(e.target.value);
+        if (cleaned.length !== e.target.value.length) {
+          onRejected(e.target.value.length - cleaned.length);
+        }
+        setValue(cleaned);
+      }}
       onClick={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
       onKeyDown={(e) => {
