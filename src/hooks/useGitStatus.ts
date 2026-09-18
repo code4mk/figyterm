@@ -174,7 +174,25 @@ export function useGitStatus(root: string | null, enabled: boolean) {
     }
     refresh();
     return () => {
-      if (timer.current) clearTimeout(timer.current);
+      if (!timer.current) return;
+      clearTimeout(timer.current);
+      /*
+        Cleared, not merely cancelled — and this is the whole of a bug that
+        looked like "the source control panel is empty until I reload".
+
+        Leaving the handle behind made the *next* `refresh` believe a run was
+        still scheduled. Inside `MAX_DELAY_MS` it then returns without arming
+        anything, and the run it deferred to had already been cancelled here.
+        Nothing ever asked git anything, so the panel kept `NO_REPO` and said
+        the folder wasn't a repository.
+
+        Switching workspace is exactly the shape that triggers it: the old
+        folder's status was requested moments ago, this cleanup fires as the
+        root changes, and the new folder's request lands well inside the
+        second. Only a later watcher event — or reopening the editor — got it
+        going again, which is why it came back "after a reload".
+      */
+      timer.current = null;
     };
   }, [root, enabled, refresh]);
 

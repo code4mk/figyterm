@@ -74,6 +74,7 @@ import {
   gitFetch,
   gitFileDiff,
   gitFileHunks,
+  gitPull,
   gitPush,
   gitStage,
   gitUnstage,
@@ -1990,13 +1991,15 @@ export function EditorModal({
    * rejected non-fast-forward is about that button, not about the editor.
    */
   const syncRemote = useCallback(
-    async (which: "fetch" | "push"): Promise<string> => {
+    async (which: "fetch" | "pull" | "push"): Promise<string> => {
       if (!root) return "";
       setGitBusy(true);
       try {
         // Returned, not discarded: git reports a successful push on stderr, and
         // "Everything up-to-date" is an answer rather than a non-event.
-        return await (which === "fetch" ? gitFetch(root) : gitPush(root));
+        if (which === "fetch") return await gitFetch(root);
+        if (which === "pull") return await gitPull(root);
+        return await gitPush(root);
       } finally {
         setGitBusy(false);
         setGitTick((tick) => tick + 1);
@@ -2795,12 +2798,15 @@ export function EditorModal({
                       busy={gitBusy}
                       revision={`${gitTick}:${change.token}`}
                       onRefresh={refreshGit}
-                      onOpenFile={(path) => void openPath(path)}
+                      // The line comes from the conflict report, which links
+                      // each marker to the place it is.
+                      onOpenFile={(path, line) => void openPath(path, line)}
                       onOpenDiff={openDiff}
                       onOpenCommitDiff={openCommitDiff}
                       onDiscard={setDiscardPrompt}
                       onCommit={commitFiles}
                       onFetch={() => syncRemote("fetch")}
+                      onPull={() => syncRemote("pull")}
                       onPush={() => syncRemote("push")}
                       onError={setError}
                       onClose={() => setSidePanel("files")}

@@ -107,6 +107,10 @@ pub struct GitRepo {
     pub files: Vec<GitFile>,
     /// True when the walk stopped at [`MAX_FILES`].
     pub truncated: bool,
+    /// A merge is in progress and has stopped, conflicted or not.
+    pub merging: bool,
+    /// What is being merged in, as git recorded it — `feature/x`, or a SHA.
+    pub merge_head: Option<String>,
 }
 
 impl GitRepo {
@@ -117,6 +121,8 @@ impl GitRepo {
             branch: None,
             detached: false,
             upstream: None,
+            merging: false,
+            merge_head: None,
             ahead: 0,
             behind: 0,
             files: Vec::new(),
@@ -511,7 +517,68 @@ pub fn status(dir: &Path) -> Result<GitRepo, String> {
         }
     }
 
+    let (merging, merge_head) = merge_state(&root);
+    repo.merging = merging;
+    repo.merge_head = merge_head;
+
     Ok(repo)
+}
+
+/**
+ Whether a merge has stopped part-way, and what it was merging.
+
+ Read from the files git leaves behind rather than by asking it: `status`
+ already ran, and a second process on every watcher burst — a save, a build —
+ to answer a question that changes twice a month is the trade this module keeps
+ refusing elsewhere.
+
+ `.git` is a *file* in a linked worktree or a submodule, pointing at the real
+ directory; only then is git asked where that is, which keeps the extra process
+ to the layouts that need it.
+*/
+fn merge_state(root: &Path) -> (bool, Option<String>) {
+    let dot_git = root.join(".git");
+    let git_dir = if dot_git.is_dir() {
+        dot_git
+    } else if dot_git.exists() {
+        match git(root, &["rev-parse", "--absolute-git-dir"]) {
+            Ok(path) => PathBuf::from(path.trim()),
+            Err(_) => return (false, None),
+        }
+    } else {
+        return (false, None);
+    };
+
+    if !git_dir.join("MERGE_HEAD").exists() {
+        return (false, None);
+    }
+
+    // `MERGE_MSG` opens with git's own "Merge branch 'x'" line, which names the
+    // branch. Without it — a merge of a bare commit — the short SHA is what
+    // there is to say.
+    let named = std::fs::read_to_string(git_dir.join("MERGE_MSG"))
+        .ok()
+        .and_then(|text| merged_branch(&text))
+        .or_else(|| {
+            std::fs::read_to_string(git_dir.join("MERGE_HEAD"))
+                .ok()
+                .map(|sha| sha.trim().chars().take(7).collect())
+        });
+
+    (true, named)
+}
+
+/// The branch name out of git's own merge message.
+///
+/// `Merge branch 'fix' into main` — the name is what sits between the first
+/// pair of quotes. Anything else (a merge of a bare commit, an edited message)
+/// names nothing, and the caller falls back to the short SHA rather than
+/// guessing at a shape git did not write.
+fn merged_branch(message: &str) -> Option<String> {
+    let first = message.lines().next()?;
+    let (_, rest) = first.split_once('\'')?;
+    let (name, _) = rest.split_once('\'')?;
+    (!name.is_empty()).then(|| name.to_string())
 }
 
 fn read_header(repo: &mut GitRepo, rest: &str) {
@@ -1015,7 +1082,15 @@ fn apply_counts(root: &Path, sha: &str, files: &mut [GitCommitFile]) -> Result<(
             sha,
         ],
     )?;
+    merge_counts(&raw, files);
+    Ok(())
+}
 
+/// Joins `--numstat` output onto files already read from `--name-status`.
+///
+/// Split out from [`apply_counts`] because a stash's counts come from
+/// `git stash show`, which is a different command producing the same bytes.
+fn merge_counts(raw: &str, files: &mut [GitCommitFile]) {
     let mut fields = raw.split('\0').filter(|f| !f.is_empty()).peekable();
     while let Some(record) = fields.next() {
         // `<added>\t<removed>\t<path>`, and for a rename the path is *empty* and
@@ -1047,8 +1122,6 @@ fn apply_counts(root: &Path, sha: &str, files: &mut [GitCommitFile]) -> Result<(
             file.removed = removed;
         }
     }
-
-    Ok(())
 }
 
 /// One file's diff as a commit left it.
@@ -1141,12 +1214,43 @@ pub fn fetch(root: &Path) -> Result<String, String> {
     git_network(root, &["fetch", "--prune"])
 }
 
-/// Pushes the current branch, setting its upstream the first time.
+/// Brings the upstream's commits into the current branch.
 ///
-/// Pull is deliberately not here. A pull merges, a merge conflicts, and a
-/// conflict needs somewhere to be resolved — which is a feature of its own and
-/// not one this panel has. Fetch tells you that you are behind; the shell three
-/// inches away does the rest.
+/// This used to be left out on the grounds that a pull merges, a merge
+/// conflicts, and a conflict needs somewhere to be resolved. The first two are
+/// still true; the third turned out to be answered already — a conflicted file
+/// is a state `git status` reports, the panel draws it with its own badge, and
+/// the file opens in the editor like any other. What was missing was the
+/// button, not the place to resolve them.
+///
+/// The strategy is the user's, not ours. A repository or a user with
+/// `pull.rebase` or `pull.ff` set gets exactly what they configured; only when
+/// neither is set does this pick, and it picks merge — the historical default,
+/// and the one that leaves a rebase out of an operation nobody asked to
+/// rewrite history with. The choice has to be made *somewhere*: git 2.34 and
+/// later refuse a divergent pull outright when the config is silent, which
+/// would surface here as a wall of hint text instead of a pull.
+pub fn pull(root: &Path) -> Result<String, String> {
+    if !has_upstream(root) {
+        return Err(
+            "This branch has no upstream to pull from — push it first, or set one with \
+             `git branch --set-upstream-to`."
+                .to_string(),
+        );
+    }
+
+    let configured = ["pull.rebase", "pull.ff"]
+        .iter()
+        .any(|key| git(root, &["config", "--get", key]).is_ok());
+
+    if configured {
+        git_network(root, &["pull"])
+    } else {
+        git_network(root, &["pull", "--no-rebase"])
+    }
+}
+
+/// Pushes the current branch, setting its upstream the first time.
 pub fn push(root: &Path) -> Result<String, String> {
     if has_upstream(root) {
         return git_network(root, &["push"]);
@@ -1154,6 +1258,442 @@ pub fn push(root: &Path) -> Result<String, String> {
     let remote = default_remote(root)?;
     let branch = current_branch(root)?;
     git_network(root, &["push", "--set-upstream", &remote, &branch])
+}
+
+// ─── Conflicts ──────────────────────────────────────────────────────────────
+
+/// Where the conflict markers are in one file.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitConflictFile {
+    pub relative: String,
+    /// Line of each `<<<<<<<`, 1-based. Empty when the file holds no markers,
+    /// which is a real and different case — see [`conflict_marks`].
+    pub lines: Vec<u32>,
+    /// True when the walk stopped at [`MAX_MARKS`].
+    pub truncated: bool,
+}
+
+/// Cap on markers reported per file. Past this the file is the problem.
+const MAX_MARKS: usize = 200;
+
+/// Cap on reading a file to look for markers.
+const MAX_MARK_SCAN_BYTES: u64 = 8 * 1024 * 1024;
+
+/**
+ Which lines each conflicted file has its markers on.
+
+ For the dialog that answers "why can't I commit": a count and a line number
+ per conflict, so the answer is a place to go rather than a list of filenames.
+
+ An empty `lines` is not a failure. A file can be unmerged with no markers in
+ it at all — deleted on one side and modified on the other, or added by both as
+ different file *types* — and those conflicts are settled by choosing a whole
+ side, which is what the panel's buttons already do. Saying "no markers" is
+ more useful than pretending to find some.
+
+ The marker rule is deliberately identical to the editor's, in
+ `mergeConflictScan.ts`: exactly seven `<` at the start of a line, followed by a
+ space or nothing. Two implementations of one rule is a duplication worth
+ naming — this one reads files off disk for a summary, that one reads an open
+ buffer for decorations — and both are tested against the same shapes.
+*/
+pub fn conflict_marks(root: &Path, paths: &[String]) -> Result<Vec<GitConflictFile>, String> {
+    let mut out = Vec::with_capacity(paths.len());
+
+    for path in paths {
+        let relative = relative_arg(path)?;
+        let full = root.join(relative);
+
+        let too_big = std::fs::metadata(&full)
+            .map(|meta| meta.len() > MAX_MARK_SCAN_BYTES)
+            .unwrap_or(false);
+
+        // A file that cannot be read — deleted on this side, or binary — is
+        // reported with no marks rather than dropped: it is still conflicted,
+        // and leaving it out of the dialog would make the count disagree with
+        // the panel behind it.
+        let text = if too_big {
+            None
+        } else {
+            std::fs::read_to_string(&full).ok()
+        };
+
+        let mut lines = Vec::new();
+        let mut truncated = false;
+        if let Some(text) = text {
+            for (index, line) in text.lines().enumerate() {
+                if is_conflict_start(line) {
+                    if lines.len() >= MAX_MARKS {
+                        truncated = true;
+                        break;
+                    }
+                    lines.push(index as u32 + 1);
+                }
+            }
+        }
+
+        out.push(GitConflictFile {
+            relative: relative.to_string(),
+            lines,
+            truncated,
+        });
+    }
+
+    Ok(out)
+}
+
+/// Exactly seven `<` at the start of a line, then a space or the end of it.
+///
+/// The count matters: eight is not a marker, and `<<<<<<<<` appears in enough
+/// generated files and ASCII art to be worth refusing.
+fn is_conflict_start(line: &str) -> bool {
+    let rest = match line.strip_prefix("<<<<<<<") {
+        Some(rest) => rest,
+        None => return false,
+    };
+    !rest.starts_with('<') && (rest.is_empty() || rest.starts_with(' '))
+}
+
+/// Which side of a conflict to keep wholesale.
+///
+/// `Ours` is the branch that was checked out when the merge started, `Theirs`
+/// the one being merged in — git's own words, and confusing enough in a rebase
+/// (where they swap) that the UI says "mine" and "incoming" instead and lets
+/// git keep its vocabulary down here.
+#[derive(Debug, Clone, Copy)]
+pub enum Side {
+    Ours,
+    Theirs,
+}
+
+/// Takes one whole side of each conflicted file and marks it resolved.
+///
+/// Two steps, and the second is the one people forget at the command line:
+/// `git checkout --ours` writes the file, but the path stays *unmerged* in the
+/// index until it is added, so the commit would still be refused. Doing both
+/// here is what makes the button mean "resolved" rather than "rewritten".
+pub fn resolve_with(root: &Path, paths: &[String], side: Side) -> Result<(), String> {
+    if paths.is_empty() {
+        return Ok(());
+    }
+    let checked: Vec<&str> = paths
+        .iter()
+        .map(|path| relative_arg(path))
+        .collect::<Result<_, _>>()?;
+
+    let flag = match side {
+        Side::Ours => "--ours",
+        Side::Theirs => "--theirs",
+    };
+
+    let mut args = vec!["checkout", flag, "--"];
+    args.extend_from_slice(&checked);
+    git(root, &args)?;
+
+    stage(root, paths)
+}
+
+/// Marks conflicted files resolved, exactly as they now stand on disk.
+///
+/// This is `git add`, named for what it does here: the file has been edited by
+/// hand — the markers taken out, the right lines kept — and adding it is how
+/// git is told the conflict is over.
+pub fn mark_resolved(root: &Path, paths: &[String]) -> Result<(), String> {
+    stage(root, paths)
+}
+
+/// Abandons the merge and puts the working tree back.
+pub fn merge_abort(root: &Path) -> Result<String, String> {
+    git(root, &["merge", "--abort"])
+}
+
+// ─── Branches ───────────────────────────────────────────────────────────────
+
+/// How many refs the picker will list, local and remote together.
+///
+/// A repository that has been fetching a busy fork for a year can carry
+/// thousands of remote-tracking branches, and none of them are found by
+/// scrolling. The list is filtered by typing; this only keeps the reply from
+/// being a megabyte of refs nobody will read.
+const MAX_BRANCHES: usize = 500;
+
+/// A ref the branch picker can offer.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitBranch {
+    /// `main` for a local branch, `origin/main` for a remote-tracking one.
+    pub name: String,
+    pub remote: bool,
+    /// The one HEAD points at. Never true for a remote branch.
+    pub current: bool,
+    /// What a local branch tracks, e.g. `origin/main`.
+    pub upstream: Option<String>,
+    /// The tip's commit date, ISO 8601 — the picker sorts on it.
+    pub date: String,
+    /// The tip's subject line, so a branch name means something in the list.
+    pub subject: String,
+}
+
+/// Whether a name is safe to hand git as a ref argument.
+///
+/// The leading dash is the one that matters: `git switch -f` is not a branch
+/// called `-f`. The rest of the deny list is `git check-ref-format`'s, applied
+/// here so a bad name is refused with a sentence rather than by git in the
+/// middle of an operation.
+fn ref_arg(name: &str) -> Result<&str, String> {
+    let bad = name.is_empty()
+        || name.starts_with('-')
+        || name.starts_with('.')
+        || name.ends_with('.')
+        || name.ends_with(".lock")
+        || name.contains("..")
+        || name.contains("@{")
+        || name.chars().any(|c| {
+            c.is_whitespace() || c.is_control() || matches!(c, '~' | '^' | ':' | '?' | '*' | '[' | '\\')
+        });
+
+    if bad {
+        Err(format!("{name} is not a usable branch name"))
+    } else {
+        Ok(name)
+    }
+}
+
+/// Every local and remote-tracking branch, current first, then most recent.
+pub fn branches(root: &Path) -> Result<Vec<GitBranch>, String> {
+    // The full refname leads, and is only there to say which namespace the row
+    // came from. Asking `show-ref` per branch would answer the same question
+    // with one process per branch, which on a repository with a few hundred is
+    // a noticeable pause for a fact git is already holding.
+    let format = format!(
+        "--format=%(refname){FIELD}%(refname:short){FIELD}%(HEAD){FIELD}%(upstream:short){FIELD}\
+         %(committerdate:iso-strict){FIELD}%(contents:subject)"
+    );
+    let count = format!("--count={MAX_BRANCHES}");
+    let raw = git(
+        root,
+        &[
+            "for-each-ref",
+            "--sort=-committerdate",
+            &count,
+            &format,
+            "refs/heads",
+            "refs/remotes",
+        ],
+    )?;
+
+    let mut out = Vec::new();
+    for line in raw.lines() {
+        let mut fields = line.split(FIELD);
+        let full = fields.next().unwrap_or("").trim();
+        let name = fields.next().unwrap_or("").trim().to_string();
+        if full.is_empty() || name.is_empty() {
+            continue;
+        }
+        // `origin/HEAD` is a symbolic ref standing for the remote's default
+        // branch. Offering it would check out whatever it points at under a
+        // name that isn't a branch.
+        if name.ends_with("/HEAD") {
+            continue;
+        }
+
+        let remote = full.starts_with("refs/remotes/");
+        let current = fields.next().unwrap_or("").trim() == "*";
+        let upstream = fields
+            .next()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let date = fields.next().unwrap_or("").trim().to_string();
+        let subject = fields.next().unwrap_or("").trim().to_string();
+
+        out.push(GitBranch {
+            name,
+            remote,
+            current,
+            upstream,
+            date,
+            subject,
+        });
+    }
+
+    // The branch you are on goes first however old its tip is: it is the one
+    // the list is being read in relation to.
+    out.sort_by_key(|branch| !branch.current);
+    Ok(out)
+}
+
+/// Whether a local branch of this name exists.
+///
+/// Asked, not guessed from the shape of the name: a local branch called
+/// `origin/thing` is legal, so "has a slash, must be remote" is wrong in
+/// exactly the case where being wrong checks out the other branch.
+fn name_is_local(root: &Path, name: &str) -> bool {
+    git(
+        root,
+        &["show-ref", "--verify", "--quiet", &format!("refs/heads/{name}")],
+    )
+    .is_ok()
+}
+
+/// Switches to `name`, creating a tracking branch for a remote one.
+///
+/// Picking `origin/feature` in the list means "work on that", which locally is
+/// a branch of the same short name set up to track it — the DWIM that
+/// `git switch` does on its own for an unambiguous name, done explicitly here
+/// because the list can offer the same short name from two remotes.
+pub fn switch_branch(root: &Path, name: &str, remote: bool) -> Result<String, String> {
+    let name = ref_arg(name)?;
+
+    if !remote {
+        return git(root, &["switch", name]);
+    }
+
+    let local = name
+        .split_once('/')
+        .map(|(_, rest)| rest)
+        .filter(|rest| !rest.is_empty())
+        .ok_or_else(|| format!("{name} does not name a remote branch"))?;
+
+    // Already have it locally: switch to that rather than failing on a name
+    // that is taken.
+    if name_is_local(root, local) {
+        return git(root, &["switch", local]);
+    }
+    git(root, &["switch", "--track", name])
+}
+
+// ─── Stash ──────────────────────────────────────────────────────────────────
+
+/// One entry from `git stash list`.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitStash {
+    /// The stash commit. What every operation here is keyed by; see below.
+    pub sha: String,
+    /// Its position at the time of listing, for the `stash@{n}` label.
+    pub index: usize,
+    /// The branch it was made on, from git's own subject line.
+    pub branch: Option<String>,
+    /// What to call it: the message given, or git's "WIP on…" line.
+    pub message: String,
+    pub date: String,
+}
+
+/// The branch and message out of a stash's subject.
+///
+/// Git writes either `WIP on main: 3b11460 subject` for an unnamed stash or
+/// `On main: my message` for a named one. Anything else is handed back whole:
+/// a stash from a detached HEAD says `WIP on (no branch)`, and inventing
+/// structure for it would be worse than showing what git said.
+fn parse_stash_subject(subject: &str) -> (Option<String>, String) {
+    for prefix in ["WIP on ", "On "] {
+        if let Some(rest) = subject.strip_prefix(prefix) {
+            if let Some((branch, message)) = rest.split_once(": ") {
+                let branch = branch.trim();
+                let named = (!branch.is_empty() && branch != "(no branch)")
+                    .then(|| branch.to_string());
+                return (named, message.trim().to_string());
+            }
+        }
+    }
+    (None, subject.trim().to_string())
+}
+
+pub fn stash_list(root: &Path) -> Result<Vec<GitStash>, String> {
+    let format = format!("--format=%H{FIELD}%gs{FIELD}%cI");
+    let raw = git(root, &["stash", "list", &format])?;
+
+    Ok(raw
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .enumerate()
+        .map(|(index, line)| {
+            let mut fields = line.split(FIELD);
+            let sha = fields.next().unwrap_or("").trim().to_string();
+            let (branch, message) = parse_stash_subject(fields.next().unwrap_or(""));
+            let date = fields.next().unwrap_or("").trim().to_string();
+            GitStash {
+                sha,
+                index,
+                branch,
+                message,
+                date,
+            }
+        })
+        .collect())
+}
+
+/// Puts the working tree away, optionally under a name.
+///
+/// Untracked files go too. Leaving them behind is the behaviour that makes
+/// people think a stash "didn't work": you stash to get a clean tree, switch
+/// branch, and the new file you had just created is still sitting there — and
+/// on a branch where it does not belong.
+pub fn stash_push(root: &Path, message: &str) -> Result<String, String> {
+    let message = message.trim();
+    let mut args = vec!["stash", "push", "--include-untracked"];
+    if !message.is_empty() {
+        args.push("--message");
+        args.push(message);
+    }
+    git(root, &args)
+}
+
+/// The `stash@{n}` for a stash commit, resolved fresh.
+///
+/// Indices are positions in a stack, so every push and drop renumbers every
+/// entry below. The frontend holds a list from whenever it last looked, and
+/// acting on the index it remembers is how the wrong stash gets dropped. The
+/// SHA is stable, so it is what crosses the wire and this turns it back into
+/// the reference git's commands take.
+fn stash_ref(root: &Path, sha: &str) -> Result<String, String> {
+    let sha = revision_arg(sha)?;
+    stash_list(root)?
+        .into_iter()
+        .find(|stash| stash.sha.starts_with(sha) || sha.starts_with(&stash.sha))
+        .map(|stash| format!("stash@{{{}}}", stash.index))
+        .ok_or_else(|| "That stash is no longer in the list.".to_string())
+}
+
+/// What a stash would bring back, as a file list.
+///
+/// `git stash show` rather than `git show`: a stash is a merge commit whose
+/// *third* parent holds the untracked files, so `git show --first-parent` —
+/// what the commit drawer uses — would list the tracked changes and quietly
+/// omit the new files. Since these stashes are made with
+/// `--include-untracked`, omitting them would hide exactly the work that is
+/// easiest to forget having stashed.
+pub fn stash_files(root: &Path, sha: &str) -> Result<Vec<GitCommitFile>, String> {
+    let reference = stash_ref(root, sha)?;
+
+    // `--include-untracked` reached `git stash show` in 2.32. Older git refuses
+    // the option outright, so the second attempt drops it and lists the tracked
+    // changes — a shorter answer, not a failed one.
+    let show = |format: &str| -> Result<String, String> {
+        let with = ["stash", "show", "--include-untracked", format, "--no-color", "-z", &reference];
+        match git(root, &with) {
+            Ok(raw) => Ok(raw),
+            Err(_) => git(root, &["stash", "show", format, "--no-color", "-z", &reference]),
+        }
+    };
+
+    let mut files = statuses(&show("--name-status")?);
+    merge_counts(&show("--numstat")?, &mut files);
+
+    Ok(files)
+}
+
+/// Restores a stash. `pop` also removes it once it has applied cleanly.
+pub fn stash_restore(root: &Path, sha: &str, pop: bool) -> Result<String, String> {
+    let reference = stash_ref(root, sha)?;
+    git(root, &["stash", if pop { "pop" } else { "apply" }, &reference])
+}
+
+pub fn stash_drop(root: &Path, sha: &str) -> Result<String, String> {
+    let reference = stash_ref(root, sha)?;
+    git(root, &["stash", "drop", &reference])
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
@@ -1355,5 +1895,93 @@ mod tests {
         assert!(relative_arg("a/../../b").is_err());
         assert!(relative_arg("--upload-pack=x").is_err());
         assert!(relative_arg("").is_err());
+    }
+
+    #[test]
+    fn ref_arg_takes_the_branch_names_people_actually_use() {
+        assert!(ref_arg("main").is_ok());
+        assert!(ref_arg("feature/code-editor").is_ok());
+        assert!(ref_arg("origin/feature/code-editor").is_ok());
+        assert!(ref_arg("release-1.2.3").is_ok());
+        assert!(ref_arg("fix_#42").is_ok());
+    }
+
+    #[test]
+    fn ref_arg_refuses_what_git_would_refuse_or_misread() {
+        // The one with teeth: an argument starting with a dash is an option.
+        assert!(ref_arg("-f").is_err());
+        assert!(ref_arg("--track=evil").is_err());
+        assert!(ref_arg("").is_err());
+        assert!(ref_arg("has space").is_err());
+        assert!(ref_arg("a..b").is_err());
+        assert!(ref_arg("main@{1}").is_err());
+        assert!(ref_arg("head:ref").is_err());
+        assert!(ref_arg("star*").is_err());
+        assert!(ref_arg("tilde~1").is_err());
+        assert!(ref_arg(".hidden").is_err());
+        assert!(ref_arg("trailing.").is_err());
+        assert!(ref_arg("branch.lock").is_err());
+    }
+
+    #[test]
+    fn a_conflict_marker_is_exactly_seven_angle_brackets() {
+        assert!(is_conflict_start("<<<<<<< HEAD"));
+        assert!(is_conflict_start("<<<<<<<"));
+        // Eight is not a marker, and neither is one that has been indented or
+        // quoted — which is how this text appears in documentation and in the
+        // editor's own source.
+        assert!(!is_conflict_start("<<<<<<<< HEAD"));
+        assert!(!is_conflict_start("  <<<<<<< HEAD"));
+        assert!(!is_conflict_start("// <<<<<<< HEAD"));
+        assert!(!is_conflict_start("<<<<<<<HEAD"));
+        assert!(!is_conflict_start("<<<<<< HEAD"));
+        assert!(!is_conflict_start(""));
+    }
+
+    #[test]
+    fn a_merge_message_names_the_branch_between_its_quotes() {
+        // Exactly what git writes into `.git/MERGE_MSG`.
+        assert_eq!(merged_branch("Merge branch 'feature/thing'\n"), Some("feature/thing".into()));
+        assert_eq!(
+            merged_branch("Merge branch 'fix' into main\n\n# Conflicts:\n#\tf.txt\n"),
+            Some("fix".into())
+        );
+        assert_eq!(merged_branch("Merge remote-tracking branch 'origin/main'"), Some("origin/main".into()));
+    }
+
+    #[test]
+    fn a_merge_message_without_a_branch_names_nothing() {
+        // A merge of a bare commit: the caller falls back to the short SHA.
+        assert_eq!(merged_branch("Merge commit 3b11460"), None);
+        assert_eq!(merged_branch(""), None);
+    }
+
+    #[test]
+    fn stash_subject_splits_git_own_two_shapes() {
+        assert_eq!(
+            parse_stash_subject("WIP on main: 3b11460 Add the thing"),
+            (Some("main".into()), "3b11460 Add the thing".into())
+        );
+        assert_eq!(
+            parse_stash_subject("On feature/code-editor: half a refactor"),
+            (Some("feature/code-editor".into()), "half a refactor".into())
+        );
+    }
+
+    #[test]
+    fn a_stash_from_a_detached_head_names_no_branch() {
+        let (branch, message) = parse_stash_subject("WIP on (no branch): 3b11460 Add the thing");
+        assert_eq!(branch, None);
+        assert_eq!(message, "3b11460 Add the thing");
+    }
+
+    #[test]
+    fn an_unrecognised_stash_subject_is_kept_whole() {
+        // Better a message that reads oddly than one invented from a shape git
+        // turns out not to have written.
+        assert_eq!(
+            parse_stash_subject("something else entirely"),
+            (None, "something else entirely".into())
+        );
     }
 }

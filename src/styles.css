@@ -1914,9 +1914,14 @@
 
 .editor-newtab-btn:hover,
 .editor-btn:hover:not(:disabled),
-.editor-icon-btn:hover {
+.editor-icon-btn:hover:not(:disabled) {
   color: #e6edf3;
   background: rgba(255, 255, 255, 0.08);
+}
+
+.editor-icon-btn:disabled {
+  color: #3a3f48;
+  cursor: default;
 }
 
 .editor-btn:disabled {
@@ -4134,8 +4139,29 @@
   color: #b6bec8;
 }
 
+/*
+  The ahead / behind counts beside the branch name.
+
+  Chips, like the tab counts: a bare "↑2 ↓1" next to a branch name reads as
+  part of the name at 10px, and these two numbers are the reason the buttons
+  below are lit the way they are.
+*/
 .editor-scm-count {
-  color: #8b949e;
+  gap: 1px;
+  padding: 0 4px;
+  height: 14px;
+  border-radius: 7px;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.1);
+  color: #b6bec8;
+}
+
+/* Behind: what the remote has and this branch hasn't. Blue rather than amber
+   — it is not a warning, it is a thing to go and get, and amber is already
+   saying "you have work nobody else has". */
+.editor-scm-count.behind {
+  background: rgba(99, 102, 241, 0.26);
+  color: #c7d2fe;
 }
 
 /* ── Source control: remote and history ─────────────────────────────────── */
@@ -4166,6 +4192,56 @@
 .editor-scm-syncbtn.busy:disabled {
   color: #b6bec8;
   background: rgba(99, 102, 241, 0.14);
+}
+
+/*
+  A progress line along the bottom of the running button.
+
+  Nothing spins, and nothing sweeps across the label. A rotating cloud is a
+  cloud that is turning over, which is not what a push is doing, and a
+  shimmer behind text is a loading *placeholder* — the pattern that stands in
+  for content that hasn't arrived. A progress line is the thing that actually
+  means "in progress", which is why every browser, installer and download puts
+  one exactly here.
+
+  Indeterminate, because git reports no progress worth interpolating: the bar
+  is a fifth of the width and travels the button in 1.4s, which reads as steady
+  work at a glance and doesn't demand to be watched.
+*/
+.editor-scm-syncbtn.busy {
+  position: relative;
+  overflow: hidden;
+  cursor: default;
+}
+
+.editor-scm-syncbtn.busy::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: 20%;
+  border-radius: 1px;
+  background: #6366f1;
+  animation: editor-scm-progress 1.4s ease-in-out infinite;
+}
+
+@keyframes editor-scm-progress {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(500%);
+  }
+}
+
+/* Still says it is working, without anything moving. */
+@media (prefers-reduced-motion: reduce) {
+  .editor-scm-syncbtn.busy::after {
+    animation: none;
+    width: 100%;
+    opacity: 0.6;
+  }
 }
 
 /*
@@ -4217,6 +4293,149 @@
 .editor-scm-tab.on {
   color: #e6edf3;
   border-bottom-color: #6366f1;
+}
+
+/* ── Merge conflicts ──────────────────────────────────────────────────────
+   Red, and at the top. A stopped merge is a state the repository is in, not an
+   item in a list, and everything below it is unavailable until it is over —
+   so it is allowed to shout where the rest of the panel murmurs. */
+
+.editor-conflict {
+  background: rgba(248, 81, 73, 0.07);
+  border-bottom: 1px solid rgba(248, 81, 73, 0.28);
+}
+
+.editor-conflict-head {
+  color: #f85149;
+}
+
+.editor-conflict-what {
+  color: #8b949e;
+}
+
+.editor-conflict-ref {
+  color: #e6edf3;
+  font-weight: 600;
+}
+
+.editor-conflict-row + .editor-conflict-row {
+  border-top: 1px solid rgba(248, 81, 73, 0.14);
+}
+
+.editor-conflict-file {
+  color: #c9d1d9;
+  transition: background 0.12s ease;
+}
+
+.editor-conflict-file:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.editor-conflict-btn {
+  color: #b6bec8;
+  background: rgba(255, 255, 255, 0.07);
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.editor-conflict-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.13);
+  color: #e6edf3;
+}
+
+.editor-conflict-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* The one that ends the conflict reads as the finish, not as a third option. */
+.editor-conflict-btn.done {
+  background: rgba(63, 185, 80, 0.16);
+  color: #56d364;
+}
+
+.editor-conflict-btn.done:hover:not(:disabled) {
+  background: rgba(63, 185, 80, 0.26);
+  color: #7ee787;
+}
+
+.light .editor-conflict {
+  background: rgba(207, 34, 46, 0.06);
+  border-bottom: 1px solid rgba(207, 34, 46, 0.22);
+}
+
+.light .editor-conflict-head {
+  color: #b91c1c;
+}
+
+.light .editor-conflict-what {
+  color: #6b7280;
+}
+
+.light .editor-conflict-ref {
+  color: #111827;
+}
+
+.light .editor-conflict-row + .editor-conflict-row {
+  border-top: 1px solid rgba(207, 34, 46, 0.12);
+}
+
+.light .editor-conflict-file {
+  color: #374151;
+}
+
+.light .editor-conflict-file:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.light .editor-conflict-btn {
+  background: rgba(0, 0, 0, 0.06);
+  color: #374151;
+}
+
+.light .editor-conflict-btn:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.1);
+  color: #111827;
+}
+
+.light .editor-conflict-btn.done {
+  background: rgba(26, 127, 55, 0.14);
+  color: #1a7f37;
+}
+
+/* The count on a tab. Tabular figures so 1 and 11 sit at the same width. */
+.editor-scm-tabcount {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 15px;
+  height: 14px;
+  padding: 0 4px;
+  border-radius: 7px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  background: rgba(255, 255, 255, 0.1);
+  color: #b6bec8;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+/* On the tab you are looking at, the chip picks up the tab's own accent. */
+.editor-scm-tabcount.on {
+  background: rgba(99, 102, 241, 0.32);
+  color: #e0e7ff;
+}
+
+/* Conflicts count differently: the number is what is blocking the commit. */
+.editor-scm-tabcount.conflict,
+.editor-scm-tabcount.conflict.on {
+  background: rgba(248, 81, 73, 0.24);
+  color: #ff7b72;
+}
+
+.light .editor-scm-tabcount.conflict,
+.light .editor-scm-tabcount.conflict.on {
+  background: rgba(207, 34, 46, 0.16);
+  color: #b91c1c;
 }
 
 .editor-scm-commit-row {
@@ -4384,6 +4603,23 @@
   opacity: 0.8;
 }
 
+/*
+  The icon-only variant is the whole control, so it cannot fade out when the
+  pointer is elsewhere — there would be nothing left to point at. Dimmed
+  instead, so it still sits behind the branch name it belongs to.
+*/
+.editor-remote-link.icon-only {
+  padding: 2px;
+}
+
+.editor-remote-link.icon-only .editor-remote-link-icon {
+  opacity: 0.55;
+}
+
+.editor-remote-link.icon-only:hover .editor-remote-link-icon {
+  opacity: 1;
+}
+
 .editor-scm-merge {
   color: #a5b4fc;
 }
@@ -4394,7 +4630,11 @@
   button. Amber rather than red — it is something to do, not something wrong.
 */
 .editor-scm-unpushed,
-.editor-scm-count.pending,
+.editor-scm-count.pending {
+  background: rgba(210, 153, 34, 0.22);
+  color: #f0c674;
+}
+
 .editor-status-ahead {
   color: #e3b341;
 }
@@ -4412,6 +4652,158 @@
 .editor-scm-syncbtn.pending:hover:not(:disabled) {
   background: rgba(210, 153, 34, 0.26);
   color: #f5d99a;
+}
+
+/* The branch name, which is also the switcher. */
+.editor-scm-branchbtn {
+  color: inherit;
+  transition: background 0.12s ease;
+}
+
+.editor-scm-branchbtn:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+/* Branch picker */
+
+.editor-branch-row.current {
+  color: #a5b4fc;
+  cursor: default;
+}
+
+.editor-branch-check {
+  color: #3fb950;
+}
+
+/* Remote branches are offered, and marked: picking one makes a local branch. */
+.editor-branch-remote {
+  color: #8b949e;
+}
+
+.editor-branch-when {
+  color: #6e7681;
+}
+
+.editor-branch-dirty,
+.editor-branch-explain {
+  color: #8b949e;
+  border-top: 1px solid #2a2f37;
+}
+
+.editor-branch-actions {
+  border-top: 1px solid #2a2f37;
+}
+
+/* Stashes */
+
+.editor-stash-row {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  transition: opacity 0.12s ease;
+}
+
+.editor-stash-row.busy {
+  opacity: 0.5;
+}
+
+.editor-stash-msg {
+  color: #c9d1d9;
+}
+
+.editor-stash-when {
+  color: #6e7681;
+}
+
+/* The title line doubles as the disclosure for the file list. */
+.editor-stash-head {
+  color: inherit;
+  transition: background 0.12s ease;
+}
+
+.editor-stash-head:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* What is inside a stash. Indented under its title, and quieter than it: the
+   list is an answer to a question the title raised, not a second list. */
+.editor-stash-files {
+  margin: 2px 0 2px 16px;
+  border-left: 1px solid rgba(255, 255, 255, 0.07);
+  padding-left: 6px;
+  color: #8b949e;
+}
+
+.editor-stash-file {
+  color: #b6bec8;
+}
+
+.editor-stash-add {
+  color: #3fb950;
+}
+
+.editor-stash-del {
+  color: #f85149;
+}
+
+.editor-stash-drop:hover:not(:disabled) {
+  color: #f85149;
+}
+
+.light .editor-scm-branchbtn:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.light .editor-branch-row.current {
+  color: #4338ca;
+}
+
+.light .editor-branch-check {
+  color: #1a7f37;
+}
+
+.light .editor-branch-remote,
+.light .editor-branch-when,
+.light .editor-stash-when,
+.light .editor-stash-files {
+  color: #6b7280;
+}
+
+.light .editor-stash-head:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.light .editor-stash-files {
+  border-left: 1px solid #e2e5eb;
+}
+
+.light .editor-stash-file {
+  color: #374151;
+}
+
+.light .editor-stash-add {
+  color: #1a7f37;
+}
+
+.light .editor-stash-del {
+  color: #b91c1c;
+}
+
+.light .editor-branch-dirty,
+.light .editor-branch-explain,
+.light .editor-branch-actions {
+  color: #4b5163;
+  border-top: 1px solid #e2e5eb;
+}
+
+.light .editor-stash-row {
+  border-bottom: 1px solid #e9ecf1;
+}
+
+.light .editor-stash-msg {
+  color: #111827;
+}
+
+.light .editor-stash-drop:hover:not(:disabled) {
+  color: #b91c1c;
 }
 
 /* A branch or tag pointing at this commit. */
@@ -4548,6 +4940,127 @@
   background: rgba(255, 255, 255, 0.04);
   color: #4a5361;
   cursor: default;
+}
+
+/*
+  Blocked by a conflict, and still pressable — pressing it says where they are.
+  Red rather than grey for that reason: grey is what a button that does nothing
+  looks like, and this one does something.
+*/
+.editor-scm-button.blocked {
+  background: rgba(248, 81, 73, 0.16);
+  color: #ff7b72;
+}
+
+.editor-scm-button.blocked:hover:not(:disabled) {
+  background: rgba(248, 81, 73, 0.26);
+  color: #ffa198;
+}
+
+/* ── The "why can't I commit" report ────────────────────────────────────── */
+
+.editor-report {
+  padding: 0;
+}
+
+.editor-report-head {
+  background: rgba(248, 81, 73, 0.1);
+  border-bottom: 1px solid rgba(248, 81, 73, 0.24);
+  color: #f85149;
+}
+
+.editor-report-sub {
+  color: #8b949e;
+}
+
+.editor-report-row + .editor-report-row {
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.editor-report-file {
+  color: #c9d1d9;
+  transition: background 0.12s ease;
+}
+
+.editor-report-file:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #e6edf3;
+}
+
+.editor-report-count {
+  color: #8b949e;
+}
+
+/* Each line is a place to go, so it is shaped like something you press. */
+.editor-report-line {
+  background: rgba(248, 81, 73, 0.14);
+  color: #ff7b72;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.editor-report-line:hover {
+  background: rgba(248, 81, 73, 0.26);
+  color: #ffa198;
+}
+
+.editor-report-note,
+.editor-report-hint {
+  color: #6e7681;
+}
+
+.editor-report-foot {
+  border-top: 1px solid #2a2f37;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.light .editor-scm-button.blocked {
+  background: rgba(207, 34, 46, 0.12);
+  color: #b91c1c;
+}
+
+.light .editor-scm-button.blocked:hover:not(:disabled) {
+  background: rgba(207, 34, 46, 0.2);
+  color: #991b1b;
+}
+
+.light .editor-report-head {
+  background: rgba(207, 34, 46, 0.07);
+  border-bottom: 1px solid rgba(207, 34, 46, 0.2);
+  color: #b91c1c;
+}
+
+.light .editor-report-sub,
+.light .editor-report-count,
+.light .editor-report-note,
+.light .editor-report-hint {
+  color: #6b7280;
+}
+
+.light .editor-report-row + .editor-report-row {
+  border-top: 1px solid #e9ecf1;
+}
+
+.light .editor-report-file {
+  color: #374151;
+}
+
+.light .editor-report-file:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: #111827;
+}
+
+.light .editor-report-line {
+  background: rgba(207, 34, 46, 0.1);
+  color: #b91c1c;
+}
+
+.light .editor-report-line:hover {
+  background: rgba(207, 34, 46, 0.18);
+}
+
+.light .editor-report-foot {
+  border-top: 1px solid #e2e5eb;
+  background: rgba(0, 0, 0, 0.02);
 }
 
 .editor-scm-error {
@@ -5119,7 +5632,8 @@
 }
 
 .light .editor-scm-count {
-  color: #6b7280;
+  background: rgba(0, 0, 0, 0.08);
+  color: #4b5163;
 }
 
 .light .editor-tab-diff.active {
@@ -5172,6 +5686,11 @@
   background: rgba(79, 70, 229, 0.1);
 }
 
+/* The progress line again, at the weight a near-white button can carry. */
+.light .editor-scm-syncbtn.busy::after {
+  background: #4f46e5;
+}
+
 .light .editor-scm-note {
   background: rgba(0, 0, 0, 0.04);
   color: #6b7280;
@@ -5179,6 +5698,16 @@
 
 .light .editor-scm-tab {
   color: #9ca3af;
+}
+
+.light .editor-scm-tabcount {
+  background: rgba(0, 0, 0, 0.08);
+  color: #4b5163;
+}
+
+.light .editor-scm-tabcount.on {
+  background: rgba(79, 70, 229, 0.18);
+  color: #3730a3;
 }
 
 .light .editor-scm-tab:hover {
@@ -5254,7 +5783,16 @@
 }
 
 .light .editor-scm-unpushed,
-.light .editor-scm-count.pending,
+.light .editor-scm-count.pending {
+  background: rgba(154, 103, 0, 0.16);
+  color: #7a5200;
+}
+
+.light .editor-scm-count.behind {
+  background: rgba(79, 70, 229, 0.16);
+  color: #3730a3;
+}
+
 .light .editor-status-ahead {
   color: #9a6700;
 }

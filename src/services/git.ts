@@ -44,6 +44,10 @@ export interface GitRepo {
   behind: number;
   files: GitFile[];
   truncated: boolean;
+  /** A merge is in progress and has stopped — conflicted, or just unfinished. */
+  merging: boolean;
+  /** What is being merged in: a branch name, or a short SHA. */
+  mergeHead: string | null;
 }
 
 /** One entry in the history list. */
@@ -108,6 +112,8 @@ export const NO_REPO: GitRepo = {
   behind: 0,
   files: [],
   truncated: false,
+  merging: false,
+  mergeHead: null,
 };
 
 export function gitStatus(dir: string): Promise<GitRepo> {
@@ -192,6 +198,18 @@ export function gitFetch(dir: string): Promise<string> {
   return invoke<string>("git_fetch", { dir });
 }
 
+/**
+ * Brings the upstream's commits into the working tree.
+ *
+ * The one call here that can leave the repository mid-operation: a pull that
+ * conflicts stops with the files marked, which `gitStatus` then reports as
+ * `conflicted` and the panel draws as such. The message it rejects with is
+ * git's own and says which files.
+ */
+export function gitPull(dir: string): Promise<string> {
+  return invoke<string>("git_pull", { dir });
+}
+
 /** Pushes the current branch, publishing it if it has no upstream yet. */
 export function gitPush(dir: string): Promise<string> {
   return invoke<string>("git_push", { dir });
@@ -200,6 +218,123 @@ export function gitPush(dir: string): Promise<string> {
 /** The tracked remote's URL, raw. Empty when the repository has no remote. */
 export function gitRemoteUrl(dir: string): Promise<string> {
   return invoke<string>("git_remote_url", { dir });
+}
+
+/** Where the conflict markers are in one file. */
+export interface GitConflictFile {
+  relative: string;
+  /** Line of each `<<<<<<<`, 1-based. Empty when the file holds no markers. */
+  lines: number[];
+  /** True when more markers were found than are worth listing. */
+  truncated: boolean;
+}
+
+/**
+ * Which lines each conflicted file has its markers on.
+ *
+ * An empty `lines` is an answer, not a failure: a file can be unmerged with no
+ * markers in it — deleted on one side and modified on the other — and those
+ * are settled by taking a whole side rather than by editing.
+ */
+export function gitConflictMarks(
+  dir: string,
+  paths: string[]
+): Promise<GitConflictFile[]> {
+  return invoke<GitConflictFile[]>("git_conflict_marks", { dir, paths });
+}
+
+/**
+ * Takes one whole side of each conflicted file, and marks them resolved.
+ *
+ * `ours` is the branch that was checked out when the merge began, `theirs` the
+ * one being merged in. Both are staged afterwards, because a file rewritten but
+ * left unmerged in the index still blocks the commit.
+ */
+export function gitResolveWith(
+  dir: string,
+  paths: string[],
+  side: "ours" | "theirs"
+): Promise<void> {
+  return invoke("git_resolve_with", { dir, paths, side });
+}
+
+/** Marks conflicted files resolved as they now stand — the hand-edited case. */
+export function gitMarkResolved(dir: string, paths: string[]): Promise<void> {
+  return invoke("git_mark_resolved", { dir, paths });
+}
+
+/** Abandons the merge and restores the working tree. */
+export function gitMergeAbort(dir: string): Promise<string> {
+  return invoke<string>("git_merge_abort", { dir });
+}
+
+/** A branch the picker can switch to. */
+export interface GitBranch {
+  /** `main` for a local branch, `origin/main` for a remote-tracking one. */
+  name: string;
+  remote: boolean;
+  current: boolean;
+  upstream: string | null;
+  /** The tip's commit date, ISO 8601. */
+  date: string;
+  /** The tip's subject, so a name in the list means something. */
+  subject: string;
+}
+
+/** Local and remote-tracking branches, current first, then most recent. */
+export function gitBranches(dir: string): Promise<GitBranch[]> {
+  return invoke<GitBranch[]>("git_branches", { dir });
+}
+
+/**
+ * Checks out `name`. A remote one is created locally, tracking it.
+ *
+ * Rejects with git's own words when the working tree is in the way — "Your
+ * local changes to the following files would be overwritten by checkout" names
+ * the files, which is the whole of what the caller needs to offer a stash.
+ */
+export function gitSwitch(dir: string, name: string, remote: boolean): Promise<string> {
+  return invoke<string>("git_switch", { dir, name, remote });
+}
+
+/** One entry in `git stash list`. */
+export interface GitStash {
+  /** The stash commit. Every operation is keyed by this, never by position. */
+  sha: string;
+  /** Where it sat when the list was read, for the `stash@{n}` label. */
+  index: number;
+  /** The branch it was made on, when git recorded one. */
+  branch: string | null;
+  message: string;
+  date: string;
+}
+
+export function gitStashList(dir: string): Promise<GitStash[]> {
+  return invoke<GitStash[]>("git_stash_list", { dir });
+}
+
+/** Puts the working tree away, untracked files included. */
+export function gitStashPush(dir: string, message: string): Promise<string> {
+  return invoke<string>("git_stash_push", { dir, message });
+}
+
+/** Applies a stash; `pop` also drops it once it has applied cleanly. */
+export function gitStashRestore(dir: string, sha: string, pop: boolean): Promise<string> {
+  return invoke<string>("git_stash_restore", { dir, sha, pop });
+}
+
+/**
+ * The files a stash would bring back.
+ *
+ * Untracked files included — they are stashed, so they are part of the answer
+ * to "what is in here", and they are the ones most easily forgotten.
+ */
+export function gitStashFiles(dir: string, sha: string): Promise<GitCommitFile[]> {
+  return invoke<GitCommitFile[]>("git_stash_files", { dir, sha });
+}
+
+export function gitStashDrop(dir: string, sha: string): Promise<string> {
+  return invoke<string>("git_stash_drop", { dir, sha });
 }
 
 /**

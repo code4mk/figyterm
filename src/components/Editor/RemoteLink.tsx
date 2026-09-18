@@ -26,10 +26,24 @@ interface RemoteLinkProps {
   sha?: { full: string; short: string };
   /** A branch, possibly still carrying its `origin/` prefix. */
   branch?: string;
+  /**
+   * Just the icon, with the name in the tooltip.
+   *
+   * For where the name is already on screen: the panel's branch row says which
+   * branch you are on in letters an inch away, and repeating it to carry a
+   * link only makes the row read as two branches.
+   */
+  iconOnly?: boolean;
   className?: string;
 }
 
-export function RemoteLink({ remote, sha, branch, className = "" }: RemoteLinkProps) {
+export function RemoteLink({
+  remote,
+  sha,
+  branch,
+  iconOnly = false,
+  className = "",
+}: RemoteLinkProps) {
   const label = sha ? sha.short : branch ? stripRemotePrefix(branch) : "";
   if (!label) return null;
 
@@ -42,21 +56,24 @@ export function RemoteLink({ remote, sha, branch, className = "" }: RemoteLinkPr
         : null;
 
   if (!href || !remote) {
-    return <span className={className}>{label}</span>;
+    // Nothing to open. With the label, that is still worth showing; on its
+    // own, an icon that goes nowhere is just a puzzle.
+    return iconOnly ? null : <span className={className}>{label}</span>;
   }
 
   return (
     <button
-      className={`editor-remote-link ${className}`}
+      className={`editor-remote-link ${iconOnly ? "icon-only" : ""} ${className}`}
       onClick={(e) => {
         // The rows these sit in open a diff or a drawer; a link is not that.
         e.stopPropagation();
         void openExternal(href).catch(() => {});
       }}
-      title={`Open on ${remote.host}`}
+      title={`Open ${label} on ${remote.host}`}
+      aria-label={`Open ${label} on ${remote.host}`}
     >
-      <span className="truncate">{label}</span>
-      <ExternalLink size={9} className="editor-remote-link-icon shrink-0" />
+      {!iconOnly && <span className="truncate">{label}</span>}
+      <ExternalLink size={iconOnly ? 11 : 9} className="editor-remote-link-icon shrink-0" />
     </button>
   );
 }

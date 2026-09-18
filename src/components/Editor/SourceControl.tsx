@@ -1,11 +1,16 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
   Check,
+  ChevronDown,
   CircleAlert,
+  CloudDownload,
   CloudUpload,
   GitBranch,
+  GitGraph,
+  GitMerge,
+  GitMergeConflict,
   RefreshCw,
   RotateCcw,
   X,
@@ -14,6 +19,7 @@ import {
   changeBadge,
   changeLabel,
   effectiveChange,
+  gitStashList,
   GitCommit,
   GitCommitFile,
   GitFile,
@@ -23,10 +29,14 @@ import {
 } from "../../services/git";
 import { Remote } from "../../services/git-forge";
 import { isMac } from "../../services/platform";
+import { BranchPicker } from "./BranchPicker";
 import { ChangeTally } from "./ChangeTally";
+import { ConflictReport } from "./ConflictReport";
+import { ConflictSection } from "./ConflictSection";
 import { CommitHistory } from "./CommitHistory";
 import { FileIcon } from "./fileIcons";
 import { RemoteLink } from "./RemoteLink";
+import { StashList } from "./StashList";
 
 /**
  * The changes panel, shaped like GitHub Desktop's.
@@ -55,6 +65,37 @@ import { RemoteLink } from "./RemoteLink";
  * be wrong in.
  */
 
+/** The three things that talk to the remote. */
+type SyncKind = "fetch" | "pull" | "push";
+
+/**
+ * How long the busy state is held, however fast git was.
+ *
+ * A fetch against a warm connection returns in 200ms, and a spinner that
+ * appears and vanishes inside a quarter of a second reads as a flicker rather
+ * than as work — you are left unsure whether the click registered at all. So
+ * the animation is given a floor: it runs smoothly for this long, then the
+ * result appears. It costs nothing but patience, and the answer is already in
+ * hand when the button settles.
+ */
+const SETTLE_MS = 5000;
+
+/** What to say when git itself said nothing, per operation. */
+const DONE_NOTE: Record<SyncKind, string> = {
+  fetch: "Already up to date.",
+  pull: "Already up to date.",
+  push: "Nothing to push.",
+};
+
+/** Minimum gap between two counts of the stash stack; see the effect below. */
+const STASH_COUNT_GAP_MS = 5_000;
+
+/** Waits out the rest of [`SETTLE_MS`], if any of it is left. */
+function settle(startedAt: number): Promise<void> {
+  const left = SETTLE_MS - (Date.now() - startedAt);
+  return left > 0 ? new Promise((resolve) => setTimeout(resolve, left)) : Promise.resolve();
+}
+
 interface SourceControlProps {
   repo: GitRepo;
   /** The workspace folder, for the history tab's own queries. */
@@ -67,15 +108,17 @@ interface SourceControlProps {
   /** Changes when the repository might have, so the history reloads. */
   revision: string;
   onRefresh: () => void;
-  onOpenFile: (path: string) => void;
+  /** `line` is 1-based, and is how the conflict report jumps to a marker. */
+  onOpenFile: (path: string, line?: number) => void;
   onOpenDiff: (file: GitFile) => void;
   onOpenCommitDiff: (commit: GitCommit, file: GitCommitFile) => void;
   /** Confirmed by the caller: this throws away work. */
   onDiscard: (files: GitFile[]) => void;
   /** Stages exactly `include`, unstages the rest, then commits. */
   onCommit: (message: string, include: GitFile[]) => Promise<void>;
-  /** Both resolve with git's own output, which is worth showing either way. */
+  /** All three resolve with git's own output, which is worth showing either way. */
   onFetch: () => Promise<string>;
+  onPull: () => Promise<string>;
   onPush: () => Promise<string>;
   onError: (message: string) => void;
   onClose: () => void;
@@ -95,12 +138,25 @@ export function SourceControl({
   onDiscard,
   onCommit,
   onFetch,
+  onPull,
   onPush,
   onError,
   onClose,
 }: SourceControlProps) {
-  const [tab, setTab] = useState<"changes" | "history">("changes");
-  const [syncing, setSyncing] = useState<"fetch" | "push" | null>(null);
+  const [tab, setTab] = useState<"changes" | "history" | "stashes">("changes");
+  /** Open while a branch is being picked. */
+  const [picking, setPicking] = useState(false);
+  /** Open when a commit was attempted with conflicts still in the way. */
+  const [reporting, setReporting] = useState(false);
+  /**
+   * How many stashes there are, for the tab's badge.
+   *
+   * Counted here rather than inside the tab, because the number is the reason
+   * to open it: a stash nobody remembers making is exactly the work that gets
+   * lost, and the tab is the only place it is ever mentioned.
+   */
+  const [stashCount, setStashCount] = useState(0);
+  const [syncing, setSyncing] = useState<SyncKind | null>(null);
   const [syncNote, setSyncNote] = useState<string | null>(null);
   const [summary, setSummary] = useState("");
   const [description, setDescription] = useState("");
@@ -108,12 +164,68 @@ export function SourceControl({
   const [committing, setCommitting] = useState(false);
   const [commitError, setCommitError] = useState<string | null>(null);
 
-  const included = useMemo(
-    () => repo.files.filter((file) => !excluded.has(file.relative)),
-    [repo.files, excluded]
+  /**
+   * Keeps the tab's badge roughly right without a process per keystroke.
+   *
+   * `revision` moves on every watcher burst — every save, every build touching
+   * a file — and `git stash list` is a process. The stash stack changes when
+   * somebody stashes, which is rare, so this is throttled hard and the tab
+   * itself reports the exact number whenever it is open.
+   */
+  const countedAt = useRef(0);
+  /** The branch the last count was for; a switch re-counts at once. */
+  const branchRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!repo.isRepo) {
+      setStashCount(0);
+      return;
+    }
+    // Not throttled on a change of branch: the tab lists this branch's stashes,
+    // so switching changes the answer immediately and a stale badge would be
+    // counting somewhere you no longer are.
+    if (branchRef.current === repo.branch && Date.now() - countedAt.current < STASH_COUNT_GAP_MS) {
+      return;
+    }
+    branchRef.current = repo.branch;
+    countedAt.current = Date.now();
+
+    let cancelled = false;
+    void gitStashList(dir)
+      .then((all) => {
+        // Counting what the tab will show, not what the repository holds.
+        const mine = all.filter((stash) => (stash.branch ?? null) === repo.branch);
+        if (!cancelled) setStashCount(mine.length);
+      })
+      // A repository with no stashes and one that failed to answer look the
+      // same from here, and neither is worth a message: the tab says nothing
+      // instead of a wrong number.
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [dir, repo.isRepo, repo.branch, revision]);
+
+  /*
+    Conflicts are lifted out of the changes list entirely. A conflicted file is
+    not a change waiting to be ticked — it cannot be committed at all until it
+    is resolved — so leaving it among the checkboxes would offer an action that
+    git is going to refuse.
+  */
+  const conflicted = useMemo(
+    () => repo.files.filter((file) => effectiveChange(file) === "conflicted"),
+    [repo.files]
+  );
+  const changes = useMemo(
+    () => repo.files.filter((file) => effectiveChange(file) !== "conflicted"),
+    [repo.files]
   );
 
-  const allIncluded = repo.files.length > 0 && included.length === repo.files.length;
+  const included = useMemo(
+    () => changes.filter((file) => !excluded.has(file.relative)),
+    [changes, excluded]
+  );
+
+  const allIncluded = changes.length > 0 && included.length === changes.length;
   const noneIncluded = included.length === 0;
 
   /*
@@ -122,10 +234,7 @@ export function SourceControl({
     checkboxes are about the next commit; recounting on every tick would make
     the two answer the same question twice.
   */
-  const counted = useMemo(
-    () => tally(repo.files.map(effectiveChange)),
-    [repo.files]
-  );
+  const counted = useMemo(() => tally(changes.map(effectiveChange)), [changes]);
 
   const toggleFile = useCallback((relative: string) => {
     setExcluded((prev) => {
@@ -138,9 +247,9 @@ export function SourceControl({
 
   const toggleAll = useCallback(() => {
     setExcluded((prev) =>
-      prev.size > 0 ? new Set() : new Set(repo.files.map((file) => file.relative))
+      prev.size > 0 ? new Set() : new Set(changes.map((file) => file.relative))
     );
-  }, [repo.files]);
+  }, [changes]);
 
   /**
    * Summary and description, joined git's way.
@@ -155,9 +264,28 @@ export function SourceControl({
     return body ? `${subject}\n\n${body}` : subject;
   }, [summary, description]);
 
+  /*
+    Nothing is committed while a conflict is open. Git refuses it outright —
+    "Committing is not possible because you have unmerged files" — so the
+    button says so first, rather than the error bar saying it afterwards.
+  */
   const canCommit = !!summary.trim() && included.length > 0 && !committing;
 
+  /**
+   * What the commit button does while a merge is open.
+   *
+   * Not disabled. A disabled button says no without saying why, and "why" —
+   * which files, how many, where — is the only thing worth knowing at that
+   * moment. So it stays pressable and answers the question; see
+   * `ConflictReport`.
+   */
+  const blocked = conflicted.length > 0;
+
   const commit = useCallback(async () => {
+    if (blocked) {
+      setReporting(true);
+      return;
+    }
     if (!canCommit) return;
     setCommitting(true);
     setCommitError(null);
@@ -173,35 +301,36 @@ export function SourceControl({
     } finally {
       setCommitting(false);
     }
-  }, [canCommit, message, included, onCommit]);
+  }, [blocked, canCommit, message, included, onCommit]);
 
   /**
-   * Fetch and push, sharing one busy flag and one message line.
+   * Fetch, pull and push, sharing one busy flag and one message line.
    *
    * The result is shown rather than swallowed: `git push` reports success on
    * stderr — "3b11460..a1b2c3d main -> main" — and "Everything up-to-date" is
    * an answer, not a non-event. A failure is git's own words, which for these
-   * two is usually the only actionable thing there is (a rejected non-fast
-   * forward, a missing credential helper).
+   * three is usually the only actionable thing there is (a rejected non-fast
+   * forward, a missing credential helper, a conflicted merge).
    */
   const sync = useCallback(
-    async (which: "fetch" | "push") => {
+    async (which: SyncKind) => {
       if (syncing) return;
       setSyncing(which);
       setSyncNote(null);
+      const started = Date.now();
       try {
-        const reply = await (which === "fetch" ? onFetch() : onPush());
-        setSyncNote(
-          reply.trim() ||
-            (which === "fetch" ? "Already up to date." : "Nothing to push.")
-        );
+        const run = which === "fetch" ? onFetch : which === "pull" ? onPull : onPush;
+        const reply = await run();
+        await settle(started);
+        setSyncNote(reply.trim() || DONE_NOTE[which]);
       } catch (e) {
+        await settle(started);
         setSyncNote(String(e));
       } finally {
         setSyncing(null);
       }
     },
-    [syncing, onFetch, onPush]
+    [syncing, onFetch, onPull, onPush]
   );
 
   if (!repo.isRepo) {
@@ -221,20 +350,40 @@ export function SourceControl({
 
   const branch = repo.detached ? "detached HEAD" : repo.branch ?? "no branch";
 
+  /**
+   * Whether the remote has commits this branch hasn't got.
+   *
+   * While that is true a push is going to be rejected, so the button says so
+   * instead of spending a round trip to find out.
+   */
+  const blockedByBehind = repo.behind > 0 && !!repo.upstream;
+
   return (
     <div className="editor-explorer flex flex-col h-full min-h-0">
       <Header onRefresh={onRefresh} busy={busy} onClose={onClose} />
 
       <div className="editor-scm-branch flex items-center gap-1.5 px-2 py-1 shrink-0">
-        <GitBranch size={11} className="shrink-0 opacity-70" />
-        {repo.detached || !repo.branch ? (
-          <span className="text-[11px] truncate flex-1">{branch}</span>
-        ) : (
-          <RemoteLink
-            remote={remote}
-            branch={repo.branch}
-            className="text-[11px] min-w-0 flex-1"
-          />
+        {/*
+          The branch name is the switcher. It is where the eye already goes to
+          answer "where am I", which makes it the one place somebody looks when
+          the answer is wrong — and a separate button for it would sit next to
+          the name saying the same word twice.
+
+          The link to the forge moves to a following icon when there is one:
+          the name has to be a button, and a button that is also a link opens a
+          browser when you meant to switch branch.
+        */}
+        <button
+          className="editor-scm-branchbtn flex items-center gap-1.5 min-w-0 flex-1 text-left rounded px-1 py-0.5"
+          onClick={() => setPicking(true)}
+          title="Switch branch"
+        >
+          <GitBranch size={11} className="shrink-0 opacity-70" />
+          <span className="text-[11px] truncate">{branch}</span>
+          <ChevronDown size={10} className="shrink-0 opacity-60" />
+        </button>
+        {!repo.detached && repo.branch && (
+          <RemoteLink remote={remote} branch={repo.branch} iconOnly className="shrink-0" />
         )}
         {repo.ahead > 0 && (
           <span
@@ -247,8 +396,8 @@ export function SourceControl({
         )}
         {repo.behind > 0 && (
           <span
-            className="editor-scm-count flex items-center text-[10px] tabular-nums"
-            title={`${repo.behind} commit${repo.behind === 1 ? "" : "s"} to pull`}
+            className="editor-scm-count behind flex items-center text-[10px] tabular-nums"
+            title={`${repo.behind} commit${repo.behind === 1 ? "" : "s"} to pull — push is held until you do`}
           >
             <ArrowDown size={9} />
             {repo.behind}
@@ -257,22 +406,21 @@ export function SourceControl({
       </div>
 
       {/*
-        Fetch and push, not "sync". They do different things — one reads, one
-        writes — and a single button that guesses which you meant is a button
-        that occasionally pushes when you wanted to look.
+        Three buttons, not "sync". They do different things — fetch reads, pull
+        writes the working tree, push writes the remote — and a single button
+        that guesses which you meant is a button that occasionally pushes when
+        you wanted to look.
 
-        Pull is absent on purpose: it merges, a merge conflicts, and a conflict
-        needs somewhere to be resolved. Fetch tells you that you are behind, and
-        the shell is three inches away.
+        The icons are the operations' own: a cloud for the two that only move
+        refs over the network, and a *merge* glyph for pull, because that is
+        what makes pull different from fetch — it changes the branch you are
+        standing on.
+
+        Nothing spins. A rotating cloud says "a thing is turning", which is not
+        what is happening; the button instead carries a progress line along its
+        bottom edge and names what it is doing. See `.editor-scm-syncbtn.busy`.
       */}
       <div className="editor-scm-sync flex items-center gap-1 px-2 py-1 shrink-0">
-        {/*
-          The label does not change while it runs, and the spinner does not
-          take its place: a centred icon-plus-text group re-centres itself as
-          "Fetch" becomes "Fetching…", so the icon slides sideways and the whole
-          button appears to twitch. The spin, the dimming and the disabled
-          state say it is working without moving anything.
-        */}
         <button
           className={`editor-scm-syncbtn flex items-center justify-center gap-1.5 flex-1 py-1 rounded text-[10px] ${
             syncing === "fetch" ? "busy" : ""
@@ -281,30 +429,67 @@ export function SourceControl({
           disabled={!!syncing}
           title="Update the remote-tracking branches. Changes nothing here."
         >
-          <RefreshCw size={11} className={syncing === "fetch" ? "editor-spin" : undefined} />
-          Fetch
+          <CloudDownload size={12} className="shrink-0" />
+          {syncing === "fetch" ? "Fetching…" : "Fetch"}
         </button>
+
         {/*
-          Accented once there is something to push. The button is otherwise
-          identical to Fetch, and "you have work only on this machine" is worth
-          more than a number nobody was looking for.
+          Accented once there is something to pull: the number is the reason to
+          press it, and while it is there, Push is not available.
+        */}
+        <button
+          className={`editor-scm-syncbtn flex items-center justify-center gap-1.5 flex-1 py-1 rounded text-[10px] ${
+            syncing === "pull" ? "busy" : ""
+          } ${!syncing && repo.behind > 0 ? "pending" : ""}`}
+          onClick={() => void sync("pull")}
+          disabled={!!syncing || repo.detached || !repo.upstream}
+          title={
+            repo.detached
+              ? "HEAD is detached, so there is no branch to pull into"
+              : !repo.upstream
+                ? "This branch has no upstream to pull from — publish it first"
+                : `Merge ${repo.behind || "nothing new"} from ${repo.upstream} into this branch`
+          }
+        >
+          <GitMerge size={12} className="shrink-0" />
+          {syncing === "pull" ? "Pulling…" : repo.behind > 0 ? `Pull ${repo.behind}` : "Pull"}
+        </button>
+
+        {/*
+          Held back while the branch is behind.
+
+          Git would refuse the push anyway — a non-fast-forward is rejected by
+          the remote — so the choice is between finding that out from a wall of
+          hint text after a round trip, or from a button that says what to do
+          first. The Pull beside it is already lit amber, so the answer is one
+          inch to the left.
         */}
         <button
           className={`editor-scm-syncbtn flex items-center justify-center gap-1.5 flex-1 py-1 rounded text-[10px] ${
             syncing === "push" ? "busy" : ""
-          } ${!syncing && (repo.ahead > 0 || !repo.upstream) ? "pending" : ""}`}
+          } ${!syncing && !blockedByBehind && (repo.ahead > 0 || !repo.upstream) ? "pending" : ""}`}
           onClick={() => void sync("push")}
-          disabled={!!syncing || repo.detached}
+          disabled={!!syncing || repo.detached || blockedByBehind}
           title={
             repo.detached
               ? "HEAD is detached, so there is no branch to push"
-              : repo.upstream
-                ? `Push ${repo.ahead || "nothing new"} to ${repo.upstream}`
-                : "Publish this branch, setting its upstream"
+              : blockedByBehind
+                ? `Pull the ${repo.behind} commit${repo.behind === 1 ? "" : "s"} from ${
+                    repo.upstream
+                  } first — the remote will reject a push that isn't a fast-forward`
+                : repo.upstream
+                  ? `Push ${repo.ahead || "nothing new"} to ${repo.upstream}`
+                  : "Publish this branch, setting its upstream"
           }
         >
-          <CloudUpload size={11} className={syncing === "push" ? "editor-spin" : undefined} />
-          {!repo.upstream ? "Publish" : repo.ahead > 0 ? `Push ${repo.ahead}` : "Push"}
+          <CloudUpload size={12} className="shrink-0" />
+          {syncing === "push"
+            ? "Pushing…"
+            : !repo.upstream
+              ? "Publish"
+              : repo.ahead > 0
+                ? `Push ${repo.ahead}`
+                : "Push"}
         </button>
       </div>
 
@@ -335,26 +520,52 @@ export function SourceControl({
         <button
           role="tab"
           aria-selected={tab === "changes"}
-          className={`editor-scm-tab flex-1 py-1 text-[10px] font-semibold uppercase tracking-wide ${
+          className={`editor-scm-tab flex items-center justify-center gap-1.5 flex-1 py-1 text-[10px] font-semibold uppercase tracking-wide ${
             tab === "changes" ? "on" : ""
           }`}
           onClick={() => setTab("changes")}
         >
-          Changes{repo.files.length > 0 && ` ${repo.files.length}`}
+          Changes
+          {conflicted.length > 0 ? (
+            <TabCount value={conflicted.length} on={tab === "changes"} kind="conflict" />
+          ) : (
+            changes.length > 0 && <TabCount value={changes.length} on={tab === "changes"} />
+          )}
         </button>
         <button
           role="tab"
           aria-selected={tab === "history"}
-          className={`editor-scm-tab flex-1 py-1 text-[10px] font-semibold uppercase tracking-wide ${
+          className={`editor-scm-tab flex items-center justify-center gap-1.5 flex-1 py-1 text-[10px] font-semibold uppercase tracking-wide ${
             tab === "history" ? "on" : ""
           }`}
           onClick={() => setTab("history")}
         >
           History
         </button>
+        <button
+          role="tab"
+          aria-selected={tab === "stashes"}
+          className={`editor-scm-tab flex items-center justify-center gap-1.5 flex-1 py-1 text-[10px] font-semibold uppercase tracking-wide ${
+            tab === "stashes" ? "on" : ""
+          }`}
+          onClick={() => setTab("stashes")}
+          title="Changes put aside, and how to get them back"
+        >
+          Stashes
+          {stashCount > 0 && <TabCount value={stashCount} on={tab === "stashes"} />}
+        </button>
       </div>
 
-      {tab === "history" ? (
+      {tab === "stashes" ? (
+        <StashList
+          dir={dir}
+          branch={repo.branch}
+          revision={revision}
+          onCount={setStashCount}
+          onDone={onRefresh}
+          onError={onError}
+        />
+      ) : tab === "history" ? (
         /*
           `overflow-hidden`, because the drawer inside slides in from the right
           and would otherwise widen the panel for the length of the animation.
@@ -374,7 +585,17 @@ export function SourceControl({
         </div>
       ) : (
         <>
-          {repo.files.length > 0 && (
+          <ConflictSection
+            dir={dir}
+            files={conflicted}
+            merging={repo.merging}
+            mergeHead={repo.mergeHead}
+            onOpenFile={onOpenFile}
+            onRefresh={onRefresh}
+            onError={onError}
+          />
+
+          {changes.length > 0 && (
             <div className="editor-scm-selectall px-2 py-1 shrink-0">
               <label className="flex items-center gap-2 text-[11px]">
                 <Checkbox
@@ -386,7 +607,7 @@ export function SourceControl({
                   label={allIncluded ? "Deselect every file" : "Select every file"}
                 />
                 <span className="truncate">
-                  {repo.files.length} changed {repo.files.length === 1 ? "file" : "files"}
+                  {changes.length} changed {changes.length === 1 ? "file" : "files"}
                   {!allIncluded && (
                     <span className="editor-scm-count"> · {included.length} selected</span>
                   )}
@@ -399,12 +620,14 @@ export function SourceControl({
           )}
 
           <div className="editor-explorer-scroll flex-1 min-h-0 overflow-y-auto">
-            {repo.files.length === 0 ? (
+            {changes.length === 0 ? (
               <div className="editor-explorer-empty px-3 py-4 text-[11px]">
-                Nothing has changed since the last commit.
+                {conflicted.length > 0
+                  ? "Nothing else has changed — resolve the conflicts above."
+                  : "Nothing has changed since the last commit."}
               </div>
             ) : (
-              repo.files.map((file) => (
+              changes.map((file) => (
                 <Row
                   key={file.relative}
                   file={file}
@@ -460,24 +683,36 @@ export function SourceControl({
             />
 
             <button
-              className="editor-scm-button flex items-center justify-center gap-1.5 w-full mt-1.5 py-1.5 rounded text-[11px]"
+              className={`editor-scm-button flex items-center justify-center gap-1.5 w-full mt-1.5 py-1.5 rounded text-[11px] ${
+                blocked ? "blocked" : ""
+              }`}
               onClick={() => void commit()}
-              disabled={!canCommit}
+              disabled={!blocked && !canCommit}
               title={
-                included.length === 0
-                  ? "Select at least one file"
-                  : !summary.trim()
-                    ? "A commit needs a summary"
-                    : `Commit ${included.length} file${included.length === 1 ? "" : "s"} to ${branch}`
+                blocked
+                  ? `Resolve ${conflicted.length} conflicted file${
+                      conflicted.length === 1 ? "" : "s"
+                    } first — press to see where they are`
+                  : included.length === 0
+                    ? "Select at least one file"
+                    : !summary.trim()
+                      ? "A commit needs a summary"
+                      : `Commit ${included.length} file${
+                          included.length === 1 ? "" : "s"
+                        } to ${branch}`
               }
             >
-              <Check size={12} />
+              {blocked ? <GitMergeConflict size={12} /> : <Check size={12} />}
               <span className="truncate">
                 {committing
                   ? "Committing…"
-                  : `Commit ${included.length || ""} ${
-                      included.length === 1 ? "file" : "files"
-                    } to ${branch}`.replace(/\s+/g, " ")}
+                  : blocked
+                    ? `Resolve ${conflicted.length} file${
+                        conflicted.length === 1 ? "" : "s"
+                      } to commit`
+                    : `Commit ${included.length || ""} ${
+                        included.length === 1 ? "file" : "files"
+                      } to ${branch}`.replace(/\s+/g, " ")}
               </span>
             </button>
 
@@ -497,7 +732,57 @@ export function SourceControl({
           </div>
         </>
       )}
+
+      {reporting && (
+        <ConflictReport
+          dir={dir}
+          files={conflicted}
+          onOpen={(path, line) => onOpenFile(path, line)}
+          onClose={() => setReporting(false)}
+          onError={onError}
+        />
+      )}
+
+      {picking && (
+        <BranchPicker
+          dir={dir}
+          current={repo.detached ? null : repo.branch}
+          /*
+            Any change at all counts as dirty, staged or not: a checkout has to
+            deal with both, and "you have uncommitted changes" is the same
+            sentence either way.
+          */
+          dirty={repo.files.length > 0}
+          onDone={onRefresh}
+          onClose={() => setPicking(false)}
+          onError={onError}
+        />
+      )}
     </div>
+  );
+}
+
+/**
+ * The number on a tab.
+ *
+ * A chip rather than a bare digit: "Stashes 2" reads as a phrase, and at this
+ * size the 2 was being taken for part of the word. The background also gives
+ * the count somewhere to live that doesn't move as the label changes width.
+ */
+function TabCount({
+  value,
+  on,
+  kind,
+}: {
+  value: number;
+  on: boolean;
+  /** `conflict` colours it red: the number means "blocked", not "waiting". */
+  kind?: "conflict";
+}) {
+  return (
+    <span className={`editor-scm-tabcount tabular-nums ${on ? "on" : ""} ${kind ?? ""}`}>
+      {value}
+    </span>
   );
 }
 
@@ -512,16 +797,25 @@ function Header({
 }) {
   return (
     <div className="editor-explorer-header flex items-center gap-1 px-2 h-[26px] shrink-0">
+      <GitGraph size={12} className="editor-explorer-title shrink-0" />
       <span className="editor-explorer-title text-[10px] font-semibold uppercase tracking-wide truncate flex-1">
-        Changes
+        Source Control
       </span>
+      {/*
+        Not spun while busy. `busy` is only ever true during a fetch, pull or
+        push, and each of those already draws its own progress on the button
+        that started it — a second animation up here, on a *refresh* icon, said
+        the status was reloading when it wasn't. It goes unavailable instead,
+        which is the true statement: git is occupied.
+      */}
       <button
         className="editor-icon-btn p-0.5 rounded"
         onClick={onRefresh}
-        title="Refresh"
+        disabled={busy}
+        title={busy ? "Waiting for git…" : "Refresh"}
         aria-label="Refresh"
       >
-        <RefreshCw size={12} className={busy ? "editor-spin" : undefined} />
+        <RefreshCw size={12} />
       </button>
       <button
         className="editor-icon-btn p-0.5 rounded"
