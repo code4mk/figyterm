@@ -5,13 +5,19 @@ import {
   Files,
   GitCompare,
   PenLine,
+  Plus,
   RefreshCw,
   RotateCcw,
   Search,
   Type,
   X,
 } from "lucide-react";
-import { DiffLayout, DiffStyle, EditorSettings } from "../../services/editor-session";
+import {
+  CustomLspServer,
+  DiffLayout,
+  DiffStyle,
+  EditorSettings,
+} from "../../services/editor-session";
 import { lsp, LspServerState } from "../../services/lsp/manager";
 import { installHint } from "../../services/lsp/servers";
 
@@ -484,6 +490,17 @@ function LanguageServers({
     recheck();
   };
 
+  /** Forgets a server the user added, and its override along with it. */
+  const removeCustom = (id: string) => {
+    const servers = { ...settings.lspServers };
+    delete servers[id];
+    onChange({
+      lspCustom: settings.lspCustom.filter((server) => server.id !== id),
+      lspServers: servers,
+    });
+    recheck();
+  };
+
   /** Opens the file picker at the folder the current path lives in. */
   const browse = async (state: LspServerState) => {
     const current = settings.lspServers[state.def.id]?.program ?? state.path ?? "";
@@ -608,6 +625,14 @@ function LanguageServers({
                   companion
                 </span>
               )}
+              {state.def.custom && (
+                <span
+                  className="editor-lsp-chip text-[9px] px-1 rounded shrink-0"
+                  title="You added this server"
+                >
+                  yours
+                </span>
+              )}
               <span className="flex-1" />
               <StatusChip state={state} />
               {/*
@@ -622,6 +647,16 @@ function LanguageServers({
                   title={`Restart ${state.def.program}`}
                 >
                   Restart
+                </button>
+              )}
+              {state.def.custom && (
+                <button
+                  className="editor-btn-text px-1 py-0.5 rounded text-[10px]"
+                  onClick={() => removeCustom(state.def.id)}
+                  title={`Remove ${state.def.label} from this list`}
+                  aria-label={`Remove ${state.def.label}`}
+                >
+                  <X size={10} />
                 </button>
               )}
             </div>
@@ -681,16 +716,28 @@ function LanguageServers({
               {custom ? (
                 <>
                   <code>{custom}</code>{" "}
-                  <span className="editor-lsp-chip text-[9px] px-1 rounded" title="You set this path — detection is not used for this server">
+                  <span
+                    className="editor-lsp-chip is-custom text-[9px] px-1 rounded"
+                    title="You set this path — detection is not used for this server"
+                  >
                     custom
                   </span>
                   {state.phase === "missing" && " — nothing is there"}
                 </>
               ) : state.phase === "missing" ? (
-                <>
-                  <code>{state.def.program}</code> is not on your PATH — install it
-                  with <code>{installHint(state.def)}</code>, or set the path yourself
-                </>
+                state.def.custom ? (
+                  // Nothing to suggest: this is the user's own program, and
+                  // only they know how it is installed.
+                  <>
+                    <code>{state.def.program}</code> was not found — check the name, or
+                    set the full path
+                  </>
+                ) : (
+                  <>
+                    <code>{state.def.program}</code> is not on your PATH — install it
+                    with <code>{installHint(state.def)}</code>, or set the path yourself
+                  </>
+                )
               ) : state.error ? (
                 /*
                   The install line goes with the error, not instead of it.
@@ -718,7 +765,9 @@ function LanguageServers({
               */}
               {editing?.id !== state.def.id && (
                 <button
-                  className="editor-btn-text px-1.5 py-0.5 rounded text-[10px] shrink-0"
+                  className={`editor-lsp-pathbtn flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] shrink-0 ${
+                    custom ? "is-set" : ""
+                  }`}
                   onClick={() =>
                     setEditing({ id: state.def.id, value: custom ?? state.path ?? "" })
                   }
@@ -728,6 +777,7 @@ function LanguageServers({
                       : `Point ${state.def.label} at a program of your own`
                   }
                 >
+                  <PenLine size={9} />
                   {custom ? "Change path" : "Set path"}
                 </button>
               )}
@@ -747,7 +797,196 @@ function LanguageServers({
           </button>
         </div>
       )}
+
+      <AddServer
+        existing={settings.lspCustom}
+        onAdd={(server) => {
+          onChange({ lspCustom: [...settings.lspCustom, server] });
+          recheck();
+        }}
+      />
     </div>
+  );
+}
+
+/**
+ * The form for a server the table doesn't have.
+ *
+ * Four fields, because those are the four a person can answer about a program
+ * they just installed: what to call it, which files it handles, what to run,
+ * and anything to pass it. Everything else a table entry carries is either
+ * derived — the language id is the first extension — or is about servers that
+ * needed special handling to ship at all.
+ *
+ * Removing one is on its row in the table above, next to its path, since that
+ * is where somebody looking at it will be.
+ */
+function AddServer({
+  existing,
+  onAdd,
+}: {
+  existing: CustomLspServer[];
+  onAdd: (server: CustomLspServer) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [label, setLabel] = useState("");
+  const [extensions, setExtensions] = useState("");
+  const [program, setProgram] = useState("");
+  const [args, setArgs] = useState("");
+
+  const clean = (value: string) => value.trim().replace(/^["']|["']$/g, "").trim();
+
+  const parsedExtensions = [
+    ...new Set(
+      extensions
+        .split(/[\s,]+/)
+        .map((ext) => ext.trim().replace(/^[.*]+/, "").toLowerCase())
+        .filter(Boolean)
+    ),
+  ];
+
+  const ready = !!clean(label) && !!clean(program) && parsedExtensions.length > 0;
+
+  const reset = () => {
+    setLabel("");
+    setExtensions("");
+    setProgram("");
+    setArgs("");
+    setOpen(false);
+  };
+
+  const add = () => {
+    if (!ready) return;
+
+    /*
+      The id is derived from the name and prefixed, so it cannot collide with a
+      built-in entry however the server is named — somebody adding their own
+      "typescript" must not silently take over the row for ours — and a
+      suffix keeps two servers with the same name apart.
+    */
+    const slug = clean(label).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    const base = `custom:${slug || "server"}`;
+    let id = base;
+    for (let n = 2; existing.some((server) => server.id === id); n++) id = `${base}-${n}`;
+
+    onAdd({
+      id,
+      label: clean(label),
+      extensions: parsedExtensions,
+      program: clean(program),
+      // Split on whitespace: these are the flags from an install page, and
+      // nobody pastes a quoted argument list into a four-field form.
+      args: args.trim() ? args.trim().split(/\s+/) : [],
+    });
+    reset();
+  };
+
+  if (!open) {
+    return (
+      <div className="editor-settings-subhead flex items-center gap-2 px-1 pt-2 mt-1">
+        <span className="editor-settings-hint text-[10px] flex-1">
+          Working in a language that isn't here? Add its server.
+        </span>
+        <button
+          className="editor-btn-text flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px]"
+          onClick={() => setOpen(true)}
+        >
+          <Plus size={11} />
+          Add a language server
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="editor-lsp-add mt-2 p-2 rounded">
+      <div className="text-[10px] font-semibold uppercase tracking-wide mb-1.5">
+        Add a language server
+      </div>
+
+      <Field label="Name" hint="What to call it in this list">
+        <input
+          autoFocus
+          className="editor-settings-input w-full text-[11px] px-1.5 py-1 rounded"
+          value={label}
+          placeholder="Elixir"
+          spellCheck={false}
+          onChange={(e) => setLabel(e.target.value)}
+        />
+      </Field>
+
+      <Field label="Files" hint="Extensions it handles, separated by commas">
+        <input
+          className="editor-settings-input w-full text-[11px] px-1.5 py-1 rounded"
+          value={extensions}
+          placeholder="ex, exs"
+          spellCheck={false}
+          onChange={(e) => setExtensions(e.target.value)}
+        />
+      </Field>
+
+      <Field label="Program" hint="On your PATH, or a full path to it">
+        <input
+          className="editor-settings-input w-full text-[11px] px-1.5 py-1 rounded"
+          value={program}
+          placeholder="elixir-ls"
+          spellCheck={false}
+          onChange={(e) => setProgram(e.target.value)}
+        />
+      </Field>
+
+      <Field label="Arguments" hint="Optional — most servers need --stdio">
+        <input
+          className="editor-settings-input w-full text-[11px] px-1.5 py-1 rounded"
+          value={args}
+          placeholder="--stdio"
+          spellCheck={false}
+          onChange={(e) => setArgs(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              add();
+            }
+          }}
+        />
+      </Field>
+
+      <div className="flex items-center justify-end gap-2 mt-2">
+        <button
+          className="editor-dialog-btn px-2.5 py-1 rounded text-[10px] font-medium"
+          onClick={reset}
+        >
+          Cancel
+        </button>
+        <button
+          className="editor-dialog-btn primary px-2.5 py-1 rounded text-[10px] font-medium"
+          onClick={add}
+          disabled={!ready}
+          title={ready ? undefined : "A name, at least one extension and a program"}
+        >
+          Add
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** One labelled field in the add form. */
+function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint: string;
+  children: ReactNode;
+}) {
+  return (
+    <label className="block mb-1.5">
+      <span className="text-[10px] font-medium">{label}</span>
+      <span className="editor-settings-hint text-[10px] ml-1.5">{hint}</span>
+      <div className="mt-0.5">{children}</div>
+    </label>
   );
 }
 

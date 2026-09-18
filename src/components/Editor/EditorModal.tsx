@@ -873,12 +873,14 @@ export function EditorModal({
     lsp.configure({
       enabled: editorSettings.lsp,
       overrides: editorSettings.lspServers,
+      custom: editorSettings.lspCustom,
       root: rootReady ? root : null,
       pythonPath: pythonPath ?? detectedPython,
     });
   }, [
     editorSettings.lsp,
     editorSettings.lspServers,
+    editorSettings.lspCustom,
     root,
     rootReady,
     pythonPath,

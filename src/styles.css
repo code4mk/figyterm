@@ -6083,6 +6083,87 @@
   }
 }
 
+/*
+  "Set path", which has to look like an offer.
+
+  As a plain text button it was indistinguishable from Restart beside it and
+  from the hint text it sits on, so the one control that rescues a server the
+  editor cannot find was the least visible thing in the row. It gets the
+  editor's accent and a pencil: a tinted chip reads as "you can change this"
+  where grey text reads as a label.
+*/
+.editor-lsp-pathbtn {
+  color: #a5b4fc;
+  background: rgba(99, 102, 241, 0.14);
+  border: 1px solid rgba(99, 102, 241, 0.28);
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.editor-lsp-pathbtn:hover {
+  background: rgba(99, 102, 241, 0.26);
+  border-color: rgba(99, 102, 241, 0.5);
+  color: #e0e7ff;
+}
+
+/* Once a path has been set it is a *state*, not an invitation — amber, the
+   same colour this editor uses everywhere for "you changed something". */
+.editor-lsp-pathbtn.is-set {
+  color: #e3b341;
+  background: rgba(210, 153, 34, 0.16);
+  border-color: rgba(210, 153, 34, 0.32);
+}
+
+.editor-lsp-pathbtn.is-set:hover {
+  background: rgba(210, 153, 34, 0.26);
+  border-color: rgba(210, 153, 34, 0.5);
+  color: #f0c674;
+}
+
+.light .editor-lsp-pathbtn {
+  color: #4338ca;
+  background: rgba(79, 70, 229, 0.1);
+  border: 1px solid rgba(79, 70, 229, 0.22);
+}
+
+.light .editor-lsp-pathbtn:hover {
+  background: rgba(79, 70, 229, 0.18);
+  border-color: rgba(79, 70, 229, 0.4);
+  color: #3730a3;
+}
+
+.light .editor-lsp-pathbtn.is-set {
+  color: #7a5200;
+  background: rgba(154, 103, 0, 0.12);
+  border-color: rgba(154, 103, 0, 0.28);
+}
+
+.light .editor-lsp-pathbtn.is-set:hover {
+  background: rgba(154, 103, 0, 0.2);
+  border-color: rgba(154, 103, 0, 0.45);
+}
+
+/* The chip on a row whose path was set by hand, matching that button. */
+.editor-lsp-chip.is-custom {
+  color: #e3b341;
+  background: rgba(210, 153, 34, 0.16);
+}
+
+.light .editor-lsp-chip.is-custom {
+  color: #7a5200;
+  background: rgba(154, 103, 0, 0.14);
+}
+
+/* The add-a-server form, set apart from the rows above it. */
+.editor-lsp-add {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid #2a2f37;
+}
+
+.light .editor-lsp-add {
+  background: rgba(0, 0, 0, 0.02);
+  border: 1px solid #e2e5eb;
+}
+
 .editor-lsp-chip {
   color: #8b949e;
   background: rgba(255, 255, 255, 0.06);

@@ -35,7 +35,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { platform, type Platform } from "../platform";
-import type { LspServerOverride } from "../editor-session";
+import type { CustomLspServer, LspServerOverride } from "../editor-session";
 
 export interface LspServerDef {
   /** Stable key: settings, the registry and the status bar all use it. */
@@ -78,6 +78,63 @@ export interface LspServerDef {
    * to replace one of them, which is a worse editor either way.
    */
   companion?: boolean;
+  /** Added by the user rather than shipped, which the settings panel says. */
+  custom?: boolean;
+}
+
+/**
+ * The user's own entries, held here so that every reader of the table sees
+ * them without being handed them.
+ *
+ * Module-level and mutable, which is worth justifying: `serversForPath` is
+ * called per file open from several places, and threading a settings array
+ * through all of them — for a list that changes when somebody edits a form —
+ * would put the same argument in a dozen signatures. The manager sets this in
+ * `configure`, which is the one place settings arrive.
+ */
+let customServers: LspServerDef[] = [];
+
+/** Turns what the settings panel stores into a table entry. */
+function toDef(custom: CustomLspServer): LspServerDef {
+  /*
+    The language id is the first extension.
+
+    A server is told what kind of file it is being given, and the id is
+    conventionally the language's name — `elixir` for `.ex`. Asking for it
+    separately would be a fifth field answering a question most people would
+    have to look up, and the first extension is right far more often than it is
+    wrong. A server that disagrees says so in its log, which the panel shows.
+  */
+  const languageId = custom.extensions[0] ?? "plaintext";
+
+  return {
+    id: custom.id,
+    label: custom.label,
+    program: custom.program,
+    args: custom.args,
+    extensions: Object.fromEntries(custom.extensions.map((ext) => [ext, languageId])),
+    install: custom.program,
+    custom: true,
+  };
+}
+
+/**
+ * Replaces the user's entries. Called by the manager when settings change.
+ */
+export function setCustomServers(servers: CustomLspServer[]): void {
+  customServers = servers.map(toDef);
+}
+
+/**
+ * The built-in table plus whatever the user added.
+ *
+ * The user's come last, and [`serversForPath`] puts the last primary it finds
+ * at the front — so somebody who adds their own server for a language that is
+ * already in the table gets theirs, which is the only reading of "I added
+ * this" that makes sense.
+ */
+export function allServers(): LspServerDef[] {
+  return customServers.length ? [...SERVERS, ...customServers] : SERVERS;
 }
 
 /** `--stdio` is on most of these because the default transport is a socket. */
@@ -447,7 +504,7 @@ export function serversForPath(path: string): ServerMatch[] {
   const { name, extension } = nameAndExtension(path);
   const matches: ServerMatch[] = [];
 
-  for (const def of SERVERS) {
+  for (const def of allServers()) {
     const languageId = def.filenames?.[name] ?? def.extensions[extension];
     if (!languageId) continue;
     // The primary comes first, so callers that want "the" server take [0].
@@ -477,12 +534,13 @@ export interface DetectedProgram {
  * one — see `spawn.rs`), and that should happen once.
  */
 export async function detectServers(overrides: LspOverrides): Promise<Map<string, string | null>> {
-  const programs = SERVERS.map((def) => resolveServer(def, overrides).program);
+  const table = allServers();
+  const programs = table.map((def) => resolveServer(def, overrides).program);
   const found = await invoke<DetectedProgram[]>("lsp_detect", { programs });
   const byProgram = new Map(found.map((entry) => [entry.program, entry.path]));
 
   const byServer = new Map<string, string | null>();
-  for (const def of SERVERS) {
+  for (const def of table) {
     byServer.set(def.id, byProgram.get(resolveServer(def, overrides).program) ?? null);
   }
   return byServer;
