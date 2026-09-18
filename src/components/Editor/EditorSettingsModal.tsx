@@ -1,4 +1,5 @@
 import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import {
   Braces,
   Files,
@@ -419,6 +420,8 @@ function LanguageServers({
   const [states, setStates] = useState<LspServerState[]>(() => lsp.states());
   const [checking, setChecking] = useState(false);
   const [query, setQuery] = useState("");
+  /** The server whose path is being typed, and what has been typed so far. */
+  const [editing, setEditing] = useState<{ id: string; value: string } | null>(null);
 
   const refresh = useCallback(() => setStates(lsp.states()), []);
 
@@ -445,6 +448,53 @@ function LanguageServers({
   const setEnabled = (id: string, enabled: boolean) => {
     const next = { ...settings.lspServers, [id]: { ...settings.lspServers[id], enabled } };
     onChange({ lspServers: next });
+  };
+
+  /**
+   * Points one server at a program of the user's choosing.
+   *
+   * An empty value removes the override rather than storing one, so "cleared"
+   * and "never set" are the same state — otherwise a blank string would be
+   * resolved as a program name and nothing would ever start again.
+   *
+   * The re-check afterwards is what makes the row answer for itself: detection
+   * is cached, and without it a path that is right still reads as missing until
+   * something else happens to refresh.
+   */
+  const setProgram = (id: string, value: string) => {
+    // Quotes come along when a path is copied out of a terminal, and on
+    // Windows they are how anything under `Program Files` gets copied at all.
+    const program = value.trim().replace(/^["']|["']$/g, "").trim();
+    const current = settings.lspServers[id];
+    const next = { ...settings.lspServers };
+
+    if (program) {
+      next[id] = { ...current, program };
+    } else if (current) {
+      // Only the path goes. Anything else the user decided about this server —
+      // that it is switched off, what arguments it takes — is theirs and is
+      // not collateral of clearing a field.
+      const { program: _cleared, ...rest } = current;
+      if (Object.keys(rest).length === 0) delete next[id];
+      else next[id] = rest;
+    }
+
+    onChange({ lspServers: next });
+    setEditing(null);
+    recheck();
+  };
+
+  /** Opens the file picker at the folder the current path lives in. */
+  const browse = async (state: LspServerState) => {
+    const current = settings.lspServers[state.def.id]?.program ?? state.path ?? "";
+    const cut = Math.max(current.lastIndexOf("/"), current.lastIndexOf("\\"));
+    const picked = await openFileDialog({
+      multiple: false,
+      directory: false,
+      title: `Choose the program for ${state.def.label}`,
+      defaultPath: cut > 0 ? current.slice(0, cut) : undefined,
+    });
+    if (typeof picked === "string") setProgram(state.def.id, picked);
   };
 
   const installed = states.filter((state) => state.path).length;
@@ -520,86 +570,171 @@ function LanguageServers({
         )}
       </div>
 
-      {shown.map((state) => (
-        <div
-          key={state.def.id}
-          className={`editor-settings-row px-1 py-1.5${
-            state.phase === "missing" ? " is-unavailable" : ""
-          }`}
-        >
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              className="editor-scm-checkbox shrink-0"
-              checked={settings.lspServers[state.def.id]?.enabled !== false}
-              onChange={(e) => setEnabled(state.def.id, e.target.checked)}
-              aria-label={`Use ${state.def.label}`}
-            />
-            <span
-              className="text-[11px] min-w-0 truncate"
-              /* What this server claims, without spending a row on it. */
-              title={claims(state)}
-            >
-              {state.def.label}
-            </span>
-            {/*
-              Says why this one does not appear in the status bar and does not
-              answer go-to-definition: it runs *alongside* whatever else claims
-              the file rather than instead of it.
-            */}
-            {state.def.companion && (
+      {shown.map((state) => {
+        /** The path this user set, if any — it overrides detection entirely. */
+        const custom = settings.lspServers[state.def.id]?.program;
+        return (
+          <div
+            key={state.def.id}
+            className={`editor-settings-row px-1 py-1.5${
+              state.phase === "missing" ? " is-unavailable" : ""
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                className="editor-scm-checkbox shrink-0"
+                checked={settings.lspServers[state.def.id]?.enabled !== false}
+                onChange={(e) => setEnabled(state.def.id, e.target.checked)}
+                aria-label={`Use ${state.def.label}`}
+              />
               <span
-                className="editor-lsp-chip text-[9px] px-1 rounded shrink-0"
-                title="Runs alongside the other server for these files, rather than replacing it"
+                className="text-[11px] min-w-0 truncate"
+                /* What this server claims, without spending a row on it. */
+                title={claims(state)}
               >
-                companion
+                {state.def.label}
               </span>
-            )}
-            <span className="flex-1" />
-            <StatusChip state={state} />
+              {/*
+                Says why this one does not appear in the status bar and does not
+                answer go-to-definition: it runs *alongside* whatever else claims
+                the file rather than instead of it.
+              */}
+              {state.def.companion && (
+                <span
+                  className="editor-lsp-chip text-[9px] px-1 rounded shrink-0"
+                  title="Runs alongside the other server for these files, rather than replacing it"
+                >
+                  companion
+                </span>
+              )}
+              <span className="flex-1" />
+              <StatusChip state={state} />
+              {/*
+                Only where a process exists (or died). "Restart" against a server
+                that has never started does nothing, and a button that does
+                nothing is worse than no button.
+              */}
+              {RESTARTABLE.has(state.phase) && (
+                <button
+                  className="editor-btn-text px-1 py-0.5 rounded text-[10px]"
+                  onClick={() => void lsp.restart(state.def.id)}
+                  title={`Restart ${state.def.program}`}
+                >
+                  Restart
+                </button>
+              )}
+            </div>
             {/*
-              Only where a process exists (or died). "Restart" against a server
-              that has never started does nothing, and a button that does
-              nothing is worse than no button.
+              The path row, which is the answer for every installation this
+              table cannot guess at: a server in `~/dev/tools`, a wrapper script,
+              a pinned version, a Windows install nobody put on `PATH`. Optional
+              by design — it is empty until somebody needs it, and clearing it
+              hands the row back to detection.
             */}
-            {RESTARTABLE.has(state.phase) && (
-              <button
-                className="editor-btn-text px-1 py-0.5 rounded text-[10px]"
-                onClick={() => void lsp.restart(state.def.id)}
-                title={`Restart ${state.def.program}`}
-              >
-                Restart
-              </button>
-            )}
-          </div>
-          <div className="editor-settings-hint text-[10px] mt-0.5 pl-[21px] break-all">
-            {state.phase === "missing" ? (
-              <>
-                <code>{state.def.program}</code> is not on your PATH — install it
-                with <code>{installHint(state.def)}</code>
-              </>
-            ) : state.error ? (
-              /*
-                The install line goes with the error, not instead of it.
+            {editing?.id === state.def.id ? (
+              <div className="flex items-center gap-1 mt-1 pl-[21px]">
+                <input
+                  autoFocus
+                  className="editor-settings-input flex-1 min-w-0 text-[10px] px-1.5 py-1 rounded"
+                  value={editing.value}
+                  placeholder={state.path ?? state.def.program}
+                  spellCheck={false}
+                  onChange={(e) => setEditing({ id: state.def.id, value: e.target.value })}
+                  onKeyDown={(e) => {
+                    e.stopPropagation();
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      setProgram(state.def.id, editing.value);
+                    } else if (e.key === "Escape") {
+                      e.preventDefault();
+                      setEditing(null);
+                    }
+                  }}
+                  onKeyUp={(e) => e.stopPropagation()}
+                  aria-label={`Path to ${state.def.label}'s program`}
+                />
+                <button
+                  className="editor-btn-text px-1.5 py-0.5 rounded text-[10px]"
+                  onClick={() => void browse(state)}
+                  title="Find the program on disk"
+                >
+                  Browse…
+                </button>
+                <button
+                  className="editor-btn-text px-1.5 py-0.5 rounded text-[10px]"
+                  onClick={() => setProgram(state.def.id, editing.value)}
+                >
+                  Save
+                </button>
+                <button
+                  className="editor-btn-text px-1.5 py-0.5 rounded text-[10px]"
+                  onClick={() => setEditing(null)}
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : null}
 
-                A program can be on `PATH` and still not be installed:
-                `~/.cargo/bin/rust-analyzer` is a rustup shim that exists whether
-                or not the component does, and it fails at startup with "Unknown
-                binary 'rust-analyzer' in official toolchain". Detection cannot
-                see that — the file is there and it is executable — so the
-                server's own words are the diagnosis and this is the cure.
-              */
-              <>
-                {state.error}
-                <br />
-                Try <code>{installHint(state.def)}</code>
-              </>
-            ) : (
-              <code>{state.path ?? state.def.program}</code>
-            )}
+            <div className="editor-settings-hint text-[10px] mt-0.5 pl-[21px] break-all flex items-start gap-1.5">
+              <span className="flex-1 min-w-0 break-all">
+              {custom ? (
+                <>
+                  <code>{custom}</code>{" "}
+                  <span className="editor-lsp-chip text-[9px] px-1 rounded" title="You set this path — detection is not used for this server">
+                    custom
+                  </span>
+                  {state.phase === "missing" && " — nothing is there"}
+                </>
+              ) : state.phase === "missing" ? (
+                <>
+                  <code>{state.def.program}</code> is not on your PATH — install it
+                  with <code>{installHint(state.def)}</code>, or set the path yourself
+                </>
+              ) : state.error ? (
+                /*
+                  The install line goes with the error, not instead of it.
+
+                  A program can be on `PATH` and still not be installed:
+                  `~/.cargo/bin/rust-analyzer` is a rustup shim that exists whether
+                  or not the component does, and it fails at startup with "Unknown
+                  binary 'rust-analyzer' in official toolchain". Detection cannot
+                  see that — the file is there and it is executable — so the
+                  server's own words are the diagnosis and this is the cure.
+                */
+                <>
+                  {state.error}
+                  <br />
+                  Try <code>{installHint(state.def)}</code>
+                </>
+              ) : (
+                <code>{state.path ?? state.def.program}</code>
+              )}
+              </span>
+              {/*
+                Hidden while the field is open — the row already has a Cancel —
+                and named for what it does rather than pencil-iconned, because at
+                this size an icon among twenty-four rows is a guess.
+              */}
+              {editing?.id !== state.def.id && (
+                <button
+                  className="editor-btn-text px-1.5 py-0.5 rounded text-[10px] shrink-0"
+                  onClick={() =>
+                    setEditing({ id: state.def.id, value: custom ?? state.path ?? "" })
+                  }
+                  title={
+                    custom
+                      ? "Change or clear the path you set"
+                      : `Point ${state.def.label} at a program of your own`
+                  }
+                >
+                  {custom ? "Change path" : "Set path"}
+                </button>
+              )}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
 
       {!shown.length && (
         <div className="editor-settings-hint text-[10px] px-1 py-3 text-center">
