@@ -342,6 +342,7 @@ export function EditorModal({
     markSaved,
     setDiskState,
     reloadBuffer,
+    pathMoved,
     setLineEnding,
     setEncoding,
     setLanguage,
@@ -2821,6 +2822,7 @@ export function EditorModal({
                       onCollapseAll={collapseAll}
                       onOpenFile={(path) => void openPath(path)}
                       onOpenTerminal={openTerminalAt}
+                      onMoved={pathMoved}
                       onForgetExpanded={collapse}
                       onError={setError}
                       change={treeChange}

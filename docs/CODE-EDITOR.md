@@ -522,7 +522,40 @@ menu and the editor.
 
 The text surface's menu carries cut/copy/paste, select all, undo/redo, find, go
 to line, save and the path actions; the file tree's carries open, new file and
-folder, rename, the two copy-path variants, reveal and move-to-trash.
+folder, rename, move to folder, the two copy-path variants, reveal and
+move-to-trash.
+
+### Moving
+
+Two ways, because one of them doesn't scale. **Dragging** a row onto a folder
+moves it there; a *file's* row means the folder that file is in, the header and
+the empty space below the tree both mean the project root — otherwise there is
+no way to drag something back out once the tree fills the panel — and a closed
+folder springs open after 600ms of being hovered, so a drop two levels down
+doesn't mean abandoning the drag to click a chevron. Illegal targets (into
+itself, into its own descendant, back where it already is) refuse the drop
+rather than accepting it and doing nothing, which is what `canMoveInto` is for.
+
+**"Move to Folder…"** in the context menu is the other way: a fuzzy-filtered
+list of every folder in the project, which is how you move a file across a tree
+too tall to drag through. Its list comes from `fs_list_files` — already there
+for ⌘P, capped and `.gitignore`d on the Rust side — plus the folders the tree
+has read, since a folder with no files in it appears in no file list.
+
+Either way, `renamePath` does the work and the *new* path comes back from the
+backend canonicalised. That path goes to `editorStore.pathMoved`, which
+re-points every open tab at or under what moved, and rewrites the remembered
+expansions. A rename that didn't do this left the tab showing the old name and
+saving to the old path.
+
+> **`dragDropEnabled: false`** in `tauri.conf.json` is what makes any of this
+> work. With it enabled — the default — wry installs a drag handler on the
+> webview whose `performDragOperation` returns `YES` without calling `super`
+> (`wry/src/wkwebview/drag_drop.rs`), because Tauri's listener consumes every
+> event to publish `tauri://drag-drop`. WebKit therefore never sees the drop and
+> no `drop` event reaches the page: HTML5 drag and drop is silently dead, tab
+> reordering included. The app reads no OS file drops, so nothing is given up by
+> turning it off.
 
 ---
 

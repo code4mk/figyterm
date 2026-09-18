@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { basename, FileEncoding, LineEnding, OpenedFile } from "../services/editor-fs";
 import { languageFor } from "../services/editor-lang";
+import { samePath as pathsEqual, remapPath } from "../services/explorer-paths";
 import {
   clearDraft,
   DiffLayout,
@@ -11,7 +12,6 @@ import {
   saveSession,
   Workspace,
 } from "../services/editor-session";
-import { isLinux } from "../services/platform";
 
 /**
  * The editor's metadata, and nothing else.
@@ -125,6 +125,17 @@ interface EditorStore {
   /** Pins or unpins a folder. */
   toggleFavorite: (root: string) => void;
 
+  /**
+   * Follows a rename or a move that has already happened on disk.
+   *
+   * Every open tab at `from`, or anywhere under it when a *folder* moved, is
+   * re-pointed at its new path — as is every remembered expansion. Without
+   * this a renamed file keeps its old name on the tab and, worse, its old
+   * path: the next save writes to a file that is no longer there, and the
+   * watcher reports the buffer as missing from disk.
+   */
+  pathMoved: (from: string, to: string) => void;
+
   /** Focuses the buffer for `path` if it's open, otherwise adds one. */
   openFile: (path: string, file: OpenedFile) => string;
   openScratch: (languageId?: string) => string;
@@ -163,14 +174,14 @@ interface EditorStore {
 /**
  * Whether two paths name the same file.
  *
- * macOS and Windows preserve the case a name was created with but match without
- * it, so opening `Cta.tsx` and then `cta.tsx` must land on one tab, not two
- * that then race each other's saves. On Linux those are genuinely different
- * files and the comparison has to stay exact.
+ * The platform's own rule, from `explorer-paths` — macOS and Windows match
+ * names without case, so opening `Cta.tsx` and then `cta.tsx` must land on one
+ * tab, not two that then race each other's saves. All this adds is that a
+ * scratch buffer, which has no path, is never the same file as anything.
  */
 function samePath(a: string | null, b: string | null): boolean {
   if (!a || !b) return false;
-  return isLinux ? a === b : a.toLowerCase() === b.toLowerCase();
+  return pathsEqual(a, b);
 }
 
 const stored = loadSession();
@@ -350,6 +361,27 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       favorites: state.favorites.includes(root)
         ? state.favorites.filter((f) => f !== root)
         : [...state.favorites, root],
+    }));
+    persist(get());
+  },
+
+  pathMoved: (from, to) => {
+    if (from === to) return;
+    set((state) => ({
+      buffers: state.buffers.map((buffer) => {
+        const moved = buffer.path ? remapPath(buffer.path, from, to) : null;
+        if (!moved) return buffer;
+        return {
+          ...buffer,
+          path: moved,
+          name: basename(moved),
+          // A `.ts` renamed to `.js` is a different language, and the tab's
+          // icon and the editor's grammar both read this.
+          languageId: buffer.large ? buffer.languageId : languageFor(moved),
+        };
+      }),
+      // A renamed folder that was open stays open, under its new name.
+      expanded: state.expanded.map((path) => remapPath(path, from, to) ?? path),
     }));
     persist(get());
   },
