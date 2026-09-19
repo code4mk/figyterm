@@ -9206,3 +9206,2678 @@
   outline: 1px solid var(--ft-accent);
 }
 
+
+/* ─── API client ──────────────────────────────────────────────────────────
+ *
+ * The window borrows the browser's chrome for its title bar, so only what is
+ * particular to a request editor is here: the method chip, the URL bar, the
+ * tab strips, the spreadsheet cells and the divider between the two halves.
+ *
+ * Everything is a theme variable rather than a literal, so the light theme
+ * needs no second copy of any of it.
+ */
+
+.api-method {
+  height: 26px;
+  padding: 0 6px;
+  border-radius: 6px;
+  border: 1px solid var(--ft-border);
+  background: var(--ft-surface);
+  color: var(--ft-text);
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--ft-mono, ui-monospace, monospace);
+  cursor: pointer;
+}
+.api-method:focus-visible,
+.api-select:focus-visible {
+  outline: 1px solid var(--ft-accent);
+  outline-offset: 1px;
+}
+
+.api-select {
+  height: 22px;
+  padding: 0 4px;
+  border-radius: 5px;
+  border: 1px solid var(--ft-border);
+  background: var(--ft-surface);
+  color: var(--ft-text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.api-url {
+  height: 26px;
+  line-height: 26px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid var(--ft-border);
+  background: var(--ft-surface);
+  color: var(--ft-text);
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+.api-url::placeholder {
+  color: var(--ft-text-muted);
+}
+.api-url:focus {
+  outline: none;
+  border-color: var(--ft-accent);
+}
+
+.api-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 12px;
+  border-radius: 6px;
+  background: var(--ft-accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.api-button:hover:not(:disabled) {
+  background: var(--ft-accent-hover);
+}
+.api-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.api-button-cancel {
+  background: var(--ft-error);
+}
+.api-button-cancel:hover {
+  filter: brightness(1.1);
+}
+
+/* The one button that appears inside the response pane, offering the remedy
+ * for a certificate failure. Quiet, because it turns a check off. */
+.api-button-quiet {
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--ft-border);
+  background: var(--ft-surface);
+  color: var(--ft-text-secondary);
+  font-size: 11px;
+}
+.api-button-quiet:hover {
+  color: var(--ft-text);
+  border-color: var(--ft-accent);
+}
+
+.api-tabstrip {
+  background: var(--ft-tab);
+}
+
+.api-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 5px;
+  color: var(--ft-text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.api-tab:hover {
+  color: var(--ft-text-secondary);
+}
+.api-tab.selected {
+  background: var(--ft-tab-active);
+  color: var(--ft-text);
+}
+
+.api-tab-badge {
+  min-width: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: var(--ft-elevated);
+  color: var(--ft-text-muted);
+  font-size: 9px;
+  line-height: 14px;
+  text-align: center;
+}
+.api-tab.selected .api-tab-badge {
+  color: var(--ft-text-secondary);
+}
+
+/* "This tab has something in it", where a count would be meaningless. */
+.api-tab-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--ft-accent);
+}
+
+/* A cell in the headers table: a text input that does not look like one until
+ * it is being used, so a table of twenty headers reads as a table. */
+.api-cell {
+  min-width: 0;
+  height: 22px;
+  /* `line-height` equal to the height, so the text sits on the middle of the
+   * box rather than on the browser's default baseline near the top of it —
+   * which in a row of twenty cells reads as every one being slightly off. */
+  line-height: 22px;
+  padding: 0 6px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ft-text);
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 11px;
+}
+.api-cell::placeholder {
+  color: var(--ft-text-muted);
+}
+.api-cell:hover {
+  border-color: var(--ft-border-subtle);
+}
+.api-cell:focus {
+  outline: none;
+  border-color: var(--ft-accent);
+  background: var(--ft-surface);
+}
+
+/* The environment quick look. Anchored under the selector, and wide enough to
+ * read a URL without wrapping it — which is most of what is in one. */
+.api-env-peek {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 40;
+  width: 380px;
+  border-radius: 8px;
+  border: 1px solid var(--ft-border);
+  background: var(--ft-elevated);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+
+/* ─── API client: variables, drawn where they are typed ───────────────────── */
+
+/* The field itself. Sized and coloured like the input it replaces, so a row of
+ * them and a row of plain inputs line up. */
+.api-var-input {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  /* The wrapper borrows `.api-url` or `.api-cell`, both of which set a
+   * `line-height` matching their height for a plain input. Here the editor
+   * inside does the centring, and inheriting a 26px line would push its one
+   * line down by half of it. */
+  line-height: normal;
+}
+/* Inherited, not restated: the wrapper carries `.api-url` or `.api-cell`, and
+ * hardcoding a size here would make a URL bar that is a point smaller than the
+ * one it replaced. */
+.api-var-input .cm-editor {
+  width: 100%;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+}
+/* The editor is one line tall and the wrapper centres it — see the theme in
+ * `VariableInput.tsx`. Without this the flex item stretches to the wrapper's
+ * full height again and the text goes back to the top. */
+.api-var-input .cm-editor {
+  align-self: center;
+}
+
+/* The field is a wrapper, so `:focus` never fires on it — the contenteditable
+ * inside takes focus instead. Both borrowed states are restated against
+ * `:focus-within`, or a focused URL bar would show no ring at all. */
+.api-var-input.api-url:focus-within,
+.api-var-input.api-cell:focus-within {
+  outline: none;
+  border-color: var(--ft-accent);
+}
+.api-var-input.api-cell:focus-within {
+  background: var(--ft-surface);
+}
+.api-var-input.api-cell:hover {
+  border-color: var(--ft-border-subtle);
+}
+.api-var-input .cm-cursor {
+  border-left-color: var(--ft-accent);
+  border-left-width: 2px;
+}
+.api-var-input .cm-selectionBackground,
+.api-var-input .cm-content ::selection {
+  background: color-mix(in srgb, var(--ft-accent) 30%, transparent);
+}
+.api-var-input .cm-placeholder {
+  color: var(--ft-text-muted);
+}
+
+/* A variable, in place.
+ *
+ * A tinted chip rather than coloured text: the point is to tell at a glance
+ * where the braces begin and end inside a URL that is otherwise one run of
+ * punctuation, and a colour change alone does not do that against a mono face.
+ * Colour is never the only signal — missing is also underlined, for anyone who
+ * cannot tell the two hues apart. */
+.cm-api-var {
+  border-radius: 3px;
+  padding: 1px 0;
+  background: color-mix(in srgb, var(--ft-accent) 18%, transparent);
+  color: var(--ft-accent);
+}
+.cm-api-var-dynamic {
+  background: color-mix(in srgb, var(--ft-success) 16%, transparent);
+  color: var(--ft-success);
+}
+/* Defined, but defined as nothing — the state that sends an empty token and
+ * reads as success. Amber rather than red: it is somebody's choice, not a
+ * mistake, but it is worth seeing. */
+.cm-api-var-empty {
+  background: color-mix(in srgb, var(--ft-warning) 18%, transparent);
+  color: var(--ft-warning);
+}
+.cm-api-var-missing {
+  background: color-mix(in srgb, var(--ft-error) 18%, transparent);
+  color: var(--ft-error);
+  text-decoration: underline wavy currentColor 1px;
+  text-underline-offset: 2px;
+}
+
+/* The hover card.
+ *
+ * Three lines, in the order the questions come: what is this called and is it
+ * all right, what is it worth, and who said so. It used to be a name and one
+ * run-on sentence, which made the value — the thing being asked about — the
+ * hardest part to find. */
+.api-var-tip {
+  width: max-content;
+  max-width: 340px;
+  padding: 7px 9px 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  /* Its own left edge in the state's colour, so the answer is legible before
+   * a word of it has been read. */
+  border-left: 2px solid var(--ft-accent);
+}
+.api-var-tip.dynamic {
+  border-left-color: var(--ft-success);
+}
+.api-var-tip.empty {
+  border-left-color: var(--ft-warning);
+}
+.api-var-tip.missing {
+  border-left-color: var(--ft-error);
+}
+
+.api-var-tip-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.api-var-tip-name {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ft-text);
+  word-break: break-all;
+}
+/* The state as a word, not only as a colour. */
+.api-var-tip-badge {
+  margin-left: auto;
+  flex: none;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ft-accent);
+}
+.api-var-tip.dynamic .api-var-tip-badge {
+  color: var(--ft-success);
+}
+.api-var-tip.empty .api-var-tip-badge {
+  color: var(--ft-warning);
+}
+.api-var-tip.missing .api-var-tip-badge {
+  color: var(--ft-error);
+}
+
+/* The value, which is what was actually being asked about. Capped at four
+ * lines: a variable holding a JWT is three hundred characters, and the whole
+ * of it would be a tooltip the height of the window. */
+.api-var-tip-value {
+  margin-top: 4px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 11px;
+  color: var(--ft-text);
+  word-break: break-all;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.api-var-tip.empty .api-var-tip-value,
+.api-var-tip.missing .api-var-tip-value,
+.api-var-tip.dynamic .api-var-tip-value {
+  color: var(--ft-text-muted);
+  font-style: italic;
+}
+
+.api-var-tip-from {
+  margin-top: 5px;
+  padding-top: 5px;
+  border-top: 1px solid var(--ft-border-subtle);
+  font-size: 10px;
+  color: var(--ft-text-muted);
+}
+
+/* Tooltips parented to the body.
+ *
+ * The variable field sits several nested scrollers deep inside a modal, and
+ * every one of them clips — so its hover and its completion list are rendered
+ * onto `document.body` instead (see `VariableInput.tsx`). `body > .cm-tooltip`
+ * is what tells those apart from the editor window's own, which stay inside
+ * `.editor-surface` and must keep their own styling.
+ *
+ * The z-index is a flat high number rather than one from the overlay stack:
+ * that counter increases as windows are raised, and a tooltip is transient and
+ * belongs above whatever is in front at the moment it appears. */
+body > .cm-tooltip {
+  z-index: 9999;
+  border: 1px solid var(--ft-border);
+  border-radius: 6px;
+  background: var(--ft-elevated);
+  color: var(--ft-text);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
+  overflow: hidden;
+}
+/*
+ * The completion lists, built like the editor's references popup.
+ *
+ * Same anatomy: a titled header, two-line rows — a name with its location
+ * beside it and a chip held to the right, then the detail on its own line —
+ * and a keyboard hint as a footer. That layout is what makes a list choosable
+ * rather than a column of names you accept one at a time to find out what they
+ * are.
+ *
+ * Scoped to `.cm-api-completions`, which the variable field and the script
+ * editor both put on their tooltip, so the editor window's own lists are
+ * untouched. These live on `document.body` — the fields are several clipping
+ * scrollers deep inside a modal — hence the `body >`.
+ */
+body > .cm-tooltip.cm-api-completions {
+  overflow: hidden;
+  /* Wide enough that a value is worth reading, bounded so it does not cross
+   * the pane it is completing in. */
+  width: 440px;
+  max-width: 92vw;
+  padding: 0;
+  border: 1px solid var(--ft-border);
+  border-radius: 8px;
+  background: var(--ft-elevated);
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.38);
+}
+
+body > .cm-api-completions > ul {
+  max-height: 320px;
+  padding: 4px;
+  margin: 0;
+  overscroll-behavior: contain;
+  font-family: inherit;
+}
+body > .cm-api-completions > ul::-webkit-scrollbar {
+  width: 8px;
+}
+body > .cm-api-completions > ul::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--ft-text-muted) 38%, transparent);
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+/* The header and the footer, as generated content.
+ *
+ * CodeMirror's autocomplete has no slot for either — `addToOptions` injects
+ * per *option*, and there is no per-dialog equivalent — and both are static,
+ * so nothing is lost by them not being real nodes. */
+body > .cm-tooltip.cm-api-completions::before {
+  content: "VARIABLES";
+  display: block;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--ft-border-subtle);
+  background: var(--ft-surface);
+  color: var(--ft-text-secondary);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+/* The same list serves the script editor, where the title and the verb are
+ * different — it inserts a call, not a variable. */
+body > .cm-tooltip.cm-api-completions.cm-api-scripts::before {
+  content: "SCRIPT API";
+}
+body > .cm-tooltip.cm-api-completions.cm-api-scripts::after {
+  content: "↑↓ to move · ↵ to accept · Esc to close";
+}
+/* A script row is one line: the name and what it does. There is no value to
+ * put underneath, so nothing wraps. */
+body > .cm-api-scripts > ul > li {
+  flex-wrap: nowrap;
+}
+
+body > .cm-tooltip.cm-api-completions::after {
+  content: "↑↓ to move · ↵ to insert · Esc to close";
+  display: block;
+  padding: 5px 10px;
+  border-top: 1px solid var(--ft-border-subtle);
+  background: var(--ft-surface);
+  color: var(--ft-text-muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+/* The group heading: "ENVIRONMENT · Staging", "GLOBALS", "DYNAMIC · BUILT IN".
+ *
+ * Named by kind first and by the scope's own name second, because the kind is
+ * what somebody is sorting by — and a name defined in two scopes is listed
+ * once, under the one that wins, so the heading is the answer to "which
+ * `base_url` is this". */
+body > .cm-api-completions .cm-completionSection {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 18px;
+  margin: 6px 0 2px;
+  padding: 0 6px;
+  color: var(--ft-text-muted);
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+body > .cm-api-completions .cm-completionSection::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--ft-border-subtle);
+}
+body > .cm-api-completions .cm-completionSection:first-child {
+  margin-top: 0;
+}
+
+/* A row: two lines, wrapping so the value drops beneath the name. */
+body > .cm-api-completions > ul > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  padding: 5px 7px;
+  border-radius: 5px;
+  line-height: 1.45;
+}
+body > .cm-api-completions > ul > li[aria-selected] {
+  background: color-mix(in srgb, var(--ft-accent) 20%, transparent);
+}
+
+/* The name. Holds its width and truncates before anything beside it does. */
+body > .cm-api-completions .cm-completionLabel {
+  flex-shrink: 0;
+  max-width: 58%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ft-text);
+}
+/* What has been typed, in weight and colour rather than the library's
+ * underline: at this size an underline on two characters of every row is a
+ * row of dashes. */
+body > .cm-api-completions .cm-completionMatchedText {
+  text-decoration: none;
+  font-weight: 700;
+  color: var(--ft-accent);
+}
+
+/* Where it comes from, beside the name — dimmed, and the first to shrink. */
+.api-var-from {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: var(--ft-text-muted);
+}
+
+/* The kind, as a chip held to the right so the column of them lines up. */
+.api-var-badge {
+  margin-left: auto;
+  flex-shrink: 0;
+  min-width: 16px;
+  padding: 0 5px;
+  border-radius: 3px;
+  text-align: center;
+  font-family: ui-sans-serif, -apple-system, system-ui, sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--ft-text-muted);
+  background: color-mix(in srgb, var(--ft-text-muted) 16%, transparent);
+}
+.api-var-badge.environment {
+  background: color-mix(in srgb, var(--ft-accent) 20%, transparent);
+  color: var(--ft-accent);
+}
+.api-var-badge.collection {
+  background: color-mix(in srgb, var(--ft-warning) 20%, transparent);
+  color: var(--ft-warning);
+}
+.api-var-badge.global,
+.api-var-badge.dynamic {
+  background: color-mix(in srgb, var(--ft-success) 20%, transparent);
+  color: var(--ft-success);
+}
+
+/* The value, on the second line.
+ *
+ * `flex-basis: 100%` is what breaks the row: it takes the full width, so it
+ * wraps beneath the first line and gets the whole popup to be read across. */
+.api-var-value {
+  flex-basis: 100%;
+  margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  color: var(--ft-text-muted);
+}
+body > .cm-api-completions > ul > li[aria-selected] .api-var-value {
+  color: var(--ft-text-secondary);
+}
+.api-var-value.empty {
+  font-style: italic;
+  color: var(--ft-warning);
+}
+
+/* The detail column — what the script list puts its one-line explanation in.
+ * Context for the name, so it shrinks first and never pushes the name out. */
+body > .cm-api-completions .cm-completionDetail {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-style: normal;
+  font-size: 10px;
+  color: var(--ft-text-muted);
+}
+
+/* The response body's editor. The theme sets `&` to 100%, but that resolves
+ * against the wrapper, so the wrapper has to have a height of its own — which
+ * is what the flex parent gives it. No focus ring: the pane already marks
+ * itself, and a read-only view is not a field. */
+.api-body-viewer .cm-editor {
+  height: 100%;
+}
+.api-body-viewer .cm-editor.cm-focused {
+  outline: none;
+}
+
+/* ─── API client: what an import did ──────────────────────────────────────── */
+
+/* The outcome mark. Three states, and the colour is never the only signal —
+ * the icon differs too, and so does the sentence beside it. */
+.api-report-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: 50%;
+}
+.api-report-mark.good {
+  background: color-mix(in srgb, var(--ft-success) 18%, transparent);
+  color: var(--ft-success);
+}
+.api-report-mark.warn {
+  background: color-mix(in srgb, var(--ft-warning) 18%, transparent);
+  color: var(--ft-warning);
+}
+.api-report-mark.bad {
+  background: color-mix(in srgb, var(--ft-error) 16%, transparent);
+  color: var(--ft-error);
+}
+
+/* What arrived. Big enough to read at a glance, because "did it bring the
+ * requests" is the question, and a row of 11px grey text is not an answer
+ * anybody takes in without stopping to. */
+.api-report-tally {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+}
+.api-report-number {
+  color: var(--ft-text);
+  font-size: 17px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.api-report-label {
+  color: var(--ft-text-muted);
+  font-size: 11px;
+}
+
+/* ─── API client: the empty window ────────────────────────────────────────── */
+
+/* One of the three things worth doing when nothing is open. A card rather than
+ * a link: this is the whole content of the pane, and a row of underlined text
+ * in the middle of an empty window does not read as somewhere to press. */
+.api-empty-action {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 11px;
+  border-radius: 8px;
+  border: 1px solid var(--ft-border-subtle);
+  background: var(--ft-surface);
+  color: var(--ft-text);
+  font-size: 12px;
+  text-align: left;
+}
+.api-empty-action:hover {
+  border-color: var(--ft-accent);
+  background: color-mix(in srgb, var(--ft-accent) 10%, var(--ft-surface));
+}
+.api-empty-action svg {
+  flex: none;
+  color: var(--ft-text-muted);
+}
+.api-empty-action:hover svg {
+  color: var(--ft-accent);
+}
+.api-empty-key {
+  flex: none;
+  color: var(--ft-text-muted);
+  font-size: 10px;
+}
+
+.api-empty-recent {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 3px 6px;
+  border-radius: 5px;
+  text-align: left;
+}
+.api-empty-recent:hover {
+  background: var(--ft-surface);
+}
+
+.api-kbd {
+  display: inline-block;
+  min-width: 18px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  border: 1px solid var(--ft-border);
+  background: var(--ft-surface);
+  color: var(--ft-text-secondary);
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 9px;
+  text-align: center;
+}
+
+/* The sidebar's drag handle. Same proportions as the request/response
+ * divider: a wide hit area over a hairline, because a 1px target is one
+ * nobody hits on the first attempt. */
+.api-rail-handle {
+  position: relative;
+  width: 7px;
+  margin-left: -7px;
+  flex: none;
+  cursor: col-resize;
+  background: transparent;
+  /* Over the panel it overlaps, or the row underneath takes the pointer. */
+  z-index: 5;
+  touch-action: none;
+}
+.api-rail-handle::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  right: 0;
+  width: 2px;
+  background: transparent;
+  transition: background-color 120ms ease;
+}
+.api-rail-handle:hover::after,
+.api-rail-handle:active::after {
+  background: var(--ft-accent);
+}
+
+/* The response half, marked off from the request half above or beside it.
+ *
+ * The divider is draggable and therefore deliberately thin; this border is
+ * what actually separates the two, and without it the stacked layout reads as
+ * one long pane with a heading in the middle of it. */
+.api-response {
+  border-top: 1px solid var(--ft-border);
+}
+/* Side by side, the shared edge is vertical instead. */
+.api-split-handle:not(.row) ~ [data-panel] .api-response,
+[data-panel-group][data-orientation="horizontal"] .api-response {
+  border-top: none;
+  border-left: 1px solid var(--ft-border);
+}
+
+/* An input with a list of suggestions under it.
+ *
+ * The wrapper borrows the field's class, so the input inside has to be
+ * transparent and unstyled — otherwise a box would be drawn inside a box. */
+.api-suggest {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.api-suggest-field {
+  width: 100%;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: inherit;
+  font: inherit;
+}
+.api-suggest-field::placeholder {
+  color: var(--ft-text-muted);
+}
+
+.api-suggest-list {
+  position: absolute;
+  top: calc(100% + 3px);
+  left: 0;
+  min-width: 100%;
+  max-width: 420px;
+  max-height: 260px;
+  overflow-y: auto;
+  /* Above the panes, below nothing: the same flat high number the context
+   * menu and the variable tooltips use, for the same reason. */
+  z-index: 9997;
+  padding: 4px;
+  border-radius: 8px;
+  border: 1px solid var(--ft-border);
+  background: var(--ft-elevated);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.34);
+}
+.api-suggest-option {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 3px 7px;
+  border-radius: 5px;
+  text-align: left;
+  white-space: nowrap;
+}
+.api-suggest-option.active {
+  background: color-mix(in srgb, var(--ft-accent) 20%, transparent);
+}
+.api-suggest-value {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 11px;
+  color: var(--ft-text);
+}
+.api-suggest-hint {
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 10px;
+  color: var(--ft-text-muted);
+}
+
+/* One of the six body modes. The whole label is the hit target, not just the
+ * radio — a 12px circle is a small thing to ask somebody to aim at. */
+.api-body-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  color: var(--ft-text-muted);
+  cursor: pointer;
+}
+.api-body-mode:hover {
+  color: var(--ft-text-secondary);
+}
+
+.api-body-editor {
+  color: var(--ft-text);
+}
+.api-body-editor::placeholder {
+  color: var(--ft-text-muted);
+}
+
+/* The divider between request and response. Same proportions as the drawing
+ * window's: a wide hit area over a hairline. */
+.api-split-handle {
+  position: relative;
+  width: 7px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background: transparent;
+}
+.api-split-handle::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: var(--ft-border);
+  transition: background-color 120ms ease, width 120ms ease;
+}
+.api-split-handle:hover::after,
+.api-split-handle:active::after {
+  width: 2px;
+  background: var(--ft-accent);
+}
+
+/* The same handle turned through ninety degrees, for the response-below
+ * layout. Every axis-dependent property is restated rather than left to
+ * inherit, because a half-rotated handle is one with a col-resize cursor over
+ * a row-resize divider. */
+.api-split-handle.row {
+  width: auto;
+  height: 7px;
+  cursor: row-resize;
+}
+.api-split-handle.row::after {
+  inset-block: auto;
+  inset-inline: 0;
+  top: 50%;
+  left: auto;
+  width: auto;
+  height: 1px;
+  transform: translateY(-50%);
+  transition: background-color 120ms ease, height 120ms ease;
+}
+.api-split-handle.row:hover::after,
+.api-split-handle.row:active::after {
+  width: auto;
+  height: 2px;
+}
+
+/* ─── API client: what is clickable says so ───────────────────────────────── */
+/*
+ * The window is built of `<button>`s and rows, and a button in this app has no
+ * cursor of its own — so most of it read as text until it was clicked. Rather
+ * than a `cursor-pointer` on every element in every file, one rule per family,
+ * here where they are already listed.
+ *
+ * The exceptions are deliberate. A text field keeps its I-beam, a disabled
+ * control gets `not-allowed`, and the two resize handles keep the arrows that
+ * say which way they move.
+ */
+.api-modal button:not(:disabled),
+.api-modal [role="button"]:not([aria-disabled="true"]),
+.api-modal summary,
+.api-modal label:has(input[type="checkbox"]),
+.api-modal select:not(:disabled),
+.api-menu-item,
+.api-row,
+.api-history-row {
+  cursor: pointer;
+}
+.api-modal button:disabled,
+.api-modal select:disabled,
+.api-modal input:disabled {
+  cursor: not-allowed;
+}
+.api-modal input[type="text"],
+.api-modal input:not([type]),
+.api-modal textarea,
+.api-modal .api-cell,
+.api-modal .api-url,
+.api-modal .cm-content {
+  cursor: text;
+}
+
+/* ─── API client: the rail, the tabs and the menu ─────────────────────────── */
+
+/* The icon strip. One button per section, and the selected one carries an
+ * accent bar down its left edge — a fill alone reads the same as hover, and
+ * "which section am I on" is the question the strip exists to answer. */
+.api-icon-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  color: var(--ft-text-muted);
+}
+.api-icon-tab:hover {
+  background: var(--ft-surface);
+  color: var(--ft-text);
+}
+.api-icon-tab.selected {
+  background: var(--ft-tab-active);
+  color: var(--ft-text);
+}
+.api-icon-tab.selected::before {
+  content: "";
+  position: absolute;
+  left: -7px;
+  top: 5px;
+  bottom: 5px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--ft-accent);
+}
+
+/* How many are in there, without taking the room a badge would. */
+.api-icon-count {
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  min-width: 12px;
+  padding: 0 2px;
+  border-radius: 6px;
+  background: var(--ft-elevated);
+  color: var(--ft-text-muted);
+  font-size: 8px;
+  font-variant-numeric: tabular-nums;
+  line-height: 12px;
+  text-align: center;
+}
+.api-icon-tab.selected .api-icon-count {
+  color: var(--ft-text-secondary);
+}
+
+/* A labelled action in a section's title row.
+ *
+ * Small, quiet, and readable — the alternative was a bare icon, and "which of
+ * these two arrows imports" is not a question a title row should pose. */
+.api-rail-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 7px;
+  flex: none;
+  border-radius: 5px;
+  border: 1px solid transparent;
+  color: var(--ft-text-secondary);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.api-rail-button:hover {
+  background: var(--ft-surface);
+  border-color: var(--ft-border-subtle);
+  color: var(--ft-text);
+}
+.api-rail-button svg {
+  color: var(--ft-text-muted);
+}
+.api-rail-button:hover svg {
+  color: var(--ft-text);
+}
+/* The one that makes something, marked so it reads as the main action rather
+ * than as one of a pair. */
+.api-rail-button.primary {
+  color: var(--ft-accent);
+}
+.api-rail-button.primary svg,
+.api-rail-button.primary:hover svg {
+  color: var(--ft-accent);
+}
+.api-rail-button.primary:hover {
+  background: color-mix(in srgb, var(--ft-accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--ft-accent) 40%, transparent);
+  color: var(--ft-accent);
+}
+.api-rail-button.danger:hover {
+  color: var(--ft-error);
+}
+.api-rail-button.danger:hover svg {
+  color: var(--ft-error);
+}
+
+/* An action in a section's title row. */
+.api-rail-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border-radius: 4px;
+  color: var(--ft-text-muted);
+}
+.api-rail-action:hover {
+  background: var(--ft-surface);
+  color: var(--ft-text);
+}
+.api-rail-action.danger:hover {
+  color: var(--ft-error);
+}
+
+/* An action on a tree row: present but silent until the row is hovered, so a
+ * list of two hundred requests is not also a list of four hundred buttons. */
+.api-row-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  border-radius: 4px;
+  color: var(--ft-text-muted);
+  opacity: 0;
+}
+.api-row:hover .api-row-action,
+.api-row-action:focus-visible {
+  opacity: 1;
+}
+.api-row-action:hover {
+  background: var(--ft-elevated);
+  color: var(--ft-text);
+}
+.api-row-action.danger:hover {
+  color: var(--ft-error);
+}
+
+/* One level of nesting. Faint on purpose — a guide is a hint about structure,
+ * and one strong enough to read is one competing with the names. */
+.api-indent {
+  width: 12px;
+  flex: none;
+  align-self: stretch;
+  box-shadow: inset 1px 0 0 var(--ft-border-subtle);
+}
+.api-indent:first-child {
+  width: 10px;
+  margin-left: 4px;
+}
+
+/* "e.g." — what an example is, where a request has its method.
+ *
+ * The word rather than an icon: it is what everybody who has kept a response
+ * already reads it as, and it survives being 9px in a way a 10px bookmark
+ * glyph does not. */
+.api-eg {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--ft-accent) 16%, transparent);
+  color: var(--ft-accent);
+  font-size: 9px;
+  font-weight: 600;
+  font-style: italic;
+  letter-spacing: 0.01em;
+  line-height: 1.3;
+}
+.api-request-tab.selected .api-eg {
+  background: color-mix(in srgb, var(--ft-accent) 24%, transparent);
+}
+
+/* Fixed width, so the names line up whatever the method is. */
+.api-method-chip {
+  width: 34px;
+  flex: none;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.api-rail-search {
+  height: 20px;
+  line-height: 20px;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--ft-text);
+  font-size: 11px;
+}
+.api-rail-search::placeholder {
+  color: var(--ft-text-muted);
+}
+
+.api-row {
+  height: 22px;
+  cursor: default;
+  position: relative;
+  user-select: none;
+}
+.api-row:hover {
+  background: var(--ft-surface);
+}
+/* The row whose tab is in front.
+ *
+ * A bar *and* a tinted fill. The bar alone was too quiet next to a hovered
+ * row, which also fills — in a tree of forty rows the two were hard to tell
+ * apart, and "which one am I looking at" is the question the mark exists to
+ * answer. Hover stays plainer than this, so the order reads: hovered, open,
+ * hovered-and-open. */
+.api-row.open {
+  background: color-mix(in srgb, var(--ft-accent) 13%, transparent);
+  box-shadow: inset 2px 0 0 var(--ft-accent);
+}
+.api-row.open:hover {
+  background: color-mix(in srgb, var(--ft-accent) 18%, transparent);
+}
+.api-row.open > span,
+.api-row.open > .api-method-chip {
+  font-weight: 600;
+}
+.api-row.dragging {
+  opacity: 0.4;
+}
+
+/* The environment requests actually resolve with.
+ *
+ * Distinct from `.open`, which means "this is the tab in front". They are
+ * genuinely different states — the environment in use is usually *not* the one
+ * being looked at — so one gets the accent bar and the other a tick and a
+ * faint wash. */
+.api-row.in-use {
+  background: color-mix(in srgb, var(--ft-accent) 9%, transparent);
+}
+.api-row.in-use:hover {
+  background: color-mix(in srgb, var(--ft-accent) 14%, transparent);
+}
+
+/* The tick's column is held whether or not a tick is in it, so names do not
+ * shift sideways as the selection moves down the list. */
+.api-env-tick {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  border-radius: 4px;
+  color: var(--ft-text-muted);
+}
+.api-env-tick.on {
+  color: var(--ft-accent);
+}
+.api-env-tick:not(:disabled):hover {
+  background: var(--ft-elevated);
+  color: var(--ft-text);
+}
+/* An empty tick box is invisible until the row is hovered, where it becomes a
+ * hint that this is the thing to press. */
+.api-env-tick:not(.on):not(:disabled)::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+  border: 1px solid var(--ft-border);
+  opacity: 0;
+}
+.api-row:hover .api-env-tick:not(.on):not(:disabled)::before {
+  opacity: 1;
+}
+.api-env-tick:disabled {
+  color: var(--ft-text-muted);
+  opacity: 0.7;
+}
+
+/* Where a drop would land. A line for between, a ring for inside — two
+ * different outcomes should not look the same. */
+.api-row.drop-before::after,
+.api-row.drop-after::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  height: 2px;
+  background: var(--ft-accent);
+  pointer-events: none;
+}
+.api-row.drop-before::after {
+  top: -1px;
+}
+.api-row.drop-after::after {
+  bottom: -1px;
+}
+.api-row.drop-inside {
+  box-shadow: inset 0 0 0 1px var(--ft-accent);
+  border-radius: 4px;
+}
+
+.api-history-row {
+  cursor: default;
+}
+.api-history-row:hover {
+  background: var(--ft-surface);
+}
+
+/* One open request. */
+/* The scroller, and the arrows at each end of it.
+ *
+ * The scrollbar itself is hidden: a 22px-high strip with a scrollbar under it
+ * is a strip with no room left for a tab name, and the arrows say the same
+ * thing in the space that is already there. */
+.api-tabstrip-scroller {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  /* Keeps a tab from being left half-cut at the edge after an arrow press. */
+  scroll-snap-type: x proximity;
+}
+.api-tabstrip-scroller::-webkit-scrollbar {
+  display: none;
+}
+.api-tabstrip-scroller > * {
+  scroll-snap-align: start;
+}
+
+.api-tabstrip-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  margin: 0 1px;
+  border-radius: 5px;
+  color: var(--ft-text-muted);
+}
+.api-tabstrip-arrow:hover {
+  background: var(--ft-surface);
+  color: var(--ft-text);
+}
+
+.api-request-tab {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 4px 0 8px;
+  border-radius: 5px;
+  flex-shrink: 0;
+  color: var(--ft-text-muted);
+  font-size: 11px;
+  user-select: none;
+}
+.api-request-tab:hover {
+  color: var(--ft-text-secondary);
+}
+.api-request-tab.selected {
+  position: relative;
+  background: var(--ft-tab-active);
+  color: var(--ft-text);
+}
+/* A bar along the bottom as well as a fill: hover is also a fill, and the two
+ * were hard to tell apart in a row of twenty. */
+.api-request-tab.selected::after {
+  content: "";
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: 0;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--ft-accent);
+}
+
+.api-request-tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  color: var(--ft-text-muted);
+}
+.api-request-tab-close:hover {
+  background: var(--ft-elevated);
+  color: var(--ft-text);
+}
+
+/* A request in flight, on its tab: a quiet pulse rather than a spinner, which
+ * at this size is a smudge. */
+.api-tab-sending {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--ft-accent);
+  animation: api-pulse 1.2s ease-in-out infinite;
+}
+@keyframes api-pulse {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 1; }
+}
+
+.api-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: 1px solid var(--ft-border);
+  background: var(--ft-surface);
+}
+.api-icon-button:hover {
+  border-color: var(--ft-accent);
+  color: var(--ft-text);
+}
+
+/* The right-click menu in the rail. Fixed, because the rail scrolls and a menu
+ * that scrolls with it ends up pointing at a different row. */
+/* The context menu.
+ *
+ * `z-index` was 10, which put it under anything the overlay stack had raised —
+ * the stack starts at 260. A menu is transient and belongs above whatever is in
+ * front when it opens, so it takes a flat high number like the tooltips do. */
+.api-menu {
+  position: fixed;
+  z-index: 9998;
+  min-width: 190px;
+  padding: 5px;
+  border-radius: 10px;
+  border: 1px solid var(--ft-border);
+  background: var(--ft-elevated);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.12),
+    0 12px 34px rgba(0, 0, 0, 0.36);
+  animation: api-menu-in 90ms ease-out;
+  transform-origin: top left;
+}
+@keyframes api-menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(-2px);
+  }
+}
+/* Somebody who has asked for no animation gets none. */
+@media (prefers-reduced-motion: reduce) {
+  .api-menu {
+    animation: none;
+  }
+}
+
+/* A heading naming what the menu is acting on, so a menu opened from the wrong
+ * row is obvious before something is pressed. */
+.api-menu-title {
+  display: block;
+  padding: 3px 8px 5px;
+  color: var(--ft-text-muted);
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.api-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border-radius: 6px;
+  color: var(--ft-text);
+  font-size: 11px;
+  text-align: left;
+}
+/* Hover and keyboard focus look the same: a menu that can only be driven with
+ * a mouse is one half the people here cannot use. */
+.api-menu-item:hover,
+.api-menu-item:focus-visible {
+  outline: none;
+  background: var(--ft-accent);
+  color: #fff;
+}
+.api-menu-item:hover svg,
+.api-menu-item:focus-visible svg {
+  color: #fff;
+}
+.api-menu-item svg {
+  color: var(--ft-text-muted);
+  flex: none;
+}
+.api-menu-item.danger:hover,
+.api-menu-item.danger:focus-visible {
+  background: var(--ft-error);
+}
+/* The key that does the same thing, right-aligned. */
+.api-menu-key {
+  margin-left: auto;
+  padding-left: 12px;
+  color: var(--ft-text-muted);
+  font-size: 10px;
+}
+.api-menu-item:hover .api-menu-key,
+.api-menu-item:focus-visible .api-menu-key {
+  color: rgba(255, 255, 255, 0.75);
+}
+.api-menu-rule {
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--ft-border-subtle);
+}
+
+/* ─── API client: variables ───────────────────────────────────────────────── */
+
+.api-variable-strip {
+  background: var(--ft-tab);
+}
+
+/* One variable the request uses. The value rides alongside the name when there
+ * is one, because "what will this send" is the question being asked. */
+.api-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  max-width: 260px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  border: 1px solid var(--ft-border);
+  background: var(--ft-surface);
+  color: var(--ft-text-secondary);
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.api-chip-value {
+  color: var(--ft-text-muted);
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+/* No value anywhere in the chain: this is why the send was refused. */
+.api-chip.missing {
+  border-color: var(--ft-warning);
+  color: var(--ft-warning);
+}
+/* Generated fresh per send, so there is no stored value to show. */
+.api-chip.dynamic {
+  border-style: dashed;
+}
+
+.api-chip-action {
+  padding: 1px 6px;
+  border-radius: 10px;
+  border: 1px solid var(--ft-border);
+  background: var(--ft-surface);
+  color: var(--ft-text-secondary);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.api-chip-action:hover {
+  color: var(--ft-text);
+  border-color: var(--ft-accent);
+}
+
+/* ─── API client: sync ────────────────────────────────────────────────────── */
+
+/* The one indicator in the status bar. Grey is off, green is in step, amber is
+ * working, red is a pass that failed — and clicking it opens the panel that
+ * explains which. */
+.api-sync-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--ft-text-muted);
+}
+.api-sync-dot.on {
+  background: var(--ft-success);
+}
+.api-sync-dot.working {
+  background: var(--ft-warning);
+  animation: api-pulse 1.2s ease-in-out infinite;
+}
+.api-sync-dot.failed {
+  background: var(--ft-error);
+}
+
+/* A tab badge that is carrying bad news. */
+.api-tab-badge.failing {
+  background: var(--ft-error);
+  color: #fff;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * The variable suggestion popup.
+ *
+ * Ours, not CodeMirror's: the markup is built in `variableExtensions.ts`, so
+ * this is plain CSS over plain elements rather than a fight with a library's
+ * own list. The shape is the references popup from the editor window — a
+ * titled header with a live count and a dismiss, rows of two lines, and a key
+ * hint along the bottom.
+ *
+ * Not `body > .cm-tooltip`, however obvious that looks. The tooltip is
+ * parented to the body — these fields sit several clipping scrollers deep
+ * inside a modal — but CodeMirror does not append it there directly: it makes
+ * its own `<div style="position:relative">` inside the parent and puts the
+ * tooltip in that. A child selector matches nothing, silently, and every rule
+ * under it is dead while the bare class rules below still apply — which is a
+ * panel half-styled by us and half by CodeMirror's default theme.
+ * The second selector is the same panel used outside CodeMirror — the header
+ * name suggestions, which are an `<input>` and a portal rather than an editor
+ * tooltip. Two completion popups that look like two applications is the thing
+ * this window keeps being told off for, so they share the markup as well.
+ * ────────────────────────────────────────────────────────────────────────── */
+.cm-tooltip.figy-vars,
+.figy-vars.figy-vars-free {
+  display: flex;
+  flex-direction: column;
+  /* Fixed, so the popup is the same size over every field rather than as
+   * wide as the longest name that happens to be in scope. */
+  width: 380px;
+  max-width: 84vw;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--ft-border);
+  border-radius: 12px;
+  background: var(--ft-elevated);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.08),
+    0 12px 40px rgba(0, 0, 0, 0.32);
+  font-family: inherit;
+  /* Above the modal it is opened from, which claims its own stack. */
+  z-index: 10050;
+}
+
+.figy-vars-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 8px 12px;
+  border-bottom: 1px solid var(--ft-border-subtle);
+  /* A shade of its own, so the rounded corners read as corners rather than as
+   * a flat edge that happens to be clipped. */
+  background: color-mix(in srgb, var(--ft-surface) 70%, transparent);
+  border-radius: 11px 11px 0 0;
+}
+
+.figy-vars-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--ft-text);
+}
+
+.figy-vars-count {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--ft-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.figy-vars-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 19px;
+  height: 19px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ft-text-muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.figy-vars-close:hover {
+  background: var(--ft-surface);
+  color: var(--ft-text);
+}
+
+.figy-vars-list {
+  max-height: 270px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* Side padding so a row's rounded highlight sits inside the panel rather
+   * than running into its own rounded corners. */
+  padding: 4px 5px;
+}
+.figy-vars-list::-webkit-scrollbar {
+  width: 8px;
+}
+.figy-vars-list::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--ft-text-muted) 38%, transparent);
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+/* A row is two lines: what it is called and where it is from, then what it is
+ * worth. The second line is the whole point — a column of names is a list you
+ * accept one at a time to find out what they are. */
+.figy-vars-row {
+  padding: 6px 8px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.figy-vars-row.selected {
+  background: color-mix(in srgb, var(--ft-accent) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ft-accent) 26%, transparent);
+}
+.figy-vars-row.selected .figy-vars-name {
+  color: var(--ft-accent);
+}
+
+.figy-vars-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.figy-vars-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ft-text);
+}
+/* The part that matched what was typed. */
+.figy-vars-hit {
+  color: var(--ft-accent);
+  font-weight: 700;
+}
+
+/* The chip, held to the right so a column of them lines up. From the scope's
+ * kind, so the colours mean something across the whole list. */
+.figy-vars-chip {
+  flex-shrink: 0;
+  min-width: 18px;
+  padding: 1px 5px;
+  border-radius: 5px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-align: center;
+  text-transform: uppercase;
+  background: color-mix(in srgb, var(--ft-text-muted) 20%, transparent);
+  color: var(--ft-text-secondary);
+}
+.figy-vars-chip.environment {
+  background: color-mix(in srgb, var(--ft-accent) 22%, transparent);
+  color: var(--ft-accent);
+}
+.figy-vars-chip.collection {
+  background: color-mix(in srgb, #f59e0b 22%, transparent);
+  color: #d18300;
+}
+.figy-vars-chip.global {
+  background: color-mix(in srgb, #10b981 22%, transparent);
+  color: #0a9f70;
+}
+.figy-vars-chip.dynamic {
+  background: color-mix(in srgb, #a855f7 22%, transparent);
+  color: #9333ea;
+}
+
+.figy-vars-value {
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--ft-mono, ui-monospace, monospace);
+  font-size: 11.5px;
+  color: var(--ft-text-secondary);
+}
+.figy-vars-value.empty {
+  color: var(--ft-text-muted);
+  font-style: italic;
+}
+
+.figy-vars-foot {
+  padding: 7px 12px;
+  border-top: 1px solid var(--ft-border-subtle);
+  background: color-mix(in srgb, var(--ft-surface) 70%, transparent);
+  border-radius: 0 0 11px 11px;
+  font-size: 10.5px;
+  color: var(--ft-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Light theme ──────────────────────────────────────────────────────────
+ * `--ft-elevated` is a grey in light and the panel wants to be the white one,
+ * so the two surfaces swap round here. The shadow swaps too: a 32%-black drop
+ * that reads as depth on a dark window reads as dirt on a white one.
+ *
+ * The theme class sits on `<html>` and this popup on `<body>`, so it is in
+ * scope — which is the only reason any of the variables reach it at all.
+ * ─────────────────────────────────────────────────────────────────────── */
+.light .cm-tooltip.figy-vars,
+.light .figy-vars.figy-vars-free {
+  background: var(--ft-surface);
+  border-color: #d9dde5;
+  box-shadow:
+    0 1px 2px rgba(16, 24, 40, 0.06),
+    0 16px 44px rgba(16, 24, 40, 0.16);
+}
+.light .figy-vars-head,
+.light .figy-vars-foot {
+  background: #fafbfd;
+}
+.light .figy-vars-list::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--ft-text-muted) 30%, transparent);
+  background-clip: content-box;
+}
+.light .figy-vars-row.selected {
+  background: color-mix(in srgb, var(--ft-accent) 9%, #ffffff);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ft-accent) 22%, transparent);
+}
+.light .figy-vars-chip {
+  background: color-mix(in srgb, var(--ft-text-muted) 14%, #ffffff);
+}
+.light .figy-vars-chip.environment {
+  background: color-mix(in srgb, var(--ft-accent) 12%, #ffffff);
+}
+.light .figy-vars-chip.collection {
+  background: color-mix(in srgb, #f59e0b 16%, #ffffff);
+  color: #b45309;
+}
+.light .figy-vars-chip.global {
+  background: color-mix(in srgb, #10b981 16%, #ffffff);
+  color: #047857;
+}
+.light .figy-vars-chip.dynamic {
+  background: color-mix(in srgb, #a855f7 14%, #ffffff);
+  color: #7e22ce;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * The URL bar: the method and the address as one control.
+ *
+ * They are one thing — `POST /users` — and two bordered boxes side by side
+ * read as two unrelated settings. The border, the radius and the focus ring
+ * belong to the wrapper; the two things inside it are bare.
+ * ────────────────────────────────────────────────────────────────────────── */
+.api-urlbar {
+  display: flex;
+  align-items: stretch;
+  height: 30px;
+  border: 1px solid var(--ft-border);
+  border-radius: 8px;
+  background: var(--ft-surface);
+  overflow: hidden;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.api-urlbar:hover {
+  border-color: color-mix(in srgb, var(--ft-accent) 40%, var(--ft-border));
+}
+/* `focus-within`, so typing anywhere in it lights the whole control — which
+ * is what makes it read as one field rather than two. */
+.api-urlbar:focus-within {
+  border-color: var(--ft-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ft-accent) 16%, transparent);
+}
+
+.api-urlbar-divider {
+  flex-shrink: 0;
+  width: 1px;
+  margin: 6px 0;
+  background: var(--ft-border);
+}
+
+/* The URL field, stripped of everything the wrapper now carries. The
+ * `.api-var-input` half is the CodeMirror wrapper's own class. */
+.api-var-input.api-url-bare {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ft-text);
+  font-size: 12px;
+  font-family: var(--ft-mono, ui-monospace, SFMono-Regular, monospace);
+}
+.api-var-input.api-url-bare:focus-within,
+.api-var-input.api-url-bare:hover {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* ── The method button ─────────────────────────────────────────────────── */
+.api-method-button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  height: 100%;
+  padding: 0 7px 0 10px;
+  border: 0;
+  background: transparent;
+  font-family: var(--ft-mono, ui-monospace, monospace);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+.api-method-button:hover,
+.api-method-button.open {
+  background: color-mix(in srgb, var(--ft-text-muted) 12%, transparent);
+}
+.api-method-button:focus-visible {
+  outline: 1px solid var(--ft-accent);
+  outline-offset: -2px;
+}
+.api-method-caret {
+  opacity: 0.55;
+  transition: transform 0.12s ease;
+}
+.api-method-button.open .api-method-caret {
+  transform: rotate(180deg);
+}
+
+/* The one set of method colours, shared with the sidebar's chips: DELETE is
+ * the same red wherever it appears, or the colour means nothing. */
+.api-method-button.get,
+.api-method-item.get .api-method-item-name {
+  color: var(--ft-accent);
+}
+.api-method-button.post,
+.api-method-item.post .api-method-item-name {
+  color: var(--ft-success);
+}
+.api-method-button.put,
+.api-method-item.put .api-method-item-name {
+  color: var(--ft-warning);
+}
+.api-method-button.delete,
+.api-method-item.delete .api-method-item-name {
+  color: var(--ft-error);
+}
+.api-method-button.quiet,
+.api-method-item.quiet .api-method-item-name {
+  color: var(--ft-text-secondary);
+}
+
+/* ── The menu ──────────────────────────────────────────────────────────── */
+.api-method-menu {
+  position: fixed;
+  z-index: 10060;
+  display: flex;
+  flex-direction: column;
+  width: 230px;
+  padding: 5px;
+  border: 1px solid var(--ft-border);
+  border-radius: 10px;
+  background: var(--ft-elevated);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.08),
+    0 12px 36px rgba(0, 0, 0, 0.34);
+}
+
+.api-method-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.api-method-item.active {
+  background: color-mix(in srgb, var(--ft-accent) 14%, transparent);
+}
+
+.api-method-item-name {
+  flex-shrink: 0;
+  width: 54px;
+  font-family: var(--ft-mono, ui-monospace, monospace);
+  font-size: 11px;
+  font-weight: 700;
+}
+/* What it is for, dimmed: PUT and PATCH are the pair people pick the wrong
+ * one of, and seven bare words do nothing to help with that. */
+.api-method-item-means {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--ft-text-muted);
+}
+.api-method-item-tick {
+  flex-shrink: 0;
+  color: var(--ft-accent);
+}
+
+.light .api-method-menu {
+  background: var(--ft-surface);
+  border-color: #d9dde5;
+  box-shadow:
+    0 1px 2px rgba(16, 24, 40, 0.06),
+    0 14px 40px rgba(16, 24, 40, 0.16);
+}
+.light .api-method-item.active {
+  background: color-mix(in srgb, var(--ft-accent) 10%, #ffffff);
+}
+.light .api-method-button:hover,
+.light .api-method-button.open {
+  background: color-mix(in srgb, var(--ft-text-muted) 10%, transparent);
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * The breadcrumb: where the open request lives.
+ *
+ * Quiet by design. It is a label that answers "which `token` is this" and
+ * becomes a control only when somebody reaches for it — a row of buttons as
+ * loud as the URL bar under it would compete with the thing people came for.
+ * ────────────────────────────────────────────────────────────────────────── */
+.api-crumbs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1px;
+  flex-shrink: 0;
+  padding: 5px 10px 0;
+  min-height: 22px;
+}
+
+.api-crumb-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  min-width: 0;
+}
+
+.api-crumb-sep {
+  flex-shrink: 0;
+  margin: 0 1px;
+  color: var(--ft-text-muted);
+  opacity: 0.6;
+}
+
+.api-crumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 190px;
+  padding: 2px 5px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  font-size: 11px;
+  color: var(--ft-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.api-crumb:hover {
+  background: color-mix(in srgb, var(--ft-text-muted) 14%, transparent);
+  color: var(--ft-text);
+}
+.api-crumb:focus-visible {
+  outline: 1px solid var(--ft-accent);
+  outline-offset: -1px;
+}
+
+.api-crumb-icon {
+  flex-shrink: 0;
+  opacity: 0.75;
+}
+
+.api-crumb-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The last step is where you already are: darker, and not a button. */
+.api-crumb.current {
+  color: var(--ft-text);
+  font-weight: 600;
+  cursor: default;
+  padding-left: 4px;
+}
+.api-crumb.current:hover {
+  background: transparent;
+}
+
+.light .api-crumb:hover {
+  background: color-mix(in srgb, var(--ft-text-muted) 12%, transparent);
+}
+
+/* The name, while it is being typed. Sized and positioned like the label it
+ * replaces, so the row does not jump when the box appears. */
+.api-crumb-input {
+  min-width: 90px;
+  max-width: 240px;
+  height: 20px;
+  padding: 0 5px;
+  border: 1px solid var(--ft-accent);
+  border-radius: 5px;
+  background: var(--ft-surface);
+  color: var(--ft-text);
+  font-size: 11px;
+  font-weight: 600;
+}
+.api-crumb-input:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ft-accent) 16%, transparent);
+}
+
+/* Only hinted as a control when it is one: a trail ending in a request that
+ * cannot be renamed should not offer to. */
+.api-crumb.current.editable {
+  cursor: text;
+}
+.api-crumb.current.editable:hover {
+  background: color-mix(in srgb, var(--ft-text-muted) 14%, transparent);
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * The dropdown, wherever a `<select>` used to be.
+ *
+ * Shares its shape with the method picker and the variable popup: one rounded
+ * surface, one highlight colour, one shadow. Three menus that look like three
+ * different applications is what a native `<select>` gave us.
+ * ────────────────────────────────────────────────────────────────────────── */
+.api-picker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 5px;
+  height: 22px;
+  padding: 0 5px 0 7px;
+  border: 1px solid var(--ft-border);
+  border-radius: 6px;
+  background: var(--ft-surface);
+  color: var(--ft-text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.api-picker:hover {
+  border-color: color-mix(in srgb, var(--ft-accent) 40%, var(--ft-border));
+  color: var(--ft-text);
+}
+.api-picker.open {
+  border-color: var(--ft-accent);
+  color: var(--ft-text);
+}
+.api-picker:focus-visible {
+  outline: 1px solid var(--ft-accent);
+  outline-offset: 1px;
+}
+
+.api-picker-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.api-picker-caret {
+  flex-shrink: 0;
+  opacity: 0.55;
+  transition: transform 0.12s ease;
+}
+.api-picker.open .api-picker-caret {
+  transform: rotate(180deg);
+}
+
+.api-picker-menu {
+  position: fixed;
+  z-index: 10060;
+  display: flex;
+  flex-direction: column;
+  max-width: 320px;
+  max-height: 300px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 5px;
+  border: 1px solid var(--ft-border);
+  border-radius: 10px;
+  background: var(--ft-elevated);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.08),
+    0 12px 36px rgba(0, 0, 0, 0.34);
+}
+.api-picker-menu::-webkit-scrollbar {
+  width: 8px;
+}
+.api-picker-menu::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--ft-text-muted) 38%, transparent);
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+.api-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ft-text);
+  font-size: 11.5px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.api-picker-item.active {
+  background: color-mix(in srgb, var(--ft-accent) 14%, transparent);
+}
+
+.api-picker-item-label {
+  flex-shrink: 0;
+}
+/* What it means, dimmed and allowed to shrink first: it is a gloss on the
+ * label, and must never push the label itself out of view. */
+.api-picker-item-hint {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 10.5px;
+  color: var(--ft-text-muted);
+}
+.api-picker-item-tick {
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--ft-accent);
+}
+
+.light .api-picker-menu {
+  background: var(--ft-surface);
+  border-color: #d9dde5;
+  box-shadow:
+    0 1px 2px rgba(16, 24, 40, 0.06),
+    0 14px 40px rgba(16, 24, 40, 0.16);
+}
+.light .api-picker-item.active {
+  background: color-mix(in srgb, var(--ft-accent) 10%, #ffffff);
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * The request's tab strip: Params, Authorization, Headers, Body …
+ *
+ * Underlined rather than filled. A filled pill says "this is a button you can
+ * press"; an underline says "this is the section you are in", which is what a
+ * tab strip means — and with seven of them side by side, seven pills is seven
+ * competing shapes where there should be one line.
+ *
+ * Its own class rather than a change to `.api-tab`, which also draws the
+ * Pretty/Raw/Wrap toggles beside the response tabs. Those *are* buttons, and
+ * underlining them would say something untrue about what they do.
+ * ────────────────────────────────────────────────────────────────────────── */
+.api-tabstrip.api-tabstrip-main {
+  /* The pane's own surface, not the tab-strip grey: the underline is the
+   * thing marking the row, so a second background is noise. */
+  background: transparent;
+  gap: 2px;
+}
+
+.api-tab.api-tab-main {
+  position: relative;
+  height: 100%;
+  padding: 0 10px;
+  border-radius: 0;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--ft-text-muted);
+  transition: color 0.12s ease;
+}
+.api-tab.api-tab-main:hover {
+  color: var(--ft-text-secondary);
+}
+.api-tab.api-tab-main:hover::before {
+  /* A faint wash on hover, inset from the strip's edges so it reads as the
+   * tab lighting up rather than as a block dropped into the row. */
+  content: "";
+  position: absolute;
+  inset: 4px 2px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--ft-text-muted) 12%, transparent);
+  pointer-events: none;
+}
+
+.api-tab.api-tab-main.selected {
+  background: transparent;
+  color: var(--ft-text);
+  font-weight: 600;
+}
+/* The line itself: two pixels, the width of the label, sitting on the strip's
+ * own bottom border rather than above it. */
+.api-tab.api-tab-main.selected::after {
+  content: "";
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--ft-accent);
+}
+
+/* The count, as a pill that belongs to the tab rather than a grey lozenge
+ * dropped beside it. It takes the accent only on the tab you are on, so a
+ * strip with four counts in it still has one thing lit. */
+.api-tab.api-tab-main .api-tab-badge {
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--ft-text-muted) 16%, transparent);
+  color: var(--ft-text-muted);
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 15px;
+}
+.api-tab.api-tab-main.selected .api-tab-badge {
+  background: color-mix(in srgb, var(--ft-accent) 18%, transparent);
+  color: var(--ft-accent);
+}
+
+/* "There is something in here", where a count would mean nothing. Smaller and
+ * held up against the label's cap height, like a superscript mark. */
+.api-tab.api-tab-main .api-tab-dot {
+  width: 5px;
+  height: 5px;
+  align-self: flex-start;
+  margin-top: 8px;
+  margin-left: -2px;
+  background: color-mix(in srgb, var(--ft-accent) 70%, transparent);
+}
+.api-tab.api-tab-main.selected .api-tab-dot {
+  background: var(--ft-accent);
+}
+
+.light .api-tab.api-tab-main:hover::before {
+  background: color-mix(in srgb, var(--ft-text-muted) 10%, transparent);
+}
+
+/* The label and the trailing detail on a menu item — a count, a size, or the
+ * key that does the same thing. `api-menu-key` covers the shortcut case; this
+ * is the same column for anything else worth saying. */
+.api-menu-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.api-menu-detail {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding-left: 12px;
+  color: var(--ft-text-muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.api-menu-item:hover .api-menu-detail,
+.api-menu-item:focus-visible .api-menu-detail {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+/* Nothing to copy is not an error, it is just nothing to copy — so the item
+ * stays where it is, dimmed, rather than the menu changing shape. */
+.api-menu-item:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.api-menu-item:disabled:hover {
+  background: transparent;
+  color: var(--ft-text);
+}
+.api-menu-item:disabled:hover svg {
+  color: var(--ft-text-muted);
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * A small dialog inside the API window — saving a selection as a variable.
+ *
+ * Not the editor's `EditorDialog`, which is a message and some buttons. This
+ * one has fields in it, and a scrim of its own so a click outside dismisses
+ * without reaching whatever is underneath.
+ * ────────────────────────────────────────────────────────────────────────── */
+.api-dialog-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 10080;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(1.5px);
+}
+
+.api-dialog {
+  display: flex;
+  flex-direction: column;
+  width: 460px;
+  max-width: 100%;
+  border: 1px solid var(--ft-border);
+  border-radius: 12px;
+  background: var(--ft-elevated);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.1),
+    0 24px 60px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+
+.api-dialog-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--ft-border-subtle);
+  background: color-mix(in srgb, var(--ft-surface) 70%, transparent);
+}
+.api-dialog-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ft-text);
+}
+
+.api-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+}
+
+.api-dialog-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.api-dialog-label {
+  flex-shrink: 0;
+  width: 58px;
+  font-size: 11px;
+  color: var(--ft-text-muted);
+}
+
+/* The value, shown and not editable: it is what was selected, and a stray
+ * keystroke here would save something that was never in the response. */
+.api-dialog-value {
+  flex: 1;
+  min-width: 0;
+  max-height: 88px;
+  overflow: auto;
+  padding: 6px 8px;
+  border: 1px solid var(--ft-border-subtle);
+  border-radius: 6px;
+  background: var(--ft-surface);
+  color: var(--ft-text-secondary);
+  font-family: var(--ft-mono, ui-monospace, monospace);
+  font-size: 11px;
+  line-height: 1.5;
+  word-break: break-all;
+}
+.api-dialog-more {
+  color: var(--ft-text-muted);
+  font-style: italic;
+}
+
+.api-dialog-note {
+  margin: 0;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--ft-text-muted);
+}
+.api-dialog-note b {
+  color: var(--ft-text-secondary);
+  font-weight: 600;
+}
+
+.api-dialog-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 11px 14px;
+  border-top: 1px solid var(--ft-border-subtle);
+  background: color-mix(in srgb, var(--ft-surface) 70%, transparent);
+}
+
+.light .api-dialog {
+  background: var(--ft-surface);
+  border-color: #d9dde5;
+  box-shadow:
+    0 1px 2px rgba(16, 24, 40, 0.06),
+    0 24px 60px rgba(16, 24, 40, 0.22);
+}
+.light .api-dialog-head,
+.light .api-dialog-foot {
+  background: #fafbfd;
+}
+.light .api-dialog-scrim {
+  background: rgba(16, 24, 40, 0.28);
+}
+
+/* The value a name is about to lose, in the line that warns about it. */
+.api-dialog-was {
+  font-family: var(--ft-mono, ui-monospace, monospace);
+  color: var(--ft-warning);
+  word-break: break-all;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * The workspace picker, at the top of the rail.
+ *
+ * A workspace is a wall, not a filter: the collections below it are the ones
+ * in this workspace and nowhere else. It sits above the section title because
+ * it is the wider fact, and because it is the answer to "why can I not find
+ * that request" — an answer nobody can see is not one.
+ * ────────────────────────────────────────────────────────────────────────── */
+.api-workspace {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-width: 0;
+  height: 26px;
+  padding: 0 6px 0 4px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  cursor: pointer;
+}
+.api-workspace:hover,
+.api-workspace.open {
+  background: var(--ft-surface);
+  border-color: var(--ft-border);
+}
+
+/* The initial, as a tile: a row of workspaces all beginning "Reso" is told
+ * apart by name, but the tile is what makes the current one recognisable at a
+ * glance from across the window. */
+.api-workspace-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 19px;
+  height: 19px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--ft-accent) 22%, transparent);
+  color: var(--ft-accent);
+  font-size: 10px;
+  font-weight: 700;
+}
+.api-workspace-mark.small {
+  width: 17px;
+  height: 17px;
+  font-size: 9px;
+}
+
+.api-workspace-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ft-text);
+}
+.api-workspace-caret {
+  flex-shrink: 0;
+  opacity: 0.55;
+  transition: transform 0.12s ease;
+}
+.api-workspace.open .api-workspace-caret {
+  transform: rotate(180deg);
+}
+
+.api-workspace-menu {
+  max-width: 340px;
+  z-index: 10070;
+}
+
+.api-workspace-heading {
+  padding: 4px 8px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--ft-text-muted);
+}
+
+/* A row is the workspace and its tools. The tools appear on hover, so a list
+ * of workspaces reads as a list rather than a column of buttons. */
+.api-workspace-row {
+  display: flex;
+  align-items: center;
+  border-radius: 7px;
+}
+.api-workspace-row:hover,
+.api-workspace-row.active {
+  background: color-mix(in srgb, var(--ft-accent) 12%, transparent);
+}
+
+.api-workspace-open {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  padding: 6px 4px 6px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--ft-text);
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.api-workspace-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.api-workspace-tick {
+  flex-shrink: 0;
+  color: var(--ft-accent);
+}
+
+.api-workspace-tools {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding-right: 5px;
+  opacity: 0;
+}
+.api-workspace-row:hover .api-workspace-tools {
+  opacity: 1;
+}
+
+.api-workspace-tool {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ft-text-muted);
+  cursor: pointer;
+}
+.api-workspace-tool:hover {
+  background: var(--ft-elevated);
+  color: var(--ft-text);
+}
+.api-workspace-tool.danger:hover {
+  color: var(--ft-error);
+}
+.api-workspace-tool:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.api-workspace-tool:disabled:hover {
+  background: transparent;
+  color: var(--ft-text-muted);
+}
+
+/* What switching costs, said in the menu rather than found out afterwards. */
+.api-workspace-note {
+  margin: 4px 2px 2px;
+  padding: 6px 8px;
+  border-top: 1px solid var(--ft-border-subtle);
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--ft-text-muted);
+}
+
+.light .api-workspace-row:hover,
+.light .api-workspace-row.active {
+  background: color-mix(in srgb, var(--ft-accent) 9%, #ffffff);
+}
+.light .api-workspace-tool:hover {
+  background: color-mix(in srgb, var(--ft-text-muted) 12%, transparent);
+}
+
+/* The sync tab's progress bar.
+ *
+ * It counts tables, not rows: nothing knows how many rows are coming until
+ * they stop coming, and a bar that invents a denominator is a bar that sits
+ * at 90% for a minute. Seven tables is a number both sides agree on. */
+.api-sync-bar {
+  height: 3px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--ft-text-muted) 22%, transparent);
+  overflow: hidden;
+}
+.api-sync-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--ft-accent);
+  transition: width 0.25s ease;
+}

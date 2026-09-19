@@ -99,7 +99,16 @@ export function EditorDialog({
 
   return (
     <div
-      className="editor-dialog-backdrop fixed inset-0 z-[300] flex items-center justify-center"
+      /*
+        A flat number well above the overlay stack, not a value near it.
+
+        `claimFront` hands out an ever-increasing z-index and never resets, so
+        a session with enough raises eventually issues one above any fixed
+        number chosen to be "a bit higher" — and the dialog asking whether to
+        delete something would render behind the window that raised it. There
+        is nothing this should ever be under.
+      */
+      className="editor-dialog-backdrop fixed inset-0 z-[10000] flex items-center justify-center"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onCancel();
       }}

@@ -1,18 +1,25 @@
 pub mod commands;
 pub mod filesystem;
 pub mod git;
+pub mod http;
 pub mod lsp;
 pub mod menu;
+pub mod secrets;
 pub mod spawn;
 pub mod state;
+pub mod store;
+pub mod sync;
 pub mod terminal;
 pub mod updater;
 
 use commands::browser::BrowserState;
 use commands::fs::FsState;
 use commands::fs_watch::WatchState;
+use http::ApiState;
 use lsp::registry::LspState;
 use state::app_state::AppState;
+use commands::sync::SyncState;
+use store::StoreState;
 use tauri::{AppHandle, Manager, RunEvent};
 use updater::UpdaterState;
 
@@ -49,11 +56,17 @@ pub fn run() {
         .manage(FsState::default())
         .manage(WatchState::default())
         .manage(LspState::default())
+        .manage(ApiState::default())
+        .manage(StoreState::default())
+        .manage(SyncState::default())
         .manage(UpdaterState::default())
         .setup(|app| {
             let menu = menu::build_app_menu(app.handle())?;
             app.set_menu(menu)?;
             commands::browser::start_url_watcher(app.handle().clone());
+            // A project connected in an earlier session starts syncing again
+            // without the window having to be opened.
+            commands::sync::start_ticking(app.handle().clone());
             Ok(())
         })
         .on_menu_event(|app, event| {
@@ -140,6 +153,57 @@ pub fn run() {
             commands::lsp::lsp_send,
             commands::lsp::lsp_stop,
             commands::lsp::lsp_status,
+            commands::api::api_send,
+            commands::api::api_cancel,
+            commands::api::api_bootstrap,
+            commands::api::api_workspaces,
+            commands::api::api_workspace_create,
+            commands::api::api_workspace_rename,
+            commands::api::api_workspace_open,
+            commands::api::api_workspace_delete,
+            commands::api::api_collection_create,
+            commands::api::api_collection_rename,
+            commands::api::api_collection_delete,
+            commands::api::api_item_create,
+            commands::api::api_item_rename,
+            commands::api::api_item_move,
+            commands::api::api_item_delete,
+            commands::api::api_item_duplicate,
+            commands::api::api_request_load,
+            commands::api::api_request_save,
+            commands::api::api_session_save,
+            commands::api::api_history_add,
+            commands::api::api_history_list,
+            commands::api::api_history_body,
+            commands::api::api_history_clear,
+            commands::api::api_import_collection,
+            commands::api::api_export_collection,
+            commands::api::api_import_environment,
+            commands::api::api_environments,
+            commands::api::api_environment_delete,
+            commands::api::api_environment_save,
+            commands::api::api_item_auth_save,
+            commands::api::api_item_events_save,
+            commands::api::api_item_scope_save,
+            commands::api::api_collection_scope_save,
+            commands::api::api_collection_overview_save,
+            commands::api::api_examples,
+            commands::api::api_example_save,
+            commands::api::api_example_rename,
+            commands::api::api_example_delete,
+            commands::api::api_read_file,
+            commands::api::api_list_json_files,
+            commands::api::api_write_file,
+            commands::sync::api_sync_status,
+            commands::sync::api_sync_has_key,
+            commands::sync::api_sync_test_direct,
+            commands::sync::api_sync_migrate,
+            commands::sync::api_sync_connect_direct,
+            commands::sync::api_sync_disconnect,
+            commands::sync::api_sync_settings,
+            commands::sync::api_sync_now,
+            commands::sync::api_sync_setup_sql,
+            commands::sync::api_sync_restore,
             updater::check_for_updates,
             updater::get_current_version,
             updater::running_foreground_commands,
