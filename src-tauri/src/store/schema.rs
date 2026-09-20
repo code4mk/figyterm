@@ -17,7 +17,7 @@ use super::StoreResult;
 /// Every migration, in order. The index is the version it brings the database
 /// to, so `MIGRATIONS[0]` takes a fresh file to version 1.
 const MIGRATIONS: &[&str] = &[
-    INITIAL, IMPORTED, SCOPED, EXAMPLED, SYNCED, DESCRIBED, CURRENT,
+    INITIAL, IMPORTED, SCOPED, EXAMPLED, SYNCED, DESCRIBED, CURRENT, DEDUPED,
 ];
 
 pub fn migrate(connection: &Connection) -> StoreResult<()> {
@@ -421,6 +421,42 @@ const CURRENT: &str = r#"
 ALTER TABLE variables ADD COLUMN current_value TEXT;
 "#;
 
+/// Version 8: clears out variables that were duplicated by an earlier bug.
+///
+/// `save_environment` and `import_environment` used to replace a scope's
+/// variables by hard-deleting the lot and re-inserting them with fresh ids.
+/// Both halves of that hurt once the rows sync: the outbox triggers fire on
+/// `INSERT` and `UPDATE` only, so a hard delete told the remote nothing, and
+/// new ids made every row look like a new row rather than an edit. A save
+/// therefore pushed a second copy of each variable while the first stayed on
+/// the remote unmentioned, and the next device to pull got both. Nothing at the
+/// database level objected — `variables` is keyed on `id` alone.
+///
+/// `write_variables` in `queries.rs` is the fix and stops new ones. This is for
+/// the copies already sitting in people's databases: for each live key in a
+/// scope, the newest row is kept and every other one is **tombstoned rather
+/// than deleted**, so the `UPDATE` trigger enqueues it, the tombstone pushes,
+/// and the other devices — and the Postgres copy they share — converge on one
+/// row instead of quietly keeping the spares.
+///
+/// Ties on `updated_at` fall back to `rowid`, so exactly one row per key has
+/// nothing newer than itself and survives, whichever order SQLite scans in.
+const DEDUPED: &str = r#"
+UPDATE variables
+   SET deleted_at = CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER),
+       rev = rev + 1
+ WHERE deleted_at IS NULL
+   AND EXISTS (
+       SELECT 1 FROM variables AS newer
+        WHERE newer.deleted_at IS NULL
+          AND newer.scope = variables.scope
+          AND newer.scope_id = variables.scope_id
+          AND newer.key = variables.key
+          AND (newer.updated_at > variables.updated_at
+               OR (newer.updated_at = variables.updated_at AND newer.rowid > variables.rowid))
+   );
+"#;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -466,6 +502,69 @@ mod tests {
             .pragma_update(None, "user_version", (MIGRATIONS.len() + 1) as i64)
             .unwrap();
         assert!(migrate(&connection).is_err());
+    }
+
+    /// The healing migration, run against a database in the state the bug left
+    /// people's in: several live rows sharing one key, from repeated saves that
+    /// hard-deleted the old ones without telling the remote.
+    #[test]
+    fn duplicated_variables_are_reduced_to_the_newest_one() {
+        let connection = Connection::open_in_memory().unwrap();
+        // Everything up to, but not including, the deduplication.
+        for (index, migration) in MIGRATIONS.iter().enumerate().take(MIGRATIONS.len() - 1) {
+            connection.execute_batch(migration).unwrap();
+            connection
+                .pragma_update(None, "user_version", (index + 1) as i64)
+                .unwrap();
+        }
+
+        for (id, updated_at, value) in [
+            ("v1", 100, "oldest"),
+            ("v2", 200, "middle"),
+            ("v3", 300, "newest"),
+        ] {
+            connection
+                .execute(
+                    "INSERT INTO variables (id, scope, scope_id, key, value, enabled, secret,
+                                            position, updated_at, device_id)
+                     VALUES (?1, 'environment', 'env', 'authToken', ?2, 1, 0, 0, ?3, 'd')",
+                    rusqlite::params![id, value, updated_at],
+                )
+                .unwrap();
+        }
+        // A second key, to prove the reduction is per key and not per scope.
+        connection
+            .execute(
+                "INSERT INTO variables (id, scope, scope_id, key, value, enabled, secret,
+                                        position, updated_at, device_id)
+                 VALUES ('other', 'environment', 'env', 'base_url', 'x', 1, 0, 1, 50, 'd')",
+                [],
+            )
+            .unwrap();
+
+        migrate(&connection).unwrap();
+
+        let mut statement = connection
+            .prepare(
+                "SELECT id FROM variables WHERE deleted_at IS NULL ORDER BY id",
+            )
+            .unwrap();
+        let live: Vec<String> = statement
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        assert_eq!(live, vec!["other".to_string(), "v3".to_string()]);
+
+        // Tombstoned, not deleted — so the rows push and the remote converges.
+        let gone: i64 = connection
+            .query_row(
+                "SELECT count(*) FROM variables WHERE deleted_at IS NOT NULL",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(gone, 2);
     }
 
     #[test]

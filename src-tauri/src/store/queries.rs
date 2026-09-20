@@ -1391,6 +1391,124 @@ fn variables_of(connection: &Connection, scope_id: &str) -> StoreResult<Vec<Vari
         .map_err(|e| e.to_string())
 }
 
+/// Writes a scope's variables, keeping the identity of every row that survives.
+///
+/// **Wholesale replacement is the right meaning; `DELETE` was the wrong
+/// mechanism for it.** The editor holds the entire list, so a save is the whole
+/// truth and merging would resurrect a row somebody had just removed — that
+/// part was never in doubt. What went wrong is that both writers expressed it
+/// as `DELETE FROM variables WHERE scope_id = ?` followed by an `INSERT` with a
+/// fresh `new_id()` for every row, and this table syncs.
+///
+/// Two consequences, and they compound:
+///
+/// 1. **A hard delete leaves no tombstone.** The outbox is trigger-driven, and
+///    the triggers fire on `INSERT` and `UPDATE` only — there is no `DELETE`
+///    trigger, because the rule everywhere else in this file is that nothing is
+///    deleted while sync might still care. So the rows simply vanished, and the
+///    remote was never told.
+/// 2. **Fresh ids make every row look new.** Sync copies rows by `id`, so the
+///    same key came back as a second row rather than as an update to the first.
+///
+/// Together: one save pushed a new set of rows to Postgres while the old set
+/// stayed there unmentioned, and the next device to pull got both. `variables`
+/// is keyed on `id` alone, so nothing at the database level stopped it.
+///
+/// So: update in place when the key is still there, insert only genuinely new
+/// keys, and tombstone what the save dropped. A key that is *already*
+/// duplicated keeps its newest row and tombstones the rest, which is what heals
+/// an affected database — the tombstones push, and the other devices converge.
+fn write_variables(
+    transaction: &Connection,
+    scope: &str,
+    scope_id: &str,
+    variables: &[super::model::ImportVariable],
+    device: &str,
+    now: i64,
+) -> StoreResult<()> {
+    // Oldest first, so the last row to claim a key is the newest one — which is
+    // the one worth keeping when a key has been duplicated already.
+    let live: Vec<(String, String)> = {
+        let mut statement = sql(transaction.prepare(
+            "SELECT id, key FROM variables
+              WHERE scope_id = ?1 AND deleted_at IS NULL
+              ORDER BY updated_at ASC, rowid ASC",
+        ))?;
+        let rows = sql(statement.query_map([scope_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        }))?;
+        sql(rows.collect::<rusqlite::Result<Vec<_>>>())?
+    };
+
+    let mut by_key: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    // Rows displaced by a later one with the same key: duplicates that were
+    // already in the database before this ran.
+    let mut duplicates: Vec<String> = Vec::new();
+    for (row_id, key) in live {
+        if let Some(displaced) = by_key.insert(key, row_id) {
+            duplicates.push(displaced);
+        }
+    }
+
+    for (position, variable) in variables.iter().enumerate() {
+        match by_key.remove(&variable.key) {
+            // The row keeps its id, so the remote sees an edit rather than a
+            // stranger with a familiar name.
+            Some(row_id) => {
+                sql(transaction.execute(
+                    "UPDATE variables
+                        SET scope = ?2, value = ?3, enabled = ?4, secret = ?5, position = ?6,
+                            updated_at = ?7, device_id = ?8, current_value = ?9, rev = rev + 1
+                      WHERE id = ?1",
+                    params![
+                        row_id,
+                        scope,
+                        variable.value,
+                        variable.enabled as i64,
+                        variable.secret as i64,
+                        position as i64,
+                        now,
+                        device,
+                        variable.current_value,
+                    ],
+                ))?;
+            }
+            None => {
+                sql(transaction.execute(
+                    "INSERT INTO variables (id, scope, scope_id, key, value, enabled, secret,
+                                            position, updated_at, device_id, current_value)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                    params![
+                        new_id(),
+                        scope,
+                        scope_id,
+                        variable.key,
+                        variable.value,
+                        variable.enabled as i64,
+                        variable.secret as i64,
+                        position as i64,
+                        now,
+                        device,
+                        variable.current_value,
+                    ],
+                ))?;
+            }
+        }
+    }
+
+    // What the save dropped, and any duplicate it inherited. Tombstoned rather
+    // than deleted, which is the whole point: a row that vanishes is a row the
+    // other side never hears about.
+    for row_id in by_key.into_values().chain(duplicates) {
+        sql(transaction.execute(
+            "UPDATE variables SET deleted_at = ?2, rev = rev + 1 WHERE id = ?1",
+            params![row_id, now],
+        ))?;
+    }
+
+    Ok(())
+}
+
 /// Stores an imported environment. Replaces one of the same name rather than
 /// stacking duplicates, because importing the same file twice is something
 /// people do while they are moving over and it should be idempotent.
@@ -1425,9 +1543,6 @@ pub fn import_environment(
                     now
                 ],
             ))?;
-            // The variables are replaced wholesale: a re-import is the file's
-            // contents, not a merge with what was there before.
-            sql(transaction.execute("DELETE FROM variables WHERE scope_id = ?1", [&id]))?;
             id
         }
         None => {
@@ -1455,26 +1570,10 @@ pub fn import_environment(
     } else {
         "environment"
     };
-    for (position, variable) in payload.variables.iter().enumerate() {
-        sql(transaction.execute(
-            "INSERT INTO variables (id, scope, scope_id, key, value, enabled, secret, position,
-                                    updated_at, device_id, current_value)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-            params![
-                new_id(),
-                scope,
-                id,
-                variable.key,
-                variable.value,
-                variable.enabled as i64,
-                variable.secret as i64,
-                position as i64,
-                now,
-                device,
-                variable.current_value,
-            ],
-        ))?;
-    }
+    // A re-import is the file's contents, not a merge with what was there
+    // before — but the rows that survive it keep their identity. See
+    // `write_variables`.
+    write_variables(&transaction, scope, &id, &payload.variables, &device, now)?;
 
     sql(transaction.commit())?;
     Ok(id)
@@ -1484,6 +1583,8 @@ pub fn import_environment(
 ///
 /// The variables are replaced wholesale rather than merged: the editor holds
 /// the whole list, and a merge would resurrect a row somebody had just deleted.
+/// How that replacement is written down matters to sync, and `write_variables`
+/// is where it is explained.
 pub fn save_environment(
     connection: &Connection,
     workspace: &str,
@@ -1502,7 +1603,6 @@ pub fn save_environment(
                 "UPDATE environments SET name = ?2, updated_at = ?3, rev = rev + 1 WHERE id = ?1",
                 params![id, name, now],
             ))?;
-            sql(transaction.execute("DELETE FROM variables WHERE scope_id = ?1", [id]))?;
             id.to_string()
         }
         None => {
@@ -1518,26 +1618,7 @@ pub fn save_environment(
     };
 
     let scope = if is_global { "global" } else { "environment" };
-    for (position, variable) in variables.iter().enumerate() {
-        sql(transaction.execute(
-            "INSERT INTO variables (id, scope, scope_id, key, value, enabled, secret, position,
-                                    updated_at, device_id, current_value)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-            params![
-                new_id(),
-                scope,
-                id,
-                variable.key,
-                variable.value,
-                variable.enabled as i64,
-                variable.secret as i64,
-                position as i64,
-                now,
-                device,
-                variable.current_value,
-            ],
-        ))?;
-    }
+    write_variables(&transaction, scope, &id, variables, &device, now)?;
 
     sql(transaction.commit())?;
     Ok(id)
@@ -2540,5 +2621,223 @@ mod tests {
         let first = device_id(&connection).unwrap();
         let second = device_id(&connection).unwrap();
         assert_eq!(first, second);
+    }
+
+    // ─── Environment variables, and the duplicates they used to breed ────────
+
+    fn variable(key: &str, value: &str) -> super::super::model::ImportVariable {
+        super::super::model::ImportVariable {
+            key: key.into(),
+            value: value.into(),
+            current_value: None,
+            enabled: true,
+            secret: false,
+        }
+    }
+
+    /// Every live row for a scope, tombstones excluded — which is what the app
+    /// reads and therefore what "a duplicate" means to anybody looking at it.
+    fn live_keys(connection: &Connection, scope_id: &str) -> Vec<String> {
+        let mut statement = connection
+            .prepare(
+                "SELECT key FROM variables
+                  WHERE scope_id = ?1 AND deleted_at IS NULL
+                  ORDER BY position",
+            )
+            .unwrap();
+        let rows = statement.query_map([scope_id], |row| row.get(0)).unwrap();
+        rows.collect::<rusqlite::Result<Vec<_>>>().unwrap()
+    }
+
+    fn row_id_of(connection: &Connection, scope_id: &str, key: &str) -> String {
+        connection
+            .query_row(
+                "SELECT id FROM variables
+                  WHERE scope_id = ?1 AND key = ?2 AND deleted_at IS NULL",
+                params![scope_id, key],
+                |row| row.get(0),
+            )
+            .unwrap()
+    }
+
+    /// The bug, stated as a test: saving twice used to leave two rows per key
+    /// on any device that pulled the result, because the first set was
+    /// hard-deleted without a tombstone and the second set arrived with new
+    /// ids.
+    #[test]
+    fn saving_an_environment_twice_leaves_one_row_per_key() {
+        let (connection, _, _, _) = fixture();
+        let workspace = workspace_id(&connection).unwrap();
+
+        let id = save_environment(
+            &connection,
+            &workspace,
+            None,
+            "staging",
+            false,
+            &[variable("authToken", "first"), variable("base_url", "x")],
+        )
+        .unwrap();
+
+        save_environment(
+            &connection,
+            &workspace,
+            Some(&id),
+            "staging",
+            false,
+            &[variable("authToken", "second"), variable("base_url", "x")],
+        )
+        .unwrap();
+
+        assert_eq!(live_keys(&connection, &id), vec!["authToken", "base_url"]);
+    }
+
+    /// The half that makes sync work: the row that survives a save is the *same*
+    /// row, so the remote sees an edit rather than a stranger with a familiar
+    /// name.
+    #[test]
+    fn a_surviving_variable_keeps_its_id() {
+        let (connection, _, _, _) = fixture();
+        let workspace = workspace_id(&connection).unwrap();
+
+        let id = save_environment(
+            &connection,
+            &workspace,
+            None,
+            "staging",
+            false,
+            &[variable("authToken", "first")],
+        )
+        .unwrap();
+        let before = row_id_of(&connection, &id, "authToken");
+
+        save_environment(
+            &connection,
+            &workspace,
+            Some(&id),
+            "staging",
+            false,
+            &[variable("authToken", "second")],
+        )
+        .unwrap();
+
+        assert_eq!(row_id_of(&connection, &id, "authToken"), before);
+        let value: String = connection
+            .query_row(
+                "SELECT value FROM variables WHERE id = ?1",
+                [&before],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(value, "second", "the same row, with the new value");
+    }
+
+    /// A removed variable has to leave something behind, or the remote keeps it
+    /// for ever — which is the other half of how duplicates appeared.
+    #[test]
+    fn a_removed_variable_is_tombstoned_rather_than_deleted() {
+        let (connection, _, _, _) = fixture();
+        let workspace = workspace_id(&connection).unwrap();
+
+        let id = save_environment(
+            &connection,
+            &workspace,
+            None,
+            "staging",
+            false,
+            &[variable("keep", "1"), variable("drop", "2")],
+        )
+        .unwrap();
+        let dropped = row_id_of(&connection, &id, "drop");
+
+        save_environment(
+            &connection,
+            &workspace,
+            Some(&id),
+            "staging",
+            false,
+            &[variable("keep", "1")],
+        )
+        .unwrap();
+
+        assert_eq!(live_keys(&connection, &id), vec!["keep"]);
+        let deleted_at: Option<i64> = connection
+            .query_row(
+                "SELECT deleted_at FROM variables WHERE id = ?1",
+                [&dropped],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(deleted_at.is_some(), "the row is still there, marked gone");
+        assert!(
+            pending(&connection).contains(&("variables".into(), dropped)),
+            "and queued, so the remote hears about it"
+        );
+    }
+
+    /// A database that already caught the bug heals the next time anybody saves
+    /// that environment, without needing to notice anything.
+    #[test]
+    fn a_save_clears_duplicates_that_were_already_there() {
+        let (connection, _, _, _) = fixture();
+        let workspace = workspace_id(&connection).unwrap();
+        let device = device_id(&connection).unwrap();
+
+        let id = save_environment(
+            &connection,
+            &workspace,
+            None,
+            "staging",
+            false,
+            &[variable("authToken", "original")],
+        )
+        .unwrap();
+
+        // Exactly what a pull from a remote holding the orphan would leave.
+        connection
+            .execute(
+                "INSERT INTO variables (id, scope, scope_id, key, value, enabled, secret,
+                                        position, updated_at, device_id)
+                 VALUES ('orphan', 'environment', ?1, 'authToken', 'stale', 1, 0, 0, 1, ?2)",
+                params![id, device],
+            )
+            .unwrap();
+        assert_eq!(live_keys(&connection, &id).len(), 2, "two, as reported");
+
+        save_environment(
+            &connection,
+            &workspace,
+            Some(&id),
+            "staging",
+            false,
+            &[variable("authToken", "fresh")],
+        )
+        .unwrap();
+
+        assert_eq!(live_keys(&connection, &id), vec!["authToken"]);
+        assert!(
+            pending(&connection).contains(&("variables".into(), "orphan".into())),
+            "the orphan's tombstone pushes, so the remote loses it too"
+        );
+    }
+
+    /// Re-importing the same file is the other writer that used to churn ids.
+    #[test]
+    fn re_importing_an_environment_does_not_duplicate_its_variables() {
+        let (connection, _, _, _) = fixture();
+        let workspace = workspace_id(&connection).unwrap();
+
+        let payload = ImportEnvironment {
+            name: "staging".into(),
+            is_global: false,
+            variables: vec![variable("authToken", "x"), variable("base_url", "y")],
+            raw: None,
+        };
+
+        let first = import_environment(&connection, &workspace, &payload).unwrap();
+        let again = import_environment(&connection, &workspace, &payload).unwrap();
+
+        assert_eq!(first, again, "the same environment, replaced");
+        assert_eq!(live_keys(&connection, &first), vec!["authToken", "base_url"]);
     }
 }
