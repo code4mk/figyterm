@@ -104,6 +104,19 @@ impl Default for DirectConfig {
 /// schema name is the user's, and it ends up in statements that run with
 /// whatever rights the connection has. Reduced rather than escaped, like the
 /// setup SQL does.
+/// A table's name as a string *value* rather than an identifier, for the column
+/// that says which table a union branch came from. Cleaned the same way
+/// `ident` cleans, so it cannot carry a quote out of a table name — these names
+/// are compile-time constants, and this keeps it that way by construction
+/// rather than by trust.
+fn literal(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric() || *character == '_')
+        .collect();
+    format!("'{cleaned}'")
+}
+
 fn ident(name: &str) -> String {
     let cleaned: String = name
         .chars()
@@ -127,6 +140,41 @@ pub fn pull_sql(schema: &str, table: &SyncTable) -> String {
         ident(schema),
         ident(table.name)
     )
+}
+
+/// Every table's new rows, in one statement.
+///
+/// **This is the round trip that mattered.** Pulling asked each table in turn,
+/// so a pass that found nothing at all still cost one query per table — seven
+/// sequential round trips before the window could say "up to date". Against a
+/// managed Postgres a few hundred milliseconds away that is most of a pass
+/// spent waiting, every interval, for no rows.
+///
+/// A `UNION ALL` of parenthesised branches, each with its own watermark and its
+/// own `LIMIT`, answers all seven at once. Postgres allows `ORDER BY` and
+/// `LIMIT` inside a parenthesised branch, so each table still returns its
+/// oldest-first page rather than an arbitrary slice of the whole union.
+///
+/// The name comes back as a column because `to_jsonb(t)` alone cannot say which
+/// table it came from.
+pub fn pull_many_sql(schema: &str, tables: &[&SyncTable]) -> String {
+    let limit = tables.len() + 1;
+    tables
+        .iter()
+        .enumerate()
+        .map(|(index, table)| {
+            format!(
+                "(SELECT {name}::text AS src, to_jsonb(t) AS row FROM {schema}.{table} t \
+                  WHERE t.updated_at >= ${since} ORDER BY t.updated_at ASC LIMIT ${limit})",
+                name = literal(table.name),
+                schema = ident(schema),
+                table = ident(table.name),
+                since = index + 1,
+                limit = limit,
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" UNION ALL ")
 }
 
 /// The upsert.
@@ -330,6 +378,58 @@ impl Direct {
             .batch_execute(&schema::setup_sql(&self.schema))
             .await
             .map_err(|e| format!("The schema could not be set up: {}", explain(&e)))
+    }
+
+    /// Whether the connection has gone. Asked after a failure, so a blip can be
+    /// told apart from a query the server refused.
+    pub fn is_closed(&self) -> bool {
+        self.client.is_closed()
+    }
+
+    /// One page from every table at once. See `pull_many_sql`.
+    ///
+    /// `since` carries a watermark per table, in the order given, and what comes
+    /// back is tagged with the table it belongs to.
+    pub async fn pull_many(
+        &self,
+        since: &[(&'static SyncTable, i64)],
+        limit: usize,
+    ) -> SyncResult<Vec<(&'static SyncTable, Row)>> {
+        if since.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let tables: Vec<&SyncTable> = since.iter().map(|(table, _)| *table).collect();
+        let sql = pull_many_sql(&self.schema, &tables);
+
+        // Owned first, then referenced: the driver wants a slice of trait
+        // objects, and a temporary built inline would not outlive the call.
+        let marks: Vec<i64> = since.iter().map(|(_, mark)| *mark).collect();
+        let limit = limit as i64;
+        let mut params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> =
+            marks.iter().map(|mark| mark as _).collect();
+        params.push(&limit);
+
+        let rows = self
+            .client
+            .query(&sql, &params)
+            .await
+            .map_err(|e| format!("pull: {}", explain(&e)))?;
+
+        Ok(rows
+            .into_iter()
+            .filter_map(|row| {
+                let name: String = row.get(0);
+                let table = since
+                    .iter()
+                    .find(|(table, _)| table.name == name)
+                    .map(|(table, _)| *table)?;
+                match row.get::<_, Value>(1) {
+                    Value::Object(object) => Some((table, object)),
+                    _ => None,
+                }
+            })
+            .collect())
     }
 
     pub async fn pull(&self, table: &SyncTable, since: i64, limit: usize) -> SyncResult<Vec<Row>> {
@@ -594,6 +694,77 @@ mod tests {
                 "{typed}: and written to the same one"
             );
         }
+    }
+
+    /// The union has to ask every table, each with its own watermark, and use
+    /// one shared limit — anything else and a table either goes unasked or is
+    /// paged against the wrong mark.
+    #[test]
+    fn one_statement_asks_every_table_with_its_own_watermark() {
+        let tables: Vec<&SyncTable> = TABLES.iter().collect();
+        let sql = pull_many_sql("figyman", &tables);
+
+        for table in &tables {
+            assert!(
+                sql.contains(&format!("'{}'", table.name)),
+                "{} names itself in the result",
+                table.name
+            );
+        }
+        for index in 1..=tables.len() {
+            assert!(
+                sql.contains(&format!("t.updated_at >= ${index}")),
+                "watermark ${index} is bound"
+            );
+        }
+        assert_eq!(
+            sql.matches("UNION ALL").count(),
+            tables.len() - 1,
+            "one branch per table, joined"
+        );
+        assert_eq!(
+            sql.matches(&format!("LIMIT ${}", tables.len() + 1)).count(),
+            tables.len(),
+            "every branch is capped by the one shared limit"
+        );
+    }
+
+    /// Postgres only allows `ORDER BY` and `LIMIT` inside a `UNION ALL` branch
+    /// when the branch is parenthesised. Without that the statement is either
+    /// rejected or, worse, ordered across the whole union — which would hand
+    /// back an arbitrary slice instead of each table's oldest page.
+    #[test]
+    fn every_branch_is_parenthesised_and_ordered() {
+        let tables: Vec<&SyncTable> = TABLES.iter().collect();
+        let sql = pull_many_sql("figyman", &tables);
+
+        assert_eq!(sql.matches("(SELECT ").count(), tables.len());
+        assert_eq!(
+            sql.matches("ORDER BY t.updated_at ASC").count(),
+            tables.len()
+        );
+        assert_eq!(
+            sql.matches('(').count(),
+            sql.matches(')').count(),
+            "balanced"
+        );
+    }
+
+    /// A table name reaches the statement as a value rather than an identifier,
+    /// and takes the same cleaning on the way.
+    #[test]
+    fn a_table_name_cannot_carry_a_quote_into_the_statement() {
+        assert_eq!(literal("collections"), "'collections'");
+        assert_eq!(literal("coll'; DROP TABLE x --"), "'collDROPTABLEx'");
+    }
+
+    /// One table is a union of one: no `UNION ALL`, still valid.
+    #[test]
+    fn a_single_table_needs_no_union() {
+        let collections = table("collections").unwrap();
+        let sql = pull_many_sql("figyman", &[collections]);
+        assert!(!sql.contains("UNION ALL"));
+        assert!(sql.contains("LIMIT $2"));
     }
 
     /// Cleaning is not a no-op on the names people actually type. If it were,

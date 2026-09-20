@@ -189,14 +189,24 @@ async fn push(db: &Db, remote: &Remote, on_step: OnStep<'_>) -> SyncResult<usize
             // What comes back carries the server's `updated_at`. Writing it
             // back is what stops the next pull seeing our own row as newer
             // than the copy we just sent.
+            //
+            // One transaction for the page, as the pull side already does.
+            // Without it each of these upserts was its own implicit
+            // transaction, so a full batch meant two hundred commits — and on
+            // a synchronous SQLite that is two hundred fsyncs to write two
+            // hundred rows nobody is waiting on. It also means the write-back
+            // and the dequeue land together: a crash between them used to
+            // leave rows queued that the remote already had.
             locked(db, |connection| {
-                {
-                    let _quiet = Suspended::begin(connection)?;
-                    for row in &stored {
-                        rows::upsert(connection, table, row)?;
-                    }
+                let _quiet = Suspended::begin(connection)?;
+                let transaction = connection
+                    .unchecked_transaction()
+                    .map_err(|e| e.to_string())?;
+                for row in &stored {
+                    rows::upsert(&transaction, table, row)?;
                 }
-                rows::dequeue(connection, table, &ids, started)
+                rows::dequeue(&transaction, table, &ids, started)?;
+                transaction.commit().map_err(|e| e.to_string())
             })?;
 
             sent += batch.len();
@@ -316,7 +326,17 @@ fn table_of(name: &str) -> SyncResult<&'static SyncTable> {
     table(name).ok_or_else(|| format!("No table called {name}"))
 }
 
-/// Everything new, taken table by table, with the watermark moved per table.
+/// Everything new, in as few round trips as the rows allow.
+///
+/// **One request for the whole database first.** Asking table by table cost a
+/// round trip each, so a pass with nothing to do still waited seven times
+/// before it could say so — and against a database a few hundred milliseconds
+/// away that was the pass. `pull_many` asks all seven at once with a watermark
+/// each; only a table that filled its page is then paged on its own, because
+/// only that table might have more.
+///
+/// The applying is unchanged: one transaction per table, in `TABLES` order, so
+/// a parent is never written after the child that needs it.
 async fn pull(
     db: &Db,
     remote: &Remote,
@@ -327,19 +347,42 @@ async fn pull(
     let mut taken = 0;
     let mut conflicts = 0;
 
-    for (index, table) in TABLES.iter().enumerate() {
-        let mut moved = 0;
-        on_step(SyncStep {
-            phase: "pull",
-            table: table.name,
-            index,
-            total: TABLES.len(),
-            rows: 0,
-        });
+    on_step(SyncStep {
+        phase: "pull",
+        table: "",
+        index: 0,
+        total: TABLES.len(),
+        rows: 0,
+    });
+
+    let since: Vec<(&'static SyncTable, i64)> = TABLES
+        .iter()
+        .map(|table| (table, marks.pulled.get(table.name).copied().unwrap_or(0)))
+        .collect();
+    let first = remote.pull_many(&since, BATCH).await?;
+
+    // Kept in `TABLES` order rather than in arrival order: the union makes no
+    // promise about which branch comes back first, and applying a child before
+    // its parent is exactly what the order exists to prevent.
+    let mut pages: Vec<(&'static SyncTable, Vec<Row>)> = TABLES
+        .iter()
+        .map(|table| {
+            let rows = first
+                .iter()
+                .filter(|(from, _)| from.name == table.name)
+                .map(|(_, row)| row.clone())
+                .collect();
+            (table, rows)
+        })
+        .collect();
+
+    for (index, (table, page)) in pages.iter_mut().enumerate() {
         let mut since = marks.pulled.get(table.name).copied().unwrap_or(0);
+        let mut moved = 0;
+        // The first page is in hand already; later ones are fetched below.
+        let mut batch = std::mem::take(page);
 
         loop {
-            let batch = remote.pull(table, since, BATCH).await?;
             if batch.is_empty() {
                 break;
             }
@@ -388,6 +431,10 @@ async fn pull(
                 break;
             }
             since = highest;
+
+            // Only a table that filled its page can have more, and only that
+            // table is asked again — the other six are already done.
+            batch = remote.pull(table, since, BATCH).await?;
         }
     }
 

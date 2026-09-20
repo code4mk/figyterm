@@ -31,6 +31,14 @@ pub const SYNC_EVENT: &str = "api://sync";
 /// Where the connection settings live. The key never appears here.
 const CONFIG_KEY: &str = "sync_config";
 
+/// How long one pass may take before it is stopped.
+///
+/// Generous: a first sync of a large collection is legitimately slow, and this
+/// is a backstop against a pass that will never finish rather than a budget for
+/// one that is merely big. See the note where it is used for why stopping is
+/// safe.
+const PASS_DEADLINE: Duration = Duration::from_secs(180);
+
 #[derive(Default)]
 pub struct SyncState {
     /// One pass at a time. A `tokio` mutex, because it is held across awaits.
@@ -116,7 +124,7 @@ async fn connect(config: &SyncConfig) -> StoreResult<Remote> {
         .as_ref()
         .ok_or("No database is connected yet")?;
     let password = secrets::read(Credential::Key, &account(config))?.unwrap_or_default();
-    Ok(Remote(Direct::connect(direct, &password).await?))
+    Remote::connect(direct.clone(), password).await
 }
 
 /// The SQL that prepares a Postgres database, for the modal to show and copy.
@@ -331,10 +339,44 @@ async fn run_pass(app: AppHandle) -> StoreResult<SyncOutcome> {
       ignored rather than handled.
     */
     let reporter = app.clone();
-    let outcome = worker::run_watched(&db, &remote, &move |step| {
-        let _ = reporter.emit(SYNC_STEP_EVENT, step);
-    })
-    .await;
+    /*
+      A pass is bounded, and a bounded pass is why this is safe to bound.
+
+      Only one runs at a time, and the lock that guarantees it is held for the
+      duration — so a pass that hangs does not merely fail to finish, it stops
+      every later pass from starting, for as long as the app is open. That is
+      the state people describe as "sync stopped working".
+
+      Cutting it off is safe because the work commits as it goes: each table's
+      watermark is saved as its page lands, and pushed rows are dequeued in the
+      same transaction that writes them back. A pass that runs out of time has
+      done real work and the next one carries on from there, so the deadline
+      costs a wait rather than progress.
+    */
+    let outcome = match tokio::time::timeout(
+        PASS_DEADLINE,
+        worker::run_watched(&db, &remote, &move |step| {
+            let _ = reporter.emit(SYNC_STEP_EVENT, step);
+        }),
+    )
+    .await
+    {
+        Ok(outcome) => outcome,
+        Err(_) => SyncOutcome {
+            finished_at: crate::store::now_ms(),
+            pending: db
+                .lock()
+                .ok()
+                .and_then(|connection| rows::pending(&connection).ok())
+                .unwrap_or(0),
+            error: Some(format!(
+                "This sync ran past {} seconds and was stopped. What it had already \
+                 moved is kept, and the next one picks up from there.",
+                PASS_DEADLINE.as_secs()
+            )),
+            ..Default::default()
+        },
+    };
     sync.remember(&outcome);
     let _ = app.emit(SYNC_EVENT, outcome.clone());
     Ok(outcome)
