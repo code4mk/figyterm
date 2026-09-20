@@ -70,8 +70,13 @@ export function disconnect(): Promise<void> {
   return invoke("api_sync_disconnect");
 }
 
+/**
+ * When passes run on their own. `auto` is not a master switch: turning it off
+ * leaves the connection alone and leaves the Sync button working, because
+ * pressing that button is itself the request.
+ */
 export function settings(params: {
-  enabled: boolean;
+  auto: boolean;
   intervalSecs: number;
   syncOnFocus: boolean;
 }): Promise<void> {
@@ -80,6 +85,16 @@ export function settings(params: {
 
 export function now(): Promise<SyncOutcome> {
   return invoke<SyncOutcome>("api_sync_now");
+}
+
+/**
+ * Asks the pass in flight to stop at its next boundary.
+ *
+ * Returns as soon as the ask is registered, not when the pass ends — the pass
+ * reports what it managed through the usual `onSync` event, like any other.
+ */
+export function stop(): Promise<void> {
+  return invoke("api_sync_stop");
 }
 
 /** The SQL that prepares a Postgres database, to show and to copy. */

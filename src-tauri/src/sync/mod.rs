@@ -239,10 +239,25 @@ pub struct SyncConfig {
     /// Off by default, and an explicit choice: history is large, and it holds
     /// response bodies that were never meant to be shared.
     pub sync_history: bool,
+    /// Whether this machine is connected to a database at all. Set by
+    /// connecting, cleared by disconnecting, and the one thing that decides
+    /// whether syncing is possible.
     pub enabled: bool,
+    /// Whether passes run **on their own** — the interval, and the window
+    /// opening. Off is not "sync is switched off": pressing Sync still works,
+    /// because pressing it is the whole of what it means to ask.
+    ///
+    /// Defaulted to true so a config written before this existed keeps the
+    /// behaviour it had, which was always to run on a timer.
+    #[serde(default = "yes")]
+    pub auto: bool,
     /// Where the database is. Holds no password: that is in the keychain.
     #[serde(default)]
     pub direct: Option<direct::DirectConfig>,
+}
+
+fn yes() -> bool {
+    true
 }
 
 impl Default for SyncConfig {
@@ -256,6 +271,7 @@ impl Default for SyncConfig {
             sync_on_focus: true,
             sync_history: false,
             enabled: false,
+            auto: true,
             direct: None,
         }
     }
@@ -272,6 +288,13 @@ pub struct SyncOutcome {
     pub pending: usize,
     pub finished_at: i64,
     pub error: Option<String>,
+    /// Stopped part-way, by the user or by the deadline.
+    ///
+    /// Separate from `error` because it is not one: what had already moved is
+    /// kept and the next pass carries on from there, so the panel should say
+    /// "stopped" rather than colour it like a failure.
+    #[serde(default)]
+    pub stopped: bool,
 }
 
 /// Where a pass got to, so the next one does not start from the beginning.
@@ -283,3 +306,67 @@ pub struct Watermarks {
 }
 
 pub type SyncResult<T> = Result<T, String>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Somebody who was syncing before `auto` existed was syncing on a timer,
+    /// and must still be. A field that defaulted to false would switch every
+    /// existing installation's automatic passes off on upgrade, silently, and
+    /// the only symptom would be work not reaching the other machine.
+    #[test]
+    fn a_config_written_before_auto_existed_keeps_syncing_on_its_own() {
+        let old = r#"{
+            "mode": "direct", "url": "", "schema": "figyman", "email": null,
+            "intervalSecs": 300, "syncOnFocus": true, "syncHistory": false,
+            "enabled": true
+        }"#;
+
+        let config: SyncConfig = serde_json::from_str(old).unwrap();
+        assert!(config.enabled, "still connected");
+        assert!(config.auto, "and still on a timer");
+    }
+
+    /// The two are separate answers: connected, and running on its own. The
+    /// whole point of the field is that the second can be no while the first
+    /// is yes, so a round trip that quietly folded them together would undo it.
+    #[test]
+    fn connected_and_automatic_are_stored_apart() {
+        let config = SyncConfig {
+            enabled: true,
+            auto: false,
+            ..Default::default()
+        };
+
+        let text = serde_json::to_string(&config).unwrap();
+        let read: SyncConfig = serde_json::from_str(&text).unwrap();
+
+        assert!(read.enabled);
+        assert!(!read.auto);
+    }
+
+    /// An outcome only ever travels outward, so the window can rely on the
+    /// field being there — and on a pass that nobody stopped saying so.
+    #[test]
+    fn an_outcome_says_whether_it_was_stopped() {
+        let text = serde_json::to_string(&SyncOutcome {
+            pushed: 3,
+            ..Default::default()
+        })
+        .unwrap();
+
+        assert!(text.contains("\"stopped\":false"));
+        assert!(text.contains("\"pushed\":3"));
+    }
+
+    /// Default is off for `enabled` and on for `auto`: a machine that has never
+    /// connected anything syncs nothing, but the moment it connects, it keeps
+    /// itself in step without anybody having to find the setting.
+    #[test]
+    fn a_fresh_config_is_not_connected_but_is_willing() {
+        let config = SyncConfig::default();
+        assert!(!config.enabled);
+        assert!(config.auto);
+    }
+}

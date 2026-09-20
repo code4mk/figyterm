@@ -136,9 +136,11 @@ export function ApiModal({ visible, onClose }: ApiModalProps) {
   const syncStatus = useApiStore((s) => s.sync);
   const connecting = useApiStore((s) => s.connecting);
   const syncing = useApiStore((s) => s.syncing);
+  const syncStopping = useApiStore((s) => s.syncStopping);
   const refreshSync = useApiStore((s) => s.refreshSync);
   const openConnection = useApiStore((s) => s.openConnection);
   const syncNow = useApiStore((s) => s.syncNow);
+  const stopSync = useApiStore((s) => s.stopSync);
   const openSync = useApiStore((s) => s.openSync);
   const syncFinished = useApiStore((s) => s.syncFinished);
   const run = useApiStore((s) => s.run);
@@ -314,7 +316,11 @@ export function ApiModal({ visible, onClose }: ApiModalProps) {
     if (!visible) return;
     const onFocus = () => {
       const status = useApiStore.getState().sync;
-      if (status?.config.enabled && status.config.syncOnFocus) void syncNow();
+      // An automatic pass, so it asks `auto` as well as whether a database is
+      // connected: "only when I press Sync" has to mean this too.
+      if (status?.config.enabled && status.config.auto && status.config.syncOnFocus) {
+        void syncNow();
+      }
     };
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
@@ -706,7 +712,9 @@ export function ApiModal({ visible, onClose }: ApiModalProps) {
             <SyncPane
               status={syncStatus}
               syncing={syncing}
+              stopping={syncStopping}
               onSyncNow={() => void syncNow()}
+              onStopSync={() => void stopSync()}
               onOpenConnection={() => openConnection(true)}
               onRefresh={() => void refreshSync()}
             />

@@ -466,7 +466,12 @@ export interface SyncConfig {
   intervalSecs: number;
   syncOnFocus: boolean;
   syncHistory: boolean;
+  /** Whether a database is connected at all. Set by connecting, cleared by
+   * disconnecting — not a preference. */
   enabled: boolean;
+  /** Whether passes run on their own: the interval, and the window opening.
+   * Off does not mean syncing is off — the Sync button still works. */
+  auto: boolean;
   /** Set in direct mode. */
   direct: DirectConfig | null;
 }
@@ -480,6 +485,9 @@ export interface SyncOutcome {
   pending: number;
   finishedAt: number;
   error: string | null;
+  /** Stopped part-way, by the user or by the deadline. Not a failure: what
+   * moved is kept, and the next pass carries on from there. */
+  stopped: boolean;
 }
 
 /**

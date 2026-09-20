@@ -10,7 +10,8 @@
 //! is halfway through would otherwise push the same rows twice and race the
 //! watermark.
 
-use std::sync::{Mutex, RwLock};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 use rusqlite::Connection;
@@ -46,6 +47,14 @@ pub struct SyncState {
     last: Mutex<Option<SyncOutcome>>,
     /// Whether the interval task has been started for this run of the app.
     ticking: RwLock<bool>,
+    /// Raised to ask the pass in flight to stop at its next boundary.
+    ///
+    /// A flag the worker reads rather than an abort of the task: a pass that is
+    /// cut off mid-statement leaves the question of what landed, and a pass
+    /// that stops at a boundary has committed everything it counted. Cleared
+    /// when a pass starts, so a stop pressed after one finished does not stop
+    /// the next one before it begins.
+    cancel: Arc<AtomicBool>,
 }
 
 impl SyncState {
@@ -241,6 +250,7 @@ pub async fn api_sync_connect_direct(
         sync_on_focus,
         sync_history: false,
         enabled: probe.schema_ready,
+        auto: true,
         direct: Some(config),
     };
 
@@ -248,7 +258,7 @@ pub async fn api_sync_connect_direct(
         secrets::store(Credential::Key, &account(&saved), &password)?;
     }
     state.with(&app, |connection| write_config(connection, &saved))?;
-    if saved.enabled {
+    if saved.enabled && saved.auto {
         start_ticking(app.clone());
     }
     Ok(probe)
@@ -274,27 +284,47 @@ pub fn api_sync_disconnect(app: AppHandle, state: State<'_, StoreState>) -> Stor
 pub fn api_sync_settings(
     app: AppHandle,
     state: State<'_, StoreState>,
-    enabled: bool,
+    auto: bool,
     interval_secs: u64,
     sync_on_focus: bool,
 ) -> StoreResult<()> {
+    // `enabled` is not touched here. Whether this machine has a database is
+    // decided by connecting and disconnecting; this is only whether passes run
+    // on their own, and switching that off must not take the Sync button with
+    // it.
     state.with(&app, |connection| {
         let mut config = read_config(connection);
-        config.enabled = enabled;
+        config.auto = auto;
         config.interval_secs = interval_secs.max(30);
         config.sync_on_focus = sync_on_focus;
         write_config(connection, &config)
     })?;
-    if enabled {
+    if auto {
         start_ticking(app);
     }
     Ok(())
 }
 
 /// One pass, now.
+///
+/// Deliberately **not** gated on `auto`. Automatic passes are a convenience
+/// somebody can switch off; pressing Sync is the request itself, and refusing
+/// it because the timer is off would be answering a question nobody asked.
 #[tauri::command(async)]
 pub async fn api_sync_now(app: AppHandle) -> StoreResult<SyncOutcome> {
     run_pass(app).await
+}
+
+/// Asks the pass in flight to stop at its next boundary.
+///
+/// Returns immediately rather than waiting for it: the button's job is to say
+/// "stop", and the pass reports what it managed through the usual event. Safe
+/// to press when nothing is running — the flag is cleared when a pass starts.
+#[tauri::command(async)]
+pub fn api_sync_stop(app: AppHandle) {
+    app.state::<SyncState>()
+        .cancel
+        .store(true, Ordering::Relaxed);
 }
 
 /// The pass itself, shared by the command and the timer.
@@ -305,8 +335,13 @@ async fn run_pass(app: AppHandle) -> StoreResult<SyncOutcome> {
     let store = app.state::<StoreState>();
     let config = store.with(&app, |connection| Ok(read_config(connection)))?;
     if !config.enabled {
-        return Err("Syncing is switched off".into());
+        return Err("No database is connected".into());
     }
+
+    // Cleared here, not when the pass ends: a stop pressed while nothing was
+    // running would otherwise be waiting to cut the next one short.
+    sync.cancel.store(false, Ordering::Relaxed);
+    let cancel = sync.cancel.clone();
 
     let remote = connect(&config).await?;
 
@@ -355,9 +390,14 @@ async fn run_pass(app: AppHandle) -> StoreResult<SyncOutcome> {
     */
     let outcome = match tokio::time::timeout(
         PASS_DEADLINE,
-        worker::run_watched(&db, &remote, &move |step| {
-            let _ = reporter.emit(SYNC_STEP_EVENT, step);
-        }),
+        worker::run_watched(
+            &db,
+            &remote,
+            &move |step| {
+                let _ = reporter.emit(SYNC_STEP_EVENT, step);
+            },
+            &move || cancel.load(Ordering::Relaxed),
+        ),
     )
     .await
     {
@@ -369,6 +409,7 @@ async fn run_pass(app: AppHandle) -> StoreResult<SyncOutcome> {
                 .ok()
                 .and_then(|connection| rows::pending(&connection).ok())
                 .unwrap_or(0),
+            stopped: true,
             error: Some(format!(
                 "This sync ran past {} seconds and was stopped. What it had already \
                  moved is kept, and the next one picks up from there.",
@@ -406,9 +447,11 @@ pub fn start_ticking(app: AppHandle) {
                 let config = store
                     .with(&app, |connection| Ok(read_config(connection)))
                     .unwrap_or_default();
-                if !config.enabled {
-                    // Switched off: stop the task rather than spin. Turning it
-                    // back on starts a new one.
+                if !config.enabled || !config.auto {
+                    // Disconnected, or automatic passes switched off: stop the
+                    // task rather than spin. Turning either back on starts a
+                    // new one. The Sync button is unaffected — it does not come
+                    // through here.
                     if let Ok(mut ticking) = app.state::<SyncState>().ticking.write() {
                         *ticking = false;
                     }

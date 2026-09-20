@@ -262,10 +262,10 @@ export function ConnectionPanel({
     }
   };
 
-  const toggleEnabled = async (enabled: boolean) => {
+  const toggleAuto = async (auto: boolean) => {
     try {
       await sync.settings({
-        enabled,
+        auto,
         intervalSecs: Number(interval) || 300,
         syncOnFocus: onFocus,
       });
@@ -627,12 +627,23 @@ export function ConnectionPanel({
               <input
                 type="checkbox"
                 className="w-3.5 h-3.5 accent-[color:var(--ft-accent)]"
-                checked={config?.enabled ?? false}
+                checked={config?.auto ?? false}
                 disabled={!connected}
-                onChange={(e) => void toggleEnabled(e.target.checked)}
+                onChange={(e) => void toggleAuto(e.target.checked)}
               />
-              <span className="text-ft-text">Keep this machine in step</span>
+              <span className="text-ft-text">Sync on its own</span>
             </label>
+            {/*
+              Said plainly, because the old label — "Keep this machine in step"
+              — read as the master switch and was one: turning it off stopped
+              the Sync button working too, so there was no way to say "only
+              when I ask". This is only the timer.
+            */}
+            <div className="pl-5 -mt-1 text-[10px] text-ft-text-muted">
+              {config?.auto
+                ? "Off leaves the connection alone — Sync still works when you press it."
+                : "Off. Nothing syncs until you press Sync."}
+            </div>
 
             <label className="flex items-center gap-2">
               <span className="w-24 shrink-0 text-ft-text-muted">Every</span>
@@ -641,7 +652,7 @@ export function ConnectionPanel({
                 inputMode="numeric"
                 value={interval}
                 onChange={(e) => setInterval(e.target.value)}
-                onBlur={() => void toggleEnabled(config?.enabled ?? false)}
+                onBlur={() => void toggleAuto(config?.auto ?? false)}
               />
               <span className="text-ft-text-muted">seconds, and whenever this window opens</span>
             </label>
@@ -654,7 +665,7 @@ export function ConnectionPanel({
                 onChange={(e) => {
                   setOnFocus(e.target.checked);
                   void sync.settings({
-                    enabled: config?.enabled ?? false,
+                    auto: config?.auto ?? false,
                     intervalSecs: Number(interval) || 300,
                     syncOnFocus: e.target.checked,
                   });

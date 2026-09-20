@@ -284,6 +284,8 @@ interface ApiState {
   /** Whether the connection panel is open. */
   connecting: boolean;
   syncing: boolean;
+  /** A stop has been asked for and the pass has not reached a boundary yet. */
+  syncStopping: boolean;
   /** What the runner is set up to do, and how it is going. */
   run: RunState;
   /** What the window has done, newest last. Bounded — see `console.ts`. */
@@ -419,6 +421,8 @@ interface ApiState {
   refreshSync: () => Promise<void>;
   openConnection: (open: boolean) => void;
   syncNow: () => Promise<void>;
+  /** Asks the pass in flight to stop at its next boundary. */
+  stopSync: () => Promise<void>;
   /** Called when a pass finished elsewhere — the timer, or another window. */
   syncFinished: (outcome: SyncOutcome) => Promise<void>;
 
@@ -731,6 +735,7 @@ export const useApiStore = create<ApiState>((set, get) => {
     sync: null,
     connecting: false,
     syncing: false,
+    syncStopping: false,
     run: {
       open: false,
       target: null,
@@ -2413,7 +2418,24 @@ export const useApiStore = create<ApiState>((set, get) => {
           detail: message,
         });
       } finally {
-        set({ syncing: false });
+        set({ syncing: false, syncStopping: false });
+      }
+    },
+
+    /**
+     * Asks the pass in flight to stop.
+     *
+     * The flag is what the button reads: the ask is registered immediately but
+     * the pass only stops at its next boundary, and a button that snapped back
+     * to "Sync now" before anything had stopped would be lying about it.
+     */
+    stopSync: async () => {
+      if (!get().syncing || get().syncStopping) return;
+      set({ syncStopping: true });
+      try {
+        await sync.stop();
+      } catch (error) {
+        set({ syncStopping: false, syncError: String(error) });
       }
     },
 

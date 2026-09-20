@@ -149,10 +149,27 @@ pub struct SyncStep {
 /// closure that drops it, so the worker has one code path rather than two.
 pub type OnStep<'a> = &'a (dyn Fn(SyncStep) + Send + Sync);
 
-async fn push(db: &Db, remote: &Remote, on_step: OnStep<'_>) -> SyncResult<usize> {
+/// Asked between batches: whether to stop here.
+///
+/// **Between**, never during. A pass is stopped at a boundary where everything
+/// so far has been committed — a page applied and its watermark saved, or a
+/// batch pushed and dequeued — so stopping costs the rest of the work and none
+/// of what was already done. Aborting the task mid-statement would be the other
+/// kind of stop, and would leave the question of what had landed.
+pub type ShouldStop<'a> = &'a (dyn Fn() -> bool + Send + Sync);
+
+async fn push(
+    db: &Db,
+    remote: &Remote,
+    on_step: OnStep<'_>,
+    should_stop: ShouldStop<'_>,
+) -> SyncResult<(usize, bool)> {
     let mut sent = 0;
 
     for (index, table) in TABLES.iter().enumerate() {
+        if should_stop() {
+            return Ok((sent, true));
+        }
         let mut moved = 0;
         on_step(SyncStep {
             phase: "push",
@@ -214,9 +231,12 @@ async fn push(db: &Db, remote: &Remote, on_step: OnStep<'_>) -> SyncResult<usize
             if batch.len() < BATCH {
                 break;
             }
+            if should_stop() {
+                return Ok((sent, true));
+            }
         }
     }
-    Ok(sent)
+    Ok((sent, false))
 }
 
 /// Applies one remote row, and says whether it conflicted.
@@ -342,10 +362,12 @@ async fn pull(
     remote: &Remote,
     device: &str,
     on_step: OnStep<'_>,
-) -> SyncResult<(usize, usize)> {
+    should_stop: ShouldStop<'_>,
+) -> SyncResult<(usize, usize, bool)> {
     let mut marks = locked(db, |connection| Ok(watermarks(connection)))?;
     let mut taken = 0;
     let mut conflicts = 0;
+    let mut stopped = false;
 
     on_step(SyncStep {
         phase: "pull",
@@ -377,6 +399,10 @@ async fn pull(
         .collect();
 
     for (index, (table, page)) in pages.iter_mut().enumerate() {
+        if should_stop() {
+            stopped = true;
+            break;
+        }
         let mut since = marks.pulled.get(table.name).copied().unwrap_or(0);
         let mut moved = 0;
         // The first page is in hand already; later ones are fetched below.
@@ -432,23 +458,41 @@ async fn pull(
             }
             since = highest;
 
+            // Checked here rather than at the top: the page just applied is
+            // committed and its watermark saved, so this is a clean place to
+            // leave the rest for the next pass.
+            if should_stop() {
+                stopped = true;
+                break;
+            }
+
             // Only a table that filled its page can have more, and only that
             // table is asked again — the other six are already done.
             batch = remote.pull(table, since, BATCH).await?;
         }
+
+        if stopped {
+            break;
+        }
     }
 
-    Ok((taken, conflicts))
+    Ok((taken, conflicts, stopped))
 }
 
 /// One pass. Never panics, never leaves the outbox suspended, and reports what
 /// it did either way.
 pub async fn run(db: &Db, remote: &Remote) -> SyncOutcome {
-    run_watched(db, remote, &|_| {}).await
+    run_watched(db, remote, &|_| {}, &|| false).await
 }
 
-/// The same pass, with somewhere to report to as it goes.
-pub async fn run_watched(db: &Db, remote: &Remote, on_step: OnStep<'_>) -> SyncOutcome {
+/// The same pass, with somewhere to report to as it goes and somewhere to be
+/// told to stop.
+pub async fn run_watched(
+    db: &Db,
+    remote: &Remote,
+    on_step: OnStep<'_>,
+    should_stop: ShouldStop<'_>,
+) -> SyncOutcome {
     let device = locked(db, |connection| {
         Ok(queries::device_id(connection).unwrap_or_default())
     })
@@ -458,8 +502,11 @@ pub async fn run_watched(db: &Db, remote: &Remote, on_step: OnStep<'_>) -> SyncO
         ..Default::default()
     };
 
-    match push(db, remote, on_step).await {
-        Ok(sent) => outcome.pushed = sent,
+    match push(db, remote, on_step, should_stop).await {
+        Ok((sent, stopped)) => {
+            outcome.pushed = sent;
+            outcome.stopped = stopped;
+        }
         Err(error) => {
             outcome.error = Some(error);
             outcome.pending = locked(db, rows::pending).unwrap_or(0);
@@ -468,10 +515,19 @@ pub async fn run_watched(db: &Db, remote: &Remote, on_step: OnStep<'_>) -> SyncO
         }
     }
 
-    match pull(db, remote, &device, on_step).await {
-        Ok((taken, conflicts)) => {
+    // Stopped during the push, so the pull is not started. What was pushed is
+    // pushed; the rest waits for the next pass.
+    if outcome.stopped {
+        outcome.pending = locked(db, rows::pending).unwrap_or(0);
+        outcome.finished_at = now_ms();
+        return outcome;
+    }
+
+    match pull(db, remote, &device, on_step, should_stop).await {
+        Ok((taken, conflicts, stopped)) => {
             outcome.pulled = taken;
             outcome.conflicts = conflicts;
+            outcome.stopped = stopped;
         }
         Err(error) => outcome.error = Some(error),
     }

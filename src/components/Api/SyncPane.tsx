@@ -23,6 +23,7 @@ import {
   Loader,
   RefreshCw,
   Settings2,
+  Square,
   Upload,
   Download,
   TriangleAlert,
@@ -34,7 +35,10 @@ import { timeAgo } from "../../services/api/format";
 interface SyncPaneProps {
   status: SyncStatus | null;
   syncing: boolean;
+  /** A stop has been asked for and the pass has not reached a boundary yet. */
+  stopping: boolean;
   onSyncNow: () => void;
+  onStopSync: () => void;
   onOpenConnection: () => void;
   onRefresh: () => void;
 }
@@ -50,7 +54,9 @@ interface Line {
 export function SyncPane({
   status,
   syncing,
+  stopping,
   onSyncNow,
+  onStopSync,
   onOpenConnection,
   onRefresh,
 }: SyncPaneProps) {
@@ -84,13 +90,21 @@ export function SyncPane({
       .onSync((outcome) => {
         if (dropped) return;
         setStep(null);
-        if (outcome.error) {
+        const moved =
+          `sent ${outcome.pushed}, took ${outcome.pulled}` +
+          (outcome.conflicts > 0 ? `, ${outcome.conflicts} conflicted` : "") +
+          (outcome.pending > 0 ? `, ${outcome.pending} still queued` : "");
+
+        if (outcome.error && !outcome.stopped) {
           say(outcome.error, "bad");
+        } else if (outcome.stopped) {
+          // Not "bad": everything it counted is committed, and the next pass
+          // carries on from there. Reporting a stop somebody asked for in the
+          // same red as a failure would make it look like one.
+          say(`Stopped — ${moved}. The next pass carries on from here.`, "info");
         } else {
           say(
-            `Sent ${outcome.pushed}, took ${outcome.pulled}` +
-              (outcome.conflicts > 0 ? `, ${outcome.conflicts} conflicted` : "") +
-              (outcome.pending > 0 ? `, ${outcome.pending} still queued` : ""),
+            moved.charAt(0).toUpperCase() + moved.slice(1),
             outcome.pending > 0 ? "info" : "good"
           );
         }
@@ -140,15 +154,45 @@ export function SyncPane({
           <Settings2 size={11} />
           Connection
         </button>
-        <button
-          className="api-button flex items-center gap-1.5"
-          onClick={onSyncNow}
-          disabled={syncing || !config?.enabled}
-          title={config?.enabled ? "Run a pass now" : "Syncing is switched off"}
-        >
-          {syncing ? <Loader size={11} className="animate-spin" /> : <RefreshCw size={11} />}
-          {syncing ? "Syncing…" : "Sync now"}
-        </button>
+        {/*
+          One button, two jobs — because there is only ever one of them to do,
+          and a Stop sitting greyed out beside Sync for the ninety-nine percent
+          of the time nothing is running is a worse use of the space than a
+          button that says what it does now.
+
+          It reads `config.enabled`, which means "a database is connected",
+          rather than whether automatic passes are on. Pressing Sync is the
+          request; having switched the timer off is not a reason to refuse it.
+        */}
+        {syncing ? (
+          <button
+            className="api-button flex items-center gap-1.5"
+            onClick={onStopSync}
+            disabled={stopping}
+            title={
+              stopping
+                ? "Stopping at the end of the batch in flight"
+                : "Stop after the batch in flight — what has moved is kept"
+            }
+          >
+            {stopping ? (
+              <Loader size={11} className="animate-spin" />
+            ) : (
+              <Square size={11} />
+            )}
+            {stopping ? "Stopping…" : "Stop"}
+          </button>
+        ) : (
+          <button
+            className="api-button flex items-center gap-1.5"
+            onClick={onSyncNow}
+            disabled={!config?.enabled}
+            title={config?.enabled ? "Run a pass now" : "No database is connected"}
+          >
+            <RefreshCw size={11} />
+            Sync now
+          </button>
+        )}
       </div>
 
       {/* ─── What is happening, right now ──────────────────────────────── */}
@@ -202,7 +246,10 @@ export function SyncPane({
       </div>
 
       {/* ─── What went wrong, in full ──────────────────────────────────── */}
-      {last?.error && (
+      {/* A stop is not a failure, so it does not get the red banner: the log
+          line above has already said what moved. Only the deadline carries
+          both, and it explains itself there. */}
+      {last?.error && !last.stopped && (
         <div className="flex items-start gap-2 px-3 py-2 shrink-0 border-b border-ft-border-subtle text-[11px] text-ft-error">
           <CircleAlert size={12} className="mt-[2px] shrink-0" />
           {/* Whole, and selectable. A sync failure is a Postgres error with a

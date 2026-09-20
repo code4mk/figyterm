@@ -202,6 +202,7 @@ pub fn run() {
             commands::sync::api_sync_disconnect,
             commands::sync::api_sync_settings,
             commands::sync::api_sync_now,
+            commands::sync::api_sync_stop,
             commands::sync::api_sync_setup_sql,
             commands::sync::api_sync_restore,
             updater::check_for_updates,
