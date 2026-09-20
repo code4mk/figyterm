@@ -75,6 +75,11 @@ export const SHORTCUTS = define({
   // `X` for Excalidraw. Free in both schemes — the shell's Ctrl+X is cut, and
   // this is Ctrl+Shift+X — where `D`, the obvious letter, is taken by split.
   drawing: { key: "x", label: "X", mac: MOD_SHIFT, other: CTRL_SHIFT },
+  // `H` for HTTP. Every letter with a better claim on an API client is taken:
+  // `A` by Claude, `P` by the palette, `R` by history. Free in both schemes —
+  // macOS keeps Hide on ⌘H and Hide Others on ⌥⌘H, neither of which is this,
+  // and the shell's Ctrl+H is backspace, where this is Ctrl+Shift+H.
+  api: { key: "h", label: "H", mac: MOD_SHIFT, other: CTRL_SHIFT },
   find: { key: "f", label: "F", mac: MOD_ONLY, other: CTRL_SHIFT },
   history: { key: "r", label: "R", mac: MOD_ONLY, other: CTRL_SHIFT },
   copy: { key: "c", label: "C", mac: MOD_ONLY, other: CTRL_SHIFT },

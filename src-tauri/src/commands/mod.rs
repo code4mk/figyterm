@@ -1,3 +1,4 @@
+pub mod api;
 pub mod autocomplete;
 pub mod browser;
 /// Linux needs its own container to position child webviews; see the module docs.
@@ -10,5 +11,6 @@ pub mod git;
 pub mod lsp;
 pub mod shell_exec;
 pub mod specs;
+pub mod sync;
 pub mod system;
 pub mod terminal;

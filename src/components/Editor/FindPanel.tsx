@@ -53,9 +53,15 @@ interface FindPanelProps {
    * the count and the current index stay honest as the user edits and steps.
    */
   tick: number;
+  /**
+   * False where the document cannot be edited — the API window's response
+   * viewer, which is read-only. A replace row over a document that refuses
+   * changes is a button that does nothing and says nothing about why.
+   */
+  allowReplace?: boolean;
 }
 
-export function FindPanel({ view, withReplace, tick }: FindPanelProps) {
+export function FindPanel({ view, withReplace, tick, allowReplace = true }: FindPanelProps) {
   const initial = useMemo(() => getSearchQuery(view.state), [view]);
 
   const [search, setSearch] = useState(initial.search);
@@ -63,7 +69,7 @@ export function FindPanel({ view, withReplace, tick }: FindPanelProps) {
   const [caseSensitive, setCaseSensitive] = useState(initial.caseSensitive);
   const [wholeWord, setWholeWord] = useState(initial.wholeWord);
   const [regexp, setRegexp] = useState(initial.regexp);
-  const [showReplace, setShowReplace] = useState(withReplace);
+  const [showReplace, setShowReplace] = useState(withReplace && allowReplace);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const replaceRef = useRef<HTMLInputElement>(null);
@@ -246,22 +252,27 @@ export function FindPanel({ view, withReplace, tick }: FindPanelProps) {
 
   return (
     <div className="editor-find" onMouseDown={(e) => e.stopPropagation()}>
-      <button
-        className="editor-find-expand"
-        onClick={() => {
-          const next = !showReplace;
-          setShowReplace(next);
-          // Focused only when the user opens the row by hand. Opening it with
-          // the chord leaves the caret in the find field, which is where the
-          // query you are about to replace gets typed.
-          if (next) requestAnimationFrame(() => replaceRef.current?.focus());
-        }}
-        title={showReplace ? "Hide replace" : "Show replace"}
-        aria-expanded={showReplace}
-        aria-label={showReplace ? "Hide replace" : "Show replace"}
-      >
-        {showReplace ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-      </button>
+      {allowReplace ? (
+        <button
+          className="editor-find-expand"
+          onClick={() => {
+            const next = !showReplace;
+            setShowReplace(next);
+            // Focused only when the user opens the row by hand. Opening it with
+            // the chord leaves the caret in the find field, which is where the
+            // query you are about to replace gets typed.
+            if (next) requestAnimationFrame(() => replaceRef.current?.focus());
+          }}
+          title={showReplace ? "Hide replace" : "Show replace"}
+          aria-expanded={showReplace}
+          aria-label={showReplace ? "Hide replace" : "Show replace"}
+        >
+          {showReplace ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        </button>
+      ) : (
+        // The column is kept so the rows line up with the editor's own panel.
+        <span className="editor-find-expand" aria-hidden />
+      )}
 
       <div className="editor-find-rows">
         <div className="editor-find-row">

@@ -9,6 +9,7 @@
     "core:window:allow-close",
     "shell:allow-open",
     "dialog:allow-open",
+    "dialog:allow-save",
     "dialog:allow-confirm",
     "core:window:allow-destroy",
     "core:event:default",

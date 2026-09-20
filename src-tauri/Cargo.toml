@@ -25,8 +25,48 @@ uuid = { version = "1", features = ["v4"] }
 log = "0.4"
 env_logger = "0.11"
 sysinfo = "0.35"
-reqwest = { version = "0.12", features = ["json"] }
+# `multipart` is what makes a form upload sendable: it builds the body and the
+# boundary, which is not something to hand-roll.
+reqwest = { version = "0.12", features = ["json", "multipart"] }
 semver = "1"
+
+# The API client's send path. `tokio` is already in the build several times over
+# (tauri and reqwest both run on it); naming it here is what makes `select!`
+# available, which is how a request in flight is cancelled and how a body being
+# downloaded stays interruptible. `base64` is for response bodies that are not
+# UTF-8 — an image or a protobuf has to reach the webview intact rather than as
+# a field of replacement characters.
+tokio = { version = "1", features = ["sync", "macros"] }
+base64 = "0.22"
+
+# Where the API client's collections live. `bundled` compiles SQLite itself
+# rather than linking whatever the host happens to have, which is the only way
+# the same schema and the same pragmas are guaranteed on three platforms.
+#
+# It is the first thing in this app that persists from Rust, and the reason is
+# in `docs/API-CLIENT.md`: the sync engine and the Postgres mirror want the same
+# relational shape, so a sync becomes a row copy instead of a translation.
+rusqlite = { version = "0.37", features = ["bundled"] }
+
+# The credentials a remote needs. They go to the OS keychain rather than to the
+# database or a settings file: a project key in `figyman.db` would be one
+# careless backup away from being somebody else's.
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+
+# Postgres over the wire, for a database this app talks to directly rather than
+# through somebody's REST layer. `with-serde_json-1` is what lets a row cross as
+# JSON — the same shape the hosted mode already speaks — so one codec serves
+# both.
+#
+# The TLS is the platform's own, through `native-tls`, which `reqwest` already
+# pulls in: no second crypto stack, nothing new to compile on three platforms,
+# and — the deciding point — its knobs are exactly the five `sslmode` settings.
+# "Encrypt but do not check the certificate" and "check the chain but not the
+# hostname" are one method call each here, and a hand-written verifier in the
+# alternative.
+tokio-postgres = { version = "0.7", features = ["with-serde_json-1"] }
+postgres-native-tls = "0.5"
+native-tls = "0.2"
 
 # The editor's filesystem layer.
 #

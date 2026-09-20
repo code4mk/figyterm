@@ -67,6 +67,17 @@ const DrawingModal = lazy(() =>
 );
 
 /**
+ * The API client is fetched on first open, like the rest of them — and unlike
+ * the rest, it latches mounted for a reason that is only about work in
+ * progress: a half-written request and the response beside it are not worth
+ * losing to a dismissed window. Persistence arrives with the store; until then
+ * this is what stands in for it.
+ */
+const ApiModal = lazy(() =>
+  import("../Api/ApiModal").then((module) => ({ default: module.ApiModal }))
+);
+
+/**
  * ⌘1-9 / Ctrl+1-9 jumps to a tab by position. It lives here rather than in the
  * shortcut table because it's a range of keys, not one — but the modifier has to
  * agree with the table: plain ⌘ on macOS, plain Ctrl elsewhere (digits are not
@@ -96,6 +107,9 @@ export function AppShell() {
   const [drawingOpen, setDrawingOpen] = useState(false);
   /** Latches on the first open; the drawing window then stays mounted. */
   const [drawingMounted, setDrawingMounted] = useState(false);
+  const [apiOpen, setApiOpen] = useState(false);
+  /** Latches on the first open, so a request in progress survives closing. */
+  const [apiMounted, setApiMounted] = useState(false);
   /** Counts the ⌘W presses handed to the Claude window. */
   const [claudeCloseTab, setClaudeCloseTab] = useState(0);
   /** Conversations with a live process, reported by the Claude window. */
@@ -397,6 +411,10 @@ export function AppShell() {
     if (drawingOpen) setDrawingMounted(true);
   }, [drawingOpen]);
 
+  useEffect(() => {
+    if (apiOpen) setApiMounted(true);
+  }, [apiOpen]);
+
   /**
    * Read by the ⌘W listener, which is registered once and must not be torn
    * down and rebuilt every time the editor is toggled.
@@ -458,6 +476,23 @@ export function AppShell() {
     if (drawingOpenRef.current) closeDrawing();
     else setDrawingOpen(true);
   }, [closeDrawing]);
+
+  /** Read by the shortcut and menu handlers, which are registered once. */
+  const apiOpenRef = useRef(apiOpen);
+  apiOpenRef.current = apiOpen;
+
+  /** Closing the API client hands the keyboard back to the shell. A request in
+   * flight is left alone: it is a socket, not a window, and the answer is worth
+   * having when the window comes back. */
+  const closeApi = useCallback(() => {
+    setApiOpen(false);
+    focusActivePane();
+  }, [focusActivePane]);
+
+  const toggleApi = useCallback(() => {
+    if (apiOpenRef.current) closeApi();
+    else setApiOpen(true);
+  }, [closeApi]);
 
   /** The editor's undo/redo, while it is mounted and holding the keyboard. */
   const editorHistoryRef = useRef<((command: "undo" | "redo") => boolean) | null>(null);
@@ -581,6 +616,7 @@ export function AppShell() {
       listen("menu://editor", () => toggleEditor()),
       listen("menu://claude", () => toggleClaude()),
       listen("menu://drawing", () => toggleDrawing()),
+      listen("menu://api", () => toggleApi()),
       listen("menu://monitor", () => setMonitorOpen((open) => !open)),
       listen("menu://command-palette", () => setCommandPaletteOpen((open) => !open)),
       listen("menu://settings", () => setSettingsOpen(true)),
@@ -621,6 +657,7 @@ export function AppShell() {
     toggleEditor,
     toggleClaude,
     toggleDrawing,
+    toggleApi,
     runHistoryCommand,
   ]);
 
@@ -668,6 +705,9 @@ export function AppShell() {
       } else if (matches(e, SHORTCUTS.drawing)) {
         e.preventDefault();
         toggleDrawing();
+      } else if (matches(e, SHORTCUTS.api)) {
+        e.preventDefault();
+        toggleApi();
       } else if (matches(e, SHORTCUTS.splitDown)) {
         e.preventDefault();
         handleSplitPane("vertical");
@@ -691,7 +731,7 @@ export function AppShell() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleNewTab, handleNewTabInSameDir, handleClosePane, handleClearTerminal, switchToNextTab, switchToPreviousTab, handleSplitPane, handleSwitchTab, tabs, toggleTheme, toggleEditor, toggleClaude, toggleDrawing]);
+  }, [handleNewTab, handleNewTabInSameDir, handleClosePane, handleClearTerminal, switchToNextTab, switchToPreviousTab, handleSplitPane, handleSwitchTab, tabs, toggleTheme, toggleEditor, toggleClaude, toggleDrawing, toggleApi]);
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
 
@@ -740,6 +780,7 @@ export function AppShell() {
     { id: "editor", label: "Open Code Editor", shortcut: keys(SHORTCUTS.editor), action: () => setEditorOpen(true) },
     { id: "claude", label: "Open Claude Code", shortcut: keys(SHORTCUTS.claude), action: () => setClaudeOpen(true) },
     { id: "drawing", label: "Open Drawing", shortcut: keys(SHORTCUTS.drawing), action: () => setDrawingOpen(true) },
+    { id: "api", label: "Open API Client", shortcut: keys(SHORTCUTS.api), action: () => setApiOpen(true) },
     {
       id: "drawing-new",
       label: "New Drawing",
@@ -871,6 +912,13 @@ export function AppShell() {
         <OverlayBoundary label="drawing" onDismiss={closeDrawing}>
           <Suspense fallback={null}>
             <DrawingModal visible={drawingOpen} onClose={closeDrawing} />
+          </Suspense>
+        </OverlayBoundary>
+      )}
+      {apiMounted && (
+        <OverlayBoundary label="API client" onDismiss={closeApi}>
+          <Suspense fallback={null}>
+            <ApiModal visible={apiOpen} onClose={closeApi} />
           </Suspense>
         </OverlayBoundary>
       )}
