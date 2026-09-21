@@ -21,6 +21,15 @@ interface StatusBarProps {
    */
   claudeAttention?: number;
   onOpenClaude?: () => void;
+  /**
+   * The dock of minimized windows, built by the shell.
+   *
+   * Passed in rather than assembled here: which windows exist and what state
+   * they are in is the shell's business, and a status bar that imported the
+   * browser, the editor and the API client to draw four icons would drag all
+   * of them into the startup bundle to say nothing most of the time.
+   */
+  dock?: React.ReactNode;
 }
 
 export interface SystemStats {
@@ -58,6 +67,7 @@ export function StatusBar({
   onOpenUpdates,
   claudeAttention = 0,
   onOpenClaude,
+  dock,
 }: StatusBarProps) {
   const shellName = shell.split("/").pop() ?? shell;
   const { theme, toggleTheme } = useThemeStore();
@@ -88,6 +98,8 @@ export function StatusBar({
         <Terminal size={10} className="opacity-50" />
         <span className="font-mono">{shellName}</span>
       </div>
+
+      {dock}
 
       {displayCwd && (
         <div className="flex items-center gap-1.5">

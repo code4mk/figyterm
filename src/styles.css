@@ -8041,6 +8041,108 @@
   background: rgba(220, 38, 38, 0.1);
 }
 
+/* ─── The dock ─────────────────────────────────────────────────────────────
+ *
+ * Windows put away rather than closed, along the footer.
+ *
+ * A pill per window, with its mark and its name, because an icon alone made
+ * the row a guessing game — four unlabelled glyphs in a 28px status bar is
+ * not a thing anybody reads, it is a thing they hover one at a time. The name
+ * costs a few pixels the bar has to spare and turns the row into a sentence.
+ *
+ * It sits early in the row, before the working directory, so its position does
+ * not move when you `cd`. A click target that shifts because a path got longer
+ * is a click target you have to look for every time.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+.dock {
+  /* No divider of its own: the gap in the status bar row is the separation,
+     and a rule on each side of two pills is more furniture than content. */
+  min-width: 0;
+}
+
+.dock-item {
+  height: 18px;
+  padding: 0 7px 0 5px;
+  border-radius: 999px;
+  border: 1px solid var(--ft-border-subtle);
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--ft-text-secondary);
+  font-size: 10px;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.dock-item:hover {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: var(--ft-border);
+  color: var(--ft-text);
+}
+
+.dock-item:active {
+  background: rgba(99, 102, 241, 0.16);
+  border-color: rgba(99, 102, 241, 0.4);
+}
+
+/* The mark keeps its own opacity so the name is what the eye lands on. */
+.dock-mark {
+  display: inline-flex;
+  align-items: center;
+  opacity: 0.75;
+}
+
+.dock-item:hover .dock-mark {
+  opacity: 1;
+}
+
+.dock-mark-image {
+  display: block;
+  height: 11px;
+  width: auto;
+  border-radius: 2px;
+}
+
+.dock-name {
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+/*
+  Something waiting behind a window you cannot see.
+  Accent rather than red: it is a conversation asking a question, not a fault.
+*/
+.dock-badge {
+  min-width: 14px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: rgba(99, 102, 241, 0.22);
+  color: #a5b4fc;
+  font-size: 9px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.light .dock-item {
+  background: rgba(15, 23, 42, 0.05);
+}
+
+.light .dock-item:hover {
+  background: rgba(15, 23, 42, 0.09);
+}
+
+.light .dock-item:active {
+  background: rgba(79, 70, 229, 0.12);
+  border-color: rgba(79, 70, 229, 0.35);
+}
+
+.light .dock-badge {
+  background: rgba(79, 70, 229, 0.14);
+  color: var(--ft-accent);
+}
+
 /* ─── Drawing window ───────────────────────────────────────────────────────
  *
  * Excalidraw sizes itself from its container, so the container has to resolve

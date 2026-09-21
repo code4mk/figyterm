@@ -18,6 +18,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Ban,
   Maximize2,
+  Minus,
   Minimize2,
   PanelBottom,
   PanelRight,
@@ -74,13 +75,21 @@ import { ResponsePane } from "./ResponsePane";
 export interface ApiModalProps {
   visible: boolean;
   onClose: () => void;
+  /**
+   * Puts the window away without stopping it.
+   *
+   * Absent when the shell has nowhere to put it, which is why the button is
+   * conditional rather than always drawn: a minimize with no dock to land in
+   * would be a close that lied about it.
+   */
+  onMinimize?: () => void;
 }
 
 const MIN_SIZE = { w: 820, h: 520 };
 const MAX_SIZE = { w: 2400, h: 1600 };
 const DEFAULT_SIZE = { w: 1180, h: 760 };
 
-export function ApiModal({ visible, onClose }: ApiModalProps) {
+export function ApiModal({ visible, onClose, onMinimize }: ApiModalProps) {
   const [pipMode, setPipMode] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const modalRef = useRef<HTMLDivElement>(null);
@@ -582,6 +591,17 @@ export function ApiModal({ visible, onClose }: ApiModalProps) {
           >
             {split === "bottom" ? <PanelRight size={14} /> : <PanelBottom size={14} />}
           </button>
+          {onMinimize && (
+            <button
+              className="p-1.5 rounded text-ft-text-muted hover:bg-ft-surface"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={onMinimize}
+              title="Minimize — a request in flight is left alone"
+              aria-label="Minimize"
+            >
+              <Minus size={14} />
+            </button>
+          )}
           <button
             className={`p-1.5 rounded hover:bg-ft-surface ${pipMode ? "text-ft-accent" : "text-ft-text-muted"}`}
             onPointerDown={(e) => e.stopPropagation()}
