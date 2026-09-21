@@ -259,13 +259,31 @@ export function parseCurl(command: string): ParsedCurl | null {
         }
 
         const isFile = rest.startsWith("@") || rest.startsWith("<");
+
+        /*
+          `curl -F 'photos=@a.png' -F 'photos=@b.png'` is one field with two
+          files, which is how curl spells a multiple upload. Pushed as two
+          rows it would come back as two rows named the same thing, so a repeat
+          of a name that is already a file field appends to it instead.
+        */
+        const existing = isFile
+          ? form.find((field) => field.key === key && field.kind === "file")
+          : undefined;
+        if (existing) {
+          existing.filePaths = [...(existing.filePaths ?? []), rest.slice(1)];
+          break;
+        }
+
         form.push({
           id: `f${form.length}`,
           key,
           value: isFile ? "" : rest,
           enabled: true,
           kind: isFile ? "file" : "text",
-          ...(isFile ? { filePath: rest.slice(1) } : {}),
+          // One `-F name=@path` is one file; several are written as several
+          // flags with the same name, which the merge below folds into one
+          // field rather than leaving as duplicate parts.
+          ...(isFile ? { filePaths: [rest.slice(1)] } : {}),
           ...(contentType ? { contentType } : {}),
         });
         break;

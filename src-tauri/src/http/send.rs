@@ -102,25 +102,37 @@ fn read_attachment(path: &str) -> Result<(Vec<u8>, String), SendError> {
     Ok((bytes, name))
 }
 
+/// One part per file, and one part per text field.
+///
+/// A field with several files becomes several parts **under the same name**,
+/// which is how multipart carries a list and what a browser sends for
+/// `<input type="file" multiple>`. A server reading the form sees the name
+/// repeated and collects the files in the order they were attached.
+///
+/// Every file is read here, before the first hop, for the same reason the
+/// single-file case was: a redirect rebuilds the form, and a path read again
+/// later might no longer be the file that was chosen.
 fn prepare_parts(fields: &[BodyField]) -> Result<Vec<PreparedPart>, SendError> {
     let mut parts = Vec::with_capacity(fields.len());
     for field in fields {
-        match &field.file_path {
-            Some(path) => {
-                let (bytes, file_name) = read_attachment(path)?;
-                parts.push(PreparedPart {
-                    name: field.key.clone(),
-                    value: bytes,
-                    file_name: Some(file_name),
-                    content_type: field.content_type.clone(),
-                });
-            }
-            None => parts.push(PreparedPart {
+        if field.file_paths.is_empty() {
+            parts.push(PreparedPart {
                 name: field.key.clone(),
                 value: field.value.clone().into_bytes(),
                 file_name: None,
                 content_type: field.content_type.clone(),
-            }),
+            });
+            continue;
+        }
+
+        for path in &field.file_paths {
+            let (bytes, file_name) = read_attachment(path)?;
+            parts.push(PreparedPart {
+                name: field.key.clone(),
+                value: bytes,
+                file_name: Some(file_name),
+                content_type: field.content_type.clone(),
+            });
         }
     }
     Ok(parts)
@@ -760,7 +772,7 @@ mod tests {
             fields: vec![BodyField {
                 key: "grant_type".into(),
                 value: "client_credentials".into(),
-                file_path: None,
+                file_paths: Vec::new(),
                 content_type: None,
             }],
         }
@@ -817,7 +829,7 @@ mod tests {
             fields: vec![BodyField {
                 key: "file".into(),
                 value: "x".into(),
-                file_path: None,
+                file_paths: Vec::new(),
                 content_type: None,
             }],
         };
@@ -852,13 +864,13 @@ mod tests {
                 BodyField {
                     key: "user name".into(),
                     value: "ada lovelace".into(),
-                    file_path: None,
+                    file_paths: Vec::new(),
                     content_type: None,
                 },
                 BodyField {
                     key: "note".into(),
                     value: "a&b=c".into(),
-                    file_path: None,
+                    file_paths: Vec::new(),
                     content_type: None,
                 },
             ],
@@ -949,7 +961,7 @@ mod tests {
             fields: vec![BodyField {
                 key: "caption".into(),
                 value: "me".into(),
-                file_path: None,
+                file_paths: Vec::new(),
                 content_type: None,
             }],
         }))

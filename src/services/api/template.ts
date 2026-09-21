@@ -249,7 +249,11 @@ export function resolveBody(
       // rarer than one with a templated value, but it is not a mistake.
       key: take(field.key),
       value: take(field.value),
-      filePath: field.filePath === undefined ? undefined : take(field.filePath),
+      // Each path on its own: a `{{fixtures}}` in one attachment is as likely
+      // as in the next, and resolving the list as a whole is not a thing you
+      // can do to an array.
+      filePaths:
+        field.filePaths === undefined ? undefined : field.filePaths.map((path) => take(path)),
     })),
   };
 

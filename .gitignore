@@ -21,7 +21,11 @@ src-tauri/target/
 # Generated icon source
 app-icon.png
 
-frontend/*
+# A git repository of its own. `frontend/*` did not keep it out: an embedded
+# repo is added as a single gitlink at `frontend`, with no trailing component
+# for `/*` to match, so `git add -A` swept it in as a submodule with no
+# `.gitmodules` behind it. The directory form matches the entry itself.
+frontend/
 docs/issues/*
 # Vendored by scripts/copy-excalidraw-assets.mjs
 public/excalidraw-assets/

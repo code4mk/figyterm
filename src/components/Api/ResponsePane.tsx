@@ -382,13 +382,25 @@ export function ResponsePane({
         />
       )}
 
-      <div className="flex items-center gap-2 px-3 h-7 shrink-0 border-b border-ft-border">
-        <span className="text-[11px] font-semibold text-ft-text">Response</span>
-      </div>
-      {strip}
+      {/*
+        The title and the status, on one row.
 
-      {/* Status line. Everything anyone checks first, on one row. */}
-      <div className="flex items-center gap-3 px-3 h-7 shrink-0 border-b border-ft-border text-[11px]">
+        These were two, and the first of them held a single word: `Response`
+        alone in a 28px row, above a second row saying `200 OK · 412ms · 1.2K`.
+        Three stacked rows of chrome — title, status, tabs — before any of the
+        answer, in a pane whose whole job is to show the answer. The heading
+        earns its place on the empty states, where it says what the space is
+        for; once there is a response in it, the status line is the heading, and
+        the word only needs to be the first thing on it.
+
+        Left to right it reads as one sentence: what this is, how it went, how
+        long, how big, and what you can do with it.
+      */}
+      <div className="flex items-center gap-2.5 px-3 h-7 shrink-0 border-b border-ft-border text-[11px]">
+        <span className="font-semibold text-ft-text">Response</span>
+        {/* The same hairline the status bar puts between its own groups. */}
+        <span className="w-px h-3 shrink-0 bg-ft-border-subtle" />
+
         <span className={`font-semibold ${toneClass(statusTone(shown.status))}`}>
           {shown.status} {shown.statusText}
         </span>
@@ -421,6 +433,7 @@ export function ResponsePane({
           </button>
         )}
       </div>
+      {strip}
 
       <div className="api-tabstrip flex items-center gap-1 px-2 h-7 shrink-0 border-b border-ft-border">
         {(["body", "tests", "headers", "request", "timing"] as ResponseTab[]).map((name) => {

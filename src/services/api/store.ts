@@ -12,6 +12,7 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
+import { normalizeBody } from "./request";
 import {
   ApiCollection,
   ApiExample,
@@ -114,8 +115,18 @@ export function duplicateItem(id: string, name: string, rank: string): Promise<A
   return invoke<ApiItem[]>("api_item_duplicate", { id, name, rank });
 }
 
-export function loadRequest(itemId: string): Promise<SavedRequest | null> {
-  return invoke<SavedRequest | null>("api_request_load", { itemId });
+/**
+ * One saved request, in the shape this build expects.
+ *
+ * The body goes through `normalizeBody` here rather than at each of the three
+ * places that open a request, so a stored shape this build has moved on from is
+ * upgraded once, at the boundary it comes through. See that function for what
+ * it upgrades and why it is not written back.
+ */
+export async function loadRequest(itemId: string): Promise<SavedRequest | null> {
+  const saved = await invoke<SavedRequest | null>("api_request_load", { itemId });
+  if (!saved?.body) return saved;
+  return { ...saved, body: normalizeBody(saved.body) };
 }
 
 export function saveRequest(params: {

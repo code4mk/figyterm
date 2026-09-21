@@ -185,7 +185,12 @@ function writeBody(body: RequestBody, original: unknown, contentType: string | u
           const entry: Record<string, unknown> = { key: field.key };
           if (field.kind === "file") {
             entry.type = "file";
-            if (field.filePath) entry.src = field.filePath;
+            // A string for one file, a list for several — which is the shape
+            // the format uses, and the shape every other client reading this
+            // document expects to find.
+            const files = field.filePaths ?? [];
+            if (files.length === 1) entry.src = files[0];
+            else if (files.length > 1) entry.src = files;
           } else {
             entry.value = field.value;
             // Only a multipart part carries a type of its own; a form field is
@@ -212,6 +217,13 @@ function writeBody(body: RequestBody, original: unknown, contentType: string | u
   }
 }
 
+/** Same attachments, in the same order — reordering them is a real change. */
+function sameFiles(a: string[] | undefined, b: string[] | undefined): boolean {
+  const left = a ?? [];
+  const right = b ?? [];
+  return left.length === right.length && left.every((path, index) => path === right[index]);
+}
+
 /**
  * Whether two bodies are the same request.
  *
@@ -236,7 +248,7 @@ function sameBody(a: RequestBody, b: RequestBody): boolean {
       field.value === other.value &&
       field.enabled === other.enabled &&
       field.kind === other.kind &&
-      (field.filePath ?? "") === (other.filePath ?? "") &&
+      sameFiles(field.filePaths, other.filePaths) &&
       (field.contentType ?? "") === (other.contentType ?? "")
     );
   });

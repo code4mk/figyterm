@@ -330,7 +330,8 @@ interface ApiState {
   setQuery: (query: string) => void;
   toggleExpanded: (id: string) => void;
 
-  createCollection: (name: string) => Promise<void>;
+  /** Returns the new collection's id, so a caller can save straight into it. */
+  createCollection: (name: string) => Promise<string | null>;
   /**
    * Opens a workspace, replacing everything on screen with what is in it.
    *
@@ -376,7 +377,19 @@ interface ApiState {
   setParams: (tabId: string, params: QueryRow[]) => void;
   patchTab: (tabId: string, patch: Partial<Tab>) => void;
   saveTab: (tabId: string) => Promise<void>;
-  saveTabInto: (tabId: string, collectionId: string, parentId: string | null) => Promise<void>;
+  /**
+   * Gives a scratch request a home, and a name.
+   *
+   * `name` is what the save dialog asked for. Without one the name is derived
+   * from the URL, which is what the rail used to show for every unsaved tab
+   * and is still the right guess when nobody has been asked.
+   */
+  saveTabInto: (
+    tabId: string,
+    collectionId: string,
+    parentId: string | null,
+    name?: string
+  ) => Promise<void>;
 
   send: (tabId: string, options?: { verifyTls?: boolean; force?: boolean }) => Promise<void>;
   cancel: (tabId: string) => void;
@@ -549,7 +562,14 @@ export function isDirty(tab: Tab): boolean {
 }
 
 /** A name for a request that has never been given one. */
-function nameFor(draft: RequestDraft): string {
+/**
+ * The name an unsaved request wears until somebody gives it one.
+ *
+ * Exported because the save dialog offers it as the suggestion: the host and
+ * path are what anybody would type anyway, and a dialog that opened with an
+ * empty field would make naming compulsory rather than easy.
+ */
+export function nameFor(draft: RequestDraft): string {
   const url = draft.url.trim();
   if (url === "") return "Untitled";
   const path = url.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "").split("?")[0]!;
@@ -1009,8 +1029,10 @@ export const useApiStore = create<ApiState>((set, get) => {
           collections: [...state.collections, collection],
           expanded: new Set(state.expanded).add(collection.id),
         }));
+        return collection.id;
       } catch (error) {
         set({ storeError: String(error) });
+        return null;
       }
     },
 
@@ -1473,10 +1495,12 @@ export const useApiStore = create<ApiState>((set, get) => {
       }
     },
 
-    saveTabInto: async (tabId, collectionId, parentId) => {
+    saveTabInto: async (tabId, collectionId, parentId, chosenName) => {
       const tab = get().tabs.find((row) => row.id === tabId);
       if (!tab) return;
-      const name = tab.name === "Untitled" ? nameFor(tab.draft) : tab.name;
+      const name =
+        chosenName?.trim() ||
+        (tab.name === "Untitled" ? nameFor(tab.draft) : tab.name);
 
       const itemId = await get().createItem(collectionId, parentId, "request", name);
       if (!itemId) return;

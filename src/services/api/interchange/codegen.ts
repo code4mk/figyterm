@@ -162,9 +162,15 @@ function curl(request: CodeRequest): string {
   if (body.kind === "file") add(`  --data-binary ${shellQuote(`@${body.path}`)}`);
   if (body.kind === "multipart") {
     for (const field of body.fields) {
-      const value =
-        field.kind === "file" ? `@${field.filePath ?? ""}` : field.value;
-      add(`  --form ${shellQuote(`${field.key}=${value}`)}`);
+      if (field.kind !== "file") {
+        add(`  --form ${shellQuote(`${field.key}=${field.value}`)}`);
+        continue;
+      }
+      // The flag repeated with the same name is how curl spells several files
+      // in one field, and it is what `curl.ts` reads back.
+      for (const path of field.filePaths ?? [""]) {
+        add(`  --form ${shellQuote(`${field.key}=@${path}`)}`);
+      }
     }
   }
   return lines.join("\n");
@@ -175,12 +181,22 @@ function formDataLines(fields: BodyField[]): string[] {
   const lines = ["const form = new FormData();"];
   for (const field of fields) {
     if (field.kind === "file") {
+      const files = field.filePaths ?? [];
       lines.push(
-        `// ${field.key}: attach the file yourself — a browser cannot read ${
-          field.filePath ?? "a path"
+        `// ${field.key}: attach ${
+          files.length > 1 ? `${files.length} files` : "the file"
+        } yourself — a browser cannot read ${
+          files.length > 0 ? files.join(", ") : "a path"
         }`
       );
-      lines.push(`form.append(${jsString(field.key)}, fileInput.files[0]);`);
+      // `append` repeated under one name is how FormData carries a list, and
+      // it matches what a `multiple` file input produces.
+      files.forEach((_, index) => {
+        lines.push(`form.append(${jsString(field.key)}, fileInput.files[${index}]);`);
+      });
+      if (files.length === 0) {
+        lines.push(`form.append(${jsString(field.key)}, fileInput.files[0]);`);
+      }
     } else {
       lines.push(`form.append(${jsString(field.key)}, ${jsString(field.value)});`);
     }
@@ -302,13 +318,34 @@ function python(request: CodeRequest): string {
       args.push("data=data");
     }
     if (attached.length > 0) {
-      lines.push("files = {");
-      for (const field of attached) {
-        lines.push(
-          `    ${pythonString(field.key)}: open(${pythonString(field.filePath ?? "")}, "rb"),`
-        );
+      /*
+        A dict cannot repeat a key, so a field with several files has to be
+        written as the list of pairs `requests` also accepts. The dict is kept
+        for the ordinary case because it is what anybody reading the snippet
+        expects to see.
+      */
+      const repeats = attached.some((field) => (field.filePaths ?? []).length > 1);
+      if (repeats) {
+        lines.push("files = [");
+        for (const field of attached) {
+          for (const path of field.filePaths ?? []) {
+            lines.push(
+              `    (${pythonString(field.key)}, open(${pythonString(path)}, "rb")),`
+            );
+          }
+        }
+        lines.push("]", "");
+      } else {
+        lines.push("files = {");
+        for (const field of attached) {
+          lines.push(
+            `    ${pythonString(field.key)}: open(${pythonString(
+              (field.filePaths ?? [])[0] ?? ""
+            )}, "rb"),`
+          );
+        }
+        lines.push("}", "");
       }
-      lines.push("}", "");
       args.push("files=files");
     }
   }
@@ -346,8 +383,11 @@ function go(request: CodeRequest): string {
     );
     for (const field of body.fields) {
       if (field.kind === "file") {
+        // One block per attachment; the part name repeats, which is how
+        // multipart carries several files under one field.
+        for (const path of field.filePaths ?? [""]) {
         lines.push(
-          `\tfile, err := os.Open(${jsString(field.filePath ?? "")})`,
+          `\tfile, err := os.Open(${jsString(path)})`,
           "\tif err != nil {",
           "\t\tpanic(err)",
           "\t}",
@@ -358,6 +398,7 @@ function go(request: CodeRequest): string {
           "\tio.Copy(part, file)",
           "\tfile.Close()"
         );
+        }
       } else {
         lines.push(
           `\twriter.WriteField(${jsString(field.key)}, ${jsString(field.value)})`
@@ -446,11 +487,18 @@ function php(request: CodeRequest): string {
     // `CURLFile` is what makes a part a file rather than its own path as text.
     lines.push("    CURLOPT_POSTFIELDS => [");
     for (const field of body.fields) {
-      lines.push(
-        field.kind === "file"
-          ? `        ${phpString(field.key)} => new CURLFile(${phpString(field.filePath ?? "")}),`
-          : `        ${phpString(field.key)} => ${phpString(field.value)},`
-      );
+      if (field.kind !== "file") {
+        lines.push(`        ${phpString(field.key)} => ${phpString(field.value)},`);
+        continue;
+      }
+      const files = field.filePaths ?? [""];
+      // A PHP array cannot repeat a key either, so several files under one
+      // name take the `name[0]`, `name[1]` form cURL understands. One file
+      // keeps the plain name, which is what nearly every snippet has.
+      files.forEach((path, index) => {
+        const key = files.length > 1 ? `${field.key}[${index}]` : field.key;
+        lines.push(`        ${phpString(key)} => new CURLFile(${phpString(path)}),`);
+      });
     }
     lines.push("    ],");
   }

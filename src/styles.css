@@ -9506,6 +9506,207 @@
   background: var(--ft-surface);
 }
 
+/* ─── Where a request is saved ─────────────────────────────────────────────
+ *
+ * The destination list in the save dialog: every collection, and the folders
+ * inside it, indented. A radio group rather than a dropdown — the answer is
+ * "which of these", the list is short, and seeing the shape of the tree is
+ * most of how anybody recognises the right place in it.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+.api-save-targets {
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 3px;
+  border-radius: 6px;
+  border: 1px solid var(--ft-border-subtle);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.api-save-target {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  height: 24px;
+  padding-right: 8px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  color: var(--ft-text-secondary);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.api-save-target:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ft-text);
+}
+
+.api-save-target.selected {
+  background: rgba(99, 102, 241, 0.16);
+  border-color: rgba(99, 102, 241, 0.35);
+  color: var(--ft-text);
+}
+
+.api-save-target:focus-visible {
+  outline: none;
+  border-color: var(--ft-accent);
+}
+
+.light .api-save-targets {
+  background: rgba(15, 23, 42, 0.02);
+}
+
+.light .api-save-target:hover {
+  background: rgba(15, 23, 42, 0.05);
+}
+
+.light .api-save-target.selected {
+  background: rgba(79, 70, 229, 0.12);
+  border-color: rgba(79, 70, 229, 0.32);
+}
+
+/*
+  The rendered description on a folder's or a collection's overview.
+
+  It carries the click that opens the editor, so it needs to look like
+  something you can click without looking like a button — a description is
+  prose, and prose in a button reads as a control. A border that only appears
+  on hover says "this responds" at the moment you are asking.
+
+  `min-height` so an empty one is still a target: with nothing in it there is
+  a line of placeholder text and nothing else, and a two-pixel strip is not
+  something anybody can hit.
+*/
+.api-description {
+  min-height: 60px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  cursor: text;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+
+.api-description:hover {
+  border-color: var(--ft-border-subtle);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.light .api-description:hover {
+  background: rgba(15, 23, 42, 0.02);
+}
+
+/* ─── Attachments on a multipart part ──────────────────────────────────────
+ *
+ * Chips rather than a select. A select offers a list somebody already has;
+ * these come from the OS file dialog, so there is no option set to present —
+ * only what has been picked, in the order it was picked. What the control has
+ * to do is show which files are attached and let one be taken out, and chips do
+ * that inside a table cell where a select would show one line and hide the
+ * rest behind a click.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+.api-file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 160px;
+  height: 18px;
+  padding: 0 2px 0 7px;
+  border-radius: 999px;
+  border: 1px solid var(--ft-border-subtle);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ft-text-secondary);
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 10px;
+  min-width: 0;
+}
+
+.api-file-chip-x {
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  flex: none;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--ft-text-muted);
+  cursor: pointer;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+
+.api-file-chip-x:hover {
+  color: var(--ft-error);
+  background: rgba(248, 81, 73, 0.14);
+}
+
+/*
+  Add. Dashed while the part is empty, because then it is the only thing to do
+  and a slot reads as one; solid once there are files, where it is one more
+  control beside them rather than the point of the row.
+*/
+.api-file-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 999px;
+  border: 1px solid var(--ft-border-subtle);
+  background: transparent;
+  color: var(--ft-text-secondary);
+  font-size: 10px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+}
+
+.api-file-add:hover {
+  color: var(--ft-text);
+  border-color: var(--ft-accent);
+  background: rgba(99, 102, 241, 0.09);
+}
+
+.api-file-add.empty {
+  border-style: dashed;
+  border-color: var(--ft-warning);
+  color: var(--ft-warning);
+}
+
+.api-file-add.empty:hover {
+  background: rgba(210, 153, 34, 0.1);
+  border-color: var(--ft-warning);
+  color: var(--ft-warning);
+}
+
+.light .api-file-chip {
+  background: rgba(15, 23, 42, 0.05);
+}
+
+/*
+  A multipart part that has a file but no name.
+
+  It is dropped at send — multipart has nowhere to put an unnamed part — and
+  dropping it silently meant a row that named the file you picked while the
+  upload never happened. Amber rather than red: nothing has gone wrong yet,
+  there is just one more word to type. The border holds while the cell has
+  focus, because that is exactly when you are being told what to type.
+*/
+.api-cell.needs-name,
+.api-cell.needs-name:hover,
+.api-cell.needs-name:focus {
+  border-color: var(--ft-warning);
+}
+
+.api-cell.needs-name::placeholder {
+  color: var(--ft-warning);
+  opacity: 0.85;
+}
+
 /* The environment quick look. Anchored under the selector, and wide enough to
  * read a URL without wrapping it — which is most of what is in one. */
 .api-env-peek {
@@ -10477,9 +10678,15 @@ body > .cm-api-completions .cm-completionDetail {
   color: var(--ft-text-muted);
 }
 
+/*
+  No `cursor` here. The family rule above — "what is clickable says so" —
+  already gives every row a pointer, and a `cursor: default` at this point in
+  the file is later with the same specificity, so it quietly won: the whole
+  collection tree and the environment list read as text you could not click.
+  The rule that states the intent is the one that should decide it.
+*/
 .api-row {
   height: 22px;
-  cursor: default;
   position: relative;
   user-select: none;
 }
@@ -10581,8 +10788,9 @@ body > .cm-api-completions .cm-completionDetail {
   border-radius: 4px;
 }
 
+/* Same as `.api-row`: the family rule above sets the pointer. */
 .api-history-row {
-  cursor: default;
+  cursor: pointer;
 }
 .api-history-row:hover {
   background: var(--ft-surface);
@@ -10834,7 +11042,16 @@ body > .cm-api-completions .cm-completionDetail {
   border-style: dashed;
 }
 
+/*
+  `inline-flex` because some of these carry an icon beside their label — Save
+  as example does — and inline layout aligned the glyph on the text baseline,
+  which sits it a pixel low against a 10px label. Every one of them is a single
+  short line, so flex costs nothing where there is no icon.
+*/
 .api-chip-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   padding: 1px 6px;
   border-radius: 10px;
   border: 1px solid var(--ft-border);
@@ -11894,11 +12111,25 @@ body > .cm-api-completions .cm-completionDetail {
 }
 
 /* A row is the workspace and its tools. The tools appear on hover, so a list
- * of workspaces reads as a list rather than a column of buttons. */
+ * of workspaces reads as a list rather than a column of buttons.
+ *
+ * Separated by a margin rather than packed: each row is a rounded block that
+ * fills with colour on hover, and touching blocks make one continuous band
+ * where the highlight has no edges of its own — you cannot see where the row
+ * you are pointing at begins. A gap is what gives the rounding something to
+ * be round against. */
 .api-workspace-row {
   display: flex;
   align-items: center;
   border-radius: 7px;
+  /*
+    The gap goes under every row rather than between them. `:last-of-type`
+    would not have reached the last one — the heading and the rule below the
+    list are `div`s too, so the last `div` among those siblings is the rule,
+    not a workspace — and a margin per row is independent of whatever ends up
+    sitting beside it.
+  */
+  margin-bottom: 2px;
 }
 .api-workspace-row:hover,
 .api-workspace-row.active {

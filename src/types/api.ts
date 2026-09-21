@@ -37,7 +37,15 @@ export interface BodyField {
   enabled: boolean;
   /** Multipart only: a part whose content is a file on disk. */
   kind: "text" | "file";
-  filePath?: string;
+  /**
+   * The files attached to this part, in the order chosen.
+   *
+   * A list because multipart allows it and forms in the wild use it: several
+   * files under one field name is what `<input type="file" multiple>` sends,
+   * and it goes on the wire as the part repeated once per file. One file is
+   * the ordinary case and is a list of one.
+   */
+  filePaths?: string[];
   /** Sent for this part when it should not be guessed. */
   contentType?: string;
 }
@@ -83,7 +91,8 @@ export const DEFAULT_SEND_OPTIONS: SendOptions = {
 export interface SendField {
   key: string;
   value: string;
-  filePath?: string;
+  /** One entry per file; Rust repeats the part for each. */
+  filePaths?: string[];
   contentType?: string;
 }
 

@@ -12,7 +12,8 @@
  * and two editors for it would be two chances to write it differently.
  */
 
-import { FolderOpen, Layers, Save } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Check, FolderOpen, Layers, Pencil, Save } from "lucide-react";
 import { ApiItem, DraftAuth } from "../../types/api";
 import { ParsedAuth } from "../../services/api/auth";
 import { CollectedScript } from "../../services/api/scripts/events";
@@ -62,40 +63,108 @@ function Overview({
   const counts = tally(contents);
   const requests = contents.filter((row) => row.kind === "request");
 
+  /*
+    One of the two at a time.
+
+    The description used to be a textarea with a rendered copy of itself
+    underneath, so the same words were on screen twice and neither had the
+    room: a paragraph of Markdown in a 110px box above its own preview. A
+    description is read far more often than it is written, so reading is the
+    default and writing is a state you enter — by pressing Edit, or by clicking
+    the text, which is where anybody who wants to change a word will click
+    first.
+  */
+  const [editing, setEditing] = useState(false);
+  const editor = useRef<HTMLTextAreaElement>(null);
+
+  // Focus follows the mode, with the caret at the end rather than at the
+  // start: entering the editor is nearly always to add to what is there.
+  useEffect(() => {
+    if (!editing) return;
+    const box = editor.current;
+    if (!box) return;
+    box.focus();
+    box.setSelectionRange(box.value.length, box.value.length);
+  }, [editing]);
+
   return (
     <div className="flex-1 min-h-0 overflow-auto">
-      <div className="px-3 pt-3 pb-2">
+      <div className="px-3 pt-3 pb-3">
         <div className="mb-1.5 flex items-center gap-2">
           <span className="text-[10px] uppercase tracking-wide text-ft-text-muted">
             Description
           </span>
           <span className="text-[10px] text-ft-text-muted">
-            Markdown. Everyone who opens this {kind} reads it.
+            {editing
+              ? "Markdown. Escape when you are done."
+              : `Everyone who opens this ${kind} reads it.`}
           </span>
+          <span className="flex-1" />
+          <button
+            className="api-chip-action"
+            onClick={() => setEditing(!editing)}
+            title={editing ? "Show it as everyone else sees it" : "Edit the Markdown"}
+          >
+            {editing ? <Check size={10} /> : <Pencil size={10} />}
+            {editing ? "Done" : "Edit"}
+          </button>
         </div>
-        <textarea
-          className="api-body-editor w-full min-h-[110px] resize-y rounded border border-ft-border-subtle bg-transparent px-2 py-1.5 text-[11px] leading-relaxed outline-none focus:border-ft-accent"
-          value={draft.description}
-          spellCheck={false}
-          placeholder={
-            kind === "collection"
-              ? "What this service is, where it lives, who to ask."
-              : "What these requests have in common."
-          }
-          onChange={(e) => onChange({ description: e.target.value })}
-        />
-      </div>
 
-      {draft.description.trim() !== "" && (
-        <div className="px-3 pb-3">
-          <div className="mb-1.5 text-[10px] uppercase tracking-wide text-ft-text-muted">
-            Preview
+        {editing ? (
+          <textarea
+            ref={editor}
+            className="api-body-editor w-full min-h-[160px] resize-y rounded border border-ft-border-subtle bg-transparent px-2 py-1.5 text-[11px] leading-relaxed outline-none focus:border-ft-accent"
+            value={draft.description}
+            spellCheck={false}
+            placeholder={
+              kind === "collection"
+                ? "What this service is, where it lives, who to ask."
+                : "What these requests have in common."
+            }
+            onChange={(e) => onChange({ description: e.target.value })}
+            onKeyDown={(e) => {
+              // Escape leaves the editor rather than the tab. Nothing is
+              // discarded by it — the draft is already saved on every
+              // keystroke, and this only changes which of the two you see.
+              if (e.key === "Escape") {
+                e.stopPropagation();
+                setEditing(false);
+              }
+            }}
+          />
+        ) : (
+          /*
+            The rendered description, and the way into editing it.
+
+            A `div` with a click rather than a button: it holds headings, lists
+            and links, and a button full of block elements is invalid markup
+            whose links you cannot click — the link would win the click and the
+            button would swallow it. So the surface takes the click, and the
+            keyboard gets it through the Edit button above, which is a real
+            button and already in the tab order.
+          */
+          <div
+            className="api-description"
+            onClick={(e) => {
+              // A link in the description is for following, not for opening
+              // the editor.
+              if ((e.target as HTMLElement).closest("a")) return;
+              setEditing(true);
+            }}
+            title="Click to edit"
+          >
+            {draft.description.trim() === "" ? (
+              <span className="text-[11px] text-ft-text-muted">
+                {kind === "collection"
+                  ? "No description yet. Click to say what this service is, where it lives and who to ask."
+                  : "No description yet. Click to say what these requests have in common."}
+              </span>
+            ) : (
+              <Markdown source={draft.description} />
+            )}
           </div>
-          <div className="rounded border border-ft-border-subtle px-3 py-2">
-            <Markdown source={draft.description} />
-          </div>
-        </div>
-      )}
+        )}
+      </div>
 
       <div className="border-t border-ft-border-subtle px-3 py-2">
         <div className="mb-1.5 text-[10px] uppercase tracking-wide text-ft-text-muted">
