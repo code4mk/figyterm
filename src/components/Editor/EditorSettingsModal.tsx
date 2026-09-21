@@ -292,6 +292,13 @@ export function EditorSettingsModal({
                   checked={settings.indentGuides}
                   onChange={(indentGuides) => onChange({ indentGuides })}
                 />
+
+                <Toggle
+                  label="Blame on the current line"
+                  hint="Who last changed the line the cursor is on, at the end of it. Only inside a git repository."
+                  checked={settings.gitBlame}
+                  onChange={(gitBlame) => onChange({ gitBlame })}
+                />
               </Panel>
             )}
 

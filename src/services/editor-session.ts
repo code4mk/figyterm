@@ -132,6 +132,16 @@ export interface EditorSettings {
   fontSize: number;
   lineHeight: number;
   indentGuides: boolean;
+  /**
+   * Who last changed the line the cursor is on, shown at the end of it.
+   *
+   * **On by default**, unlike the language servers. It costs one `git blame`
+   * per file opened inside a repository and nothing after that — no child
+   * process to keep alive, no memory held — and the question it answers is one
+   * people have while reading rather than one they go looking for. Absent from
+   * a file that is not in a repository, and from one git has never seen.
+   */
+  gitBlame: boolean;
   /** What indentation to use when a file's own can't be detected. */
   useTabs: boolean;
   indentWidth: number;
@@ -237,6 +247,7 @@ export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   // fits a useful number of lines in a modal this size.
   lineHeight: 1.55,
   indentGuides: true,
+  gitBlame: true,
   useTabs: false,
   indentWidth: 2,
   wordWrap: false,

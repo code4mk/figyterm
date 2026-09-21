@@ -2018,6 +2018,322 @@
   outline: none;
 }
 
+/*
+  The blame annotation, at the end of the line the cursor is on.
+ 
+  Quiet on purpose. It sits inside a line of code and is competing with the
+  code for the same glance, so it gets no background, no border, and a weight
+  low enough that the eye passes over it until it is looking for it. Italic
+  because that is how prose beside code has always said "this is not code".
+ 
+  `user-select: none` and `pointer-events: none`: it is a note *about* the line
+  and not part of it, so selecting the line must not pick it up, a double-click
+  must not highlight a word of it, and copying a block of code must not paste
+  somebody's commit message into the middle of it.
+*/
+.cm-blame {
+  /*
+    **Margin, not padding.** The gap that separates the note from the code has
+    to be outside the element: padding is part of the box, so it was part of the
+    hover target, and the tooltip opened while the pointer was still over empty
+    space two and a half characters before the author's name. A margin puts the
+    same gap there and leaves the element starting where its first letter does.
+  */
+  margin-left: 2.5ch;
+  color: var(--ft-text-muted);
+  font-style: italic;
+  font-weight: 400;
+  opacity: 0.7;
+  white-space: pre;
+  /*
+    `user-select: none` so selecting the line does not pick the note up, and
+    copying a block of code does not paste somebody's commit message into the
+    middle of it.
+
+    **No `pointer-events: none`.** That was here for the same reason — clicks
+    belonging to the line and not the note — and it is what made the hover look
+    broken: an element that receives no pointer events is never hovered, so
+    nothing could ever fire. Keeping the caret off it is the widget's job
+    instead, through `ignoreEvent`.
+  */
+  user-select: none;
+  cursor: default;
+}
+
+.cm-blame:hover {
+  opacity: 1;
+}
+
+.light .cm-blame {
+  /* The muted tone is the lightest the light palette has, and at this size,
+     italic, against white it falls under what small text needs. */
+  color: var(--ft-text-secondary);
+  opacity: 0.6;
+}
+
+/* ─── The commit, on hover ─────────────────────────────────────────────────
+ *
+ * Inside `.cm-lsp-tooltip`, so the box, the ceiling, the scrolling and the
+ * type scale are the ones the language server's hover already uses. What is
+ * left is the order of four things and the space between them.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+/*
+  The box.
+
+  A copy of what `.cm-tooltip` gets from the editor's theme — same background,
+  border, radius and shadow — because that theme is scoped under a class on the
+  editor root and this tooltip lives on the body, where the scroller cannot clip
+  it. Two declarations of one look is a cost; a popup that does not match the
+  others in the same window is a worse one.
+*/
+.cm-blame-tooltip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 10080;
+  /* Narrower than a hover full of type signatures: this is prose, and prose
+     past about this width stops being scannable. */
+  max-width: 460px;
+  max-height: 320px;
+  overflow: auto;
+  padding: 7px 9px;
+  border: 1px solid var(--ft-border);
+  border-radius: 6px;
+  background: var(--ft-surface);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-style: normal;
+  /*
+    It takes the pointer, because there is now something in it to click: the
+    sha opens the commit on the forge. Reaching it means leaving the
+    annotation, so the close is on a grace period and entering this cancels it
+    — see `CLOSE_GRACE_MS`. Without both halves the tooltip is unreachable,
+    which is what it was.
+  */
+  pointer-events: auto;
+}
+
+.light .cm-blame-tooltip {
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+
+/* ─── Who ─────────────────────────────────────────────────────────────────── */
+
+.cm-blame-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 6px;
+}
+
+/*
+  Initials in a tinted square, the same mark the workspace picker uses.
+
+  Not a fetched avatar: this app does not talk to the network for anything, and
+  a Gravatar would mean hashing somebody's email and asking a third party who
+  they are every time a file is opened. The hue comes from the author's name —
+  set as a custom property by the code, because a stylesheet cannot derive a
+  colour from a name — so the same person is the same colour every time and two
+  people in one file rarely collide.
+*/
+.cm-blame-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: hsl(var(--blame-hue, 240) 55% 50% / 0.22);
+  color: hsl(var(--blame-hue, 240) 70% 72%);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.light .cm-blame-avatar {
+  background: hsl(var(--blame-hue, 240) 60% 45% / 0.16);
+  color: hsl(var(--blame-hue, 240) 55% 38%);
+}
+
+.cm-blame-who {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.35;
+}
+
+.cm-blame-author {
+  color: var(--ft-text);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.cm-blame-when {
+  color: var(--ft-text-muted);
+  font-size: 10px;
+}
+
+/* ─── What it said ────────────────────────────────────────────────────────── */
+
+.cm-blame-subject {
+  color: var(--ft-text);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Used by the uncommitted card, which has no author and no commit to show. */
+.cm-blame-meta {
+  margin-top: 3px;
+  color: var(--ft-text-secondary);
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+
+/*
+  The message body.
+
+  Ruled off rather than merely spaced: the subject and the body are two
+  different registers — one is a label, the other is an argument — and a commit
+  that writes several paragraphs is the case this is worth reading at all.
+*/
+.cm-blame-body {
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px solid var(--ft-border-subtle);
+  color: var(--ft-text-secondary);
+  font-size: 11px;
+  line-height: 1.55;
+  /* Its own line breaks kept, long lines wrapped: a commit message is written
+     to a width, and reflowing it runs its paragraphs together. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ─── The sha, and the two things anybody does with one ───────────────────── */
+
+.cm-blame-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px solid var(--ft-border-subtle);
+}
+
+/*
+  The chip.
+
+  Indigo rather than the grey wash it had: the sha is the identity of the thing
+  the whole tooltip is about, and at ten pixels of monospace a neutral tint
+  disappears into the panel behind it. The accent is also what the rest of this
+  window uses for "this is the thing", so the chip reads as a handle rather
+  than as a fragment of code that happened to be quoted.
+*/
+.cm-blame-sha {
+  display: inline-flex;
+  align-items: center;
+  height: 19px;
+  padding: 0 7px;
+  border-radius: 5px;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  background: rgba(99, 102, 241, 0.14);
+  color: #a5b4fc;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  text-decoration: none;
+  user-select: text;
+}
+
+/* Underlined only on hover: at rest it is a fact about the commit, and a
+   permanent underline in a tooltip full of prose reads as emphasis. */
+.cm-blame-sha.is-link {
+  cursor: pointer;
+}
+
+.cm-blame-sha.is-link:hover {
+  border-color: var(--ft-accent);
+  background: rgba(99, 102, 241, 0.24);
+  color: #c7d2fe;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.light .cm-blame-sha {
+  border-color: rgba(79, 70, 229, 0.28);
+  background: rgba(79, 70, 229, 0.1);
+  color: var(--ft-accent);
+}
+
+.light .cm-blame-sha.is-link:hover {
+  background: rgba(79, 70, 229, 0.18);
+  color: var(--ft-accent-hover);
+}
+
+/* Copy. Quiet beside the chip, because the chip is the subject of the row and
+   this is the thing you do to it. */
+.cm-blame-copy {
+  height: 19px;
+  padding: 0 7px;
+  border: 1px solid var(--ft-border-subtle);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ft-text-muted);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 10px;
+  cursor: pointer;
+  transition: color 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+}
+
+.cm-blame-copy:hover {
+  border-color: var(--ft-border);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ft-text);
+}
+
+/* It stays green once it has copied, rather than flicking back: the tooltip is
+   about to close anyway, and the confirmation is the whole point of it. */
+.cm-blame-copy.done {
+  border-color: rgba(63, 185, 80, 0.4);
+  background: rgba(63, 185, 80, 0.14);
+  color: var(--ft-success);
+}
+
+.light .cm-blame-copy:hover {
+  background: rgba(15, 23, 42, 0.05);
+}
+
+/*
+  The message body.
+
+  Ruled off rather than merely spaced: the subject and the body are two
+  different registers — one is a label, the other is an argument — and a commit
+  that writes several paragraphs is the case this is worth reading at all.
+*/
+.cm-blame-body {
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px solid var(--ft-border-subtle);
+  color: var(--ft-text-secondary);
+  font-size: 11px;
+  line-height: 1.55;
+  /* Its own line breaks kept, long lines wrapped: a commit message is written
+     to a width, and reflowing it runs its paragraphs together. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.light .cm-blame-sha {
+  background: rgba(15, 23, 42, 0.06);
+}
+
 .editor-placeholder {
   background:
     linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px) 0 0 / 100% 24px,

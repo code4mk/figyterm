@@ -18,8 +18,8 @@ use tauri::State;
 
 use crate::commands::fs::{resolve, FsState};
 use crate::git::operations::{
-    self, GitBranch, GitCommit, GitCommitDetail, GitCommitFile, GitConflictFile, GitFileDiff,
-    GitRepo, GitStash, Side, LOG_PAGE,
+    self, GitBlame, GitBranch, GitCommit, GitCommitDetail, GitCommitFile, GitConflictFile,
+    GitFileDiff, GitRepo, GitStash, Side, LOG_PAGE,
 };
 
 /// Resolves the workspace directory, then asks git where the repository is.
@@ -47,6 +47,18 @@ pub fn git_status(state: State<FsState>, dir: String) -> Result<GitRepo, String>
 pub fn git_ignored(state: State<FsState>, dir: String) -> Result<Vec<String>, String> {
     let resolved = resolve(&state, &dir)?;
     operations::ignored(&resolved)
+}
+
+/// Who last touched each line of one file.
+///
+/// `async` because `git blame` walks the file's history and is the slowest of
+/// these by a distance — on a long file in an old repository it is tens of
+/// milliseconds at best, and running that on the UI thread would stutter the
+/// editor every time a file was opened.
+#[tauri::command(async)]
+pub fn git_blame(state: State<FsState>, dir: String, path: String) -> Result<GitBlame, String> {
+    let root = repo_root(&state, &dir)?;
+    operations::blame(&root, &path)
 }
 
 #[tauri::command]

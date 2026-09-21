@@ -125,6 +125,7 @@ pub fn run() {
             commands::git::git_status,
             commands::git::git_ignored,
             commands::git::git_file_hunks,
+            commands::git::git_blame,
             commands::git::git_file_diff,
             commands::git::git_stage,
             commands::git::git_unstage,
