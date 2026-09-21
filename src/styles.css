@@ -8043,30 +8043,37 @@
 
 /* ─── The dock ─────────────────────────────────────────────────────────────
  *
- * Windows put away rather than closed, along the footer.
+ * Windows put away rather than closed, in the footer's control cluster.
  *
- * A pill per window, with its mark and its name, because an icon alone made
- * the row a guessing game — four unlabelled glyphs in a 28px status bar is
- * not a thing anybody reads, it is a thing they hover one at a time. The name
- * costs a few pixels the bar has to spare and turns the row into a sentence.
+ * A chip per window, with its mark and its name, because an icon alone made
+ * the row a guessing game — unlabelled glyphs in a 28px bar are not something
+ * anybody reads, they are something they hover one at a time. Three of these
+ * four marks are generic shapes rather than logos, which is exactly when a
+ * word earns its pixels.
  *
- * It sits early in the row, before the working directory, so its position does
- * not move when you `cd`. A click target that shifts because a path got longer
- * is a click target you have to look for every time.
+ * Sized to its neighbours: 20px tall, like the monitor, theme and settings
+ * buttons it sits beside, so the cluster reads as one row of controls rather
+ * than as a row with something taped to the front of it.
  * ───────────────────────────────────────────────────────────────────────── */
 
 .dock {
-  /* No divider of its own: the gap in the status bar row is the separation,
-     and a rule on each side of two pills is more furniture than content. */
   min-width: 0;
 }
 
+/* The same rule the status bar uses between its own groups. */
+.dock-divider {
+  width: 1px;
+  height: 12px;
+  flex: none;
+  background: var(--ft-border-subtle);
+}
+
 .dock-item {
-  height: 18px;
-  padding: 0 7px 0 5px;
+  height: 20px;
+  padding: 0 8px 0 6px;
   border-radius: 999px;
   border: 1px solid var(--ft-border-subtle);
-  background: rgba(255, 255, 255, 0.045);
+  background: rgba(255, 255, 255, 0.05);
   color: var(--ft-text-secondary);
   font-size: 10px;
   line-height: 1;
@@ -8076,14 +8083,25 @@
 }
 
 .dock-item:hover {
-  background: rgba(255, 255, 255, 0.09);
+  background: rgba(255, 255, 255, 0.1);
   border-color: var(--ft-border);
   color: var(--ft-text);
 }
 
+/*
+  Pressed reads as the accent, which is the colour restoring a window lands
+  on — the same one the window's own chrome uses for what is current.
+*/
 .dock-item:active {
-  background: rgba(99, 102, 241, 0.16);
-  border-color: rgba(99, 102, 241, 0.4);
+  background: rgba(99, 102, 241, 0.18);
+  border-color: rgba(99, 102, 241, 0.45);
+  color: var(--ft-text);
+}
+
+.dock-item:focus-visible {
+  outline: none;
+  border-color: var(--ft-accent);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
 }
 
 /* The mark keeps its own opacity so the name is what the eye lands on. */
@@ -8099,7 +8117,7 @@
 
 .dock-mark-image {
   display: block;
-  height: 11px;
+  height: 12px;
   width: auto;
   border-radius: 2px;
 }
@@ -8141,6 +8159,10 @@
 .light .dock-badge {
   background: rgba(79, 70, 229, 0.14);
   color: var(--ft-accent);
+}
+
+.light .dock-item:focus-visible {
+  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.2);
 }
 
 /* ─── Drawing window ───────────────────────────────────────────────────────

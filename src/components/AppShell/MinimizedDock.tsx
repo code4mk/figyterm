@@ -42,30 +42,40 @@ export function MinimizedDock({ windows, onRestore, badges }: MinimizedDockProps
   if (windows.length === 0) return null;
 
   return (
-    <div className="dock flex items-center gap-1" role="group" aria-label="Minimized windows">
-      {windows.map((id) => {
-        const { name, mark } = WINDOWS[id];
-        const badge = badges?.[id] ?? 0;
+    <>
+      <div className="dock flex items-center gap-1" role="group" aria-label="Minimized windows">
+        {windows.map((id) => {
+          const { name, mark } = WINDOWS[id];
+          const badge = badges?.[id] ?? 0;
 
-        return (
-          <button
-            key={id}
-            className="dock-item flex items-center gap-1.5"
-            onClick={() => onRestore(id)}
-            title={`${name} — minimized, still running. Click to bring it back.`}
-            aria-label={`Restore ${name}`}
-          >
-            <span className="dock-mark">{mark}</span>
-            <span className="dock-name">{name}</span>
-            {/*
-              A count rather than a dot: the thing worth knowing about a
-              minimized window is how much of it is waiting, and "3" says that
-              where a light only says "something".
-            */}
-            {badge > 0 && <span className="dock-badge">{badge}</span>}
-          </button>
-        );
-      })}
-    </div>
+          return (
+            <button
+              key={id}
+              className="dock-item flex items-center gap-1.5"
+              onClick={() => onRestore(id)}
+              title={`${name} — minimized, still running. Click to bring it back.`}
+              aria-label={`Restore ${name}`}
+            >
+              <span className="dock-mark">{mark}</span>
+              <span className="dock-name">{name}</span>
+              {/*
+                A count rather than a dot: the thing worth knowing about a
+                minimized window is how much of it is waiting, and "3" says
+                that where a light only says "something".
+              */}
+              {badge > 0 && <span className="dock-badge">{badge}</span>}
+            </button>
+          );
+        })}
+      </div>
+
+      {/*
+        Drawn here rather than by the status bar, because only this component
+        knows whether there is anything to separate — the bar is handed an
+        element either way, and an empty dock would otherwise leave a rule
+        floating next to the monitor button.
+      */}
+      <div className="dock-divider" />
+    </>
   );
 }

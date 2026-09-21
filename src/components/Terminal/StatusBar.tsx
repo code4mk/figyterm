@@ -99,8 +99,6 @@ export function StatusBar({
         <span className="font-mono">{shellName}</span>
       </div>
 
-      {dock}
-
       {displayCwd && (
         <div className="flex items-center gap-1.5">
           <Folder size={10} className="opacity-50" />
@@ -171,6 +169,20 @@ export function StatusBar({
             <div className="w-px h-3 bg-ft-border-subtle" />
           </>
         )}
+
+        {/*
+          Minimized windows, next to the monitor button.
+
+          They belong here because this is the cluster you click: the meters to
+          the left report, and Ready, the theme and Settings to the right are
+          all controls. A row of things to bring back sat oddly beside the
+          shell name and the working directory, which only ever state where you
+          are.
+
+          The dock draws its own trailing divider, so an empty one leaves no
+          stray rule behind it.
+        */}
+        {dock}
 
         {/* System Monitor button */}
         <button
