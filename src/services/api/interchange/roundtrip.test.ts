@@ -297,7 +297,7 @@ test("a multipart body keeps its parts and the file each one points at", () => {
   assert.equal(upload.body.mode, "formdata");
   const [file, caption] = upload.body.fields!;
   assert.equal(file!.kind, "file");
-  assert.equal(file!.filePath, "/home/ada/avatar.png");
+  assert.deepEqual(file!.filePaths, ["/home/ada/avatar.png"]);
   assert.equal(caption!.kind, "text");
   assert.equal(caption!.value, "me");
 

@@ -12,9 +12,9 @@
  */
 
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { FileUp, Trash2, X } from "lucide-react";
+import { FileUp, Paperclip, Trash2, X } from "lucide-react";
 import { BodyField, BodyMode, RequestBody } from "../../types/api";
-import { blankField } from "../../services/api/request";
+import { blankField, isBlankField } from "../../services/api/request";
 import { json } from "@codemirror/lang-json";
 import { CodeArea } from "./CodeArea";
 import { Select } from "./Select";
@@ -59,10 +59,6 @@ interface BodyPanelProps {
   scopes: Scope[];
 }
 
-function isBlank(field: BodyField): boolean {
-  return field.key === "" && field.value === "" && !field.filePath;
-}
-
 
 
 /** The last path segment, which is all there is room for. */
@@ -79,20 +75,43 @@ export function BodyPanel({ body, onChange, scopes }: BodyPanelProps) {
   // remounts while you type in it loses focus mid-word.
   const stored = body.fields ?? [];
   const last = stored[stored.length - 1];
-  const fields = last && isBlank(last) ? stored : [...stored, blankField(blank.id)];
+  const fields = last && isBlankField(last) ? stored : [...stored, blankField(blank.id)];
 
   const setFields = (next: BodyField[]) => {
-    if (next.some((field) => field.id === blank.id && !isBlank(field))) blank.renew();
-    onChange({ ...body, fields: next.filter((field) => !isBlank(field)) });
+    if (next.some((field) => field.id === blank.id && !isBlankField(field))) blank.renew();
+    onChange({ ...body, fields: next.filter((field) => !isBlankField(field)) });
   };
 
   const update = (id: string, patch: Partial<BodyField>) =>
     setFields(fields.map((field) => (field.id === id ? { ...field, ...patch } : field)));
 
+  /**
+   * Adds files to a part, rather than replacing what is there.
+   *
+   * Multipart allows several files under one name, so the picker is opened
+   * with `multiple` and what comes back is appended — picking again is how you
+   * add a second batch, and the remove button on each chip is how you take one
+   * out. Replacing on every pick would make a five-file upload five trips
+   * through the dialog with no way to fix a mistake in the middle.
+   *
+   * Duplicates are dropped: the same file twice in one field is a mis-click,
+   * not a request anybody means to send.
+   */
   const pickFor = async (id: string) => {
-    const picked = await openDialog({ multiple: false, title: "Choose a file to upload" });
-    if (!picked || Array.isArray(picked)) return;
-    update(id, { kind: "file", filePath: picked });
+    const picked = await openDialog({ multiple: true, title: "Choose files to upload" });
+    if (!picked) return;
+    const chosen = Array.isArray(picked) ? picked : [picked];
+    const field = fields.find((row) => row.id === id);
+    const already = field?.filePaths ?? [];
+    update(id, {
+      kind: "file",
+      filePaths: [...already, ...chosen.filter((path) => !already.includes(path))],
+    });
+  };
+
+  const dropFile = (id: string, path: string) => {
+    const field = fields.find((row) => row.id === id);
+    update(id, { filePaths: (field?.filePaths ?? []).filter((entry) => entry !== path) });
   };
 
   const pickWhole = async () => {
@@ -202,30 +221,76 @@ export function BodyPanel({ body, onChange, scopes }: BodyPanelProps) {
                 type="checkbox"
                 className="w-3.5 h-3.5 accent-[color:var(--ft-accent)]"
                 checked={field.enabled}
-                disabled={isBlank(field)}
+                disabled={isBlankField(field)}
                 onChange={(e) => update(field.id, { enabled: e.target.checked })}
                 aria-label={field.key ? `Send ${field.key}` : "Send this field"}
               />
+              {/*
+                A part with no name is dropped at send — multipart has nowhere
+                to put it, and the server would have nothing to read it by. It
+                used to be dropped silently, which for a file part meant the
+                row sat there naming the file you picked while the upload never
+                happened. The border is what turns that into something you can
+                see before pressing Send.
+              */}
               <input
-                className="api-cell flex-1"
+                className={`api-cell flex-1 ${
+                  (field.filePaths ?? []).length > 0 && field.key.trim() === ""
+                    ? "needs-name"
+                    : ""
+                }`}
                 value={field.key}
                 spellCheck={false}
                 placeholder="name"
+                title={
+                  (field.filePaths ?? []).length > 0 && field.key.trim() === ""
+                    ? "This part needs a name, or it will not be sent"
+                    : undefined
+                }
                 onChange={(e) => update(field.id, { key: e.target.value })}
               />
 
               {field.kind === "file" ? (
-                <button
-                  className="api-cell flex-[1.6] text-left truncate"
-                  onClick={() => void pickFor(field.id)}
-                  title={field.filePath ?? "Choose a file"}
-                >
-                  {field.filePath ? (
-                    fileName(field.filePath)
-                  ) : (
-                    <span className="text-ft-warning">Choose a file…</span>
-                  )}
-                </button>
+                /*
+                  A chip per attachment, and a button to add more.
+
+                  Not a dropdown: a select chooses from a list somebody already
+                  has, and these come from the OS file dialog — there is no set
+                  of options to present, only what has been picked so far. What
+                  the control has to do is show which files are attached, in
+                  order, and let one be taken out; chips do that in the width of
+                  a table cell, and a select would show one line and hide the
+                  rest behind a click.
+                */
+                <div className="flex flex-[1.6] min-w-0 flex-wrap items-center gap-1">
+                  {(field.filePaths ?? []).map((path) => (
+                    <span key={path} className="api-file-chip" title={path}>
+                      <span className="truncate">{fileName(path)}</span>
+                      <button
+                        className="api-file-chip-x"
+                        onClick={() => dropFile(field.id, path)}
+                        title={`Remove ${fileName(path)}`}
+                        aria-label={`Remove ${fileName(path)}`}
+                      >
+                        <X size={9} />
+                      </button>
+                    </span>
+                  ))}
+                  <button
+                    className={`api-file-add ${
+                      (field.filePaths ?? []).length === 0 ? "empty" : ""
+                    }`}
+                    onClick={() => void pickFor(field.id)}
+                    title={
+                      (field.filePaths ?? []).length === 0
+                        ? "Choose one or more files"
+                        : "Add more files to this part"
+                    }
+                  >
+                    <Paperclip size={9} />
+                    {(field.filePaths ?? []).length === 0 ? "Choose files…" : "Add"}
+                  </button>
+                </div>
               ) : (
                 /* A form value is where `{{user_id}}` lives as often as a
                    query value is, so it gets the same field. The *name* keeps
@@ -256,7 +321,7 @@ export function BodyPanel({ body, onChange, scopes }: BodyPanelProps) {
 
               <button
                 className="w-6 shrink-0 rounded p-1 text-ft-text-muted opacity-0 group-hover:opacity-100 hover:bg-ft-surface hover:text-ft-error disabled:invisible"
-                disabled={isBlank(field)}
+                disabled={isBlankField(field)}
                 onClick={() => setFields(fields.filter((row) => row.id !== field.id))}
                 title="Remove"
                 aria-label={`Remove ${field.key || "field"}`}

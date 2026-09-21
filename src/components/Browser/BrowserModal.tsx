@@ -19,6 +19,7 @@ import {
   ExternalLink,
   PictureInPicture2,
   Maximize2,
+  Minus,
   Minimize2,
   Lock,
   TriangleAlert,
@@ -47,6 +48,14 @@ import {
 interface BrowserModalProps {
   visible: boolean;
   onClose: () => void;
+  /**
+   * Puts the window away without stopping it.
+   *
+   * Absent when the shell has nowhere to put it, which is why the button is
+   * conditional rather than always drawn: a minimize with no dock to land in
+   * would be a close that lied about it.
+   */
+  onMinimize?: () => void;
 }
 
 const MIN_WIDTH = 520;
@@ -56,7 +65,7 @@ const MAX_HEIGHT = 1200;
 const DEFAULT_SIZE = { w: 940, h: 620 };
 const MAX_TABS = 10;
 
-export function BrowserModal({ visible, onClose }: BrowserModalProps) {
+export function BrowserModal({ visible, onClose, onMinimize }: BrowserModalProps) {
   const [tabs, setTabs] = useState<BrowserTabState[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -594,6 +603,17 @@ export function BrowserModal({ visible, onClose }: BrowserModalProps) {
         </div>
 
         <div className="flex items-center gap-0.5 shrink-0 pb-0.5">
+          {onMinimize && (
+            <button
+              className="browser-btn p-1 rounded"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={onMinimize}
+              title="Minimize — the page keeps loading"
+              aria-label="Minimize"
+            >
+              <Minus size={12} />
+            </button>
+          )}
           <button
             className={`browser-btn p-1 rounded ${pipMode ? "on" : ""}`}
             onPointerDown={(e) => e.stopPropagation()}

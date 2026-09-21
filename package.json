@@ -3,6 +3,39 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "description": "FigyTerm — the open-source Fig alternative. A free, cross-platform terminal for macOS, Linux and Windows with IDE-level autocomplete, a built-in code editor, an API client and a Claude Code window. Fully local, MIT licensed.",
+  "homepage": "https://figyterm.code4mk.org",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/code4mk/figyterm.git"
+  },
+  "bugs": {
+    "url": "https://github.com/code4mk/figyterm/issues"
+  },
+  "license": "MIT",
+  "author": "code4mk (https://code4mk.org)",
+  "keywords": [
+    "figyterm",
+    "terminal",
+    "terminal-emulator",
+    "fig-alternative",
+    "fig-successor",
+    "terminal-autocomplete",
+    "fig-compatible",
+    "autocomplete",
+    "cli",
+    "tauri",
+    "rust",
+    "open-source-terminal",
+    "macos",
+    "linux",
+    "windows",
+    "code-editor",
+    "api-client",
+    "postman-alternative",
+    "claude-code",
+    "developer-tools"
+  ],
   "scripts": {
     "dev": "vite",
     "postinstall": "node scripts/copy-excalidraw-assets.mjs",

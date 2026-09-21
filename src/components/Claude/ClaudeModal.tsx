@@ -9,6 +9,7 @@ import {
   History,
   Maximize2,
   Minimize2,
+  Minus,
   PictureInPicture2,
   Plus,
   RotateCcw,
@@ -93,6 +94,14 @@ interface OpenSurface {
 interface ClaudeModalProps {
   visible: boolean;
   onClose: () => void;
+  /**
+   * Puts the window away without stopping it.
+   *
+   * Absent when the shell has nowhere to put it, which is why the button is
+   * conditional rather than always drawn: a minimize with no dock to land in
+   * would be a close that lied about it.
+   */
+  onMinimize?: () => void;
   /** The focused pane's working directory, for a new project's folder. */
   cwd?: string;
   /** Counts ⌘W presses handed to this window; see the listener in `AppShell`. */
@@ -127,6 +136,7 @@ export interface ClaudeMentionRequest {
 export function ClaudeModal({
   visible,
   onClose,
+  onMinimize,
   cwd,
   closeTabRequest,
   onLiveCountChange,
@@ -1056,6 +1066,16 @@ export function ClaudeModal({
 
               <span className="claude-sep" />
 
+              {onMinimize && (
+                <button
+                  className="claude-iconbtn"
+                  onClick={onMinimize}
+                  title="Minimize — conversations keep running"
+                  aria-label="Minimize"
+                >
+                  <Minus size={12} />
+                </button>
+              )}
               <button
                 className={`claude-iconbtn ${pipMode ? "on" : ""}`}
                 onClick={togglePip}

@@ -289,13 +289,23 @@ test("a file path resolves, because a path is a string like any other", () => {
     body({
       mode: "formdata",
       fields: [
-        { id: "1", key: "f", value: "", enabled: true, kind: "file", filePath: "{{fixtures}}/a.png" },
+        {
+          id: "1",
+          key: "f",
+          value: "",
+          enabled: true,
+          kind: "file",
+          filePaths: ["{{fixtures}}/a.png", "{{fixtures}}/b.png"],
+        },
       ],
     }),
     CREDS,
     FIXED
   );
-  assert.equal(part.body.fields![0]!.filePath, "/home/ada/fixtures/a.png");
+  assert.deepEqual(part.body.fields![0]!.filePaths, [
+    "/home/ada/fixtures/a.png",
+    "/home/ada/fixtures/b.png",
+  ]);
 });
 
 /** Without this the send is not blocked, which is how the braces reached the

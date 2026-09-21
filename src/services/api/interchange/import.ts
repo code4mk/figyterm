@@ -208,9 +208,14 @@ export function bodyFromDocument(
       const pair = asObject(entry);
       if (!pair) return [];
       const isFile = asString(pair.type) === "file" || pair.src !== undefined;
-      // `src` is a list when several files were attached to one field; the
-      // first is taken and the rest stay in the preserved document.
-      const src = Array.isArray(pair.src) ? asString(pair.src[0]) : asString(pair.src);
+      // `src` is a list when several files were attached to one field, and all
+      // of them are taken — the part is repeated once per file on the wire, so
+      // the list is the field. It used to keep the first and leave the rest in
+      // the preserved document, which meant a form that uploaded three files
+      // came back uploading one.
+      const sources = (Array.isArray(pair.src) ? pair.src : [pair.src])
+        .map((entry) => asString(entry))
+        .filter((path) => path !== "");
       return [
         {
           id: id(),
@@ -218,7 +223,7 @@ export function bodyFromDocument(
           value: asString(pair.value),
           enabled: pair.disabled !== true,
           kind: isFile ? ("file" as const) : ("text" as const),
-          ...(isFile && src !== "" ? { filePath: src } : {}),
+          ...(isFile && sources.length > 0 ? { filePaths: sources } : {}),
           ...(asString(pair.contentType) !== ""
             ? { contentType: asString(pair.contentType) }
             : {}),
@@ -226,7 +231,9 @@ export function bodyFromDocument(
       ];
     });
 
-    const missing = fields.filter((field) => field.kind === "file" && !field.filePath);
+    const missing = fields.filter(
+      (field) => field.kind === "file" && (field.filePaths ?? []).length === 0
+    );
     return {
       body: {
         mode,

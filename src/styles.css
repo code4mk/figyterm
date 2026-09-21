@@ -2018,6 +2018,322 @@
   outline: none;
 }
 
+/*
+  The blame annotation, at the end of the line the cursor is on.
+ 
+  Quiet on purpose. It sits inside a line of code and is competing with the
+  code for the same glance, so it gets no background, no border, and a weight
+  low enough that the eye passes over it until it is looking for it. Italic
+  because that is how prose beside code has always said "this is not code".
+ 
+  `user-select: none` and `pointer-events: none`: it is a note *about* the line
+  and not part of it, so selecting the line must not pick it up, a double-click
+  must not highlight a word of it, and copying a block of code must not paste
+  somebody's commit message into the middle of it.
+*/
+.cm-blame {
+  /*
+    **Margin, not padding.** The gap that separates the note from the code has
+    to be outside the element: padding is part of the box, so it was part of the
+    hover target, and the tooltip opened while the pointer was still over empty
+    space two and a half characters before the author's name. A margin puts the
+    same gap there and leaves the element starting where its first letter does.
+  */
+  margin-left: 2.5ch;
+  color: var(--ft-text-muted);
+  font-style: italic;
+  font-weight: 400;
+  opacity: 0.7;
+  white-space: pre;
+  /*
+    `user-select: none` so selecting the line does not pick the note up, and
+    copying a block of code does not paste somebody's commit message into the
+    middle of it.
+
+    **No `pointer-events: none`.** That was here for the same reason — clicks
+    belonging to the line and not the note — and it is what made the hover look
+    broken: an element that receives no pointer events is never hovered, so
+    nothing could ever fire. Keeping the caret off it is the widget's job
+    instead, through `ignoreEvent`.
+  */
+  user-select: none;
+  cursor: default;
+}
+
+.cm-blame:hover {
+  opacity: 1;
+}
+
+.light .cm-blame {
+  /* The muted tone is the lightest the light palette has, and at this size,
+     italic, against white it falls under what small text needs. */
+  color: var(--ft-text-secondary);
+  opacity: 0.6;
+}
+
+/* ─── The commit, on hover ─────────────────────────────────────────────────
+ *
+ * Inside `.cm-lsp-tooltip`, so the box, the ceiling, the scrolling and the
+ * type scale are the ones the language server's hover already uses. What is
+ * left is the order of four things and the space between them.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+/*
+  The box.
+
+  A copy of what `.cm-tooltip` gets from the editor's theme — same background,
+  border, radius and shadow — because that theme is scoped under a class on the
+  editor root and this tooltip lives on the body, where the scroller cannot clip
+  it. Two declarations of one look is a cost; a popup that does not match the
+  others in the same window is a worse one.
+*/
+.cm-blame-tooltip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 10080;
+  /* Narrower than a hover full of type signatures: this is prose, and prose
+     past about this width stops being scannable. */
+  max-width: 460px;
+  max-height: 320px;
+  overflow: auto;
+  padding: 7px 9px;
+  border: 1px solid var(--ft-border);
+  border-radius: 6px;
+  background: var(--ft-surface);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-style: normal;
+  /*
+    It takes the pointer, because there is now something in it to click: the
+    sha opens the commit on the forge. Reaching it means leaving the
+    annotation, so the close is on a grace period and entering this cancels it
+    — see `CLOSE_GRACE_MS`. Without both halves the tooltip is unreachable,
+    which is what it was.
+  */
+  pointer-events: auto;
+}
+
+.light .cm-blame-tooltip {
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+
+/* ─── Who ─────────────────────────────────────────────────────────────────── */
+
+.cm-blame-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 6px;
+}
+
+/*
+  Initials in a tinted square, the same mark the workspace picker uses.
+
+  Not a fetched avatar: this app does not talk to the network for anything, and
+  a Gravatar would mean hashing somebody's email and asking a third party who
+  they are every time a file is opened. The hue comes from the author's name —
+  set as a custom property by the code, because a stylesheet cannot derive a
+  colour from a name — so the same person is the same colour every time and two
+  people in one file rarely collide.
+*/
+.cm-blame-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: hsl(var(--blame-hue, 240) 55% 50% / 0.22);
+  color: hsl(var(--blame-hue, 240) 70% 72%);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.light .cm-blame-avatar {
+  background: hsl(var(--blame-hue, 240) 60% 45% / 0.16);
+  color: hsl(var(--blame-hue, 240) 55% 38%);
+}
+
+.cm-blame-who {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.35;
+}
+
+.cm-blame-author {
+  color: var(--ft-text);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.cm-blame-when {
+  color: var(--ft-text-muted);
+  font-size: 10px;
+}
+
+/* ─── What it said ────────────────────────────────────────────────────────── */
+
+.cm-blame-subject {
+  color: var(--ft-text);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Used by the uncommitted card, which has no author and no commit to show. */
+.cm-blame-meta {
+  margin-top: 3px;
+  color: var(--ft-text-secondary);
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+
+/*
+  The message body.
+
+  Ruled off rather than merely spaced: the subject and the body are two
+  different registers — one is a label, the other is an argument — and a commit
+  that writes several paragraphs is the case this is worth reading at all.
+*/
+.cm-blame-body {
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px solid var(--ft-border-subtle);
+  color: var(--ft-text-secondary);
+  font-size: 11px;
+  line-height: 1.55;
+  /* Its own line breaks kept, long lines wrapped: a commit message is written
+     to a width, and reflowing it runs its paragraphs together. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ─── The sha, and the two things anybody does with one ───────────────────── */
+
+.cm-blame-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px solid var(--ft-border-subtle);
+}
+
+/*
+  The chip.
+
+  Indigo rather than the grey wash it had: the sha is the identity of the thing
+  the whole tooltip is about, and at ten pixels of monospace a neutral tint
+  disappears into the panel behind it. The accent is also what the rest of this
+  window uses for "this is the thing", so the chip reads as a handle rather
+  than as a fragment of code that happened to be quoted.
+*/
+.cm-blame-sha {
+  display: inline-flex;
+  align-items: center;
+  height: 19px;
+  padding: 0 7px;
+  border-radius: 5px;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  background: rgba(99, 102, 241, 0.14);
+  color: #a5b4fc;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  text-decoration: none;
+  user-select: text;
+}
+
+/* Underlined only on hover: at rest it is a fact about the commit, and a
+   permanent underline in a tooltip full of prose reads as emphasis. */
+.cm-blame-sha.is-link {
+  cursor: pointer;
+}
+
+.cm-blame-sha.is-link:hover {
+  border-color: var(--ft-accent);
+  background: rgba(99, 102, 241, 0.24);
+  color: #c7d2fe;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.light .cm-blame-sha {
+  border-color: rgba(79, 70, 229, 0.28);
+  background: rgba(79, 70, 229, 0.1);
+  color: var(--ft-accent);
+}
+
+.light .cm-blame-sha.is-link:hover {
+  background: rgba(79, 70, 229, 0.18);
+  color: var(--ft-accent-hover);
+}
+
+/* Copy. Quiet beside the chip, because the chip is the subject of the row and
+   this is the thing you do to it. */
+.cm-blame-copy {
+  height: 19px;
+  padding: 0 7px;
+  border: 1px solid var(--ft-border-subtle);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ft-text-muted);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 10px;
+  cursor: pointer;
+  transition: color 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+}
+
+.cm-blame-copy:hover {
+  border-color: var(--ft-border);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ft-text);
+}
+
+/* It stays green once it has copied, rather than flicking back: the tooltip is
+   about to close anyway, and the confirmation is the whole point of it. */
+.cm-blame-copy.done {
+  border-color: rgba(63, 185, 80, 0.4);
+  background: rgba(63, 185, 80, 0.14);
+  color: var(--ft-success);
+}
+
+.light .cm-blame-copy:hover {
+  background: rgba(15, 23, 42, 0.05);
+}
+
+/*
+  The message body.
+
+  Ruled off rather than merely spaced: the subject and the body are two
+  different registers — one is a label, the other is an argument — and a commit
+  that writes several paragraphs is the case this is worth reading at all.
+*/
+.cm-blame-body {
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px solid var(--ft-border-subtle);
+  color: var(--ft-text-secondary);
+  font-size: 11px;
+  line-height: 1.55;
+  /* Its own line breaks kept, long lines wrapped: a commit message is written
+     to a width, and reflowing it runs its paragraphs together. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.light .cm-blame-sha {
+  background: rgba(15, 23, 42, 0.06);
+}
+
 .editor-placeholder {
   background:
     linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px) 0 0 / 100% 24px,
@@ -8041,6 +8357,130 @@
   background: rgba(220, 38, 38, 0.1);
 }
 
+/* ─── The dock ─────────────────────────────────────────────────────────────
+ *
+ * Windows put away rather than closed, in the footer's control cluster.
+ *
+ * A chip per window, with its mark and its name, because an icon alone made
+ * the row a guessing game — unlabelled glyphs in a 28px bar are not something
+ * anybody reads, they are something they hover one at a time. Three of these
+ * four marks are generic shapes rather than logos, which is exactly when a
+ * word earns its pixels.
+ *
+ * Sized to its neighbours: 20px tall, like the monitor, theme and settings
+ * buttons it sits beside, so the cluster reads as one row of controls rather
+ * than as a row with something taped to the front of it.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+.dock {
+  min-width: 0;
+}
+
+/* The same rule the status bar uses between its own groups. */
+.dock-divider {
+  width: 1px;
+  height: 12px;
+  flex: none;
+  background: var(--ft-border-subtle);
+}
+
+.dock-item {
+  height: 20px;
+  padding: 0 8px 0 6px;
+  border-radius: 999px;
+  border: 1px solid var(--ft-border-subtle);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ft-text-secondary);
+  font-size: 10px;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.dock-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--ft-border);
+  color: var(--ft-text);
+}
+
+/*
+  Pressed reads as the accent, which is the colour restoring a window lands
+  on — the same one the window's own chrome uses for what is current.
+*/
+.dock-item:active {
+  background: rgba(99, 102, 241, 0.18);
+  border-color: rgba(99, 102, 241, 0.45);
+  color: var(--ft-text);
+}
+
+.dock-item:focus-visible {
+  outline: none;
+  border-color: var(--ft-accent);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
+}
+
+/* The mark keeps its own opacity so the name is what the eye lands on. */
+.dock-mark {
+  display: inline-flex;
+  align-items: center;
+  opacity: 0.75;
+}
+
+.dock-item:hover .dock-mark {
+  opacity: 1;
+}
+
+.dock-mark-image {
+  display: block;
+  height: 12px;
+  width: auto;
+  border-radius: 2px;
+}
+
+.dock-name {
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+/*
+  Something waiting behind a window you cannot see.
+  Accent rather than red: it is a conversation asking a question, not a fault.
+*/
+.dock-badge {
+  min-width: 14px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: rgba(99, 102, 241, 0.22);
+  color: #a5b4fc;
+  font-size: 9px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.light .dock-item {
+  background: rgba(15, 23, 42, 0.05);
+}
+
+.light .dock-item:hover {
+  background: rgba(15, 23, 42, 0.09);
+}
+
+.light .dock-item:active {
+  background: rgba(79, 70, 229, 0.12);
+  border-color: rgba(79, 70, 229, 0.35);
+}
+
+.light .dock-badge {
+  background: rgba(79, 70, 229, 0.14);
+  color: var(--ft-accent);
+}
+
+.light .dock-item:focus-visible {
+  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.2);
+}
+
 /* ─── Drawing window ───────────────────────────────────────────────────────
  *
  * Excalidraw sizes itself from its container, so the container has to resolve
@@ -9382,6 +9822,207 @@
   background: var(--ft-surface);
 }
 
+/* ─── Where a request is saved ─────────────────────────────────────────────
+ *
+ * The destination list in the save dialog: every collection, and the folders
+ * inside it, indented. A radio group rather than a dropdown — the answer is
+ * "which of these", the list is short, and seeing the shape of the tree is
+ * most of how anybody recognises the right place in it.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+.api-save-targets {
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 3px;
+  border-radius: 6px;
+  border: 1px solid var(--ft-border-subtle);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.api-save-target {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  height: 24px;
+  padding-right: 8px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  color: var(--ft-text-secondary);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.api-save-target:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ft-text);
+}
+
+.api-save-target.selected {
+  background: rgba(99, 102, 241, 0.16);
+  border-color: rgba(99, 102, 241, 0.35);
+  color: var(--ft-text);
+}
+
+.api-save-target:focus-visible {
+  outline: none;
+  border-color: var(--ft-accent);
+}
+
+.light .api-save-targets {
+  background: rgba(15, 23, 42, 0.02);
+}
+
+.light .api-save-target:hover {
+  background: rgba(15, 23, 42, 0.05);
+}
+
+.light .api-save-target.selected {
+  background: rgba(79, 70, 229, 0.12);
+  border-color: rgba(79, 70, 229, 0.32);
+}
+
+/*
+  The rendered description on a folder's or a collection's overview.
+
+  It carries the click that opens the editor, so it needs to look like
+  something you can click without looking like a button — a description is
+  prose, and prose in a button reads as a control. A border that only appears
+  on hover says "this responds" at the moment you are asking.
+
+  `min-height` so an empty one is still a target: with nothing in it there is
+  a line of placeholder text and nothing else, and a two-pixel strip is not
+  something anybody can hit.
+*/
+.api-description {
+  min-height: 60px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  cursor: text;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+
+.api-description:hover {
+  border-color: var(--ft-border-subtle);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.light .api-description:hover {
+  background: rgba(15, 23, 42, 0.02);
+}
+
+/* ─── Attachments on a multipart part ──────────────────────────────────────
+ *
+ * Chips rather than a select. A select offers a list somebody already has;
+ * these come from the OS file dialog, so there is no option set to present —
+ * only what has been picked, in the order it was picked. What the control has
+ * to do is show which files are attached and let one be taken out, and chips do
+ * that inside a table cell where a select would show one line and hide the
+ * rest behind a click.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+.api-file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 160px;
+  height: 18px;
+  padding: 0 2px 0 7px;
+  border-radius: 999px;
+  border: 1px solid var(--ft-border-subtle);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ft-text-secondary);
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 10px;
+  min-width: 0;
+}
+
+.api-file-chip-x {
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  flex: none;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--ft-text-muted);
+  cursor: pointer;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+
+.api-file-chip-x:hover {
+  color: var(--ft-error);
+  background: rgba(248, 81, 73, 0.14);
+}
+
+/*
+  Add. Dashed while the part is empty, because then it is the only thing to do
+  and a slot reads as one; solid once there are files, where it is one more
+  control beside them rather than the point of the row.
+*/
+.api-file-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 999px;
+  border: 1px solid var(--ft-border-subtle);
+  background: transparent;
+  color: var(--ft-text-secondary);
+  font-size: 10px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+}
+
+.api-file-add:hover {
+  color: var(--ft-text);
+  border-color: var(--ft-accent);
+  background: rgba(99, 102, 241, 0.09);
+}
+
+.api-file-add.empty {
+  border-style: dashed;
+  border-color: var(--ft-warning);
+  color: var(--ft-warning);
+}
+
+.api-file-add.empty:hover {
+  background: rgba(210, 153, 34, 0.1);
+  border-color: var(--ft-warning);
+  color: var(--ft-warning);
+}
+
+.light .api-file-chip {
+  background: rgba(15, 23, 42, 0.05);
+}
+
+/*
+  A multipart part that has a file but no name.
+
+  It is dropped at send — multipart has nowhere to put an unnamed part — and
+  dropping it silently meant a row that named the file you picked while the
+  upload never happened. Amber rather than red: nothing has gone wrong yet,
+  there is just one more word to type. The border holds while the cell has
+  focus, because that is exactly when you are being told what to type.
+*/
+.api-cell.needs-name,
+.api-cell.needs-name:hover,
+.api-cell.needs-name:focus {
+  border-color: var(--ft-warning);
+}
+
+.api-cell.needs-name::placeholder {
+  color: var(--ft-warning);
+  opacity: 0.85;
+}
+
 /* The environment quick look. Anchored under the selector, and wide enough to
  * read a URL without wrapping it — which is most of what is in one. */
 .api-env-peek {
@@ -10353,9 +10994,15 @@ body > .cm-api-completions .cm-completionDetail {
   color: var(--ft-text-muted);
 }
 
+/*
+  No `cursor` here. The family rule above — "what is clickable says so" —
+  already gives every row a pointer, and a `cursor: default` at this point in
+  the file is later with the same specificity, so it quietly won: the whole
+  collection tree and the environment list read as text you could not click.
+  The rule that states the intent is the one that should decide it.
+*/
 .api-row {
   height: 22px;
-  cursor: default;
   position: relative;
   user-select: none;
 }
@@ -10457,8 +11104,9 @@ body > .cm-api-completions .cm-completionDetail {
   border-radius: 4px;
 }
 
+/* Same as `.api-row`: the family rule above sets the pointer. */
 .api-history-row {
-  cursor: default;
+  cursor: pointer;
 }
 .api-history-row:hover {
   background: var(--ft-surface);
@@ -10710,7 +11358,16 @@ body > .cm-api-completions .cm-completionDetail {
   border-style: dashed;
 }
 
+/*
+  `inline-flex` because some of these carry an icon beside their label — Save
+  as example does — and inline layout aligned the glyph on the text baseline,
+  which sits it a pixel low against a 10px label. Every one of them is a single
+  short line, so flex costs nothing where there is no icon.
+*/
 .api-chip-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   padding: 1px 6px;
   border-radius: 10px;
   border: 1px solid var(--ft-border);
@@ -11770,11 +12427,25 @@ body > .cm-api-completions .cm-completionDetail {
 }
 
 /* A row is the workspace and its tools. The tools appear on hover, so a list
- * of workspaces reads as a list rather than a column of buttons. */
+ * of workspaces reads as a list rather than a column of buttons.
+ *
+ * Separated by a margin rather than packed: each row is a rounded block that
+ * fills with colour on hover, and touching blocks make one continuous band
+ * where the highlight has no edges of its own — you cannot see where the row
+ * you are pointing at begins. A gap is what gives the rounding something to
+ * be round against. */
 .api-workspace-row {
   display: flex;
   align-items: center;
   border-radius: 7px;
+  /*
+    The gap goes under every row rather than between them. `:last-of-type`
+    would not have reached the last one — the heading and the rule below the
+    list are `div`s too, so the last `div` among those siblings is the rule,
+    not a workspace — and a margin per row is independent of whatever ends up
+    sitting beside it.
+  */
+  margin-bottom: 2px;
 }
 .api-workspace-row:hover,
 .api-workspace-row.active {

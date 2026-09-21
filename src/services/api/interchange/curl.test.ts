@@ -127,7 +127,7 @@ test("a form upload becomes a multipart body, files and all", () => {
   assert.equal(parsed.body.mode, "formdata");
   const [file, caption] = parsed.body.fields!;
   assert.equal(file!.kind, "file");
-  assert.equal(file!.filePath, "/tmp/a.png");
+  assert.deepEqual(file!.filePaths, ["/tmp/a.png"]);
   assert.equal(file!.contentType, "image/png");
   assert.equal(caption!.kind, "text");
   assert.equal(caption!.value, "me");
@@ -144,7 +144,7 @@ test("multipart survives a trip out through the generator and back", () => {
       text: "",
       contentType: "",
       fields: [
-        { id: "1", key: "file", value: "", enabled: true, kind: "file" as const, filePath: "/tmp/a.png" },
+        { id: "1", key: "file", value: "", enabled: true, kind: "file" as const, filePaths: ["/tmp/a.png"] },
         { id: "2", key: "caption", value: "me", enabled: true, kind: "text" as const },
       ],
     } as RequestBody,
@@ -152,7 +152,7 @@ test("multipart survives a trip out through the generator and back", () => {
 
   const parsed = parseCurl(generate("curl", request))!;
   assert.equal(parsed.body.mode, "formdata");
-  assert.equal(parsed.body.fields![0]!.filePath, "/tmp/a.png");
+  assert.deepEqual(parsed.body.fields![0]!.filePaths, ["/tmp/a.png"]);
   assert.equal(parsed.body.fields![1]!.value, "me");
 });
 
@@ -259,7 +259,7 @@ test("a multipart body is generated with its parts", () => {
       text: "",
       contentType: "",
       fields: [
-        { id: "1", key: "file", value: "", enabled: true, kind: "file" as const, filePath: "/tmp/a.png" },
+        { id: "1", key: "file", value: "", enabled: true, kind: "file" as const, filePaths: ["/tmp/a.png"] },
         { id: "2", key: "caption", value: "me", enabled: true, kind: "text" as const },
       ],
     } as RequestBody,

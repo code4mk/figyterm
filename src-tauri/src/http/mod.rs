@@ -116,9 +116,13 @@ pub struct BodyField {
     pub key: String,
     #[serde(default)]
     pub value: String,
-    /// Set for a file part; `value` is then ignored.
+    /// The files attached to this part; `value` is then ignored.
+    ///
+    /// A list because multipart allows several files under one field name —
+    /// what `<input type="file" multiple>` sends — and the part is repeated
+    /// once per file on the wire. Empty for a text part.
     #[serde(default)]
-    pub file_path: Option<String>,
+    pub file_paths: Vec<String>,
     /// The type sent for this part, when it should not be guessed.
     #[serde(default)]
     pub content_type: Option<String>,

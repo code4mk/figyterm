@@ -8,7 +8,14 @@
  */
 
 import assert from "node:assert/strict";
-import { blankField, buildSendBody, buildSendInput, hasHeader, isSendable } from "./request";
+import {
+  blankField,
+  buildSendBody,
+  buildSendInput,
+  hasHeader,
+  isBlankField,
+  isSendable,
+} from "./request";
 import { BodyField, DEFAULT_SEND_OPTIONS, HeaderRow, RequestBody } from "../../types/api";
 
 let failures = 0;
@@ -121,16 +128,60 @@ test("a multipart field carries its file path", () => {
     text: "",
     contentType: "",
     fields: [
-      field({ key: "file", kind: "file", filePath: "/tmp/a.png" }),
+      field({ key: "file", kind: "file", filePaths: ["/tmp/a.png"] }),
       field({ key: "caption", value: "me" }),
     ],
   });
   assert.deepEqual(wire, {
     mode: "formdata",
     fields: [
-      { key: "file", value: "", filePath: "/tmp/a.png" },
+      { key: "file", value: "", filePaths: ["/tmp/a.png"] },
       { key: "caption", value: "me" },
     ],
+  });
+});
+
+/*
+  The rule the body editor keeps one trailing blank row by, and throws away
+  abandoned rows by.
+
+  The bug it is here to stop: marking the trailing row as a file part left it
+  with no key, no value and no path yet, so it counted as blank, was dropped in
+  the same breath, and a fresh Text row appeared in its place. The type selector
+  snapped straight back to Text and the file picker was unreachable — which made
+  multipart uploads look broken rather than fiddly. Choosing File is a decision,
+  and a row carrying a decision is not an empty one.
+*/
+test("a row marked as a file part is not blank, even with nothing else in it", () => {
+  assert.equal(isBlankField(blankField("a")), true, "a fresh row is blank");
+  assert.equal(
+    isBlankField({ ...blankField("a"), kind: "file" }),
+    false,
+    "choosing File is something said, so the row survives to be filled in"
+  );
+});
+
+test("anything typed or chosen keeps a row", () => {
+  assert.equal(isBlankField({ ...blankField("a"), key: "upload" }), false);
+  assert.equal(isBlankField({ ...blankField("a"), value: "x" }), false);
+  assert.equal(isBlankField({ ...blankField("a"), filePaths: ["/tmp/a.png"] }), false);
+});
+
+/* A file part still needs a name to be sent: multipart has nowhere to put an
+   unnamed one. The editor warns about it; this is the half that drops it. */
+test("a file part with no name is not sent", () => {
+  const wire = buildSendBody({
+    mode: "formdata",
+    text: "",
+    contentType: "",
+    fields: [
+      field({ key: "", kind: "file", filePaths: ["/tmp/a.png"] }),
+      field({ key: "named", kind: "file", filePaths: ["/tmp/b.png"] }),
+    ],
+  });
+  assert.deepEqual(wire, {
+    mode: "formdata",
+    fields: [{ key: "named", value: "", filePaths: ["/tmp/b.png"] }],
   });
 });
 

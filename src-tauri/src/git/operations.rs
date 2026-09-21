@@ -1696,11 +1696,227 @@ pub fn stash_drop(root: &Path, sha: &str) -> Result<String, String> {
     git(root, &["stash", "drop", &reference])
 }
 
+// ─── Blame ──────────────────────────────────────────────────────────────────
+
+/// One commit, as the lines it touched name it.
+///
+/// Held apart from the per-line list because a file of five thousand lines is
+/// usually a few dozen commits: sending the author and subject with every line
+/// would be the same forty strings repeated a hundred times each.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitBlameCommit {
+    pub sha: String,
+    /// The abbreviation people actually quote at each other.
+    pub short: String,
+    pub author: String,
+    /// The author date, epoch seconds. Formatted where it is shown, so the
+    /// wording is the window's business and not this module's.
+    pub time: i64,
+    pub summary: String,
+    /// The all-zero sha: a line that is in the working file and nowhere else.
+    pub uncommitted: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitBlame {
+    pub commits: Vec<GitBlameCommit>,
+    /// One entry per line of the file, in order, indexing `commits`.
+    pub lines: Vec<u32>,
+}
+
+/// Who last touched each line.
+///
+/// `--porcelain` rather than `--line-porcelain`: the second repeats every
+/// commit's author, date and subject on every line it owns, which for a long
+/// file whose history is shallow is most of the output. The first states them
+/// once, the first time a commit appears, and the parse below carries them
+/// forward — which is the same information for a fraction of the bytes.
+pub fn blame(root: &Path, relative: &str) -> Result<GitBlame, String> {
+    let relative = relative_arg(relative)?;
+    // `--` so a path that looks like a revision is still read as a path, and
+    // `-w` so reindenting a block does not make it all yours.
+    let raw = git(root, &["blame", "--porcelain", "-w", "--", relative])?;
+    Ok(parse_blame(&raw))
+}
+
+/// Whether a token is the 40-hex sha that opens a porcelain record.
+///
+/// The test that tells a header apart from a field: `author Ada` and
+/// `<sha> 1 1 3` are both "a word, a space, the rest", and only the shape of
+/// the first word says which is which.
+fn is_sha(token: &str) -> bool {
+    token.len() == 40 && token.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+fn parse_blame(raw: &str) -> GitBlame {
+    let mut order: Vec<String> = Vec::new();
+    let mut index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut commits: Vec<GitBlameCommit> = Vec::new();
+    let mut lines: Vec<u32> = Vec::new();
+    let mut current: Option<usize> = None;
+
+    for line in raw.lines() {
+        // The content line closes a record. It is the only line that can begin
+        // with a tab, because git indents it to make exactly this distinction.
+        if line.starts_with('\t') {
+            if let Some(at) = current.take() {
+                lines.push(at as u32);
+            }
+            continue;
+        }
+
+        let token = line.split(' ').next().unwrap_or("");
+        if is_sha(token) {
+            let at = *index.entry(token.to_string()).or_insert_with(|| {
+                order.push(token.to_string());
+                commits.push(GitBlameCommit {
+                    sha: token.to_string(),
+                    short: token.chars().take(8).collect(),
+                    author: String::new(),
+                    time: 0,
+                    summary: String::new(),
+                    uncommitted: token.chars().all(|c| c == '0'),
+                });
+                commits.len() - 1
+            });
+            current = Some(at);
+            continue;
+        }
+
+        let Some(at) = current else { continue };
+        let commit = &mut commits[at];
+        // The trailing space in each pattern is what keeps `author` from
+        // matching `author-mail`, `author-time` and `author-tz`.
+        if let Some(rest) = line.strip_prefix("author ") {
+            if commit.author.is_empty() {
+                commit.author = rest.to_string();
+            }
+        } else if let Some(rest) = line.strip_prefix("author-time ") {
+            commit.time = rest.trim().parse().unwrap_or(0);
+        } else if let Some(rest) = line.strip_prefix("summary ") {
+            if commit.summary.is_empty() {
+                commit.summary = rest.to_string();
+            }
+        }
+    }
+
+    GitBlame { commits, lines }
+}
+
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Real `blame --porcelain` output: two commits, the second stating its
+    /// metadata once and then owning two consecutive lines by header alone.
+    ///
+    /// That carry-forward is the whole reason this parser exists rather than
+    /// `--line-porcelain`, and the shape that breaks if it is got wrong — the
+    /// second and third lines would come back with no author at all.
+    #[test]
+    fn blame_carries_a_commit_forward_over_the_lines_it_owns() {
+        let raw = "\
+1111111111111111111111111111111111111111 1 1 1
+author Ada Lovelace
+author-mail <ada@example.com>
+author-time 1700000000
+author-tz +0000
+summary The first note
+filename a.txt
+\tfirst line
+2222222222222222222222222222222222222222 2 2 2
+author Grace Hopper
+author-mail <grace@example.com>
+author-time 1700086400
+author-tz +0000
+summary The second note
+filename a.txt
+\tsecond line
+2222222222222222222222222222222222222222 3 3
+filename a.txt
+\tthird line
+";
+
+        let blame = parse_blame(raw);
+
+        assert_eq!(blame.commits.len(), 2, "a commit is described once");
+        assert_eq!(blame.lines, vec![0, 1, 1], "and owns every line it touched");
+
+        assert_eq!(blame.commits[0].author, "Ada Lovelace");
+        assert_eq!(blame.commits[0].summary, "The first note");
+        assert_eq!(blame.commits[0].time, 1_700_000_000);
+        assert_eq!(blame.commits[0].short, "11111111");
+        assert!(!blame.commits[0].uncommitted);
+
+        assert_eq!(blame.commits[1].author, "Grace Hopper");
+        assert_eq!(blame.commits[1].time, 1_700_086_400);
+    }
+
+    /// A line in the working file and nowhere else. Git gives it the all-zero
+    /// sha, and the window says "uncommitted" rather than naming a commit that
+    /// does not exist.
+    #[test]
+    fn an_uncommitted_line_is_marked_as_one() {
+        let raw = "\
+0000000000000000000000000000000000000000 1 1 1
+author Not Committed Yet
+author-time 1700000000
+summary Version of a.txt from a.txt
+filename a.txt
+\tjust typed
+";
+
+        let blame = parse_blame(raw);
+        assert_eq!(blame.lines, vec![0]);
+        assert!(blame.commits[0].uncommitted);
+    }
+
+    /// `author` must not be read out of `author-mail`, `author-time` or
+    /// `author-tz`. They all begin with the same six letters, and the space is
+    /// the only thing telling them apart.
+    #[test]
+    fn the_author_fields_are_told_apart_by_the_space() {
+        let raw = "\
+3333333333333333333333333333333333333333 1 1 1
+author-mail <someone@example.com>
+author-tz +0530
+author Real Name
+author-time 42
+summary S
+filename a.txt
+\tline
+";
+
+        let blame = parse_blame(raw);
+        assert_eq!(blame.commits[0].author, "Real Name");
+        assert_eq!(blame.commits[0].time, 42);
+    }
+
+    /// A blank file, and a file git said nothing about, are both "no blame"
+    /// rather than a panic on an empty vector.
+    #[test]
+    fn nothing_in_means_nothing_out() {
+        let blame = parse_blame("");
+        assert!(blame.commits.is_empty());
+        assert!(blame.lines.is_empty());
+    }
+
+    /// The header test is a shape test, so a field whose value happens to look
+    /// like a word must not be mistaken for one.
+    #[test]
+    fn only_a_forty_hex_token_opens_a_record() {
+        assert!(is_sha("1111111111111111111111111111111111111111"));
+        assert!(!is_sha("author"), "a field name");
+        assert!(!is_sha("11111111"), "an abbreviation is not a header");
+        assert!(
+            !is_sha("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"),
+            "forty characters, but not hex"
+        );
+    }
 
     /// Real `status --porcelain=v2` output, one of each record shape.
     ///

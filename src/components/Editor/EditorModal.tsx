@@ -17,6 +17,7 @@ import {
   GitBranch,
   ListOrdered,
   Maximize2,
+  Minus,
   Minimize2,
   PanelRight,
   PenLine,
@@ -67,12 +68,14 @@ import {
   GitCommit,
   GitCommitFile,
   GitFile,
+  GitBlame,
   GitFileDiff,
   gitCommit,
   gitCommitDiff,
   gitDiscard,
   gitFetch,
   gitFileDiff,
+  gitBlame,
   gitFileHunks,
   gitPull,
   gitPush,
@@ -166,6 +169,14 @@ export interface EditorOpenRequest {
 interface EditorModalProps {
   visible: boolean;
   onClose: () => void;
+  /**
+   * Puts the window away without stopping it.
+   *
+   * Absent when the shell has nowhere to put it, which is why the button is
+   * conditional rather than always drawn: a minimize with no dock to land in
+   * would be a close that lied about it.
+   */
+  onMinimize?: () => void;
   /** The focused terminal pane's working directory, if it has one. */
   cwd?: string;
   /** Opens a terminal tab rooted at a directory. */
@@ -310,6 +321,7 @@ interface Preview {
 export function EditorModal({
   visible,
   onClose,
+  onMinimize,
   cwd,
   onOpenTerminal,
   openRequest,
@@ -396,6 +408,17 @@ export function EditorModal({
   const [indent, setIndent] = useState({ useTabs: false, width: 2 });
   /** How the file in front differs from HEAD, for the change gutter. */
   const [gitDiff, setGitDiff] = useState<GitFileDiff | null>(null);
+  /** Who last touched each line of the open file; see the effect below. */
+  const [blame, setBlame] = useState<GitBlame | null>(null);
+  /**
+   * The file the blame in hand describes.
+   *
+   * Kept so that switching files clears the annotation *before* the new answer
+   * arrives. Without it there is a frame or two where the new file is
+   * annotated with the previous one's history — a real wrong answer rather
+   * than a missing one, and the kind that gets believed.
+   */
+  const blamePath = useRef<string | null>(null);
   const [gitBusy, setGitBusy] = useState(false);
   /**
    * Bumped after the editor itself changes the repository.
@@ -1893,6 +1916,60 @@ export function EditorModal({
   }, [visible, root, rootReady, git.isRepo, gitPath, change.token, gitTick]);
 
   /**
+   * Who last changed each line of the open file.
+   *
+   * Refetched on the same signals as the change gutter, and for the same
+   * reason: a commit, a checkout or a pull rewrites the answer for every line
+   * while leaving the file on disk untouched.
+   *
+   * Cleared outright when there is nothing to ask about — no repository, no
+   * path, or the setting off — rather than left holding the last file's blame,
+   * which would annotate one file with another's history.
+   *
+   * A failure is not reported. `git blame` fails on a file git has never seen,
+   * on one inside a submodule, and on a repository with no commits yet; none of
+   * those is a problem the person reading the file has, and an error bar over
+   * the editor would be the only way they ever heard about it.
+   */
+  useEffect(() => {
+    if (!visible || !root || !rootReady || !git.isRepo || !gitPath || !editorSettings.gitBlame) {
+      blamePath.current = null;
+      setBlame(null);
+      return;
+    }
+
+    // Only when the *file* changed. Refetching after a commit or a save is the
+    // same file with new answers, and blanking the annotation there would make
+    // it blink on every keystroke that triggers a status pass.
+    if (blamePath.current !== gitPath) {
+      blamePath.current = gitPath;
+      setBlame(null);
+    }
+
+    let cancelled = false;
+    void gitBlame(root, gitPath)
+      .then((answer) => {
+        if (!cancelled) setBlame(answer);
+      })
+      .catch(() => {
+        if (!cancelled) setBlame(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    visible,
+    root,
+    rootReady,
+    git.isRepo,
+    gitPath,
+    editorSettings.gitBlame,
+    change.token,
+    gitTick,
+  ]);
+
+  /**
    * Runs something that changes the repository.
    *
    * The refresh is in `finally` rather than after the await: a stage that
@@ -2374,6 +2451,16 @@ export function EditorModal({
               />
             </div>
             <div className="flex items-center gap-0.5 px-2 shrink-0 editor-tabstrip">
+              {onMinimize && (
+                <button
+                  className="editor-btn p-1 rounded"
+                  onClick={onMinimize}
+                  title="Minimize — open files and undo history are kept"
+                  aria-label="Minimize"
+                >
+                  <Minus size={12} />
+                </button>
+              )}
               <button
                 className={`editor-btn p-1 rounded ${pipMode ? "on" : ""}`}
                 onClick={togglePip}
@@ -2749,6 +2836,8 @@ export function EditorModal({
                   onContextMenu={openSurfaceMenu}
                   onGoToLine={openGoToLine}
                   gitDiff={gitDiff}
+                  blame={blame}
+                  gitRemote={gitRemote}
                 />
               </div>
             </div>

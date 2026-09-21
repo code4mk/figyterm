@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -66,7 +67,9 @@ import { loadLanguage } from "../../services/editor-lang";
 import { lsp, LspSession } from "../../services/lsp/manager";
 import { closePopup, lspExtension } from "./lsp";
 import { indentGuides } from "./editorIndent";
-import { GitFileDiff } from "../../services/git";
+import { gitBlameAnnotation, setBlame } from "./editorBlame";
+import { GitBlame, GitFileDiff } from "../../services/git";
+import { Remote } from "../../services/git-forge";
 import { isMac } from "../../services/platform";
 import { editorTheme } from "./editorTheme";
 import { mergeConflicts } from "./mergeConflicts";
@@ -113,6 +116,11 @@ const tabComp = new Compartment();
 */
 const guidesComp = new Compartment();
 const bracketsComp = new Compartment();
+/*
+  The blame annotation, in a compartment so the setting can drop it entirely
+  rather than leaving a field holding markers nobody is looking at.
+*/
+const blameComp = new Compartment();
 const completionComp = new Compartment();
 /*
   The language server's whole contribution — sync, diagnostics, tooltips and
@@ -429,6 +437,7 @@ function settingEffects(
 ): StateEffect<unknown>[] {
   return [
     guidesComp.reconfigure(settings.indentGuides ? indentGuides() : []),
+    blameComp.reconfigure(settings.gitBlame ? gitBlameAnnotation() : []),
     bracketsComp.reconfigure(settings.autoCloseBrackets ? closeBrackets() : []),
     completionComp.reconfigure(wordCompletion(settings, record, currentRecord)),
   ];
@@ -553,6 +562,15 @@ interface EditorSurfaceProps {
    * it is unknown, or when the file isn't in a repository.
    */
   gitDiff: GitFileDiff | null;
+  /**
+   * Who last touched each line of the open file, or null where there is no
+   * answer — a scratch buffer, a file outside a repository, one git has never
+   * seen, or the setting switched off.
+   */
+  blame: GitBlame | null;
+  /** The forge this repository pushes to, so a sha in the blame tooltip can
+   * open the commit. Null where there is none, or none this build understands. */
+  gitRemote: Remote | null;
 }
 
 /**
@@ -743,6 +761,22 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
      */
     const gitDiffRef = useRef(props.gitDiff);
     gitDiffRef.current = props.gitDiff;
+    /**
+     * The blame, paired with the repository it was asked of.
+     *
+     * The dir travels with the data because the hover needs it to fetch a
+     * commit's message body, and the workspace can change under a buffer that
+     * is still holding an older file's answer.
+     */
+    const blameSource = useMemo(
+      () =>
+        props.blame && props.workspaceRoot
+          ? { dir: props.workspaceRoot, blame: props.blame, remote: props.gitRemote }
+          : null,
+      [props.blame, props.workspaceRoot, props.gitRemote]
+    );
+    const blameRef = useRef(blameSource);
+    blameRef.current = blameSource;
 
     /** Bumped on every theme change, so stale buffer states can be spotted. */
     const themeVersion = useRef(0);
@@ -1057,6 +1091,7 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
             wrapComp.of(wrappedRef.current ? EditorView.lineWrapping : []),
             indentComp.of(indentUnit.of(unit)),
             tabComp.of(EditorState.tabSize.of(indent.width)),
+            blameComp.of(settingsRef.current.gitBlame ? gitBlameAnnotation() : []),
             lspComp.of(
               lspExtension(sessions, { indent: () => holder.record?.indent ?? indent })
             ),
@@ -1227,7 +1262,9 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
         // Re-applied after the swap, not before: the state that was just
         // installed carries whatever marks it had when it was last in front,
         // which for a file reopened after an outside commit is wrong.
-        view.dispatch({ effects: setGitChanges.of(gitDiffRef.current) });
+        view.dispatch({
+          effects: [setGitChanges.of(gitDiffRef.current), setBlame.of(blameRef.current)],
+        });
         record.state = view.state;
 
         // Both deferred a frame: the view has just been handed a new state and
@@ -1426,6 +1463,16 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
       const record = currentRecord();
       if (record) record.state = view.state;
     }, [props.gitDiff, currentRecord]);
+
+    // --- Blame ---------------------------------------------------------------
+
+    useEffect(() => {
+      const view = viewRef.current;
+      if (!view) return;
+      view.dispatch({ effects: setBlame.of(blameSource) });
+      const record = currentRecord();
+      if (record) record.state = view.state;
+    }, [blameSource, currentRecord]);
 
     // --- Imperative surface --------------------------------------------------
 

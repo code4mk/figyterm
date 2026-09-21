@@ -29,6 +29,7 @@ import { SHORTCUTS, keys, matches } from "../../services/shortcuts";
 import type { EditorOpenRequest } from "../Editor/EditorModal";
 import type { ClaudeMentionRequest } from "../Claude/ClaudeModal";
 import { isMac, EMBEDDED_BROWSER_SUPPORTED } from "../../services/platform";
+import { DockWindow, MinimizedDock } from "./MinimizedDock";
 
 const MAX_PANES_PER_TAB = 4;
 
@@ -124,6 +125,20 @@ export function AppShell() {
   const [editorRequest, setEditorRequest] = useState<EditorOpenRequest | null>(null);
   /** Counts the ⌘W presses handed to the editor; see the menu listener below. */
   const [editorCloseTab, setEditorCloseTab] = useState(0);
+  /**
+   * Windows put away rather than closed, oldest first.
+   *
+   * The distinction is only about what the footer shows. Every one of these
+   * windows already survives being closed — the `*Mounted` flags above are
+   * what keep a pty, a request in flight and an unsaved buffer alive — but a
+   * closed window leaves nothing on screen to say so, and "is that still
+   * running?" had no answer anywhere. Minimizing puts it in the dock, which is
+   * that answer.
+   *
+   * Order is insertion order so the row does not reshuffle under the pointer
+   * as windows come and go.
+   */
+  const [minimized, setMinimized] = useState<DockWindow[]>([]);
   const [updatesOpen, setUpdatesOpen] = useState(false);
   const [tabs, setTabs] = useState<TabInstance[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
@@ -432,8 +447,57 @@ export function AppShell() {
    * reason: the chord, the menu item, the modal's own close button and the
    * error boundary.
    */
+  /**
+   * Puts a window away without stopping it.
+   *
+   * The same hide that closing performs — these windows are all latched
+   * mounted — plus a place in the dock, which is the only difference between
+   * the two and the whole point of having both. The keyboard goes back to the
+   * shell either way: a window you cannot see must not be holding it.
+   */
+  const minimizeWindow = useCallback(
+    (which: DockWindow) => {
+      setMinimized((ids) => (ids.includes(which) ? ids : [...ids, which]));
+      if (which === "browser") setBrowserOpen(false);
+      else if (which === "editor") setEditorOpen(false);
+      else if (which === "claude") setClaudeOpen(false);
+      else setApiOpen(false);
+      focusActivePane();
+    },
+    [focusActivePane]
+  );
+
+  /** Brings one back, and takes it out of the dock. */
+  const restoreWindow = useCallback((which: DockWindow) => {
+    setMinimized((ids) => ids.filter((id) => id !== which));
+    if (which === "browser") setBrowserOpen(true);
+    else if (which === "editor") setEditorOpen(true);
+    else if (which === "claude") setClaudeOpen(true);
+    else setApiOpen(true);
+  }, []);
+
+  /*
+    Opening a window by any other route — the chord, the palette, the menu —
+    also takes it out of the dock. Watching the open flags rather than patching
+    six call sites: every one of them sets exactly these, and a route added
+    later would otherwise leave a window on screen and in the dock at once.
+  */
+  useEffect(() => {
+    setMinimized((ids) => {
+      const next = ids.filter(
+        (id) =>
+          !(id === "browser" && browserOpen) &&
+          !(id === "editor" && editorOpen) &&
+          !(id === "claude" && claudeOpen) &&
+          !(id === "api" && apiOpen)
+      );
+      return next.length === ids.length ? ids : next;
+    });
+  }, [browserOpen, editorOpen, claudeOpen, apiOpen]);
+
   const closeEditor = useCallback(() => {
     setEditorOpen(false);
+    setMinimized((ids) => ids.filter((id) => id !== "editor"));
     focusActivePane();
   }, [focusActivePane]);
 
@@ -453,6 +517,7 @@ export function AppShell() {
    */
   const closeClaude = useCallback(() => {
     setClaudeOpen(false);
+    setMinimized((ids) => ids.filter((id) => id !== "claude"));
     focusActivePane();
   }, [focusActivePane]);
 
@@ -486,6 +551,7 @@ export function AppShell() {
    * having when the window comes back. */
   const closeApi = useCallback(() => {
     setApiOpen(false);
+    setMinimized((ids) => ids.filter((id) => id !== "api"));
     focusActivePane();
   }, [focusActivePane]);
 
@@ -841,6 +907,16 @@ export function AppShell() {
           // Only while the window is closed; an open one marks the tab itself.
           claudeAttention={claudeOpen ? 0 : claudeAttention}
           onOpenClaude={() => setClaudeOpen(true)}
+          dock={
+            <MinimizedDock
+              windows={minimized}
+              onRestore={restoreWindow}
+              // A minimized Claude window is the one place a waiting
+              // conversation can be said out loud, so the count rides on its
+              // dock item rather than being announced twice.
+              badges={{ claude: claudeAttention }}
+            />
+          }
         />
       </div>
       <CommandPalette
@@ -864,6 +940,7 @@ export function AppShell() {
           <BrowserModal
             visible={browserOpen}
             onClose={() => setBrowserOpen(false)}
+            onMinimize={() => minimizeWindow("browser")}
           />
         </OverlayBoundary>
       )}
@@ -879,6 +956,7 @@ export function AppShell() {
             <EditorModal
               visible={editorOpen}
               onClose={closeEditor}
+              onMinimize={() => minimizeWindow("editor")}
               cwd={getActiveCwd()}
               onOpenTerminal={createTab}
               openRequest={editorRequest}
@@ -899,6 +977,7 @@ export function AppShell() {
             <ClaudeModal
               visible={claudeOpen}
               onClose={closeClaude}
+              onMinimize={() => minimizeWindow("claude")}
               cwd={getActiveCwd()}
               closeTabRequest={claudeCloseTab}
               onLiveCountChange={setClaudeLive}
@@ -918,7 +997,11 @@ export function AppShell() {
       {apiMounted && (
         <OverlayBoundary label="API client" onDismiss={closeApi}>
           <Suspense fallback={null}>
-            <ApiModal visible={apiOpen} onClose={closeApi} />
+            <ApiModal
+              visible={apiOpen}
+              onClose={closeApi}
+              onMinimize={() => minimizeWindow("api")}
+            />
           </Suspense>
         </OverlayBoundary>
       )}

@@ -45,7 +45,8 @@ function sendableFields(fields: BodyField[] | undefined): SendField[] {
     .filter((field) => field.enabled && field.key.trim() !== "")
     .map((field) => {
       const sent: SendField = { key: field.key.trim(), value: field.value };
-      if (field.kind === "file" && field.filePath) sent.filePath = field.filePath;
+      const files = field.kind === "file" ? (field.filePaths ?? []) : [];
+      if (files.length > 0) sent.filePaths = files;
       if (field.contentType) sent.contentType = field.contentType;
       return sent;
     });
@@ -127,4 +128,66 @@ export function buildSendInput(params: {
 /** A blank field row, for the form and multipart tables. */
 export function blankField(id: string): BodyField {
   return { id, key: "", value: "", enabled: true, kind: "text" };
+}
+
+/**
+ * Whether a row is still empty — nothing typed, nothing chosen, nothing said.
+ *
+ * The body editor keeps one blank row at the end for you to type in and throws
+ * away any row that is still blank, which is what stops a form filling up with
+ * the leftovers of rows you started and abandoned.
+ *
+ * **Being marked as a file part is something said.** Without that clause,
+ * switching the trailing row's type to File made it blank by this test — no
+ * key, no value, no path yet — so the editor dropped it in the same breath,
+ * conjured a fresh blank in its place, and the selector snapped straight back
+ * to Text. There was no way to reach the file picker at all unless you happened
+ * to type a field name first, which made multipart file uploads look broken
+ * rather than fiddly.
+ *
+ * Lives here rather than in the panel so the rule is testable without a
+ * browser, and sits beside `blankField`, which is the thing it judges.
+ */
+export function isBlankField(field: BodyField): boolean {
+  return (
+    field.key === "" &&
+    field.value === "" &&
+    (field.filePaths ?? []).length === 0 &&
+    field.kind !== "file"
+  );
+}
+
+/**
+ * A body read back from disk, in the shape this build expects.
+ *
+ * A multipart part used to hold one `filePath`; it now holds a list. A request
+ * saved before that — or a collection imported before it — still has the old
+ * key, and the field it names is one nothing reads any more, so the file part
+ * would come back looking like a part with no file at all. Silently: the row
+ * would be there, named, with nothing attached.
+ *
+ * So the old key is read and folded into the list. It is never written back,
+ * which is what stops this from being a shape the app has to keep supporting
+ * for ever — every save from here on stores the list, and this only has to
+ * outlive the requests already on disk.
+ */
+export function normalizeBody(body: RequestBody): RequestBody {
+  if (!body.fields?.some((field) => legacyPath(field) !== undefined)) return body;
+
+  return {
+    ...body,
+    fields: body.fields.map((field) => {
+      const legacy = legacyPath(field);
+      if (legacy === undefined) return field;
+      const { filePath: _dropped, ...rest } = field as BodyField & { filePath?: string };
+      return { ...rest, filePaths: [legacy] };
+    }),
+  };
+}
+
+/** The single path an older save wrote, when the list is not already there. */
+function legacyPath(field: BodyField): string | undefined {
+  if ((field.filePaths ?? []).length > 0) return undefined;
+  const legacy = (field as BodyField & { filePath?: unknown }).filePath;
+  return typeof legacy === "string" && legacy !== "" ? legacy : undefined;
 }

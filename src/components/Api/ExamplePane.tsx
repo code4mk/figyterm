@@ -359,7 +359,11 @@ export function ExamplePane({
                 <Rows
                   rows={request.body.fields.map((field) => ({
                     name: field.key,
-                    value: field.filePath ?? field.value,
+                    // A file part shows what was attached, in order; a text
+                    // part shows its value.
+                    value: (field.filePaths ?? []).length
+                      ? field.filePaths!.join(", ")
+                      : field.value,
                   }))}
                 />
               ) : (

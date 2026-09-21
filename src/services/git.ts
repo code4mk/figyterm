@@ -155,6 +155,36 @@ export function gitFileHunks(dir: string, path: string): Promise<GitFileDiff> {
   return invoke<GitFileDiff>("git_file_hunks", { dir, path });
 }
 
+/**
+ * One commit, as the lines it touched name it.
+ *
+ * Sent once per commit rather than once per line: a long file is usually a few
+ * dozen commits, and repeating an author and a subject on every line would be
+ * the same strings a hundred times over.
+ */
+export interface GitBlameCommit {
+  sha: string;
+  /** The abbreviation people quote at each other. */
+  short: string;
+  author: string;
+  /** Author date, epoch **seconds** — not milliseconds. */
+  time: number;
+  summary: string;
+  /** The all-zero sha: in the working file and nowhere else. */
+  uncommitted: boolean;
+}
+
+export interface GitBlame {
+  commits: GitBlameCommit[];
+  /** One entry per line of the file, in order, indexing `commits`. */
+  lines: number[];
+}
+
+/** Who last touched each line of a file. */
+export function gitBlame(dir: string, path: string): Promise<GitBlame> {
+  return invoke<GitBlame>("git_blame", { dir, path });
+}
+
 /** The working tree against HEAD — what committing this file would record. */
 export function gitFileDiff(dir: string, path: string): Promise<string> {
   return invoke<string>("git_file_diff", { dir, path });

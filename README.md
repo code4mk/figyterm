@@ -5,7 +5,14 @@
 </p>
 
 <p align="center">
-  <strong>A modern, intelligent terminal for macOS, Linux and Windows with autocomplete superpowers.</strong>
+  <strong>The open-source Fig alternative — a modern, intelligent terminal for macOS, Linux and Windows with autocomplete superpowers.</strong>
+</p>
+
+<p align="center">
+  <a href="https://figyterm.code4mk.org"><strong>figyterm.code4mk.org</strong></a> —
+  <a href="https://figyterm.code4mk.org/download">Download</a> ·
+  <a href="https://figyterm.code4mk.org/features">All features</a> ·
+  <a href="https://figyterm.code4mk.org/fig-alternative">vs Fig</a>
 </p>
 
 <p align="center">
@@ -22,7 +29,9 @@
 
 FigyTerm is a fully local desktop terminal built with **Tauri 2**, **React**, and **Rust**. It brings IDE-level autocomplete to your command line — context-aware suggestions for git, docker, pnpm, npm, uv, and more — all running natively with zero network dependency.
 
-Inspired by [Fig](https://fig.io) (now part of AWS), FigyTerm is an open-source alternative that keeps your terminal experience fast, private, and extensible.
+**FigyTerm is the open-source successor to [Fig](https://github.com/withfig/autocomplete)**, whose standalone autocomplete app was acquired by AWS in 2023 and [sunset on 1 September 2024](https://github.com/aws/amazon-q-developer-cli-autocomplete). FigyTerm reads the same completion spec format Fig used, so the community specs written for it still work — without an account, a login or a network connection, and on Linux and Windows as well as macOS.
+
+> **Not to be confused with:** *Fig* (withfig/fig.io, discontinued) or *figterm*, Fig's shell integration shim. FigyTerm is an independent MIT-licensed project, unaffiliated with Fig or Amazon Web Services.
 
 ## Features
 

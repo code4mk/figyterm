@@ -21,6 +21,15 @@ interface StatusBarProps {
    */
   claudeAttention?: number;
   onOpenClaude?: () => void;
+  /**
+   * The dock of minimized windows, built by the shell.
+   *
+   * Passed in rather than assembled here: which windows exist and what state
+   * they are in is the shell's business, and a status bar that imported the
+   * browser, the editor and the API client to draw four icons would drag all
+   * of them into the startup bundle to say nothing most of the time.
+   */
+  dock?: React.ReactNode;
 }
 
 export interface SystemStats {
@@ -58,6 +67,7 @@ export function StatusBar({
   onOpenUpdates,
   claudeAttention = 0,
   onOpenClaude,
+  dock,
 }: StatusBarProps) {
   const shellName = shell.split("/").pop() ?? shell;
   const { theme, toggleTheme } = useThemeStore();
@@ -159,6 +169,20 @@ export function StatusBar({
             <div className="w-px h-3 bg-ft-border-subtle" />
           </>
         )}
+
+        {/*
+          Minimized windows, next to the monitor button.
+
+          They belong here because this is the cluster you click: the meters to
+          the left report, and Ready, the theme and Settings to the right are
+          all controls. A row of things to bring back sat oddly beside the
+          shell name and the working directory, which only ever state where you
+          are.
+
+          The dock draws its own trailing divider, so an empty one leaves no
+          stray rule behind it.
+        */}
+        {dock}
 
         {/* System Monitor button */}
         <button

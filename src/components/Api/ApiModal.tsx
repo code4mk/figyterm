@@ -18,6 +18,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Ban,
   Maximize2,
+  Minus,
   Minimize2,
   PanelBottom,
   PanelRight,
@@ -38,7 +39,7 @@ import {
 import { onApiProgress } from "../../services/api/client";
 import { isSendableUrl } from "../../services/api/url";
 import { formatBytes } from "../../services/api/format";
-import { isDirty, useApiStore } from "../../stores/apiStore";
+import { isDirty, nameFor, useApiStore } from "../../stores/apiStore";
 import { useEditorStore } from "../../stores/editorStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useThemeStore } from "../../stores/themeStore";
@@ -67,6 +68,7 @@ import { MethodSelect } from "./MethodSelect";
 import { Breadcrumb } from "./Breadcrumb";
 import { SyncPane } from "./SyncPane";
 import { SaveVariableDialog, VariableTarget } from "./SaveVariableDialog";
+import { SaveRequestDialog } from "./SaveRequestDialog";
 import { RequestPane } from "./RequestPane";
 import { ScopePane } from "./ScopePane";
 import { ResponsePane } from "./ResponsePane";
@@ -74,13 +76,21 @@ import { ResponsePane } from "./ResponsePane";
 export interface ApiModalProps {
   visible: boolean;
   onClose: () => void;
+  /**
+   * Puts the window away without stopping it.
+   *
+   * Absent when the shell has nowhere to put it, which is why the button is
+   * conditional rather than always drawn: a minimize with no dock to land in
+   * would be a close that lied about it.
+   */
+  onMinimize?: () => void;
 }
 
 const MIN_SIZE = { w: 820, h: 520 };
 const MAX_SIZE = { w: 2400, h: 1600 };
 const DEFAULT_SIZE = { w: 1180, h: 760 };
 
-export function ApiModal({ visible, onClose }: ApiModalProps) {
+export function ApiModal({ visible, onClose, onMinimize }: ApiModalProps) {
   const [pipMode, setPipMode] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const modalRef = useRef<HTMLDivElement>(null);
@@ -118,6 +128,8 @@ export function ApiModal({ visible, onClose }: ApiModalProps) {
   const [savingVariable, setSavingVariable] = useState<string | null>(null);
   const saveTab = useApiStore((s) => s.saveTab);
   const saveTabInto = useApiStore((s) => s.saveTabInto);
+  /** The scratch tab whose home is being chosen, if any. */
+  const [savingRequest, setSavingRequest] = useState<string | null>(null);
   const createCollection = useApiStore((s) => s.createCollection);
   const send = useApiStore((s) => s.send);
   const cancel = useApiStore((s) => s.cancel);
@@ -385,13 +397,19 @@ export function ApiModal({ visible, onClose }: ApiModalProps) {
       await saveTab(tab.id);
       return;
     }
-    let collectionId = collections[0]?.id;
-    if (!collectionId) {
-      await createCollection("My collection");
-      collectionId = useApiStore.getState().collections[0]?.id;
-    }
-    if (collectionId) await saveTabInto(tab.id, collectionId, null);
-  }, [tab, collections, saveTab, saveTabInto, createCollection]);
+    /*
+      A request with no home yet: ask where it goes.
+
+      This used to drop it into whichever collection happened to be first, at
+      the root, under a name derived from its URL — making a collection called
+      "My collection" to do it with if there were none. Nothing asked and
+      nothing said, so a request you had been working on went somewhere you had
+      not chosen and then had to be found.
+
+      Only the first save asks. Once it has a row, ⌘S is a save again.
+    */
+    setSavingRequest(tab.id);
+  }, [tab, saveTab]);
 
   // ─── Window modes ────────────────────────────────────────────────────────
 
@@ -582,6 +600,17 @@ export function ApiModal({ visible, onClose }: ApiModalProps) {
           >
             {split === "bottom" ? <PanelRight size={14} /> : <PanelBottom size={14} />}
           </button>
+          {onMinimize && (
+            <button
+              className="p-1.5 rounded text-ft-text-muted hover:bg-ft-surface"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={onMinimize}
+              title="Minimize — a request in flight is left alone"
+              aria-label="Minimize"
+            >
+              <Minus size={14} />
+            </button>
+          )}
           <button
             className={`p-1.5 rounded hover:bg-ft-surface ${pipMode ? "text-ft-accent" : "text-ft-text-muted"}`}
             onPointerDown={(e) => e.stopPropagation()}
@@ -970,6 +999,25 @@ export function ApiModal({ visible, onClose }: ApiModalProps) {
           `pm.environment.set()` takes — so a token saved by hand and one saved
           by a script land in the same column, the current value, and neither
           is ever exported or synced. */}
+      {savingRequest !== null && (
+        <SaveRequestDialog
+          suggestedName={(() => {
+            const row = tabs.find((entry) => entry.id === savingRequest);
+            if (!row) return "Untitled";
+            // The tab's own name when it has one worth keeping; otherwise the
+            // guess from the URL, which is what the rail has been showing.
+            return row.name !== "Untitled" ? row.name : nameFor(row.draft);
+          })()}
+          collections={collections}
+          items={items}
+          onNewCollection={() => createCollection("New collection")}
+          onSave={({ name, collectionId, parentId }) => {
+            void saveTabInto(savingRequest, collectionId, parentId, name);
+          }}
+          onClose={() => setSavingRequest(null)}
+        />
+      )}
+
       {savingVariable !== null && (
         <SaveVariableDialog
           value={savingVariable}
