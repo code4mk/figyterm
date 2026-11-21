@@ -528,6 +528,16 @@ export function BrowserModal({ visible, onClose, onMinimize }: BrowserModalProps
   const modal = (
     <div
       ref={modalRef}
+      /*
+        A window, and it says so — the last of the three to. The label names the
+        page rather than just the window, because "Browser" alone does not say
+        which of four tabs is on screen.
+      */
+      role="dialog"
+      aria-modal={!pipMode}
+      aria-label={
+        activeTab ? `Browser — ${activeTab.title || hostLabel(activeTab.url)}` : "Browser"
+      }
       className={`browser-modal overflow-hidden shadow-2xl flex flex-col ${
         pipMode ? "browser-pip" : ""
       } ${fullscreen ? "browser-fullscreen" : "rounded-xl"}`}
@@ -601,6 +611,14 @@ export function BrowserModal({ visible, onClose, onMinimize }: BrowserModalProps
             </button>
           )}
         </div>
+
+        {/*
+          A hairline between the tabs and the window's own controls, the way the
+          Claude window separates its two clusters: ✛ and ✕ are a few pixels
+          apart and mean "one more tab" and "put the whole window away", and a
+          gap of 2px is not enough to say so.
+        */}
+        <span className="browser-sep shrink-0" />
 
         <div className="flex items-center gap-0.5 shrink-0 pb-0.5">
           {onMinimize && (
@@ -760,10 +778,10 @@ export function BrowserModal({ visible, onClose, onMinimize }: BrowserModalProps
         painted over by the native webview.
       */}
       <div
-        className="browser-chrome browser-statusbar flex items-center justify-between gap-2 px-2.5 h-[22px] shrink-0"
+        className="browser-chrome browser-statusbar flex items-center justify-between gap-2 px-3 h-7 shrink-0"
         onContextMenu={suppressContextMenu}
       >
-        <span className="browser-status-text text-[10px] truncate">
+        <span className="browser-status-text text-[10px] truncate" role="status">
           {activeTab?.loading ? "Loading…" : activeTab ? hostLabel(activeTab.url) : ""}
         </span>
         <div className="flex items-center gap-2 shrink-0">
@@ -774,10 +792,17 @@ export function BrowserModal({ visible, onClose, onMinimize }: BrowserModalProps
             className="browser-resize-handle"
             onPointerDown={handleResizeStart}
             title="Resize"
+            role="separator"
+            aria-orientation="horizontal"
           >
+            {/*
+              `M9 9L9 9` used to be a third segment here. It is zero length, so
+              it drew nothing — two strokes is the mark, as in every other
+              window's corner.
+            */}
             <svg width="10" height="10" viewBox="0 0 10 10" className="browser-resize-icon">
               <path
-                d="M9 1L1 9M9 5L5 9M9 9L9 9"
+                d="M9 1L1 9M9 5L5 9"
                 stroke="currentColor"
                 strokeWidth="1.2"
                 strokeLinecap="round"

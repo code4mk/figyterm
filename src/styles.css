@@ -1457,7 +1457,16 @@
 
 .browser-tabstrip {
   background: rgba(255, 255, 255, 0.02);
-  border-bottom: 1px solid #2a2f37;
+  border-bottom: 1px solid var(--ft-border-subtle);
+}
+
+/* A hairline, wherever one group of controls ends and another begins. The
+   drawing and Claude windows carry the same rule under their own names. */
+.browser-sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 4px 6px;
+  background: var(--ft-border-subtle);
 }
 
 .browser-tabstrip-scroll {
@@ -1472,7 +1481,7 @@
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid transparent;
   border-bottom: none;
-  color: #8b949e;
+  color: var(--ft-text-secondary);
   cursor: pointer;
   transition: background 0.12s ease, color 0.12s ease;
 }
@@ -1482,9 +1491,9 @@
 }
 
 .browser-tab.active {
-  background: #12151a;
-  border-color: #2a2f37;
-  color: #e6edf3;
+  background: var(--ft-bg);
+  border-color: var(--ft-border-subtle);
+  color: var(--ft-text);
 }
 
 .browser-tab-title {
@@ -1492,7 +1501,7 @@
 }
 
 .browser-tab-icon {
-  color: #4a4f5a;
+  color: var(--ft-text-muted);
 }
 
 .browser-tab-favicon {
@@ -1514,7 +1523,7 @@
 }
 
 .browser-tab-close {
-  color: #5d636e;
+  color: var(--ft-text-muted);
   opacity: 0;
   transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
 }
@@ -1525,24 +1534,25 @@
 }
 
 .browser-tab-close:hover {
-  color: #e6edf3;
+  color: var(--ft-text);
   background: rgba(255, 255, 255, 0.1);
 }
 
 .browser-newtab-btn,
 .browser-btn {
-  color: #8b949e;
+  color: var(--ft-text-secondary);
   transition: color 0.12s ease, background 0.12s ease;
 }
 
 .browser-newtab-btn:hover,
 .browser-btn:hover:not(:disabled) {
-  color: #e6edf3;
+  color: var(--ft-text);
   background: rgba(255, 255, 255, 0.08);
 }
 
 .browser-btn:disabled {
-  color: #3a3f48;
+  color: var(--ft-text-muted);
+  opacity: 0.45;
   cursor: default;
 }
 
@@ -1642,12 +1652,12 @@
 }
 
 .browser-statusbar {
-  background: rgba(255, 255, 255, 0.02);
-  border-top: 1px solid #2a2f37;
+  background: rgba(255, 255, 255, 0.022);
+  border-top: 1px solid var(--ft-border-subtle);
 }
 
 .browser-status-text {
-  color: #5d636e;
+  color: var(--ft-text-muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
@@ -1661,11 +1671,44 @@
 }
 
 .browser-resize-icon {
-  color: #4a4f5a;
+  color: var(--ft-text-muted);
 }
 
 .browser-resize-handle:hover .browser-resize-icon {
-  color: #8b949e;
+  color: var(--ft-text-secondary);
+}
+
+/* ─── Keyboard focus ────────────────────────────────────────────────────────
+
+   The browser window had none — the third of the three to be missing it, after
+   the Claude and drawing windows. Tabbing through the tab strip, the toolbar or
+   the footer moved a caret nobody could see.
+
+   Listed by class rather than taken as `.browser-modal :focus-visible`, for the
+   reason that applies to all three windows: the body is somebody else's — here
+   a *native child webview*, which draws its own focus and is painted over
+   anything we put on top of it anyway.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+.browser-btn:focus-visible,
+.browser-newtab-btn:focus-visible,
+.browser-tab-close:focus-visible,
+.browser-address-input:focus-visible {
+  outline: 2px solid var(--ft-accent);
+  outline-offset: -1px;
+  border-radius: 5px;
+  /* A tab's ✕ is `opacity: 0` until its tab is hovered; focus has to reveal it
+     or the ring is drawn around nothing. */
+  opacity: 1;
+}
+
+/*
+  A tab focuses through the button inside it, so the ring goes on the tab —
+  an outline on the title alone would cut the tab in half.
+*/
+.browser-tab:has(:focus-visible) {
+  outline: 2px solid var(--ft-accent);
+  outline-offset: -2px;
 }
 
 /* ─── Browser Modal · light ─── */
@@ -1682,57 +1725,28 @@
 }
 
 .light .browser-tabstrip {
-  background: #f2f4f7;
-  border-bottom: 1px solid #e2e5eb;
+  background: var(--ft-elevated);
 }
 
-.light .browser-tab {
-  background: rgba(0, 0, 0, 0.03);
-  color: #6b7280;
+
+.light .browser-tab:hover,
+.light .browser-tab-close:hover,
+.light .browser-newtab-btn:hover,
+.light .browser-btn:hover:not(:disabled) {
+  background: rgba(15, 23, 42, 0.06);
 }
 
-.light .browser-tab:hover {
-  background: rgba(0, 0, 0, 0.05);
-}
 
-.light .browser-tab.active {
-  background: #ffffff;
-  border-color: #e2e5eb;
-  color: #111827;
-}
-
-.light .browser-tab-icon {
-  color: #9ca3af;
-}
 
 .light .browser-tab-spinner {
   border-color: rgba(2, 132, 199, 0.2);
   border-top-color: #0284c7;
 }
 
-.light .browser-tab-close {
-  color: #9ca3af;
-}
 
-.light .browser-tab-close:hover {
-  color: #111827;
-  background: rgba(0, 0, 0, 0.07);
-}
 
-.light .browser-newtab-btn,
-.light .browser-btn {
-  color: #6b7280;
-}
 
-.light .browser-newtab-btn:hover,
-.light .browser-btn:hover:not(:disabled) {
-  color: #111827;
-  background: rgba(0, 0, 0, 0.06);
-}
 
-.light .browser-btn:disabled {
-  color: #cbd2dc;
-}
 
 .light .browser-btn.on {
   color: #0369a1;
@@ -1740,8 +1754,8 @@
 }
 
 .light .browser-btn-close:hover:not(:disabled) {
-  color: #b91c1c;
-  background: rgba(185, 28, 28, 0.08);
+  color: var(--ft-error);
+  background: rgba(220, 38, 38, 0.1);
 }
 
 .light .browser-toolbar {
@@ -1804,22 +1818,12 @@
 }
 
 .light .browser-placeholder-text,
-.light .browser-status-text {
-  color: #9ca3af;
-}
 
 .light .browser-statusbar {
-  background: #f7f8fa;
-  border-top: 1px solid #e2e5eb;
+  background: rgba(15, 23, 42, 0.022);
 }
 
-.light .browser-resize-icon {
-  color: #cbd2dc;
-}
 
-.light .browser-resize-handle:hover .browser-resize-icon {
-  color: #6b7280;
-}
 
 /* ─── Code Editor ─── */
 
@@ -4253,22 +4257,16 @@
 /* ─── Browser Modal · brand ─── */
 
 .browser-brand {
-  border-right: 1px solid #2a2f37;
+  border-right: 1px solid var(--ft-border-subtle);
   align-self: stretch;
 }
 
 .browser-brand-title {
-  color: #8b949e;
+  color: var(--ft-text-secondary);
   letter-spacing: 0.01em;
 }
 
-.light .browser-brand {
-  border-right: 1px solid #e2e5eb;
-}
 
-.light .browser-brand-title {
-  color: #4b5163;
-}
 
 /* ─── Fullscreen modals ─── */
 
