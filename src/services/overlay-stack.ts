@@ -33,11 +33,74 @@
  *    that really is over the whole window.
  */
 
+/**
+ * Ordering and painting are two different numbers.
+ *
+ * They used to be one. `claimFront` incremented a counter and handed it back as
+ * the z-index, so the number an overlay painted at was however many claims had
+ * ever been made — and a claim is made on *every pointer-down*, not just on
+ * open. Click between two windows for a minute and the overlays are painting in
+ * the four figures.
+ *
+ * Nothing in the app is above four figures, which is how Settings and the
+ * new-window prompt ended up underneath windows they are supposed to sit over:
+ * they hold a fixed number, and a counter that climbs forever will eventually
+ * climb past any fixed number you choose.
+ *
+ * So the counter stays, and stays unbounded — it is a sequence number and a
+ * good one. But it is never painted. The z-index is `BASE_Z + rank`, where rank
+ * is the overlay's position in claim order, which cannot exceed the number of
+ * overlays that are open. Seven exist. The band is reserved for a hundred.
+ */
+
 /** Clear of the 240–250 range the overlays' stylesheets use. */
 const BASE_Z = 260;
 
-/** One entry per overlay that is currently open, holding its claimed z-index. */
+/** How wide the overlay band is. Every claim lands inside it, always. */
+const BAND = 100;
+
+/**
+ * The highest z-index any overlay can ever paint at.
+ *
+ * Anything that must sit above every floating window belongs above this, and
+ * `APP_DIALOG_Z` is that place. Nothing should pick its own number here.
+ */
+export const OVERLAY_Z_MAX = BASE_Z + BAND - 1;
+
+/**
+ * For the app's own modal dialogs — Settings, the new-window prompt — which are
+ * not overlays in this sense: they do not stack against the windows, they go
+ * over all of them.
+ *
+ * Above `OVERLAY_Z_MAX`, and above the tab bar's drag ghost (500) and the
+ * overlay error boundary (400), both of which are shell furniture that a modal
+ * dialog still outranks.
+ */
+export const APP_DIALOG_Z = 600;
+
+/**
+ * One entry per open overlay, holding the sequence number of its last claim.
+ *
+ * Not a z-index. See the note above.
+ */
 const claims = new Map<string, number>();
+
+/**
+ * What `id` should paint at: the base plus its rank in claim order.
+ *
+ * `null` when it holds no claim, which is how a closed overlay says it has no
+ * opinion. Recomputed rather than stored, because a claim by *one* overlay
+ * changes the rank of every overlay above it.
+ */
+export function overlayZ(id: string): number | null {
+  if (!claims.has(id)) return null;
+  const order = [...claims.entries()].sort((a, b) => a[1] - b[1]);
+  const rank = order.findIndex(([key]) => key === id);
+  // Clamped rather than wrapped: a hundred simultaneous overlays is not a
+  // state this app can reach, and if it ever did, painting the overflow at the
+  // top of the band is better than painting it over Settings.
+  return BASE_Z + Math.min(rank, BAND - 1);
+}
 
 /**
  * Where each overlay is, for the ones that are a window rather than a
@@ -65,12 +128,17 @@ function notify(): void {
  * Puts `id` in front and returns the z-index to render it at.
  *
  * Call when the overlay opens and whenever it's clicked.
+ *
+ * The returned value is a *rank*, so claiming the front changes what every
+ * other open overlay should be painting at too. Callers that keep the number
+ * in component state have to re-read it when the stack changes —
+ * `useOverlayFront` does, and is how all seven overlays take theirs.
  */
 export function claimFront(id: string): number {
   counter += 1;
   claims.set(id, counter);
   notify();
-  return counter;
+  return overlayZ(id) ?? BASE_Z;
 }
 
 /** Gives up `id`'s claim, so whatever is still open becomes frontmost. */

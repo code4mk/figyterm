@@ -6,6 +6,7 @@ import { useThemeStore } from "../../stores/themeStore";
 import { OverlayPortal } from "../Overlay/OverlayPortal";
 import { useOverlayRect } from "../../hooks/useOverlayRect";
 import { claimFront, releaseFront } from "../../services/overlay-stack";
+import { useOverlayZSync } from "../../hooks/useOverlayZSync";
 
 interface SystemStats {
   cpuUsage: number;
@@ -46,6 +47,8 @@ export function SystemMonitor({ visible, onClose }: SystemMonitorProps) {
    */
   const [frontZ, setFrontZ] = useState<number | null>(null);
   const raise = useCallback(() => setFrontZ(claimFront("monitor")), []);
+  // A claim by any overlay renumbers the rest; this re-reads ours.
+  useOverlayZSync("monitor", setFrontZ);
 
   useEffect(() => {
     if (visible) {

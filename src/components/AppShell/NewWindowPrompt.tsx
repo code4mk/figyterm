@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { Dialog, Transition } from "@headlessui/react";
 import { AppWindow } from "lucide-react";
+import { APP_DIALOG_Z } from "../../services/overlay-stack";
 
 /**
  * Asks what to call a window, on the way to opening it.
@@ -47,7 +48,15 @@ export function NewWindowPrompt({ open, onCancel, onSubmit }: NewWindowPromptPro
 
   return (
     <Transition appear show={open} as={Fragment}>
-      <Dialog as="div" className="relative z-[300]" onClose={onCancel}>
+      {/*
+        300 was above the overlays when it was written and stopped being so.
+        The stack handed out an ever-growing number — one per click, not one
+        per window — so after a few hundred clicks between windows the prompt
+        for naming a new window opened behind them. The overlay band is bounded
+        now, and this sits above it by name rather than by a number that was
+        only ever true on the day it was chosen.
+      */}
+      <Dialog as="div" className="relative" style={{ zIndex: APP_DIALOG_Z }} onClose={onCancel}>
         <Transition.Child
           as={Fragment}
           enter="ease-out duration-150"

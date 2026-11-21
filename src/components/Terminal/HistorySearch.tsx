@@ -4,6 +4,7 @@ import { Search, Clock, CornerDownLeft, X, PictureInPicture2, Maximize2 } from "
 import { OverlayPortal } from "../Overlay/OverlayPortal";
 import { useOverlayRect } from "../../hooks/useOverlayRect";
 import { claimFront, releaseFront } from "../../services/overlay-stack";
+import { useOverlayZSync } from "../../hooks/useOverlayZSync";
 
 interface HistoryEntry {
   command: string;
@@ -95,6 +96,8 @@ export function HistorySearch({ visible, onClose, onSelect }: HistorySearchProps
    */
   const [frontZ, setFrontZ] = useState<number | null>(null);
   const raise = useCallback(() => setFrontZ(claimFront("history")), []);
+  // A claim by any overlay renumbers the rest; this re-reads ours.
+  useOverlayZSync("history", setFrontZ);
 
   useEffect(() => {
     if (visible) {

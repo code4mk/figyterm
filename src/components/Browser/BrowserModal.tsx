@@ -8,6 +8,7 @@ import {
   releaseFront,
   subscribeOverlayStack,
 } from "../../services/overlay-stack";
+import { useOverlayZSync } from "../../hooks/useOverlayZSync";
 import { fullscreenRect, pictureInPictureRect } from "../../hooks/useDraggableModal";
 import {
   ArrowLeft,
@@ -98,6 +99,8 @@ export function BrowserModal({ visible, onClose, onMinimize }: BrowserModalProps
    */
   const [frontZ, setFrontZ] = useState<number | null>(null);
   const raise = useCallback(() => setFrontZ(claimFront("browser")), []);
+  // A claim by any overlay renumbers the rest; this re-reads ours.
+  useOverlayZSync("browser", setFrontZ);
 
   useEffect(() => {
     if (visible) {

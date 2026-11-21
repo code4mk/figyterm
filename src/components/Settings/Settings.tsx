@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useState, useMemo } from "react";
 import { Dialog, Transition } from "@headlessui/react";
+import { APP_DIALOG_Z } from "../../services/overlay-stack";
 import {
   X,
   Moon,
@@ -291,7 +292,16 @@ source "${resolvedPath}"`, `${home}/.zshrc`],
 
   return (
     <Transition appear show={isOpen} as={Fragment}>
-      <Dialog as="div" className="relative z-50" onClose={onClose}>
+      {/*
+        Above every floating window, which `z-50` was emphatically not.
+
+        The overlays paint from 260 up and the modals' own backdrops sit at
+        240–250, so Settings at 50 opened *underneath* the editor, the browser,
+        the Claude and drawing windows, the API client, the system monitor and
+        history search — all of them. With any window open you pressed ⌘, and
+        nothing appeared to happen.
+      */}
+      <Dialog as="div" className="relative" style={{ zIndex: APP_DIALOG_Z }} onClose={onClose}>
         <Transition.Child
           as={Fragment}
           enter="ease-out duration-150"

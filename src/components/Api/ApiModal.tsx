@@ -31,6 +31,7 @@ import {
 import { Group, Panel, Separator } from "react-resizable-panels";
 import { OverlayPortal } from "../Overlay/OverlayPortal";
 import { claimFront, releaseFront } from "../../services/overlay-stack";
+import { useOverlayZSync } from "../../hooks/useOverlayZSync";
 import {
   fullscreenRect,
   pictureInPictureRect,
@@ -285,6 +286,8 @@ export function ApiModal({ visible, onClose, onMinimize }: ApiModalProps) {
 
   const [frontZ, setFrontZ] = useState<number | null>(null);
   const raise = useCallback(() => setFrontZ(claimFront("api")), []);
+  // A claim by any overlay renumbers the rest; this re-reads ours.
+  useOverlayZSync("api", setFrontZ);
 
   useEffect(() => {
     if (visible) {

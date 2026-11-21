@@ -1,5 +1,6 @@
 import { Fragment, useState } from "react";
 import { Dialog, Transition } from "@headlessui/react";
+import { APP_DIALOG_Z } from "../../services/overlay-stack";
 import {
   X,
   Download,
@@ -55,7 +56,15 @@ export function UpdateModal({
 }: UpdateModalProps) {
   return (
     <Transition appear show={isOpen} as={Fragment}>
-      <Dialog as="div" className="relative z-50" onClose={onClose}>
+      {/* Above the floating windows — see `APP_DIALOG_Z`. At `z-50` an
+          update notice opened behind whatever you had open, which for a
+          dialog whose entire job is to be noticed is the worst place. */}
+      <Dialog
+        as="div"
+        className="relative"
+        style={{ zIndex: APP_DIALOG_Z }}
+        onClose={onClose}
+      >
         <Transition.Child
           as={Fragment}
           enter="ease-out duration-150"

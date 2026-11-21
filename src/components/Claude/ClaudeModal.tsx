@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { OverlayPortal } from "../Overlay/OverlayPortal";
 import { claimFront, releaseFront } from "../../services/overlay-stack";
+import { useOverlayZSync } from "../../hooks/useOverlayZSync";
 import {
   fullscreenRect,
   pictureInPictureRect,
@@ -255,6 +256,8 @@ export function ClaudeModal({
   );
 
   const raise = useCallback(() => setFrontZ(claimFront("claude")), []);
+  // A claim by any overlay renumbers the rest; this re-reads ours.
+  useOverlayZSync("claude", setFrontZ);
 
   const {
     style: modalStyle,

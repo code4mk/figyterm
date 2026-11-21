@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { OverlayPortal } from "../Overlay/OverlayPortal";
+import { APP_DIALOG_Z } from "../../services/overlay-stack";
 
 interface Command {
   id: string;
@@ -80,7 +81,13 @@ export function CommandPalette({ isOpen, onClose, commands }: CommandPaletteProp
   if (!isOpen) return null;
 
   const palette = (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-[18vh]">
+    /* Above the floating windows — see `APP_DIALOG_Z`. The palette lists
+       every action the app has, including the ones that act on those
+       windows, so opening behind them was the one place it could not be. */
+    <div
+      className="fixed inset-0 flex items-start justify-center pt-[18vh]"
+      style={{ zIndex: APP_DIALOG_Z }}
+    >
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div className="relative w-full max-w-[480px] bg-ft-elevated border border-ft-border rounded-xl shadow-elevated overflow-hidden animate-fade-in">
         <div className="flex items-center gap-3 px-4 py-3 border-b border-ft-border-subtle">

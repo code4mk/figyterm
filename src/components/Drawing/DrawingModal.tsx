@@ -19,6 +19,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Maximize2, Minimize2, PanelLeft, PictureInPicture2, X } from "lucide-react";
 import { OverlayPortal } from "../Overlay/OverlayPortal";
 import { claimFront, releaseFront } from "../../services/overlay-stack";
+import { useOverlayZSync } from "../../hooks/useOverlayZSync";
 import {
   fullscreenRect,
   pictureInPictureRect,
@@ -113,6 +114,8 @@ export function DrawingModal({ visible, onClose }: DrawingModalProps) {
 
   const [frontZ, setFrontZ] = useState<number | null>(null);
   const raise = useCallback(() => setFrontZ(claimFront("drawing")), []);
+  // A claim by any overlay renumbers the rest; this re-reads ours.
+  useOverlayZSync("drawing", setFrontZ);
 
   useEffect(() => {
     if (visible) {

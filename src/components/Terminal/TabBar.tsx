@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, Fragment, useCallback } from "react";
 import { Dialog, Transition } from "@headlessui/react";
 import { TerminalSquare, X, Plus, Pencil, Columns2, ChevronLeft, ChevronRight } from "lucide-react";
 import { SHORTCUTS, text } from "../../services/shortcuts";
+import { APP_DIALOG_Z } from "../../services/overlay-stack";
 
 interface Tab {
   id: string;
@@ -278,7 +279,8 @@ export function TabBar({ tabs, onTabClick, onTabClose, onNewTab, onRenameTab, on
       <Transition appear show={renameModal !== null} as={Fragment}>
         <Dialog
           as="div"
-          className="relative z-[300]"
+          className="relative"
+          style={{ zIndex: APP_DIALOG_Z }}
           onClose={() => setRenameModal(null)}
         >
           <Transition.Child
