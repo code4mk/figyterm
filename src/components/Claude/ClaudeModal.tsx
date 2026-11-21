@@ -2,14 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open as openFolderDialog } from "@tauri-apps/plugin-dialog";
 import {
   AlertTriangle,
-  Check,
-  ChevronDown,
+  ChevronRight,
   FolderOpen,
   FolderPlus,
   History,
   Maximize2,
   Minimize2,
   Minus,
+  PanelLeft,
   PictureInPicture2,
   Plus,
   RotateCcw,
@@ -36,9 +36,17 @@ import {
 } from "../../services/claude-project";
 import { ClaudeProbe, conversationTitleFromDisk, probeClaude } from "../../services/claude";
 import { collapseHome } from "../../services/recent-dirs";
+import { isMac } from "../../services/platform";
+import {
+  ClaudeChrome,
+  loadClaudeChrome,
+  NAV_WIDTH,
+  saveClaudeChrome,
+} from "../../services/claude-session";
 import { ClaudeSetup } from "./ClaudeSetup";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { HistoryList, HistoryPicker, useFolderHistory } from "./HistoryPicker";
+import { HistoryPicker, useFolderHistory } from "./HistoryPicker";
+import { ClaudeNavigator } from "./ClaudeNavigator";
 import { ClaudeSurface } from "./ClaudeSurface";
 import { ProjectPicker } from "./ProjectPicker";
 
@@ -46,17 +54,31 @@ import { ProjectPicker } from "./ProjectPicker";
  * The Claude Code window.
  *
  * A frame around the real CLI. FigyTerm draws the chrome — projects,
- * conversation tabs, the folders a conversation can reach — and everything
- * inside the body is Claude Code's own terminal interface, unmodified. See
+ * conversations, the folders a conversation can reach — and everything inside
+ * the body is Claude Code's own terminal interface, unmodified. See
  * `docs/CLAUDE-CODE.md` for why that division is the whole design.
  *
- * The one structural thing worth knowing before reading the code: **every
- * conversation opened in this session stays mounted**, whichever project is on
+ * **The layout.** A title bar that says where you are, a navigator down the
+ * left listing every open project with its conversations under it, the
+ * terminal filling what is left, and a status bar stating what the current
+ * conversation can reach. The navigator (`ClaudeNavigator`) is the whole of
+ * the window's navigation: it replaced a project dropdown on the title bar and
+ * a rail of conversation pills beneath it, which between them could never show
+ * two projects at once — which is the only thing this window has that a
+ * terminal tab with `claude` typed into it does not.
+ *
+ * **The one structural thing** worth knowing before reading the code: *every
+ * conversation opened in this session stays mounted*, whichever project is on
  * screen. `opened` is that list, `ClaudeSurface` hides itself when it is not
  * the current one, and a conversation's pty is closed only when its surface
  * unmounts — which happens when the conversation is ended, and at no other
  * time. Switching project, closing the window and quitting the app are three
  * different things, and only the last of them stops anything.
+ *
+ * That is also why the handlers below take a project as a parameter rather than
+ * reading the current one: the navigator can start, show and close a
+ * conversation in a project that is not on screen, and each of those has to
+ * bring its project forward first or the click lands somewhere invisible.
  */
 
 /**
@@ -153,8 +175,30 @@ export function ClaudeModal({
   const [setupOpen, setSetupOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
-  /** Project menu in the toolbar: the projects you are working in right now. */
-  const [projectMenuOpen, setProjectMenuOpen] = useState(false);
+  /**
+   * The navigator's width and whether it is showing, remembered between
+   * launches. Read once, written on a change — see `saveClaudeChrome`.
+   */
+  const [chrome, setChrome] = useState<ClaudeChrome>(loadClaudeChrome);
+  /*
+    Debounced, because `navWidth` changes once per pointer move while the
+    divider is being dragged and `localStorage.setItem` is synchronous. The
+    delay costs nothing — the value is only ever read at launch.
+  */
+  useEffect(() => {
+    const timer = window.setTimeout(() => saveClaudeChrome(chrome), 250);
+    return () => window.clearTimeout(timer);
+  }, [chrome]);
+  /**
+   * Which projects on the bench are showing their conversations.
+   *
+   * Only ever consulted for the projects you are *not* in: the active one is
+   * always expanded, because collapsing the project on screen would hide the
+   * row that says which conversation you are reading.
+   */
+  const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
+  /** The navigator's *Earlier* section, which is collapsed until asked for. */
+  const [historySectionOpen, setHistorySectionOpen] = useState(false);
   /** A project close waiting on the user, because work would be stopped by it. */
   const [pendingClose, setPendingClose] = useState<{ id: string; live: number } | null>(null);
   const [opened, setOpened] = useState<OpenSurface[]>([]);
@@ -270,6 +314,27 @@ export function ClaudeModal({
   );
 
   /**
+   * Whether a conversation has a process behind it right now.
+   *
+   * Two facts, and both are needed: `endedAt` says the process reported itself
+   * gone, and being mounted is what says there is one at all — a conversation
+   * remembered from a previous launch has `endedAt` set and no surface, and one
+   * closed by its ✕ has no surface either.
+   */
+  const isLive = useCallback(
+    (conversation: Conversation) =>
+      conversation.endedAt === null && isOpen(conversation.sessionId),
+    [isOpen]
+  );
+
+  /** Where the current conversation sits, for the ordinal an untitled one uses. */
+  const currentIndex = current ? conversations.indexOf(current) : 0;
+
+  /* How this platform spells the chords the window's tooltips quote. */
+  const modKey = isMac ? "⌘" : "Ctrl+";
+  const navChord = isMac ? "⌘B" : "Ctrl+Shift+B";
+
+  /**
    * Whether there is a surface on screen right now.
    *
    * False is the empty state, and it covers more than "no conversations": a
@@ -313,8 +378,41 @@ export function ClaudeModal({
     });
   }, [visible, currentSessionId]);
 
+  /**
+   * Brings a project to the front without disturbing anything running in it.
+   *
+   * Declared before everything that uses it rather than left to `openProject`
+   * further down, and that is a hard requirement rather than a tidiness one: a
+   * `useCallback` dependency array is evaluated *during* render, so listing a
+   * `const` from further down the function body is a reference to a binding
+   * that has not been initialised yet.
+   */
+  const surfaceProject = useCallback(
+    (id: string) => {
+      setWorking((ids) => (ids.includes(id) ? ids : [...ids, id]));
+      // Guarded: `switchProject` bumps `lastUsedAt`, so calling it for the
+      // project already on screen would reshuffle the recent list on every
+      // click of a conversation.
+      if (id !== activeProjectId) store.switchProject(id);
+    },
+    [activeProjectId, store]
+  );
+
   const startNewConversation = useCallback(
     (target: ClaudeProject) => {
+      /*
+        Switch to it first.
+
+        The navigator offers *New conversation* under every project it lists,
+        not only the one on screen, and starting one in a project you are not
+        looking at would spawn a process behind a surface that is hidden — the
+        click would appear to do nothing at all.
+
+        `surfaceProject` is a no-op for the project already current, which is
+        the overwhelmingly common case and the one ⌘T takes.
+      */
+      surfaceProject(target.id);
+
       const conversation: Conversation = {
         sessionId: crypto.randomUUID(),
         title: "",
@@ -331,7 +429,7 @@ export function ClaudeModal({
         { projectId: target.id, sessionId: conversation.sessionId, generation: 0 },
       ]);
     },
-    [store]
+    [store, surfaceProject]
   );
 
   /**
@@ -349,19 +447,26 @@ export function ClaudeModal({
     if (last) store.selectConversation(project.id, last.sessionId);
   }, [visible, project, currentSessionId, store]);
 
-  /** Shows a conversation, resuming its process if it had ended. */
+  /**
+   * Shows a conversation, in whichever project owns it.
+   *
+   * The project is a parameter now that the navigator lists more than one at a
+   * time: clicking a conversation under a project you are not in switches to
+   * that project and lands on that conversation, which is the whole point of
+   * being able to see them.
+   */
   const showConversation = useCallback(
-    (conversation: Conversation) => {
-      if (!project) return;
-      store.selectConversation(project.id, conversation.sessionId);
+    (target: ClaudeProject, conversation: Conversation) => {
+      surfaceProject(target.id);
+      store.selectConversation(target.id, conversation.sessionId);
       if (!isOpen(conversation.sessionId)) {
         setOpened((entries) => [
           ...entries,
-          { projectId: project.id, sessionId: conversation.sessionId, generation: 0 },
+          { projectId: target.id, sessionId: conversation.sessionId, generation: 0 },
         ]);
       }
     },
-    [project, store, isOpen]
+    [surfaceProject, store, isOpen]
   );
 
   /**
@@ -376,15 +481,14 @@ export function ClaudeModal({
    * conversations* and still resumes with its full history.
    */
   const closeConversation = useCallback(
-    (conversation: Conversation) => {
-      if (!project) return;
+    (target: ClaudeProject, conversation: Conversation) => {
       // Unmounting the surface is what closes the pty — see `ClaudeSurface`.
       setOpened((entries) =>
         entries.filter((entry) => entry.sessionId !== conversation.sessionId)
       );
-      store.forgetConversation(project.id, conversation.sessionId);
+      store.forgetConversation(target.id, conversation.sessionId);
     },
-    [project, store]
+    [store]
   );
 
   /**
@@ -396,15 +500,15 @@ export function ClaudeModal({
    * while its surface was on screen.
    */
   const resumeConversation = useCallback(
-    (conversation: Conversation) => {
-      if (!project) return;
-      store.selectConversation(project.id, conversation.sessionId);
+    (target: ClaudeProject, conversation: Conversation) => {
+      surfaceProject(target.id);
+      store.selectConversation(target.id, conversation.sessionId);
       setOpened((entries) => {
         const existing = entries.find((entry) => entry.sessionId === conversation.sessionId);
         if (!existing) {
           return [
             ...entries,
-            { projectId: project.id, sessionId: conversation.sessionId, generation: 0 },
+            { projectId: target.id, sessionId: conversation.sessionId, generation: 0 },
           ];
         }
         return entries.map((entry) =>
@@ -415,19 +519,13 @@ export function ClaudeModal({
       });
       // It is about to be running again, so it must stop being marked ended —
       // `ClaudeSurface` will say otherwise soon enough if the resume fails.
-      store.restartConversation(project.id, conversation.sessionId);
+      store.restartConversation(target.id, conversation.sessionId);
     },
-    [project, store]
+    [surfaceProject, store]
   );
 
   /** Opens a project: onto the bench, and on screen. */
-  const openProject = useCallback(
-    (id: string) => {
-      setWorking((ids) => (ids.includes(id) ? ids : [...ids, id]));
-      store.switchProject(id);
-    },
-    [store]
-  );
+  const openProject = surfaceProject;
 
   /**
    * Closes a project — takes it off the bench, and keeps it.
@@ -595,8 +693,8 @@ export function ClaudeModal({
   useEffect(() => {
     if (closeTabRequest === lastCloseRequest.current) return;
     lastCloseRequest.current = closeTabRequest;
-    if (current) closeConversation(current);
-  }, [closeTabRequest, current, closeConversation]);
+    if (project && current) closeConversation(project, current);
+  }, [closeTabRequest, project, current, closeConversation]);
 
   /**
    * Pending title lookups, so closing the window doesn't leave them firing.
@@ -752,6 +850,86 @@ export function ClaudeModal({
     place({ x: rect.x, y: rect.y }, { w: rect.w, h: rect.h });
   }, [fullscreen, place, reset]);
 
+  // ─── The navigator ────────────────────────────────────────────────────────
+
+  /**
+   * Whether the sidebar is on screen.
+   *
+   * Picture-in-picture overrides the preference rather than clearing it: that
+   * mode's window is 520px at its narrowest, and a 236px column would leave the
+   * CLI too few terminal columns to lay its own output out in. Leaving it off
+   * instead means the preference survives the round trip.
+   */
+  const navVisible = chrome.navOpen && !pipMode;
+
+  const toggleNav = useCallback(
+    () => setChrome((current) => ({ ...current, navOpen: !current.navOpen })),
+    []
+  );
+
+  const toggleBench = useCallback(
+    () => setChrome((current) => ({ ...current, benchOpen: !current.benchOpen })),
+    []
+  );
+
+  /**
+   * Puts the project section back when something has to appear in it.
+   *
+   * Opening a project from the picker, or making one, while the section is
+   * collapsed would otherwise land it somewhere the user cannot see, and the
+   * click would read as having failed. Deliberately *not* wired into
+   * `surfaceProject`, which ⌘1–⌘9 also goes through: switching conversation is
+   * not a reason to reopen a list you put away.
+   */
+  const revealBench = useCallback(
+    () => setChrome((current) => (current.benchOpen ? current : { ...current, benchOpen: true })),
+    []
+  );
+
+  const toggleProjectExpanded = useCallback((id: string) => {
+    setExpandedProjects((flags) => ({ ...flags, [id]: !flags[id] }));
+  }, []);
+
+  /**
+   * Dragging the divider between the navigator and the terminal.
+   *
+   * Pointer capture rather than window listeners, for the reason every other
+   * drag in this app uses it: the pointer leaves a 4px strip immediately, and a
+   * capture is what keeps the moves coming to the element that started it.
+   */
+  const onNavResizeStart = useCallback(
+    (e: React.PointerEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const handle = e.currentTarget as HTMLElement;
+      const startX = e.clientX;
+      const startWidth = chrome.navWidth;
+      handle.setPointerCapture(e.pointerId);
+
+      const move = (event: PointerEvent) => {
+        const next = Math.round(
+          Math.min(
+            NAV_WIDTH.max,
+            Math.max(NAV_WIDTH.min, startWidth + event.clientX - startX)
+          )
+        );
+        setChrome((current) =>
+          current.navWidth === next ? current : { ...current, navWidth: next }
+        );
+      };
+      const finish = () => {
+        handle.releasePointerCapture?.(e.pointerId);
+        handle.removeEventListener("pointermove", move);
+        handle.removeEventListener("pointerup", finish);
+        handle.removeEventListener("pointercancel", finish);
+      };
+      handle.addEventListener("pointermove", move);
+      handle.addEventListener("pointerup", finish);
+      handle.addEventListener("pointercancel", finish);
+    },
+    [chrome.navWidth]
+  );
+
   const liveCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const entry of opened) {
@@ -807,14 +985,37 @@ export function ClaudeModal({
     // how a turn is interrupted. Only chords that are unambiguously the
     // window's are taken here.
     const mod = e.metaKey || e.ctrlKey;
-    if (mod && e.key.toLowerCase() === "t" && !e.shiftKey) {
+    const take = () => {
       e.preventDefault();
       e.stopPropagation();
+    };
+
+    if (mod && e.key.toLowerCase() === "t" && !e.shiftKey) {
+      take();
       if (project) startNewConversation(project);
     } else if (mod && e.key.toLowerCase() === "p" && !e.shiftKey) {
-      e.preventDefault();
-      e.stopPropagation();
+      take();
       setPickerOpen(true);
+    } else if (mod && e.key.toLowerCase() === "b" && e.shiftKey === !isMac) {
+      /*
+        The navigator, spelled the way the editor spells its file tree — ⌘B.
+
+        Off macOS it asks for Shift as well, and that is not a style choice:
+        `mod` is Ctrl there, and **Ctrl+B is Claude Code's own binding** for
+        running a command in the background. Taking it would break the CLI this
+        window exists to host, which is the one thing the design does not do.
+        Ctrl+Shift+B opens the browser from the shell, and shadowing *that*
+        while this window has the keyboard costs nothing — the browser is a
+        chord away once you leave.
+      */
+      take();
+      toggleNav();
+    } else if (mod && !e.shiftKey && e.key >= "1" && e.key <= "9") {
+      // The nth conversation of this project, which is the only way to switch
+      // while the navigator is hidden — in picture-in-picture, above all.
+      take();
+      const target = conversations[Number(e.key) - 1];
+      if (project && target) showConversation(project, target);
     }
   };
 
@@ -837,6 +1038,16 @@ export function ClaudeModal({
         <div
           ref={modalRef}
           tabIndex={-1}
+          /*
+            A window, and now it says so. Its own four dialogs have carried
+            `role="dialog"` since they were written; the thing they open over
+            was the one surface a screen reader was handed as an unlabelled
+            div. The label names the project as well, because several of these
+            states look alike from the outside.
+          */
+          role="dialog"
+          aria-modal={!pipMode}
+          aria-label={project ? `Claude Code — ${projectName(project)}` : "Claude Code"}
           className={`editor-modal claude-window overflow-hidden flex flex-col focus:outline-none ${
             pipMode ? "editor-pip" : ""
           } ${fullscreen ? "editor-fullscreen" : "rounded-xl"}`}
@@ -845,19 +1056,38 @@ export function ClaudeModal({
           onKeyDown={onKeyDown}
         >
           {/*
-            The title bar, and the only place the window says what it is.
+            The title bar.
 
-            One row rather than a browser's two: the mark on the left, the
-            project in the middle — which is this window's answer to "where am
-            I?" — and the window's own controls on the right, set apart from
-            the project's by a hairline so that closing the window is never one
-            slip away from closing the project.
+            Three zones, each with one job: what this window is, where you are
+            in it, and what the window itself can do. The middle one used to be
+            a dropdown holding the whole project switcher, which made the title
+            bar a control panel and left "where am I" to be inferred from it.
+            The navigator took the switching; what is left here is a label —
+            project › conversation, the way a breadcrumb reads — and the one
+            button that reveals the thing that replaced it.
           */}
           <header
-            className="claude-header flex items-center gap-2 px-2.5 select-none cursor-grab active:cursor-grabbing"
+            className="claude-header flex items-center gap-2 px-2 select-none cursor-grab active:cursor-grabbing"
             onPointerDown={onDragStart}
           >
-            <div className="claude-brand flex items-center gap-2 shrink-0">
+            <div
+              className="flex items-center gap-1.5 shrink-0"
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              <button
+                className={`claude-iconbtn ${navVisible ? "on" : ""}`}
+                onClick={toggleNav}
+                disabled={pipMode}
+                title={
+                  pipMode
+                    ? "The sidebar is hidden in picture-in-picture"
+                    : `${navVisible ? "Hide" : "Show"} the sidebar (${navChord})`
+                }
+                aria-label="Toggle sidebar"
+                aria-pressed={navVisible}
+              >
+                <PanelLeft size={13} />
+              </button>
               <span className="claude-mark">
                 <img src="/claude-code.png" alt="" />
               </span>
@@ -867,158 +1097,35 @@ export function ClaudeModal({
             <span className="claude-sep" />
 
             {/*
-              The project field, and the menu that hangs off it.
+              Where you are: the project, then the conversation inside it.
 
-              Wrapped in its own positioned box so the menu lines up with the
-              field rather than with the window, and so a click anywhere in it
-              is a click and not the start of a drag.
+              A label, not a menu — but the project half is still a button,
+              because "take me to the list of these" is the one thing anyone
+              tries to click on a breadcrumb, and a dead crumb that ignores the
+              click is worse than no crumb.
             */}
-            <div
-              className="relative flex-1 min-w-0 flex justify-center"
-              onPointerDown={(e) => e.stopPropagation()}
-            >
-              <button
-                className={`claude-project-field flex items-center gap-2 min-w-0 w-full max-w-[420px] ${
-                  projectMenuOpen ? "open" : ""
-                }`}
-                onClick={() => setProjectMenuOpen((open) => !open)}
-                title={project ? project.root : "Choose a project"}
-                aria-expanded={projectMenuOpen}
-              >
-                <FolderOpen size={12} className="claude-project-icon shrink-0" />
-                <span className="claude-project-name truncate">
-                  {project ? projectName(project) : "No project"}
-                </span>
-                {project && (
-                  <span className="claude-project-path truncate">
-                    {collapseHome(project.root)}
-                  </span>
-                )}
-                <span className="flex-1" />
-                {liveTotal > 0 && (
-                  <span
-                    className="claude-live-count shrink-0"
-                    title={`${liveTotal} running ${
-                      liveTotal === 1 ? "conversation" : "conversations"
-                    }`}
-                  >
-                    <span className="claude-dot live" />
-                    {liveTotal}
-                  </span>
-                )}
-                <ChevronDown size={11} className="claude-project-caret shrink-0" />
-              </button>
-
-              {/*
-                What you are working on *right now*, and nothing else.
-
-                The full list is a modal reached from "All projects…" and from
-                the new-project button. This is the other question — you have
-                three things on the go and want the one that is running — and
-                answering both in one list would bury it. The current project is
-                included even when it hasn't got a live conversation, because a
-                switcher that can't show you where you are is disorienting.
-              */}
-              {projectMenuOpen && (
+            <div className="claude-locator flex items-center gap-1.5 flex-1 min-w-0">
+              {project ? (
                 <>
-                  <div
-                    className="fixed inset-0 z-[15]"
-                    onMouseDown={() => setProjectMenuOpen(false)}
-                  />
-                  <div className="claude-menu absolute left-0 right-0 top-full z-[16] mt-1.5 rounded-xl overflow-hidden">
-                    <div className="claude-menu-head flex items-center gap-2 px-3 pt-2.5 pb-1.5">
-                      <span className="claude-menu-label">Working on</span>
-                      <span className="flex-1" />
-                      <span className="claude-menu-count">
-                        {workingProjects.length}{" "}
-                        {workingProjects.length === 1 ? "project" : "projects"}
-                      </span>
-                    </div>
-                    <div className="max-h-[260px] overflow-y-auto px-1.5 pb-1.5">
-                      {workingProjects.length === 0 && (
-                        <div className="claude-menu-empty px-3 py-5 text-center">
-                          Nothing open. Pick one below.
-                        </div>
-                      )}
-                      {workingProjects.map((row) => {
-                        const live = liveCounts[row.id] ?? 0;
-                        return (
-                          <div
-                            key={row.id}
-                            className={`claude-menu-row group flex items-center gap-2 ${
-                              row.id === activeProjectId ? "current" : ""
-                            }`}
-                          >
-                            <button
-                              className="flex items-center gap-2.5 flex-1 min-w-0 text-left px-2 py-1.5"
-                              onClick={() => {
-                                if (row.id !== activeProjectId) openProject(row.id);
-                                setProjectMenuOpen(false);
-                              }}
-                              title={row.root}
-                            >
-                              <span className="claude-menu-tick shrink-0">
-                                {row.id === activeProjectId && <Check size={11} />}
-                              </span>
-                              <span className="flex flex-col min-w-0 flex-1 gap-px">
-                                <span className="claude-menu-name truncate">
-                                  {projectName(row)}
-                                </span>
-                                <span className="claude-menu-path truncate">
-                                  {collapseHome(row.root)}
-                                </span>
-                              </span>
-                            </button>
-
-                            {live > 0 && (
-                              <span
-                                className="claude-live-count shrink-0"
-                                title={`${live} running ${
-                                  live === 1 ? "conversation" : "conversations"
-                                }`}
-                              >
-                                <span className="claude-dot live" />
-                                {live}
-                              </span>
-                            )}
-
-                            {/*
-                              Closes the project — takes it off the bench and
-                              keeps it. Not a delete: it stays in Projects with
-                              its folders and its history. What it does end is
-                              the work in progress, which the title says
-                              outright when there is any.
-                            */}
-                            <button
-                              className="claude-menu-remove mr-1.5 shrink-0"
-                              onClick={() => closeWorkingProject(row.id)}
-                              title={
-                                live > 0
-                                  ? `Close — stops ${live} running ${
-                                      live === 1 ? "conversation" : "conversations"
-                                    }. The project is kept.`
-                                  : "Close — the project is kept in Projects"
-                              }
-                              aria-label={`Close ${projectName(row)}`}
-                            >
-                              <X size={11} />
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <button
-                      className="claude-menu-footer flex items-center gap-2 px-3 py-2.5 w-full text-left"
-                      onClick={() => {
-                        setProjectMenuOpen(false);
-                        setPickerOpen(true);
-                      }}
-                    >
-                      <FolderOpen size={11} className="opacity-70" />
-                      All projects…
-                    </button>
-                  </div>
+                  <button
+                    className="claude-locator-project flex items-center gap-1.5 min-w-0"
+                    onClick={() => setPickerOpen(true)}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    title={`${project.root}\nAll projects (${modKey}P)`}
+                  >
+                    <FolderOpen size={11} className="shrink-0 opacity-70" />
+                    <span className="truncate">{projectName(project)}</span>
+                  </button>
+                  <ChevronRight size={11} className="claude-locator-sep shrink-0" />
+                  <span
+                    className={`claude-locator-conv truncate ${current ? "" : "idle"}`}
+                    title={current ? conversationTitle(current, currentIndex) : undefined}
+                  >
+                    {current ? conversationTitle(current, currentIndex) : "No conversation"}
+                  </span>
                 </>
+              ) : (
+                <span className="claude-locator-conv idle truncate">No project open</span>
               )}
             </div>
 
@@ -1026,43 +1133,22 @@ export function ClaudeModal({
               className="flex items-center gap-0.5 shrink-0"
               onPointerDown={(e) => e.stopPropagation()}
             >
-              {project && (
-                <>
-                  <button
-                    className="claude-iconbtn"
-                    onClick={() => setHistoryOpen(true)}
-                    title="Earlier conversations in this folder"
-                    aria-label="Earlier conversations"
-                  >
-                    <History size={13} />
-                  </button>
-                  <button
-                    className="claude-iconbtn"
-                    onClick={() => void addFolder()}
-                    title="Add a folder Claude may also reach"
-                    aria-label="Add folder"
-                  >
-                    <FolderPlus size={13} />
-                  </button>
-                </>
-              )}
               {/*
-                Projects, not *new* project. The list is where both answers
-                live: pick one you already have, or make one from its footer.
-                Going straight to the setup dialog made "I want my other
-                project" the long way round, which is the commoner of the two.
-
-                With nothing to pick from yet there is no list to show, so the
-                first project skips it.
+                How much is running, everywhere — the one fact from the old
+                dropdown that belongs on the title bar, because it is the only
+                one that is still true when the navigator is hidden.
               */}
-              <button
-                className="claude-iconbtn"
-                onClick={() => (projects.length ? setPickerOpen(true) : setSetupOpen(true))}
-                title="Projects…"
-                aria-label="Projects"
-              >
-                <Plus size={13} />
-              </button>
+              {liveTotal > 0 && (
+                <span
+                  className="claude-live-count mr-1.5"
+                  title={`${liveTotal} running ${
+                    liveTotal === 1 ? "conversation" : "conversations"
+                  }, across every open project`}
+                >
+                  <span className="claude-dot live" />
+                  {liveTotal}
+                </span>
+              )}
 
               <span className="claude-sep" />
 
@@ -1106,208 +1192,165 @@ export function ClaudeModal({
           </header>
 
           {/*
-            The conversation rail.
+            The navigator, and the terminal it sits beside.
 
-            Segments rather than browser tabs: a conversation is one of several
-            threads in the same project, not a separate page, and a row of
-            evenly weighted pills says that better than a stack of folder tabs
-            does. With no project there is nothing to list, so the rail is not
-            drawn at all rather than sitting there empty.
+            The split is the whole redesign: everything that is a *list* lives
+            on the left, and the right-hand side is nothing but Claude Code's
+            own screen — which is the division `docs/CLAUDE-CODE.md` argues for
+            and which the old chrome kept breaking, a strip at a time.
           */}
-          {project && (
-            <div
-              className="claude-rail flex items-center gap-1.5 px-2 select-none cursor-grab active:cursor-grabbing"
-              onPointerDown={onDragStart}
-            >
-              <div className="claude-rail-scroll flex items-center gap-1 flex-1 min-w-0 overflow-x-auto">
-                {conversations.map((conversation, index) => {
-                  const live = conversation.endedAt === null && isOpen(conversation.sessionId);
-                  const active = conversation.sessionId === currentSessionId;
-                  return (
-                    <div
-                      key={conversation.sessionId}
-                      role="tab"
-                      aria-selected={active}
-                      className={`claude-conv group shrink-0 flex items-center ${
-                        active ? "active" : ""
-                      }`}
-                      // The rail is the drag handle; a conversation is not.
-                      onPointerDown={(e) => e.stopPropagation()}
-                    >
-                      <button
-                        className="claude-conv-main flex items-center gap-1.5 min-w-0"
-                        onClick={() => showConversation(conversation)}
-                        title={
-                          attention[conversation.sessionId]
-                            ? "Waiting for you"
-                            : live
-                              ? "Running"
-                              : "Not running — opening it resumes the conversation"
-                        }
-                      >
-                        <span
-                          className={`claude-dot shrink-0 ${live ? "live" : ""} ${
-                            attention[conversation.sessionId] ? "wants-you" : ""
-                          }`}
-                        />
-                        <span className="claude-conv-title truncate">
-                          {conversationTitle(conversation, index)}
-                        </span>
-                      </button>
-                      <button
-                        className="claude-conv-close shrink-0"
-                        onClick={() => closeConversation(conversation)}
-                        title={live ? "Close — stops this conversation" : "Close"}
-                        aria-label="Close conversation"
-                      >
-                        <X size={10} />
-                      </button>
-                    </div>
-                  );
-                })}
-
-                <button
-                  className={`claude-newconv shrink-0 flex items-center gap-1 ${
-                    conversations.length === 0 ? "solo" : ""
-                  }`}
-                  onClick={() => startNewConversation(project)}
-                  onPointerDown={(e) => e.stopPropagation()}
-                  title="New conversation (⌘T)"
-                  aria-label="New conversation"
-                >
-                  <Plus size={12} />
-                  {conversations.length === 0 && <span>New conversation</span>}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Body */}
-          <div className="flex-1 min-h-0 relative claude-body">
-            {probing && !probe && (
-              <Centered>
-                <span className="claude-spinner" />
-                <span className="claude-empty-body">Looking for Claude Code…</span>
-              </Centered>
+          <div className="claude-main flex-1 min-h-0 flex">
+            {navVisible && (
+              <>
+                <ClaudeNavigator
+                  width={chrome.navWidth}
+                  workingProjects={workingProjects}
+                  recentProjects={recentProjects}
+                  activeProjectId={activeProjectId}
+                  activeConversation={activeConversation}
+                  liveCounts={liveCounts}
+                  attention={attention}
+                  isLive={isLive}
+                  expanded={expandedProjects}
+                  onToggleExpanded={toggleProjectExpanded}
+                  benchOpen={chrome.benchOpen}
+                  onToggleBench={toggleBench}
+                  history={history}
+                  historyOpen={historySectionOpen}
+                  onToggleHistory={() => setHistorySectionOpen((open) => !open)}
+                  onAdopt={adoptConversation}
+                  onOpenProject={openProject}
+                  onCloseProject={closeWorkingProject}
+                  onNewProject={() => {
+                    revealBench();
+                    setSetupOpen(true);
+                  }}
+                  onAllProjects={() =>
+                    projects.length ? setPickerOpen(true) : setSetupOpen(true)
+                  }
+                  onShowConversation={showConversation}
+                  onCloseConversation={closeConversation}
+                  onNewConversation={startNewConversation}
+                />
+                <div
+                  className="claude-nav-divider shrink-0"
+                  onPointerDown={onNavResizeStart}
+                  onDoubleClick={toggleNav}
+                  role="separator"
+                  aria-orientation="vertical"
+                  aria-label="Resize the sidebar"
+                  title="Drag to resize · double-click to hide"
+                />
+              </>
             )}
 
-            {notInstalled && (
-              <Centered>
-                <span className="claude-medallion warn">
-                  <AlertTriangle size={18} />
-                </span>
-                <span className="claude-empty-title">Claude Code isn’t installed</span>
-                <span className="claude-empty-body max-w-[460px] text-center">
-                  FigyTerm runs the <code>claude</code> CLI; it doesn’t bundle one. Install it,
-                  then check again — the search includes your login shell’s PATH, so a version
-                  manager’s directory counts.
-                </span>
-                {probe?.error && <pre className="claude-error">{probe.error}</pre>}
-                <button
-                  className="claude-btn primary"
-                  onClick={() => void runProbe()}
-                  disabled={probing}
-                >
-                  <RotateCcw size={12} />
-                  Check again
-                </button>
-              </Centered>
-            )}
+            {/* Body */}
+            <div className="flex-1 min-w-0 relative claude-body">
+              {probing && !probe && (
+                <Centered>
+                  <span className="claude-spinner" />
+                  <span className="claude-empty-body">Looking for Claude Code…</span>
+                </Centered>
+              )}
 
-            {brokenInstall && (
-              <Centered>
-                <span className="claude-medallion warn">
-                  <AlertTriangle size={18} />
-                </span>
-                <span className="claude-empty-title">Claude Code wouldn’t start</span>
-                <span className="claude-empty-body font-mono">{probe?.path}</span>
-                {probe?.error && <pre className="claude-error">{probe.error}</pre>}
-                <button className="claude-btn primary" onClick={() => void runProbe()}>
-                  <RotateCcw size={12} />
-                  Check again
-                </button>
-              </Centered>
-            )}
+              {notInstalled && (
+                <Centered>
+                  <span className="claude-medallion warn">
+                    <AlertTriangle size={18} />
+                  </span>
+                  <span className="claude-empty-title">Claude Code isn’t installed</span>
+                  <span className="claude-empty-body max-w-[460px] text-center">
+                    FigyTerm runs the <code>claude</code> CLI; it doesn’t bundle one. Install it,
+                    then check again — the search includes your login shell’s PATH, so a version
+                    manager’s directory counts.
+                  </span>
+                  {probe?.error && <pre className="claude-error">{probe.error}</pre>}
+                  <button
+                    className="claude-btn primary"
+                    onClick={() => void runProbe()}
+                    disabled={probing}
+                  >
+                    <RotateCcw size={12} />
+                    Check again
+                  </button>
+                </Centered>
+              )}
 
-            {/*
-              Nothing on the bench.
+              {brokenInstall && (
+                <Centered>
+                  <span className="claude-medallion warn">
+                    <AlertTriangle size={18} />
+                  </span>
+                  <span className="claude-empty-title">Claude Code wouldn’t start</span>
+                  <span className="claude-empty-body font-mono">{probe?.path}</span>
+                  {probe?.error && <pre className="claude-error">{probe.error}</pre>}
+                  <button className="claude-btn primary" onClick={() => void runProbe()}>
+                    <RotateCcw size={12} />
+                    Check again
+                  </button>
+                </Centered>
+              )}
 
-              Two quite different situations wearing one screen: there are no
-              projects at all yet, or there are and none is open — which is
-              where closing the last one lands, and it is a perfectly good place
-              to be rather than an error. Both get the recent list, because in
-              both cases the next thing to do is pick something.
-            */}
-            {probe?.found && probe.version && !project && !setupOpen && (
-              <div className="claude-empty absolute inset-0 flex flex-col items-center overflow-hidden">
-                <div className="flex flex-col items-center gap-3 shrink-0">
+              {/*
+                Nothing on the bench.
+
+                Two quite different situations wearing one screen: there are no
+                projects at all yet, or there are and none is open — which is
+                where closing the last one lands, and it is a perfectly good place
+                to be rather than an error. Both get the recent list, because in
+                both cases the next thing to do is pick something.
+              */}
+              {probe?.found && probe.version && !project && !setupOpen && (
+                <Centered>
                   <span className="claude-medallion">
                     <FolderOpen size={18} />
                   </span>
                   <span className="claude-empty-title">
                     {projects.length ? "Nothing open" : "No project yet"}
                   </span>
-                  <span className="claude-empty-body max-w-[440px] text-center">
+                  <span className="claude-empty-body max-w-[420px] text-center">
                     {projects.length
-                      ? "Open one to pick up where you left off — everything is where you left it. You can have several open at once."
+                      ? navVisible
+                        ? "Pick one from the sidebar to carry on where you left off. Several can be open at once, and each keeps its own conversations running."
+                        : "Open one to carry on where you left off. Several can be open at once, and each keeps its own conversations running."
                       : "A project is a folder Claude works in, plus any other folders it may reach. It takes the folder’s name."}
                   </span>
-                  <button className="claude-btn primary" onClick={() => setSetupOpen(true)}>
-                    <FolderPlus size={12} />
-                    New project…
-                  </button>
-                </div>
-
-                {projects.length > 0 && (
-                  <div className="claude-panel flex flex-col flex-1 min-h-0 w-full max-w-[520px] overflow-hidden">
-                    <div className="claude-panel-head flex items-center gap-2 shrink-0">
-                      <FolderOpen size={11} />
-                      <span>Recent projects</span>
-                    </div>
-                    <div className="flex-1 min-h-0 overflow-y-auto p-1.5">
-                      {recentProjects.map((row) => (
-                        <button
-                          key={row.id}
-                          className="claude-row flex items-center gap-2.5 w-full text-left"
-                          onClick={() => openProject(row.id)}
-                          title={row.root}
-                        >
-                          <span className="flex flex-col min-w-0 flex-1 gap-px">
-                            <span className="claude-row-name truncate">{projectName(row)}</span>
-                            <span className="claude-row-path truncate">
-                              {collapseHome(row.root)}
-                            </span>
-                          </span>
-                          {row.conversations.length > 0 && (
-                            <span className="claude-badge shrink-0">
-                              {row.conversations.length}{" "}
-                              {row.conversations.length === 1 ? "conversation" : "conversations"}
-                            </span>
-                          )}
-                        </button>
-                      ))}
-                    </div>
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    {projects.length > 0 && (
+                      <button className="claude-btn" onClick={() => setPickerOpen(true)}>
+                        <FolderOpen size={12} />
+                        All projects…
+                      </button>
+                    )}
+                    <button
+                      className="claude-btn primary"
+                      onClick={() => {
+                        revealBench();
+                        setSetupOpen(true);
+                      }}
+                    >
+                      <FolderPlus size={12} />
+                      New project…
+                    </button>
                   </div>
-                )}
-              </div>
-            )}
+                </Centered>
+              )}
 
-            {/*
-              A project with nothing open. Reached by closing the last tab, by
-              switching to a project whose conversations all ended, and on the
-              first launch after a restart — when the tabs are remembered but
-              none of them has a process yet.
-            */}
-            {probe?.found && probe.version && project && !setupOpen && !currentIsMounted && (
-              <div className="claude-empty absolute inset-0 flex flex-col items-center overflow-hidden">
-                <div className="flex flex-col items-center gap-3 shrink-0">
+              {/*
+                A project with nothing open. Reached by closing the last tab, by
+                switching to a project whose conversations all ended, and on the
+                first launch after a restart — when the tabs are remembered but
+                none of them has a process yet.
+              */}
+              {probe?.found && probe.version && project && !setupOpen && !currentIsMounted && (
+                <Centered>
                   <span className="claude-medallion">
                     <img src="/claude-code.png" alt="" />
                   </span>
                   <span className="claude-empty-title">
                     {conversations.length ? "Nothing open" : "No conversation yet"}
                   </span>
-                  <span className="claude-empty-body max-w-[440px] text-center">
+                  <span className="claude-empty-body max-w-[420px] text-center">
                     {conversations.length
                       ? "Pick up where you left off, or start something new."
                       : `Claude will run in ${projectName(project)}, and can reach ${
@@ -1318,11 +1361,25 @@ export function ClaudeModal({
                             : "nothing outside it"
                         }.`}
                   </span>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    {/*
+                      The folder's history is in the navigator now, under the
+                      project it belongs to — but it is worth one button here as
+                      well. Opening a project with nothing running is exactly the
+                      moment "what was I doing here last time" is the question,
+                      and a section the user has not expanded is not an answer.
+                    */}
+                    <button className="claude-btn" onClick={() => setHistoryOpen(true)}>
+                      <History size={12} />
+                      Earlier conversations…
+                    </button>
                     {current && (
-                      <button className="claude-btn" onClick={() => resumeConversation(current)}>
+                      <button
+                        className="claude-btn"
+                        onClick={() => resumeConversation(project, current)}
+                      >
                         <RotateCcw size={12} />
-                        Resume “{conversationTitle(current, 0)}”
+                        Resume “{conversationTitle(current, currentIndex)}”
                       </button>
                     )}
                     <button
@@ -1333,114 +1390,42 @@ export function ClaudeModal({
                       New conversation
                     </button>
                   </div>
-                </div>
+                </Centered>
+              )}
 
-                {/*
-                  This folder's history, right here rather than behind a button.
-                  Opening a project with nothing running is exactly the moment
-                  "what was I doing here last time" is the question, and the
-                  answer is more often one of these than a blank conversation.
-                */}
-                <div className="claude-panel flex flex-col flex-1 min-h-0 w-full max-w-[520px] overflow-hidden">
-                  <div className="claude-panel-head flex items-center gap-2 shrink-0">
-                    <History size={11} />
-                    <span>Earlier in this folder</span>
-                  </div>
-                  <div className="flex-1 min-h-0 overflow-y-auto py-1">
-                    <HistoryList
-                      rows={history}
-                      onPick={adoptConversation}
-                      emptyLabel="No earlier conversations in this folder."
+              {/*
+                Every conversation opened this session, whichever project it
+                belongs to. Mounted is running; only the current one is shown.
+              */}
+              {probe?.found &&
+                probe.version &&
+                opened.map((entry) => {
+                  const owner = projects.find((p) => p.id === entry.projectId);
+                  const conversation = owner?.conversations.find(
+                    (c) => c.sessionId === entry.sessionId
+                  );
+                  if (!owner || !conversation) return null;
+                  return (
+                    <ClaudeSurface
+                      key={`${entry.sessionId}#${entry.generation}`}
+                      project={owner}
+                      conversation={conversation}
+                      visible={
+                        visible &&
+                        entry.projectId === activeProjectId &&
+                        entry.sessionId === currentSessionId
+                      }
+                      program={probe.path as string}
+                      onStarted={onStarted}
+                      onExited={onExited}
+                      onFailed={onFailed}
+                      onAttention={onAttention}
+                      writeRef={writeRef}
+                      focusRef={focusRef}
                     />
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/*
-              Every conversation opened this session, whichever project it
-              belongs to. Mounted is running; only the current one is shown.
-            */}
-            {probe?.found &&
-              probe.version &&
-              opened.map((entry) => {
-                const owner = projects.find((p) => p.id === entry.projectId);
-                const conversation = owner?.conversations.find(
-                  (c) => c.sessionId === entry.sessionId
-                );
-                if (!owner || !conversation) return null;
-                return (
-                  <ClaudeSurface
-                    key={`${entry.sessionId}#${entry.generation}`}
-                    project={owner}
-                    conversation={conversation}
-                    visible={
-                      visible &&
-                      entry.projectId === activeProjectId &&
-                      entry.sessionId === currentSessionId
-                    }
-                    program={probe.path as string}
-                    onStarted={onStarted}
-                    onExited={onExited}
-                    onFailed={onFailed}
-                    onAttention={onAttention}
-                    writeRef={writeRef}
-                    focusRef={focusRef}
-                  />
-                );
-              })}
-
-            {setupOpen && (
-              <ClaudeSetup
-                suggestedRoot={cwd}
-                onCancel={() => setSetupOpen(false)}
-                onCreate={({ root, extraDirs, model, permissionMode }) => {
-                  setSetupOpen(false);
-                  const created = store.createProject(root, extraDirs, { model, permissionMode });
-                  setWorking((ids) => [...ids, created.id]);
-                }}
-              />
-            )}
-
-            {historyOpen && project && (
-              <HistoryPicker
-                root={project.root}
-                known={project.conversations.map((c) => c.sessionId)}
-                onResume={adoptConversation}
-                onClose={() => setHistoryOpen(false)}
-              />
-            )}
-
-            {pendingClose && (
-              <ConfirmDialog
-                question={`Close the project “${
-                  projects.find((p) => p.id === pendingClose.id)
-                    ? projectName(projects.find((p) => p.id === pendingClose.id)!)
-                    : "this project"
-                }”?`}
-                body={`${pendingClose.live} ${
-                  pendingClose.live === 1 ? "conversation is" : "conversations are"
-                } still running. Closing asks ${
-                  pendingClose.live === 1 ? "it" : "them"
-                } to exit. The project is kept, and every conversation resumes with its full history.`}
-                confirmLabel="Close project"
-                onConfirm={confirmClose}
-                onCancel={() => setPendingClose(null)}
-              />
-            )}
-
-            {pickerOpen && (
-              <ProjectPicker
-                projects={projects}
-                activeProjectId={activeProjectId}
-                liveCounts={liveCounts}
-                onOpen={openProject}
-                onNew={() => setSetupOpen(true)}
-                onForget={forgetProject}
-                onTogglePinned={(id) => store.togglePinned(id)}
-                onClose={() => setPickerOpen(false)}
-              />
-            )}
+                  );
+                })}
+            </div>
           </div>
 
           {/*
@@ -1488,6 +1473,23 @@ export function ClaudeModal({
                     sent <code>/add-dir {collapseHome(sentNotes[current.sessionId])}</code>
                   </span>
                 )}
+
+                {/*
+                  Adding a folder, beside the folders it adds to.
+
+                  It was an icon on the title bar, three zones away from the
+                  only line in the window that says what Claude can reach. A
+                  control belongs with the thing it changes, and here it also
+                  gets to be a word rather than a glyph nobody could place.
+                */}
+                <button
+                  className="claude-chip add shrink-0"
+                  onClick={() => void addFolder()}
+                  title="Add a folder Claude may also read and edit"
+                >
+                  <FolderPlus size={10} />
+                  Add folder
+                </button>
               </>
             ) : (
               <span className="claude-folder-primary">No folder</span>
@@ -1502,10 +1504,10 @@ export function ClaudeModal({
               is still on screen, since the empty state offers the same thing
               when there is nothing to cover.
             */}
-            {current && current.endedAt !== null && currentIsMounted && (
+            {project && current && current.endedAt !== null && currentIsMounted && (
               <button
                 className="claude-resume flex items-center gap-1.5 shrink-0"
-                onClick={() => resumeConversation(current)}
+                onClick={() => resumeConversation(project, current)}
                 title="Start a new process and continue this conversation"
               >
                 <RotateCcw size={10} />
@@ -1534,6 +1536,75 @@ export function ClaudeModal({
               </svg>
             </div>
           </div>
+
+          {/*
+            Dialogs, over the whole window rather than over the terminal.
+
+            They used to live inside the body, which was the only thing in the
+            window with a positioning context. Now that the navigator takes a
+            column of its own, a backdrop confined to the body would dim the
+            terminal and leave a lit sidebar beside it — a modal you could still
+            click behind. Here they cover everything, which is what "modal"
+            means, and `.editor-modal` is `position: relative` so `inset-0`
+            lands on the window's own edges.
+          */}
+          {setupOpen && (
+            <ClaudeSetup
+              suggestedRoot={cwd}
+              onCancel={() => setSetupOpen(false)}
+              onCreate={({ root, extraDirs, model, permissionMode }) => {
+                setSetupOpen(false);
+                const created = store.createProject(root, extraDirs, { model, permissionMode });
+                setWorking((ids) => [...ids, created.id]);
+              }}
+            />
+          )}
+
+          {historyOpen && project && (
+            <HistoryPicker
+              root={project.root}
+              known={project.conversations.map((c) => c.sessionId)}
+              onResume={adoptConversation}
+              onClose={() => setHistoryOpen(false)}
+            />
+          )}
+
+          {pendingClose && (
+            <ConfirmDialog
+              question={`Close the project “${
+                projects.find((p) => p.id === pendingClose.id)
+                  ? projectName(projects.find((p) => p.id === pendingClose.id)!)
+                  : "this project"
+              }”?`}
+              body={`${pendingClose.live} ${
+                pendingClose.live === 1 ? "conversation is" : "conversations are"
+              } still running. Closing asks ${
+                pendingClose.live === 1 ? "it" : "them"
+              } to exit. The project is kept, and every conversation resumes with its full history.`}
+              confirmLabel="Close project"
+              onConfirm={confirmClose}
+              onCancel={() => setPendingClose(null)}
+            />
+          )}
+
+          {pickerOpen && (
+            <ProjectPicker
+              projects={projects}
+              activeProjectId={activeProjectId}
+              liveCounts={liveCounts}
+              onOpen={(id) => {
+                revealBench();
+                openProject(id);
+              }}
+              onNew={() => {
+                revealBench();
+                setSetupOpen(true);
+              }}
+              onForget={forgetProject}
+              onTogglePinned={(id) => store.togglePinned(id)}
+              onClose={() => setPickerOpen(false)}
+            />
+          )}
         </div>
       </div>
     </OverlayPortal>

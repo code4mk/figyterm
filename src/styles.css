@@ -7618,11 +7618,22 @@
 
    The window keeps the editor's shell — `.editor-modal`, `.editor-pip`,
    `.editor-fullscreen` and the dialog classes are shared verbatim — and draws
-   its own chrome on top of it. It used to borrow the browser window's tab strip
-   as well, and that was the wrong loan: a conversation is not a page, a project
-   is not a URL, and the folder-tab shape kept saying otherwise. What follows is
-   this window's own language — one title bar, a rail of conversation pills, and
-   a status bar that states what Claude can reach.
+   its own chrome on top of it.
+
+   Two loans were tried and dropped before this one. The browser's tab strip
+   went first: a conversation is not a page and a project is not a URL, and the
+   folder-tab shape kept saying otherwise. What replaced it — a title bar with
+   the project switcher folded into a dropdown, and a rail of conversation pills
+   under it — lasted longer but had a hole in the middle of it. The rail could
+   only ever list the conversations of the project you were already in, so the
+   one thing this feature exists for, *several projects alive at once*, was the
+   one thing no part of the window drew.
+
+   So the chrome is now a column: a navigator down the left holding every open
+   project and the conversations under each, a title bar reduced to a
+   breadcrumb, and the status bar that states what Claude can reach. The
+   terminal keeps everything to the right of the divider, which is the division
+   `docs/CLAUDE-CODE.md` argues for in the first place.
 
    Everything reads from the `--ft-*` tokens, so light mode is one block at the
    end rather than a second stylesheet.
@@ -7640,9 +7651,9 @@
 /* ─── Title bar ─────────────────────────────────────────────────────────── */
 
 /*
-  One row, and the only place the window says what it is: the mark, the project
-  it is running in, and the window's own controls. The gradient is what makes it
-  read as chrome rather than as the first line of content.
+  One row, in three zones: what the window is, where you are in it, and what the
+  window itself can do. The gradient is what makes it read as chrome rather than
+  as the first line of content.
 */
 .claude-header {
   position: relative;
@@ -7699,46 +7710,50 @@
 }
 
 /*
-  The project field — this window's answer to "where am I?", centred because it
-  is the subject of the window rather than one more control on the end of a row.
+  The locator: project › conversation, read as a breadcrumb.
+
+  What used to be here was a dropdown carrying the entire project switcher,
+  which made the title bar the busiest row in the window and still answered
+  "where am I?" only once you opened it. The navigator took the switching. This
+  is a label — and a label is allowed to be quiet, so it takes no background and
+  no border, and only the project half lifts under the pointer.
 */
-.claude-project-field {
-  height: 26px;
-  padding: 0 7px 0 9px;
-  border-radius: 7px;
-  background: rgba(255, 255, 255, 0.045);
-  border: 1px solid transparent;
-  color: var(--ft-text);
-  cursor: pointer;
-  transition: background 0.13s ease, border-color 0.13s ease, box-shadow 0.13s ease;
-}
-
-.claude-project-field:hover {
-  background: rgba(255, 255, 255, 0.075);
-  border-color: var(--ft-border-subtle);
-}
-
-.claude-project-field.open {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: var(--ft-accent);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.16);
-}
-
-.claude-project-icon,
-.claude-project-caret {
-  color: var(--ft-text-muted);
-}
-
-.claude-project-name {
-  font-size: 11px;
-  font-weight: 600;
+.claude-locator {
+  font-size: 11.5px;
   letter-spacing: -0.01em;
 }
 
-.claude-project-path {
-  font-size: 10px;
+.claude-locator-project {
+  height: 22px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ft-text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.claude-locator-project:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.claude-locator-sep {
   color: var(--ft-text-muted);
+  opacity: 0.8;
+}
+
+.claude-locator-conv {
+  color: var(--ft-text-secondary);
   min-width: 0;
+}
+
+/* No project, or none chosen inside it: present, and plainly not a name. */
+.claude-locator-conv.idle {
+  color: var(--ft-text-muted);
+  font-style: italic;
 }
 
 /*
@@ -7780,38 +7795,293 @@
   background: rgba(248, 113, 113, 0.13);
 }
 
-/* ─── Conversation rail ─────────────────────────────────────────────────── */
+/* The navigator's own buttons, which sit in a 28px row rather than a 44px one. */
+.claude-iconbtn.sm {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+}
+
+/* ─── Keyboard focus ────────────────────────────────────────────────────────
+
+   One ring, on everything in the window that can be reached by Tab.
+
+   The window had no visible focus at all before this: a single `:focus-visible`
+   rule, on one hover-revealed ✕, that set opacity and nothing else. Tabbing
+   through the chrome moved a caret nobody could see. Each class is listed
+   rather than taking `.claude-window :focus-visible` wholesale, because the
+   body of this window is a terminal — xterm manages its own focus on a textarea
+   it hides, and a blanket rule would draw a ring around the whole conversation
+   every time it was typed into.
+
+   `:focus-visible` rather than `:focus`, so a click never leaves a ring behind.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+.claude-iconbtn:focus-visible,
+.claude-locator-project:focus-visible,
+.claude-btn:focus-visible,
+.claude-chip.pending:focus-visible,
+.claude-chip.add:focus-visible,
+.claude-resume:focus-visible,
+.claude-disclosure:focus-visible,
+.claude-nav-new:focus-visible,
+.claude-nav-section:focus-visible,
+.claude-nav-head-toggle:focus-visible,
+.claude-proj-twisty:focus-visible,
+.claude-nav-foot:focus-visible,
+.claude-nav-hist:focus-visible,
+.claude-nav-divider:focus-visible,
+.claude-proj-main:focus-visible,
+.claude-proj-close:focus-visible,
+.claude-conv-main:focus-visible,
+.claude-conv-close:focus-visible {
+  outline: 2px solid var(--ft-accent);
+  outline-offset: -1px;
+  /* Hover-revealed controls have to appear when focus reaches them, or the
+     ring is drawn around something invisible. */
+  opacity: 1;
+}
 
 /*
-  Segments, not tabs. Every conversation here is a thread in the same project,
-  so they carry the same weight and the current one is simply lit rather than
-  raised out of the strip.
+  A row whose halves focus separately still reads as one row.
+
+  The conversation and project rows are each a wide button plus a ✕, and an
+  outline on the wide one alone would cut the row in half visually. The ring is
+  drawn on the row instead, and the ✕ keeps its own for when focus is there.
 */
-.claude-rail {
-  position: relative;
-  z-index: 2;
-  height: 34px;
-  flex-shrink: 0;
-  background: var(--ft-bg);
+.claude-conv:has(.claude-conv-main:focus-visible),
+.claude-proj:has(.claude-proj-main:focus-visible) {
+  outline: 2px solid var(--ft-accent);
+  outline-offset: -1px;
+  border-radius: 7px;
+}
+
+.claude-conv:has(.claude-conv-main:focus-visible) .claude-conv-main,
+.claude-proj:has(.claude-proj-main:focus-visible) .claude-proj-main {
+  outline: none;
+}
+
+/* ─── The navigator ─────────────────────────────────────────────────────────
+
+   A column of projects, each holding its conversations.
+
+   This replaced a rail of pills across the top. The rail could only ever show
+   one project's conversations — the one you were already in — so the fact the
+   whole feature exists for, *several projects alive at once*, was the one thing
+   the window never drew. A tree draws it, and a column is also the shape that
+   stops being a problem when there are nine conversations rather than three.
+
+   It is chrome, so it takes the window's surface tone and leaves the darker
+   `--ft-bg` to the terminal beside it. That contrast is doing real work: it is
+   what says the right-hand side is a different kind of thing — somebody else's
+   program, not more of ours.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+.claude-nav {
+  background: var(--ft-surface);
+  border-right: 1px solid var(--ft-border-subtle);
+}
+
+.claude-nav-head {
+  height: 28px;
+  padding: 0 6px 0 4px;
   border-bottom: 1px solid var(--ft-border-subtle);
 }
 
-.claude-rail-scroll {
-  scrollbar-width: none;
+/*
+  The heading is the disclosure.
+
+  Clicking the words is what people try, so the whole label is the button and
+  the caret is inside it rather than beside it — a 10px triangle as the only
+  target is a thing you aim at twice. The `+` stays out of it: making a project
+  and putting the list away are not the same wish.
+*/
+.claude-nav-head-toggle {
+  height: 22px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+  transition: background 0.12s ease;
 }
 
-.claude-rail-scroll::-webkit-scrollbar {
-  display: none;
+.claude-nav-head-toggle:hover {
+  background: rgba(255, 255, 255, 0.05);
 }
+
+.claude-nav-head-toggle:hover .claude-nav-heading {
+  color: var(--ft-text-secondary);
+}
+
+.claude-nav-head-caret {
+  color: var(--ft-text-muted);
+  transition: transform 0.13s ease;
+}
+
+.claude-nav-head-caret.open {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .claude-nav-head-caret {
+    transition: none;
+  }
+}
+
+.claude-nav-heading {
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--ft-text-muted);
+  transition: color 0.12s ease;
+}
+
+.claude-nav-scroll {
+  padding: 4px;
+  scrollbar-gutter: stable;
+}
+
+.claude-nav-children {
+  /*
+    The spine. Indentation alone stopped being legible past one level, and a
+    hairline down the children is how every file tree worth copying says "these
+    belong to the row above".
+  */
+  margin: 1px 0 3px 13px;
+  padding-left: 7px;
+  border-left: 1px solid var(--ft-border-subtle);
+}
+
+.claude-nav-note {
+  padding: 10px 10px 12px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--ft-text-muted);
+}
+
+/* ─── Project rows ──────────────────────────────────────────────────────── */
+
+.claude-proj {
+  border-radius: 7px;
+  color: var(--ft-text-secondary);
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.claude-proj:hover {
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--ft-text);
+}
+
+/*
+  The project you are in.
+
+  A tint and a left bar rather than the pill treatment the old rail used: this
+  row has children under it, and a fully enclosed shape would read as a closed
+  box rather than as the head of a branch.
+*/
+.claude-proj.active {
+  background: rgba(99, 102, 241, 0.12);
+  color: var(--ft-text);
+  box-shadow: inset 2px 0 0 var(--ft-accent);
+}
+
+.claude-proj-twisty {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 24px;
+  border: none;
+  background: none;
+  color: var(--ft-text-muted);
+  cursor: pointer;
+  transition: transform 0.13s ease, color 0.12s ease;
+}
+
+.claude-proj-twisty.open {
+  transform: rotate(90deg);
+}
+
+.claude-proj-twisty:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .claude-proj-twisty {
+    transition: none;
+  }
+}
+
+.claude-proj-main {
+  padding: 4px 2px 4px 2px;
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+/* In the bench's empty state these are the whole list, so they carry a gutter. */
+.claude-proj-main.recent {
+  padding: 5px 8px;
+  color: var(--ft-text-secondary);
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.claude-proj-main.recent:hover {
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--ft-text);
+}
+
+.claude-proj-icon {
+  color: var(--ft-text-muted);
+}
+
+.claude-proj-name {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ft-text);
+}
+
+.claude-proj-path {
+  font-size: 9.5px;
+  color: var(--ft-text-muted);
+}
+
+.claude-proj-close {
+  display: grid;
+  place-items: center;
+  width: 19px;
+  height: 19px;
+  margin-right: 3px;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--ft-text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+
+.claude-proj:hover .claude-proj-close {
+  opacity: 1;
+}
+
+.claude-proj-close:hover {
+  color: #fca5a5;
+  background: rgba(248, 113, 113, 0.13);
+}
+
+/* ─── Conversation rows ─────────────────────────────────────────────────── */
 
 .claude-conv {
   height: 24px;
-  max-width: 200px;
-  padding-right: 2px;
-  border-radius: 7px;
-  border: 1px solid transparent;
+  border-radius: 6px;
   color: var(--ft-text-secondary);
-  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+  transition: background 0.12s ease, color 0.12s ease;
 }
 
 .claude-conv:hover {
@@ -7820,18 +8090,18 @@
 }
 
 .claude-conv.active {
-  background: rgba(99, 102, 241, 0.13);
-  border-color: rgba(99, 102, 241, 0.34);
+  background: rgba(99, 102, 241, 0.16);
   color: var(--ft-text);
 }
 
 .claude-conv-main {
   height: 100%;
-  padding: 0 4px 0 8px;
+  padding: 0 2px 0 7px;
   border: none;
   background: none;
   color: inherit;
   cursor: pointer;
+  border-radius: 6px;
 }
 
 .claude-conv-title {
@@ -7840,11 +8110,16 @@
   letter-spacing: -0.01em;
 }
 
+.claude-conv.active .claude-conv-title {
+  font-weight: 600;
+}
+
 .claude-conv-close {
   display: grid;
   place-items: center;
   width: 18px;
   height: 18px;
+  margin-right: 2px;
   border: none;
   border-radius: 5px;
   background: none;
@@ -7864,45 +8139,147 @@
   background: rgba(255, 255, 255, 0.12);
 }
 
-/*
-  Two jobs, two weights.
+/* ─── Rows that are actions rather than things ──────────────────────────── */
 
-  Beside existing conversations it is one more control on the rail and stays
-  quiet — a dashed outline there read as an empty slot rather than a button, and
-  lighting it with the accent on hover put it in competition with the pill for
-  the conversation you are actually in. With the rail empty it is the only thing
-  to do in the window, so `.solo` gives it the accent and its label; a lone ✛ on
-  a blank rail would be a puzzle.
+/*
+  New conversation.
+
+  Quiet, and deliberately. On the old rail this button had a loud `.solo` state
+  for when there was nothing else on the strip, because a lone ✛ floating on an
+  empty bar was a puzzle. In a labelled column it is a row like the others with
+  a word on it, so the puzzle is gone and so is the shout — the empty state in
+  the body is what offers the accent now.
 */
-.claude-newconv {
+.claude-nav-new,
+.claude-nav-section {
   height: 24px;
   padding: 0 7px;
-  border: 1px solid transparent;
-  border-radius: 7px;
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--ft-text-secondary);
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--ft-text-muted);
   font-size: 11px;
   font-weight: 500;
   cursor: pointer;
-  transition: color 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+  transition: color 0.12s ease, background 0.12s ease;
 }
 
-.claude-newconv:hover {
+.claude-nav-new:hover,
+.claude-nav-section:hover {
   color: var(--ft-text);
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
 }
 
-.claude-newconv.solo {
+.claude-nav-section {
+  margin-top: 2px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.claude-nav-section-caret {
+  transition: transform 0.13s ease;
+}
+
+.claude-nav-section-caret.open {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .claude-nav-section-caret {
+    transition: none;
+  }
+}
+
+.claude-nav-count {
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  font-size: 9px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ft-text-muted);
+}
+
+/* ─── Earlier conversations, in the column ──────────────────────────────── */
+
+.claude-nav-hist {
+  height: 22px;
+  padding: 0 7px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.claude-nav-hist:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.claude-nav-hist-title {
+  font-size: 10.5px;
+  color: var(--ft-text-secondary);
+}
+
+.claude-nav-hist:hover .claude-nav-hist-title {
+  color: var(--ft-text);
+}
+
+.claude-nav-hist-when {
+  font-size: 9px;
+  color: var(--ft-text-muted);
+}
+
+/* ─── The navigator's footer ────────────────────────────────────────────── */
+
+.claude-nav-foot {
+  height: 30px;
   padding: 0 10px;
-  background: rgba(99, 102, 241, 0.14);
-  border-color: rgba(99, 102, 241, 0.34);
-  color: #a5b4fc;
+  border: none;
+  border-top: 1px solid var(--ft-border-subtle);
+  background: rgba(255, 255, 255, 0.022);
+  color: var(--ft-text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
 }
 
-.claude-newconv.solo:hover {
-  background: rgba(99, 102, 241, 0.2);
-  border-color: rgba(99, 102, 241, 0.5);
-  color: #c7d2fe;
+.claude-nav-foot:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ft-text);
+}
+
+.claude-kbd {
+  padding: 1px 4px;
+  border: 1px solid var(--ft-border-subtle);
+  border-radius: 4px;
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--ft-text-muted);
+}
+
+/* ─── The divider ───────────────────────────────────────────────────────── */
+
+/*
+  Four pixels wide, and a hairline of it is visible.
+
+  A drag target under about 4px is one people miss; a visible border that wide
+  is a gutter. So the element is the target and the `::after` is the line, which
+  is the trick the editor's own splitters use.
+*/
+.claude-nav-divider {
+  position: relative;
+  width: 4px;
+  margin-left: -1px;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 0.12s ease;
+}
+
+.claude-nav-divider:hover,
+.claude-nav-divider:active {
+  background: rgba(99, 102, 241, 0.35);
 }
 
 /*
@@ -7962,116 +8339,6 @@
   }
 }
 
-/* ─── The "working on" menu ─────────────────────────────────────────────── */
-
-.claude-menu {
-  background: var(--ft-elevated);
-  border: 1px solid var(--ft-border);
-  box-shadow:
-    0 18px 44px -10px rgba(0, 0, 0, 0.65),
-    0 0 0 1px rgba(255, 255, 255, 0.03);
-  animation: claude-menu-in 0.13s ease-out;
-}
-
-@keyframes claude-menu-in {
-  from { opacity: 0; transform: translateY(-4px); }
-  to { opacity: 1; transform: none; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .claude-menu { animation: none; }
-}
-
-.claude-menu-label {
-  font-size: 9.5px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: var(--ft-text-muted);
-}
-
-.claude-menu-count,
-.claude-menu-empty {
-  font-size: 10px;
-  color: var(--ft-text-muted);
-}
-
-.claude-menu-empty {
-  font-size: 11px;
-}
-
-.claude-menu-row {
-  border-radius: 8px;
-  transition: background 0.12s ease;
-}
-
-.claude-menu-row:hover {
-  background: rgba(255, 255, 255, 0.055);
-}
-
-.claude-menu-row.current {
-  background: rgba(99, 102, 241, 0.13);
-}
-
-.claude-menu-row button {
-  border: none;
-  background: none;
-  color: inherit;
-  cursor: pointer;
-}
-
-.claude-menu-tick {
-  display: inline-flex;
-  width: 12px;
-  color: var(--ft-accent-hover);
-}
-
-.claude-menu-name {
-  font-size: 11.5px;
-  font-weight: 550;
-  color: var(--ft-text);
-}
-
-.claude-menu-path {
-  font-size: 10px;
-  color: var(--ft-text-muted);
-}
-
-.claude-menu-remove {
-  display: grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  border-radius: 6px;
-  color: var(--ft-text-muted);
-  opacity: 0;
-  transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
-}
-
-.claude-menu-row:hover .claude-menu-remove,
-.claude-menu-remove:focus-visible {
-  opacity: 1;
-}
-
-.claude-menu-remove:hover {
-  color: #fca5a5;
-  background: rgba(248, 113, 113, 0.13);
-}
-
-.claude-menu-footer {
-  font-size: 11px;
-  background: rgba(255, 255, 255, 0.025);
-  border-top: 1px solid var(--ft-border-subtle);
-  color: var(--ft-text-secondary);
-  cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease;
-}
-
-.claude-menu-footer:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--ft-text);
-}
-
 /* ─── Body ──────────────────────────────────────────────────────────────── */
 
 .claude-body {
@@ -8094,9 +8361,17 @@
 
 /* ─── Empty states ──────────────────────────────────────────────────────── */
 
-.claude-empty {
-  padding: 7vh 24px 20px;
-  gap: 18px;
+/*
+  The split between the navigator and the terminal.
+
+  `min-width: 0` on the row, because a flex child defaults to its content's
+  minimum width and xterm's measurement element is wider than any sensible
+  terminal — without it the body refuses to shrink and the navigator is pushed
+  off its own left edge when the window is narrowed.
+*/
+.claude-main {
+  min-width: 0;
+  overflow: hidden;
 }
 
 /*
@@ -8223,63 +8498,6 @@
   border-color: transparent;
 }
 
-/* ─── Panels and rows ───────────────────────────────────────────────────── */
-
-/*
-  A list with an edge of its own. It sits below a heading and two buttons, and
-  without one it read as part of them rather than as a separate thing you can
-  scroll.
-*/
-.claude-panel {
-  background: rgba(255, 255, 255, 0.022);
-  border: 1px solid var(--ft-border-subtle);
-  border-radius: 12px;
-}
-
-.claude-panel-head {
-  padding: 9px 12px;
-  font-size: 9.5px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: var(--ft-text-muted);
-  border-bottom: 1px solid var(--ft-border-subtle);
-}
-
-.claude-row {
-  padding: 7px 9px;
-  border: none;
-  border-radius: 8px;
-  background: none;
-  color: inherit;
-  cursor: pointer;
-  transition: background 0.12s ease;
-}
-
-.claude-row:hover {
-  background: rgba(255, 255, 255, 0.055);
-}
-
-.claude-row-name {
-  font-size: 11.5px;
-  color: var(--ft-text);
-}
-
-.claude-row-path {
-  font-size: 10px;
-  color: var(--ft-text-muted);
-}
-
-.claude-badge {
-  padding: 2px 7px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
-  font-size: 9.5px;
-  font-weight: 600;
-  color: var(--ft-text-muted);
-  white-space: nowrap;
-}
-
 /* ─── Status bar ────────────────────────────────────────────────────────── */
 
 .claude-folders {
@@ -8330,6 +8548,30 @@
 .claude-chip.pending:hover {
   color: var(--ft-text);
   border-color: var(--ft-accent);
+}
+
+/*
+  Adding a folder, in the strip that lists them.
+
+  Shaped like the chips it sits among because it makes one, and set apart from
+  them by a `+` and by being the only one that lifts under the pointer — a chip
+  states a fact, this one does something.
+*/
+.claude-chip.add {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border-style: dashed;
+  color: var(--ft-text-muted);
+  cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+
+.claude-chip.add:hover {
+  color: var(--ft-text);
+  border-color: var(--ft-accent);
+  background: rgba(99, 102, 241, 0.09);
 }
 
 .claude-sent-note {
@@ -8422,7 +8664,14 @@
   min-width: 0;
 }
 
-/* ─── Light theme ───────────────────────────────────────────────────────── */
+/* ─── Light theme ───────────────────────────────────────────────────────────
+
+   One block, not a second stylesheet. Everything above reads from the `--ft-*`
+   tokens, so what is left here is the handful of places a dark theme's idiom
+   doesn't survive inversion: a white wash over a dark surface becomes an ink
+   wash over a light one, a pale indigo meant for near-black becomes unreadable,
+   and the palette's quietest grey stops being quiet enough.
+   ──────────────────────────────────────────────────────────────────────────── */
 
 .light .claude-window {
   background: var(--ft-surface);
@@ -8441,22 +8690,23 @@
   background: linear-gradient(160deg, #ffffff, #eef1f6);
 }
 
-.light .claude-project-field {
-  background: rgba(15, 23, 42, 0.045);
-}
+/*
+  Every lift that is a white wash in the dark theme is an ink wash here.
 
-.light .claude-project-field:hover {
-  background: rgba(15, 23, 42, 0.07);
-}
-
-.light .claude-project-field.open {
-  background: #ffffff;
-}
-
+  Collected into one rule rather than repeated down the file: they are all the
+  same gesture — "this row is under the pointer" — and the one time they drifted
+  apart, a hover in the navigator was visibly a different grey from a hover in
+  the title bar two rows above it.
+*/
 .light .claude-iconbtn:hover:not(:disabled),
+.light .claude-locator-project:hover,
+.light .claude-proj:hover,
+.light .claude-proj-main.recent:hover,
 .light .claude-conv:hover,
-.light .claude-menu-row:hover,
-.light .claude-row:hover {
+.light .claude-nav-new:hover,
+.light .claude-nav-section:hover,
+.light .claude-nav-head-toggle:hover,
+.light .claude-nav-hist:hover {
   background: rgba(15, 23, 42, 0.06);
 }
 
@@ -8465,55 +8715,52 @@
   background: rgba(79, 70, 229, 0.12);
 }
 
+.light .claude-iconbtn.danger:hover:not(:disabled),
+.light .claude-proj-close:hover {
+  /* The pale reds above are a dark-theme tint: on white they read as pink and
+     vanish into their own hover wash. */
+  color: var(--ft-error);
+  background: rgba(220, 38, 38, 0.1);
+}
+
+/* ─── The navigator, in light ───────────────────────────────────────────── */
+
+.light .claude-nav {
+  background: #ffffff;
+}
+
+.light .claude-proj.active {
+  background: rgba(79, 70, 229, 0.09);
+  box-shadow: inset 2px 0 0 var(--ft-accent);
+}
+
 .light .claude-conv.active {
-  background: rgba(79, 70, 229, 0.1);
-  border-color: rgba(79, 70, 229, 0.3);
-}
-
-.light .claude-newconv {
-  background: rgba(15, 23, 42, 0.05);
-}
-
-.light .claude-newconv:hover {
-  background: rgba(15, 23, 42, 0.09);
-}
-
-/* The dark theme's pale indigo is unreadable on a light rail; use the ink one. */
-.light .claude-newconv.solo {
-  background: rgba(79, 70, 229, 0.1);
-  border-color: rgba(79, 70, 229, 0.3);
-  color: var(--ft-accent);
-}
-
-.light .claude-newconv.solo:hover {
-  background: rgba(79, 70, 229, 0.16);
-  border-color: rgba(79, 70, 229, 0.45);
-  color: var(--ft-accent-hover);
+  background: rgba(79, 70, 229, 0.11);
 }
 
 .light .claude-conv-close:hover {
   background: rgba(15, 23, 42, 0.1);
 }
 
-.light .claude-menu-row.current {
-  background: rgba(79, 70, 229, 0.1);
+.light .claude-nav-count {
+  background: rgba(15, 23, 42, 0.06);
 }
 
-.light .claude-menu-footer,
-.light .claude-panel,
+.light .claude-nav-foot,
 .light .claude-folders {
   background: rgba(15, 23, 42, 0.022);
 }
 
-.light .claude-menu-footer:hover {
+.light .claude-nav-foot:hover {
   background: rgba(15, 23, 42, 0.06);
 }
 
-.light .claude-menu {
-  box-shadow:
-    0 18px 44px -10px rgba(15, 23, 42, 0.2),
-    0 0 0 1px rgba(15, 23, 42, 0.04);
+.light .claude-nav-divider:hover,
+.light .claude-nav-divider:active {
+  background: rgba(79, 70, 229, 0.4);
 }
+
+/* ─── Buttons and chips, in light ───────────────────────────────────────── */
 
 /*
   Secondary buttons only.
@@ -8549,50 +8796,46 @@
   empty is what says "the project has this folder, this conversation doesn't" —
   and a blanket light fill here would have erased the distinction.
 */
-.light .claude-badge,
-.light .claude-chip:not(.pending),
+.light .claude-chip:not(.pending):not(.add),
 .light .claude-empty-body code {
   background: rgba(15, 23, 42, 0.05);
+}
+
+/* Both outlined chips are the lightest tone the palette has; step them up. */
+.light .claude-chip.add {
+  color: var(--ft-text-secondary);
 }
 
 .light .claude-folder-row {
   background: rgba(15, 23, 42, 0.03);
 }
 
-/*
-  Text, on a light background.
+/* ─── Text, on a light background ───────────────────────────────────────── */
 
+/*
   `--ft-text-muted` is the quietest tone the palette has, and in the dark theme
   that is fine: #6e7681 sits on near-black with room to spare. Against #f8f9fb
-  the light theme's #7a8094 is the *lightest* the palette goes, and at the 10px
-  this chrome uses for paths, hints and counts it drops under the contrast a
-  small font needs. So every muted string in the window steps up one tone here.
-  Icons are left muted — a glyph carries its meaning by shape, not by weight,
-  and lifting those too would make the chrome shouty.
+  the light theme's #7a8094 is the *lightest* the palette goes, and at the 9–10px
+  this chrome uses for paths, hints, counts and timestamps it drops under the
+  contrast a small font needs. So every muted string in the window steps up one
+  tone here. Icons are left muted — a glyph carries its meaning by shape, not by
+  weight, and lifting those too would make the chrome shouty.
 */
-.light .claude-project-path,
-.light .claude-menu-label,
-.light .claude-menu-count,
-.light .claude-menu-empty,
-.light .claude-menu-path,
-.light .claude-row-path,
-.light .claude-badge,
+.light .claude-proj-path,
+.light .claude-nav-heading,
+.light .claude-nav-note,
+.light .claude-nav-count,
+.light .claude-nav-hist-when,
+.light .claude-nav-new,
+.light .claude-nav-section,
+.light .claude-kbd,
 .light .claude-field-hint,
 .light .claude-field-label,
 .light .claude-branch,
 .light .claude-sent-note,
+.light .claude-locator-conv.idle,
 .light .claude-chip.pending {
   color: var(--ft-text-secondary);
-}
-
-/*
-  The pale reds are a dark-theme tint: on white they read as pink and vanish
-  against their own hover wash. Light mode takes the palette's own error tone.
-*/
-.light .claude-iconbtn.danger:hover:not(:disabled),
-.light .claude-menu-remove:hover {
-  color: var(--ft-error);
-  background: rgba(220, 38, 38, 0.1);
 }
 
 /* ─── The dock ─────────────────────────────────────────────────────────────

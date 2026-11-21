@@ -151,6 +151,75 @@ export function loadClaudeSession(): PersistedClaudeSession {
   }
 }
 
+/* ─── Window chrome ───────────────────────────────────────────────────────── */
+
+/**
+ * How the window was last arranged, as opposed to what was in it.
+ *
+ * Its own key, and deliberately not part of the session blob above: that one is
+ * written by the store every time a conversation changes, and the navigator's
+ * width changes under a pointer drag. Sharing a key would mean either writing
+ * the project list on every frame of a resize or debouncing a store that has no
+ * reason to know about pixels.
+ *
+ * Nothing here is load-bearing, so every value falls back rather than failing —
+ * a corrupt entry costs you a sidebar width, and the defaults are the ones the
+ * window shipped with.
+ */
+
+const CHROME_KEY = "figy-term-claude-chrome";
+
+/** The navigator's width, and what it may be dragged between. */
+export const NAV_WIDTH = { default: 236, min: 184, max: 420 };
+
+export interface ClaudeChrome {
+  /** Whether the navigator is showing. Picture-in-picture overrides it. */
+  navOpen: boolean;
+  navWidth: number;
+  /**
+   * Whether the navigator's project section is expanded.
+   *
+   * Separate from `navOpen`, because they are different wishes: hiding the
+   * navigator gives its width back to the terminal, and collapsing the section
+   * keeps the column — and its footer — while putting the list away.
+   */
+  benchOpen: boolean;
+}
+
+const DEFAULT_CHROME: ClaudeChrome = {
+  navOpen: true,
+  navWidth: NAV_WIDTH.default,
+  benchOpen: true,
+};
+
+export function loadClaudeChrome(): ClaudeChrome {
+  try {
+    const stored = localStorage.getItem(CHROME_KEY);
+    if (!stored) return { ...DEFAULT_CHROME };
+    const parsed = JSON.parse(stored) as Partial<ClaudeChrome>;
+    return {
+      // `!== false` rather than `=== true`: a key written before this field
+      // existed is absent, and absent should mean the default, not collapsed.
+      navOpen: parsed.navOpen !== false,
+      benchOpen: parsed.benchOpen !== false,
+      navWidth:
+        typeof parsed.navWidth === "number" && Number.isFinite(parsed.navWidth)
+          ? Math.min(NAV_WIDTH.max, Math.max(NAV_WIDTH.min, Math.round(parsed.navWidth)))
+          : NAV_WIDTH.default,
+    };
+  } catch {
+    return { ...DEFAULT_CHROME };
+  }
+}
+
+export function saveClaudeChrome(chrome: ClaudeChrome): void {
+  try {
+    localStorage.setItem(CHROME_KEY, JSON.stringify(chrome));
+  } catch {
+    // A full store costs the layout, not the work. Next launch takes defaults.
+  }
+}
+
 export function saveClaudeSession(session: Omit<PersistedClaudeSession, "version">): void {
   try {
     const projects = [...session.projects]

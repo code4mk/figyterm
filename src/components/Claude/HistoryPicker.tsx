@@ -57,13 +57,28 @@ interface HistoryListProps {
   onPick: (sessionId: string, title: string | null) => void;
   /** Shown when the folder has no history at all. */
   emptyLabel?: string;
+  /**
+   * The navigator's version: one line per row, in a column a fifth the width.
+   *
+   * The same rows and the same component, because they answer the same question
+   * and two of these would drift. What the sidebar gives up is the second line —
+   * at 236px a branch name and a date cannot both be read, and the branch is the
+   * one that tells two conversations apart.
+   */
+  compact?: boolean;
 }
 
 /** The scrollable list itself, with no chrome of its own. */
-export function HistoryList({ rows, onPick, emptyLabel }: HistoryListProps) {
+export function HistoryList({ rows, onPick, emptyLabel, compact }: HistoryListProps) {
   if (rows === null) {
     return (
-      <div className="editor-workspace-empty px-3.5 py-6 text-center text-[11px]">
+      <div
+        className={
+          compact
+            ? "claude-nav-note"
+            : "editor-workspace-empty px-3.5 py-6 text-center text-[11px]"
+        }
+      >
         Reading this folder’s history…
       </div>
     );
@@ -71,9 +86,38 @@ export function HistoryList({ rows, onPick, emptyLabel }: HistoryListProps) {
 
   if (rows.length === 0) {
     return (
-      <div className="editor-workspace-empty px-3.5 py-6 text-center text-[11px]">
+      <div
+        className={
+          compact
+            ? "claude-nav-note"
+            : "editor-workspace-empty px-3.5 py-6 text-center text-[11px]"
+        }
+      >
         {emptyLabel ?? "Nothing else on disk for this folder."}
       </div>
+    );
+  }
+
+  if (compact) {
+    return (
+      <>
+        {rows.map((row) => (
+          <button
+            key={row.sessionId}
+            className="claude-nav-hist flex items-center gap-2 w-full text-left"
+            onClick={() => onPick(row.sessionId, row.title)}
+            title={`${row.title || "Untitled conversation"}${
+              row.branch ? ` — ${row.branch}` : ""
+            } · ${when(row.updatedAt)}\nResume with its full history`}
+          >
+            <span className="claude-dot shrink-0" />
+            <span className="claude-nav-hist-title truncate flex-1 min-w-0">
+              {row.title || "Untitled conversation"}
+            </span>
+            <span className="claude-nav-hist-when shrink-0">{when(row.updatedAt)}</span>
+          </button>
+        ))}
+      </>
     );
   }
 

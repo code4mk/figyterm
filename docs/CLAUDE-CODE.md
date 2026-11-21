@@ -163,32 +163,48 @@ has to rediscover them:
 ## What it looks like
 
 ```
-┌─ figy ▸ Claude Code ──── ● api refactor ✕  ○ flaky test ✕  + ── ⟡ ⛶ ✕ ─┐
-│  ~/GitHub/nexus-re                                ▾ │  ⟲  +folder  +proj │
-├────────────────────────────────────────────────────────────────────────┤
-│                                                                        │
-│   ▐ the pty: claude's own TUI, xterm.js                                │
-│                                                                        │
-│   > _                                                                  │
-├────────────────────────────────────────────────────────────────────────┤
-│ ~/GitHub/nexus-re    +design-system    +shared-types                    │
+┌─ ▤ ⌁ Claude Code │ nexus-re › api refactor ──────────── ●2 │ – ⟡ ⛶ ✕ ─┐
+├──────────────────────┬─────────────────────────────────────────────────┤
+│ WORKING ON        +  │                                                 │
+│ ▾ nexus-re      ●2 ✕ │   ▐ the pty: claude's own TUI, xterm.js         │
+│ │  ● api refactor  ✕ │                                                 │
+│ │  ○ flaky test    ✕ │   > _                                           │
+│ │  ＋ New conversation│                                                │
+│ │  ▸ Earlier      3  │                                                 │
+│ ▸ design-system    ✕ │                                                 │
+│──────────────────────│                                                 │
+│ ▤ All projects…   ⌘P │                                                 │
+├──────────────────────┴─────────────────────────────────────────────────┤
+│ ~/GitHub/nexus-re  +design-system  +shared-types  ⊕ Add folder         │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
 Three pieces of chrome, and the rest is Claude's.
 
-**The header is the browser's**, and deliberately so — `browser-chrome`,
-`browser-tabstrip` and `browser-toolbar` are reused rather than reimplemented.
-A tab strip that doubles as the title bar and drag handle, and a toolbar under
-it holding the thing the tabs belong to. In a browser that is the address of
-the page; here it is the project the conversation runs in, which is the same
-question and the same answer to *where am I?*. It also makes the per-project
-behaviour legible: switch project and the whole strip changes, because those
-tabs belong to that toolbar's project.
+**The navigator is the window's navigation**, all of it. Two earlier shapes
+were tried and both broke on the same rock. The first borrowed the browser
+window's chrome outright — a tab strip over a toolbar — which said a
+conversation was a page and a project was a URL. The second was this window's
+own: the project in a dropdown on the title bar, its conversations in a rail of
+pills underneath. It read better, and it still could not show the one thing
+this feature exists for. **A rail belongs to one project.** Open three and you
+can see the conversations of exactly one of them; the other two are a number in
+a menu you have to open.
 
-The brand carries **two** marks, FigyTerm's and Claude Code's, because that is
-exactly what the window is — FigyTerm hosting somebody else's program, and the
-header should say whose.
+A column does show it, and it costs the terminal 236 pixels it can spare. Each
+open project is a row, its conversations are the rows under it, and the project
+you are in is the one that is lit. Switching is a click on a row rather than a
+trip through a menu, and starting a conversation in a project you are *not*
+looking at is a click too — the window brings that project forward first, since
+a process started behind a hidden surface is a click that did nothing.
+
+What is left on the title bar is a **breadcrumb** — project › conversation —
+and the one thing that is still true when the navigator is hidden: how many
+conversations are running anywhere. The sidebar hides with `⌘B` (`Ctrl+Shift+B`
+off macOS, because plain `Ctrl+B` is Claude Code's own binding and this window
+does not take the CLI's keys), and hides itself in picture-in-picture, where
+there is no width to lend it. `⌘1`–`⌘9` reach the first nine conversations,
+which is what makes a hidden navigator survivable.
 
 ### Working on, and Projects
 
@@ -198,7 +214,7 @@ version's mistake, so they are named apart in the code as well as in the UI.
 | | **Working on** | **Projects** |
 |---|---|---|
 | What it is | The bench: projects open *right now*, in parallel | Every project ever made |
-| Where | A menu under the project field, one click away | A modal, from the toolbar's `+` or "All projects…" |
+| Where | The navigator, always on screen | A modal, from the navigator's footer or the breadcrumb |
 | Lives for | The window's session | Forever, in `localStorage` |
 | Its action | **Close** — takes it off the bench, keeps everything | **Forget** — deletes the project record for good |
 | Can be empty | **Yes**, and that is a screen, not an error | Yes, on a fresh install |
