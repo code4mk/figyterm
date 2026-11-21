@@ -696,7 +696,7 @@ function ThemeTab({
                 onClick={applyCustomThemePath}
                 className={`px-4 py-2 rounded-lg text-xs font-medium transition-all ${
                   isCustomTheme
-                    ? "bg-ft-accent/12 text-ft-accent border border-ft-accent/30"
+                    ? "bg-ft-accent/10 text-ft-accent border border-ft-accent/30"
                     : "bg-ft-accent text-white hover:bg-ft-accent-hover"
                 }`}
               >

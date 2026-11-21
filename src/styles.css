@@ -2,42 +2,100 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ────────────────────────────────────────────────────────────────────────────
+   The palette, as channels and as colours.
+
+   Every token is declared twice, and the second one is derived from the first:
+   `--ft-accent-rgb` holds `99 102 241` and `--ft-accent` is
+   `rgb(var(--ft-accent-rgb))`. There is still exactly one place a colour is
+   written down, so the two cannot drift.
+
+   The channels exist for Tailwind. A colour declared in the config as the
+   string `var(--ft-accent)` cannot take an opacity modifier: Tailwind has to
+   put the alpha *inside* the colour function, it cannot parse a `var()` to do
+   that, and — this is the part that cost us — it does not fail. It silently
+   drops the modifier and emits no rule at all, so `bg-ft-accent/10` was a
+   class name that matched nothing. Thirteen of those had accumulated across
+   the app: selection washes in the command palette and Settings, the icon
+   tiles in the update dialogs, the split handle's hover, and the drawing
+   rail's hover and keyboard-cursor rows.
+
+   With channels, the config says `rgb(var(--ft-accent-rgb) / <alpha-value>)`
+   and the alpha goes where it belongs. `bg-ft-accent` becomes
+   `rgb(… / 1)` — the same colour, through a function instead of a literal.
+
+   Prefer `var(--ft-accent)` in handwritten CSS. The `-rgb` form is for putting
+   an alpha on a token: `rgb(var(--ft-accent-rgb) / 0.16)`, which is what the
+   long tail of hardcoded `rgba(99, 102, 241, 0.16)` in this file should have
+   been and can now become.
+   ──────────────────────────────────────────────────────────────────────────── */
+
 @layer base {
   :root,
   .dark {
-    --ft-bg: #1a1d23;
-    --ft-surface: #1e2228;
-    --ft-elevated: #262a30;
-    --ft-border: #353b44;
-    --ft-border-subtle: #2a2f37;
-    --ft-text: #e6edf3;
-    --ft-text-secondary: #8b949e;
-    --ft-text-muted: #6e7681;
-    --ft-accent: #6366f1;
-    --ft-accent-hover: #7c7fff;
-    --ft-success: #3fb950;
-    --ft-warning: #d29922;
-    --ft-error: #f85149;
-    --ft-tab: #181b21;
-    --ft-tab-active: #1e2228;
+    --ft-bg-rgb: 26 29 35;
+    --ft-bg: rgb(var(--ft-bg-rgb));
+    --ft-surface-rgb: 30 34 40;
+    --ft-surface: rgb(var(--ft-surface-rgb));
+    --ft-elevated-rgb: 38 42 48;
+    --ft-elevated: rgb(var(--ft-elevated-rgb));
+    --ft-border-rgb: 53 59 68;
+    --ft-border: rgb(var(--ft-border-rgb));
+    --ft-border-subtle-rgb: 42 47 55;
+    --ft-border-subtle: rgb(var(--ft-border-subtle-rgb));
+    --ft-text-rgb: 230 237 243;
+    --ft-text: rgb(var(--ft-text-rgb));
+    --ft-text-secondary-rgb: 139 148 158;
+    --ft-text-secondary: rgb(var(--ft-text-secondary-rgb));
+    --ft-text-muted-rgb: 110 118 129;
+    --ft-text-muted: rgb(var(--ft-text-muted-rgb));
+    --ft-accent-rgb: 99 102 241;
+    --ft-accent: rgb(var(--ft-accent-rgb));
+    --ft-accent-hover-rgb: 124 127 255;
+    --ft-accent-hover: rgb(var(--ft-accent-hover-rgb));
+    --ft-success-rgb: 63 185 80;
+    --ft-success: rgb(var(--ft-success-rgb));
+    --ft-warning-rgb: 210 153 34;
+    --ft-warning: rgb(var(--ft-warning-rgb));
+    --ft-error-rgb: 248 81 73;
+    --ft-error: rgb(var(--ft-error-rgb));
+    --ft-tab-rgb: 24 27 33;
+    --ft-tab: rgb(var(--ft-tab-rgb));
+    --ft-tab-active-rgb: 30 34 40;
+    --ft-tab-active: rgb(var(--ft-tab-active-rgb));
   }
 
   .light {
-    --ft-bg: #f8f9fb;
-    --ft-surface: #ffffff;
-    --ft-elevated: #f0f2f5;
-    --ft-border: #d4d8e0;
-    --ft-border-subtle: #e4e7ec;
-    --ft-text: #1a1d27;
-    --ft-text-secondary: #4b5163;
-    --ft-text-muted: #7a8094;
-    --ft-accent: #4f46e5;
-    --ft-accent-hover: #4338ca;
-    --ft-success: #059669;
-    --ft-warning: #d97706;
-    --ft-error: #dc2626;
-    --ft-tab: #f3f4f6;
-    --ft-tab-active: #ffffff;
+    --ft-bg-rgb: 248 249 251;
+    --ft-bg: rgb(var(--ft-bg-rgb));
+    --ft-surface-rgb: 255 255 255;
+    --ft-surface: rgb(var(--ft-surface-rgb));
+    --ft-elevated-rgb: 240 242 245;
+    --ft-elevated: rgb(var(--ft-elevated-rgb));
+    --ft-border-rgb: 212 216 224;
+    --ft-border: rgb(var(--ft-border-rgb));
+    --ft-border-subtle-rgb: 228 231 236;
+    --ft-border-subtle: rgb(var(--ft-border-subtle-rgb));
+    --ft-text-rgb: 26 29 39;
+    --ft-text: rgb(var(--ft-text-rgb));
+    --ft-text-secondary-rgb: 75 81 99;
+    --ft-text-secondary: rgb(var(--ft-text-secondary-rgb));
+    --ft-text-muted-rgb: 122 128 148;
+    --ft-text-muted: rgb(var(--ft-text-muted-rgb));
+    --ft-accent-rgb: 79 70 229;
+    --ft-accent: rgb(var(--ft-accent-rgb));
+    --ft-accent-hover-rgb: 67 56 202;
+    --ft-accent-hover: rgb(var(--ft-accent-hover-rgb));
+    --ft-success-rgb: 5 150 105;
+    --ft-success: rgb(var(--ft-success-rgb));
+    --ft-warning-rgb: 217 119 6;
+    --ft-warning: rgb(var(--ft-warning-rgb));
+    --ft-error-rgb: 220 38 38;
+    --ft-error: rgb(var(--ft-error-rgb));
+    --ft-tab-rgb: 243 244 246;
+    --ft-tab: rgb(var(--ft-tab-rgb));
+    --ft-tab-active-rgb: 255 255 255;
+    --ft-tab-active: rgb(var(--ft-tab-active-rgb));
   }
 
   * {
