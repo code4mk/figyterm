@@ -15,16 +15,27 @@ interface DrawingEmptyProps {
 
 export function DrawingEmpty({ onCreate }: DrawingEmptyProps) {
   return (
-    <div className="flex h-full w-full flex-col items-center justify-center gap-3 px-6 text-center">
-      <Pencil size={28} className="text-ft-text-muted opacity-40" />
-      <div className="text-sm text-ft-text">No drawing open</div>
-      <p className="max-w-[24rem] text-[11px] leading-relaxed text-ft-text-muted">
+    <div className="flex h-full w-full flex-col items-center justify-center gap-3.5 px-6 text-center">
+      {/*
+        A framed mark rather than a bare glyph at 40% opacity. An empty screen
+        needs somewhere for the eye to land before it reads anything, and a
+        faded icon is a thing the eye skips.
+      */}
+      <span className="drawing-medallion">
+        <Pencil size={18} />
+      </span>
+      <span className="drawing-empty-title">No drawing open</span>
+      <p className="drawing-empty-body max-w-[24rem]">
         Drawings are saved as you work — there is nothing to press.
       </p>
-      <button
-        className="mt-1 flex items-center gap-1.5 rounded-md border border-ft-border bg-ft-bg-tertiary px-3 py-1.5 text-[11px] font-medium text-ft-text hover:bg-ft-bg-secondary"
-        onClick={onCreate}
-      >
+      {/*
+        The button's hover used to go *darker* than its resting state: it was
+        written against a `bg-tertiary`/`bg-secondary` pair that this app never
+        defined, so neither tone applied and the inversion was invisible. It is
+        the accent now, which is what the only action on an empty screen should
+        be.
+      */}
+      <button className="drawing-btn primary" onClick={onCreate}>
         <Plus size={12} />
         New drawing
       </button>

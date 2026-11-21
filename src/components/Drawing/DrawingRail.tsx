@@ -42,7 +42,7 @@ function SectionHeading({ label, count }: { label: string; count: number }) {
       <span className="text-[9px] font-semibold uppercase tracking-wider text-ft-text-muted">
         {label}
       </span>
-      <span className="text-[9px] tabular-nums text-ft-text-muted/60">{count}</span>
+      <span className="drawing-rail-count text-[9px] tabular-nums">{count}</span>
     </div>
   );
 }
@@ -143,12 +143,12 @@ export function DrawingRail() {
         <div
           key={project.id}
           data-row={index}
-          className="mx-1.5 my-0.5 rounded-md border border-red-500/30 bg-red-500/10 px-2.5 py-2"
+          className="drawing-row-confirm mx-1.5 my-0.5 rounded-md px-2.5 py-2"
         >
           <div className="truncate text-[11px] text-ft-text">Delete “{project.name}”?</div>
           <div className="mt-1.5 flex items-center gap-1.5">
             <button
-              className="rounded bg-red-500/80 px-2 py-0.5 text-[10px] font-medium text-white hover:bg-red-500"
+              className="drawing-btn-danger rounded px-2 py-0.5 text-[10px] font-medium"
               onClick={() => {
                 setConfirmId(null);
                 void remove(project.id);
@@ -157,7 +157,7 @@ export function DrawingRail() {
               Delete
             </button>
             <button
-              className="rounded px-2 py-0.5 text-[10px] text-ft-text-muted hover:bg-ft-bg-tertiary"
+              className="rounded px-2 py-0.5 text-[10px] text-ft-text-muted hover:bg-ft-elevated"
               onClick={() => setConfirmId(null)}
             >
               Cancel
@@ -176,12 +176,8 @@ export function DrawingRail() {
         data-row={index}
         onMouseEnter={() => setCursor(index)}
         aria-current={isActive ? "true" : undefined}
-        className={`group relative mx-1.5 my-0.5 flex items-center gap-1.5 rounded-md py-1.5 pl-3 pr-1.5 transition-colors ${
-          isActive
-            ? "bg-ft-bg-tertiary"
-            : isCursor
-              ? "bg-ft-bg-tertiary/40"
-              : "hover:bg-ft-bg-tertiary/30"
+        className={`drawing-row group relative mx-1.5 my-0.5 flex items-center gap-1.5 rounded-md py-1.5 pl-3 pr-1.5 ${
+          isActive ? "active" : isCursor ? "cursor" : ""
         }`}
       >
         {isActive && (
@@ -221,7 +217,7 @@ export function DrawingRail() {
           >
             <span
               className={`w-full truncate text-[12px] leading-tight ${
-                isActive ? "font-medium text-ft-text" : "text-ft-text/85"
+                isActive ? "font-medium text-ft-text" : "drawing-row-name"
               }`}
             >
               {project.name}
@@ -242,9 +238,9 @@ export function DrawingRail() {
         {!isRenaming && (
           <div className="flex shrink-0 items-center gap-0.5">
             <button
-              className={`rounded p-1 hover:bg-ft-bg-secondary ${
+              className={`rounded p-1 hover:bg-ft-surface ${
                 project.favorite
-                  ? "text-yellow-400"
+                  ? "drawing-star-on"
                   : "text-ft-text-muted opacity-0 group-hover:opacity-100"
               }`}
               onClick={() => toggleFavorite(project.id)}
@@ -254,7 +250,7 @@ export function DrawingRail() {
               <Star size={12} className={project.favorite ? "fill-current" : ""} />
             </button>
             <button
-              className="rounded p-1 text-ft-text-muted opacity-0 hover:bg-ft-bg-secondary group-hover:opacity-100"
+              className="rounded p-1 text-ft-text-muted opacity-0 hover:bg-ft-surface group-hover:opacity-100"
               onClick={() => startRename(project)}
               title="Rename"
               aria-label={`Rename ${project.name}`}
@@ -262,7 +258,7 @@ export function DrawingRail() {
               <Pencil size={12} />
             </button>
             <button
-              className="rounded p-1 text-ft-text-muted opacity-0 hover:bg-ft-bg-secondary group-hover:opacity-100"
+              className="rounded p-1 text-ft-text-muted opacity-0 hover:bg-ft-surface group-hover:opacity-100"
               onClick={() => void handleDuplicate(project.id)}
               title="Duplicate"
               aria-label={`Duplicate ${project.name}`}
@@ -270,7 +266,7 @@ export function DrawingRail() {
               <Copy size={12} />
             </button>
             <button
-              className="rounded p-1 text-ft-text-muted opacity-0 hover:bg-red-500/20 hover:text-red-400 group-hover:opacity-100"
+              className="drawing-action-danger rounded p-1 text-ft-text-muted opacity-0 group-hover:opacity-100"
               onClick={() => setConfirmId(project.id)}
               title="Delete"
               aria-label={`Delete ${project.name}`}
@@ -287,7 +283,7 @@ export function DrawingRail() {
   const rest = rows.filter((p) => !p.favorite);
 
   return (
-    <div className="drawing-rail flex w-[232px] shrink-0 flex-col border-r border-ft-border bg-ft-bg-secondary">
+    <div className="drawing-rail flex w-[232px] shrink-0 flex-col border-r border-ft-border bg-ft-surface">
       {/* Search + new */}
       <div className="flex items-center gap-1.5 border-b border-ft-border px-2 py-2">
         <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md border border-ft-border bg-ft-bg px-2 py-1">

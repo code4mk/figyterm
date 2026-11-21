@@ -16,14 +16,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  Maximize2,
-  Minimize2,
-  PanelLeftClose,
-  PanelLeftOpen,
-  PictureInPicture2,
-  X,
-} from "lucide-react";
+import { Maximize2, Minimize2, PanelLeft, PictureInPicture2, X } from "lucide-react";
 import { OverlayPortal } from "../Overlay/OverlayPortal";
 import { claimFront, releaseFront } from "../../services/overlay-stack";
 import {
@@ -75,8 +68,39 @@ export function DrawingModal({ visible, onClose }: DrawingModalProps) {
   const toggleRail = useDrawingStore((s) => s.toggleRail);
   const pane = useDrawingStore((s) => s.pane);
   const setPane = useDrawingStore((s) => s.setPane);
+  const rename = useDrawingStore((s) => s.rename);
 
   const active = projects.find((p) => p.id === activeId) ?? null;
+
+  // ─── Renaming from the title ─────────────────────────────────────────────
+
+  const [renaming, setRenaming] = useState(false);
+  const [draft, setDraft] = useState("");
+
+  const startRename = useCallback(() => {
+    if (!active) return;
+    setDraft(active.name);
+    setRenaming(true);
+  }, [active]);
+
+  /**
+   * Commits the rename, or quietly drops it.
+   *
+   * The store already refuses an empty name — a project with no name is worse
+   * than a project with a dull one — so this only has to stop sending it, and
+   * leave the field's own text behind when it does.
+   */
+  const commitRename = useCallback(() => {
+    setRenaming(false);
+    const name = draft.trim();
+    if (active && name && name !== active.name) rename(active.id, name);
+  }, [active, draft, rename]);
+
+  /*
+    A rename belongs to the drawing it was started on. Switching project while
+    the field is open would otherwise commit the old name onto the new one.
+  */
+  useEffect(() => setRenaming(false), [activeId]);
 
   const { style, onDragStart, onResizeStart, place, reset } = useDraggableModal({
     defaultSize: DEFAULT_SIZE,
@@ -180,7 +204,15 @@ export function DrawingModal({ visible, onClose }: DrawingModalProps) {
   const modal = (
     <div
       ref={modalRef}
-      className={`drawing-modal flex flex-col overflow-hidden bg-ft-bg border border-ft-border shadow-2xl ${
+      /*
+        A window, and it says so now. Its name goes in the label because the
+        several states of this window look alike from the outside, and "Draw"
+        alone does not say which drawing is open.
+      */
+      role="dialog"
+      aria-modal={!pipMode}
+      aria-label={active ? `Draw — ${active.name}` : "Draw"}
+      className={`drawing-modal flex flex-col overflow-hidden ${
         fullscreen ? "rounded-none" : "rounded-xl"
       }`}
       style={pipMode ? { ...style, zIndex: frontZ ?? undefined } : style}
@@ -193,78 +225,141 @@ export function DrawingModal({ visible, onClose }: DrawingModalProps) {
       tabIndex={-1}
     >
       {/*
-        Title bar — also the drag handle. It borrows the browser window's
-        chrome classes rather than rolling its own padding, so the three
-        windows line up: open the browser and the drawing side by side and
-        their headers are the same height.
+        The title bar, and the drag handle.
+
+        It used to borrow the browser window's chrome — `browser-chrome`,
+        `browser-tabstrip`, `browser-brand` — for the stated reason that the
+        windows would then line up. They did, at the cost of wearing a *tab
+        strip* in a window that has no tabs: hence the `pt-1.5 pb-0` with a
+        `pb-1.5` on each child, which is the geometry a row of tabs needs to
+        sit on a baseline and which here only made every control hang.
+
+        So it is the drawing window's own bar now, in the language the Claude
+        window settled: three zones, one mark, and the thing you are looking at
+        in the middle. Heights still match, because both are 44px — matching by
+        agreement rather than by inheritance.
       */}
-      <div
-        className="browser-chrome browser-tabstrip drawing-titlebar flex items-center gap-1 px-2 pt-1.5 pb-0 select-none cursor-grab active:cursor-grabbing"
+      <header
+        className="drawing-header flex items-center gap-2 px-2 select-none cursor-grab active:cursor-grabbing"
         onPointerDown={onDragStart}
       >
-        <div className="browser-brand flex items-center gap-2 pl-1 pr-2.5 mr-1 pb-1.5 shrink-0">
-          <img src="/logo.png" alt="" className="h-3.5 w-auto shrink-0" />
-          <img src="/excalidraw.png" alt="" className="drawing-logo shrink-0" />
-          <span className="browser-brand-title text-[11px] font-semibold whitespace-nowrap">
-            Draw
-          </span>
-        </div>
-
-        <div className="flex items-center gap-1.5 flex-1 min-w-0 pb-1.5">
+        <div
+          className="flex items-center gap-1.5 shrink-0"
+          onPointerDown={(e) => e.stopPropagation()}
+        >
           <button
-            className="shrink-0 rounded p-1 text-ft-text-muted hover:bg-ft-bg-tertiary"
-            onPointerDown={(e) => e.stopPropagation()}
+            className={`drawing-iconbtn ${railCollapsed ? "" : "on"}`}
             onClick={toggleRail}
             title={railCollapsed ? "Show drawings" : "Hide drawings"}
             aria-label={railCollapsed ? "Show drawings" : "Hide drawings"}
             aria-expanded={!railCollapsed}
           >
-            {railCollapsed ? <PanelLeftOpen size={14} /> : <PanelLeftClose size={14} />}
+            <PanelLeft size={13} />
           </button>
+          {/*
+            One mark, not two.
 
-          {active && (
-            <PaneTabs
-              pane={pane}
-              onChange={setPane}
-              hasNotes={(active.noteChars ?? 0) > 0}
+            The brand carried FigyTerm's logo *and* Excalidraw's, on the
+            argument that the window is one hosting the other. The Claude
+            window makes the same argument and draws one mark, because whose
+            window it is belongs in the title and a second logo beside the
+            first only makes the corner busy. The same holds here.
+          */}
+          <span className="drawing-mark">
+            <img src="/excalidraw.png" alt="" />
+          </span>
+          <span className="drawing-brand-title">Draw</span>
+        </div>
+
+        <span className="drawing-sep" />
+
+        {/*
+          The drawing's name — the subject of the window.
+
+          It was an 11px muted string at the end of a row of controls, which is
+          to say the quietest thing in the bar was the only one that said what
+          you were looking at. It is the title now, and double-clicking it
+          renames in place: the rail could already do that and the title bar is
+          where anyone would try it first.
+        */}
+        <div className="drawing-locator flex items-center flex-1 min-w-0">
+          {renaming && active ? (
+            <input
+              autoFocus
+              className="drawing-rename-input min-w-0 flex-1"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onFocus={(e) => e.target.select()}
+              onBlur={commitRename}
+              onPaste={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  commitRename();
+                } else if (e.key === "Escape") {
+                  // Claimed, so the window's own Escape leaves it alone — this
+                  // is a rename being abandoned, not a window being closed.
+                  e.preventDefault();
+                  setRenaming(false);
+                }
+              }}
+              spellCheck={false}
+              aria-label="Drawing name"
             />
+          ) : active ? (
+            <button
+              className="drawing-locator-name truncate"
+              onPointerDown={(e) => e.stopPropagation()}
+              onDoubleClick={startRename}
+              title={`${active.name}\nDouble-click to rename`}
+            >
+              {active.name}
+            </button>
+          ) : (
+            <span className="drawing-locator-name idle">No drawing</span>
+          )}
+        </div>
+
+        <div
+          className="flex items-center gap-1 shrink-0"
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          {active && (
+            <PaneTabs pane={pane} onChange={setPane} hasNotes={(active.noteChars ?? 0) > 0} />
           )}
 
-          <span className="min-w-0 truncate text-[11px] text-ft-text-muted">
-            {active?.name ?? "No drawing"}
-          </span>
-        </div>
+          <span className="drawing-sep" />
 
-        <div className="flex items-center gap-1 shrink-0 pb-1.5">
           <button
-            className={`p-1.5 rounded hover:bg-ft-bg-tertiary ${pipMode ? "text-ft-accent" : "text-ft-text-muted"}`}
-            onPointerDown={(e) => e.stopPropagation()}
+            className={`drawing-iconbtn ${pipMode ? "on" : ""}`}
             onClick={togglePip}
-            title={pipMode ? "Exit picture-in-picture" : "Picture-in-picture"}
-            aria-label={pipMode ? "Exit picture-in-picture" : "Picture-in-picture"}
+            title={pipMode ? "Leave picture-in-picture" : "Picture-in-picture"}
+            aria-label="Picture in picture"
+            aria-pressed={pipMode}
           >
-            <PictureInPicture2 size={14} />
+            <PictureInPicture2 size={12} />
           </button>
           <button
-            className={`p-1.5 rounded hover:bg-ft-bg-tertiary ${fullscreen ? "text-ft-accent" : "text-ft-text-muted"}`}
-            onPointerDown={(e) => e.stopPropagation()}
+            className={`drawing-iconbtn ${fullscreen ? "on" : ""}`}
             onClick={toggleFullscreen}
-            title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
-            aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+            title={fullscreen ? "Restore" : "Maximize"}
+            aria-label={fullscreen ? "Restore" : "Maximize"}
+            aria-pressed={fullscreen}
           >
-            {fullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+            {fullscreen ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
           </button>
           <button
-            className="p-1.5 rounded text-ft-text-muted hover:bg-red-500/20 hover:text-red-400"
-            onPointerDown={(e) => e.stopPropagation()}
+            className="drawing-iconbtn danger"
             onClick={onClose}
-            title="Close drawing"
-            aria-label="Close drawing"
+            title="Close — your work is already saved"
+            aria-label="Close"
           >
-            <X size={14} />
+            <X size={13} />
           </button>
         </div>
-      </div>
+      </header>
 
       {/* Rail, then canvas. The canvas is keyed by project, so switching
           remounts it with the right scene rather than reconciling into it. */}
@@ -300,31 +395,52 @@ export function DrawingModal({ visible, onClose }: DrawingModalProps) {
         </div>
       </div>
 
-      {/* Status bar */}
-      <div className="drawing-statusbar flex items-center justify-between gap-2 px-3 h-6 bg-ft-bg-secondary border-t border-ft-border text-[10px] text-ft-text-muted">
-        <span className="truncate">
-          {saveError ? (
-            <span className="text-red-400">{saveError}</span>
-          ) : (
-            <>
-              {/* The count follows the pane, because "12 items" beside a page
-                  of prose is a number about something you cannot see. */}
+      {/*
+        The status bar.
+
+        There is no Save button and there is not going to be one — this bar is
+        the whole of the feedback, which is why the saved time sits at the end
+        of it rather than in a toast that has gone by the time you look up.
+      */}
+      <div className="drawing-statusbar flex items-center gap-2 px-3 shrink-0">
+        {saveError ? (
+          <span className="drawing-status-error truncate" role="status">
+            {saveError}
+          </span>
+        ) : (
+          <>
+            {/* The count follows the pane, because "12 items" beside a page of
+                prose is a number about something you cannot see. */}
+            <span className="truncate">
               {active
                 ? pane === "draw"
                   ? `${active.elementCount} item${active.elementCount === 1 ? "" : "s"}`
-                  : `${active.noteChars ?? 0} character${(active.noteChars ?? 0) === 1 ? "" : "s"}`
+                  : `${active.noteChars ?? 0} character${
+                      (active.noteChars ?? 0) === 1 ? "" : "s"
+                    }`
                 : "—"}
-              {" · "}
+            </span>
+            <span className="drawing-status-dot" aria-hidden />
+            <span className="truncate" role="status">
               {savedAtLabel(lastSavedAt)}
-            </>
-          )}
-        </span>
+            </span>
+          </>
+        )}
+
+        <div className="flex-1" />
+
+        {/*
+          The shared grip, rather than a bare div with a cursor on it — the
+          same element the editor and Claude windows put in the same corner.
+        */}
         <div
-          className="cursor-se-resize p-1 shrink-0"
+          className="editor-resize-handle"
           onPointerDown={(e) => onResizeStart(e, "se")}
           title="Resize"
+          role="separator"
+          aria-orientation="horizontal"
         >
-          <svg width="10" height="10" viewBox="0 0 10 10" className="text-ft-text-muted">
+          <svg width="10" height="10" viewBox="0 0 10 10" className="editor-resize-icon">
             <path
               d="M9 1L1 9M9 5L5 9"
               stroke="currentColor"

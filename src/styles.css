@@ -8977,11 +8977,372 @@
   width: 100%;
 }
 
-/* The Excalidraw mark in the title bar, sized like the Claude window.s. */
-.drawing-logo {
+/* ─── Drawing: the window's own chrome ─────────────────────────────────────
+
+   The title bar, the status bar and the controls on them.
+
+   This window used to wear the browser's: `browser-chrome` and
+   `browser-tabstrip` for the header, `browser-brand` for the corner. The
+   heights lined up, which was the point, and everything else was wrong — a tab
+   strip's geometry in a window with no tabs, so each control carried a
+   `pb-1.5` to hang off a baseline that was not there, and the drawing's name
+   ended up as the quietest string in the bar.
+
+   What follows is the language the Claude window arrived at, which is the one
+   the app should converge on: a 44px bar in three zones, one mark, the subject
+   in the middle, the window's own controls on the right behind a hairline.
+   Both bars are 44px by agreement rather than by inheritance, so changing one
+   cannot silently move the other.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+.drawing-modal {
+  position: relative;
+  background: var(--ft-bg);
+  border: 1px solid var(--ft-border);
+  isolation: isolate;
+  box-shadow:
+    0 32px 80px -16px rgba(0, 0, 0, 0.7),
+    0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+
+.drawing-header {
+  position: relative;
+  z-index: 3;
+  height: 44px;
+  flex-shrink: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.05),
+    rgba(255, 255, 255, 0.012)
+  );
+  border-bottom: 1px solid var(--ft-border-subtle);
+}
+
+.drawing-mark {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.035));
+  border: 1px solid var(--ft-border-subtle);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.drawing-mark img {
+  display: block;
   height: 13px;
   width: auto;
-  border-radius: 2px;
+  border-radius: 3px;
+}
+
+.drawing-brand-title {
+  font-size: 11.5px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--ft-text);
+  white-space: nowrap;
+}
+
+/* A hairline, wherever one group of controls ends and another begins. */
+.drawing-sep {
+  flex: none;
+  width: 1px;
+  height: 18px;
+  margin: 0 2px;
+  background: var(--ft-border-subtle);
+}
+
+/* ─── The name ──────────────────────────────────────────────────────────── */
+
+.drawing-locator-name {
+  max-width: 100%;
+  padding: 2px 6px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ft-text);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.drawing-locator-name:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.drawing-locator-name.idle {
+  color: var(--ft-text-muted);
+  font-weight: 500;
+  font-style: italic;
+  cursor: default;
+}
+
+.drawing-locator-name.idle:hover {
+  background: transparent;
+}
+
+/* Sized and placed to match the label it replaces, so renaming doesn't jump. */
+.drawing-rename-input {
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid var(--ft-accent);
+  border-radius: 6px;
+  background: var(--ft-bg);
+  color: var(--ft-text);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.16);
+}
+
+/* ─── Icon buttons ──────────────────────────────────────────────────────── */
+
+.drawing-iconbtn {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ft-text-secondary);
+  cursor: pointer;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+
+.drawing-iconbtn:hover:not(:disabled) {
+  color: var(--ft-text);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* The rail, picture-in-picture and fullscreen are modes: on looks held down. */
+.drawing-iconbtn.on {
+  color: #a5b4fc;
+  background: rgba(99, 102, 241, 0.16);
+}
+
+.drawing-iconbtn.danger:hover:not(:disabled) {
+  color: #fca5a5;
+  background: rgba(248, 113, 113, 0.13);
+}
+
+/* ─── Status bar ────────────────────────────────────────────────────────── */
+
+.drawing-statusbar {
+  height: 28px;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.022);
+  border-top: 1px solid var(--ft-border-subtle);
+  font-size: 10px;
+  color: var(--ft-text-muted);
+}
+
+/* A separator between two facts, where a `·` in the string would not survive
+   one of them being missing. */
+.drawing-status-dot {
+  width: 2px;
+  height: 2px;
+  flex: none;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.6;
+}
+
+/* The palette's error tone, not Tailwind's — this one follows the theme. */
+.drawing-status-error {
+  color: var(--ft-error);
+}
+
+/* ─── Keyboard focus ────────────────────────────────────────────────────────
+
+   The same ring the Claude window uses, and for the same reason: there was
+   none. Excalidraw and the notes editor both manage focus inside the body, so
+   this lists the chrome's own controls rather than taking a blanket rule that
+   would draw a ring around the canvas every time it was clicked.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+.drawing-iconbtn:focus-visible,
+.drawing-locator-name:focus-visible {
+  outline: 2px solid var(--ft-accent);
+  outline-offset: -1px;
+}
+
+/*
+  The rail's controls by element rather than by class.
+
+  Its rows are built from Tailwind utilities with no class of their own, and
+  inventing six would mean editing the markup to describe what it already is:
+  every `button` and `input` in that column is ours. The body is deliberately
+  not covered — Excalidraw's toolbar is full of buttons that come with their
+  own focus treatment, and so is the notes editor.
+*/
+.drawing-rail button:focus-visible,
+.drawing-rail input:focus-visible {
+  outline: 2px solid var(--ft-accent);
+  outline-offset: -1px;
+  border-radius: 5px;
+  /* The row actions are `opacity-0` until their row is hovered. */
+  opacity: 1;
+}
+
+/* ─── The rail's coloured states ────────────────────────────────────────────
+
+   These were Tailwind's own palette — `bg-red-500/10`, `text-yellow-400`,
+   `hover:text-red-400`. Fixed hues do not follow a theme: the pale red that
+   reads as a warning against #1a1d23 reads as pink against #f8f9fb, and it was
+   the only part of this window that could not change with it. The palette has
+   an error tone and a warning tone; these use them.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/* A delete waiting on an answer, in the row the drawing was in. */
+.drawing-row-confirm {
+  border: 1px solid color-mix(in srgb, var(--ft-error) 35%, transparent);
+  background: color-mix(in srgb, var(--ft-error) 12%, transparent);
+}
+
+.drawing-btn-danger {
+  background: var(--ft-error);
+  color: #fff;
+  opacity: 0.9;
+  transition: opacity 0.12s ease;
+}
+
+.drawing-btn-danger:hover {
+  opacity: 1;
+}
+
+.drawing-action-danger:hover {
+  color: var(--ft-error);
+  background: color-mix(in srgb, var(--ft-error) 14%, transparent);
+}
+
+/* A favourite. Warning's tone rather than a yellow of its own — it is the
+   palette's "look here", and a second amber would be a second vocabulary. */
+.drawing-star-on {
+  color: var(--ft-warning);
+}
+
+/* ─── The rail's three row states ───────────────────────────────────────────
+
+   Open, under the keyboard's cursor, and neither — and they must never be
+   confused for one another, which is what the markup's comment has always
+   said. They were written as `bg-ft-elevated`, `bg-ft-elevated/40` and
+   `hover:bg-ft-elevated/30`, and **two of the three produced no CSS**:
+   Tailwind 3.4 cannot inject an alpha into a colour declared as a bare
+   `var(--ft-elevated)`, so it drops the opacity modifier and emits nothing at
+   all. The rail had an open state and no hover and no cursor.
+
+   They are written here instead, where an alpha is just an alpha.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+.drawing-row {
+  transition: background-color 0.12s ease;
+}
+
+.drawing-row:hover {
+  background: rgba(255, 255, 255, 0.045);
+}
+
+/* The keyboard's cursor: a wash, and no accent bar — the bar belongs to the
+   drawing that is open, and the two coincide often enough to matter. */
+.drawing-row.cursor {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+/* Open wins whenever they coincide. Last, so it does. */
+.drawing-row.active,
+.drawing-row.active:hover {
+  background: var(--ft-elevated);
+}
+
+.drawing-row-name {
+  color: var(--ft-text-secondary);
+}
+
+.drawing-row:hover .drawing-row-name {
+  color: var(--ft-text);
+}
+
+.drawing-rail-count {
+  color: var(--ft-text-muted);
+  opacity: 0.75;
+}
+
+/* ─── The empty canvas ──────────────────────────────────────────────────── */
+
+.drawing-medallion {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.03));
+  border: 1px solid var(--ft-border-subtle);
+  color: var(--ft-text-secondary);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 8px 20px -10px rgba(0, 0, 0, 0.7);
+}
+
+.drawing-empty-title {
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  color: var(--ft-text);
+}
+
+.drawing-empty-body {
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--ft-text-secondary);
+}
+
+.drawing-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 13px;
+  border-radius: 8px;
+  font-size: 11.5px;
+  font-weight: 550;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--ft-border-subtle);
+  color: var(--ft-text);
+  cursor: pointer;
+  transition: background 0.13s ease, border-color 0.13s ease, transform 0.1s ease;
+}
+
+.drawing-btn:hover {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: var(--ft-border);
+}
+
+.drawing-btn:active {
+  transform: translateY(0.5px);
+}
+
+.drawing-btn.primary {
+  background: var(--ft-accent);
+  border-color: transparent;
+  color: #fff;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14);
+}
+
+.drawing-btn.primary:hover {
+  background: var(--ft-accent-hover);
+  border-color: transparent;
+}
+
+.drawing-btn:focus-visible {
+  outline: 2px solid var(--ft-accent);
+  outline-offset: 2px;
 }
 
 /* Excalidraw's own popovers and dialogs are positioned against the nearest
@@ -9071,7 +9432,7 @@
   font-size: 0.9em;
   padding: 0.12em 0.35em;
   border-radius: 3px;
-  background: var(--ft-bg-tertiary);
+  background: var(--ft-elevated);
 }
 
 .drawing-note-code-block {
@@ -9081,7 +9442,7 @@
   margin: 0 0 0.6em;
   padding: 0.7em 0.9em;
   border-radius: 6px;
-  background: var(--ft-bg-secondary);
+  background: var(--ft-surface);
   border: 1px solid var(--ft-border);
   overflow-x: auto;
   white-space: pre;
@@ -9166,7 +9527,7 @@
   max-height: 336px;
   overflow: hidden;
   border-radius: 10px;
-  background: var(--ft-bg-secondary);
+  background: var(--ft-surface);
   border: 1px solid var(--ft-border);
   /* Two shadows: a tight one to seat the panel against the page, and a wide
    * soft one for depth. One shadow doing both is either harsh or muddy. */
@@ -9210,7 +9571,7 @@
   transition: background-color 90ms ease;
 }
 .drawing-slash-item.selected {
-  background: var(--ft-bg-tertiary);
+  background: var(--ft-elevated);
 }
 
 /*
@@ -9313,7 +9674,7 @@
   gap: 1px;
   padding: 3px;
   border-radius: 7px;
-  background: var(--ft-bg-secondary);
+  background: var(--ft-surface);
   border: 1px solid var(--ft-border);
   box-shadow: 0 6px 20px rgb(0 0 0 / 28%);
 }
@@ -9335,12 +9696,12 @@
   color: var(--ft-text-muted);
 }
 .drawing-note-toolbar-btn:hover {
-  background: var(--ft-bg-tertiary);
+  background: var(--ft-elevated);
   color: var(--ft-text);
 }
 .drawing-note-toolbar-btn.active {
   color: var(--ft-accent);
-  background: var(--ft-bg-tertiary);
+  background: var(--ft-elevated);
 }
 .drawing-note-toolbar-sep {
   width: 1px;
@@ -9372,7 +9733,7 @@
 }
 .drawing-note-grip:hover {
   opacity: 1;
-  background: var(--ft-bg-tertiary);
+  background: var(--ft-elevated);
 }
 .drawing-note-grip:active {
   cursor: grabbing;
@@ -9417,7 +9778,7 @@
   left: 2px;
   width: calc((100% - 4px) / 3);
   border-radius: 5px;
-  background: var(--ft-bg-tertiary);
+  background: var(--ft-elevated);
   box-shadow: 0 1px 2px rgb(0 0 0 / 18%);
   transition: transform 160ms cubic-bezier(0.32, 0.72, 0, 1);
 }
@@ -9613,6 +9974,18 @@
 }
 
 /*
+  The column adder stacks, the row adder lies flat.
+
+  `TableControls` puts `.col` or `.row` on both the grips and the adders. The
+  grips need nothing per axis — position and size come from the inline rect the
+  component measures — but the adder holds a `+` in a flex box, and the one that
+  runs down the table's right edge has to turn its axis to match.
+*/
+.drawing-tbl-add.col {
+  flex-direction: column;
+}
+
+/*
  * Visible whenever the layer exists, which is only while a table is hovered or
  * holds the cursor — the component decides that, not CSS.
  *
@@ -9670,7 +10043,7 @@
   min-width: 158px;
   padding: 4px;
   border-radius: 8px;
-  background: var(--ft-bg-secondary);
+  background: var(--ft-surface);
   border: 1px solid var(--ft-border);
   box-shadow: 0 8px 26px rgb(0 0 0 / 30%);
 }
@@ -9690,7 +10063,7 @@
   opacity: 0.65;
 }
 .drawing-tbl-menu-item:hover {
-  background: var(--ft-bg-tertiary);
+  background: var(--ft-elevated);
 }
 .drawing-tbl-menu-item:hover svg {
   opacity: 1;
@@ -9710,423 +10083,96 @@
   background: var(--ft-border);
 }
 
-/* ─── Drawing: the Draw · Notes · Both control ─────────────────────────────── */
+/* ─── Drawing: light theme ──────────────────────────────────────────────────
 
-.drawing-panes {
-  position: relative;
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-  padding: 2px;
-  border-radius: 7px;
-  background: var(--ft-bg);
-  border: 1px solid var(--ft-border);
-}
+   The window had **no light-mode rules at all**. Most of it survived that on
+   the `--ft-*` tokens, which invert on their own; what did not were the white
+   washes a dark theme uses to lift a surface. A 4–8% white over near-black is
+   a hover; a 4–8% white over #f8f9fb is nothing, so in light mode the rail
+   had no hover, the icon buttons had no hover, and the status bar and header
+   had no fill. Those are the rules that follow — the same ones the Claude
+   window needs, for the same reason.
+   ──────────────────────────────────────────────────────────────────────────── */
 
-/*
- * The sliding selection.
- *
- * One pill for the whole control rather than a background per button: it is
- * what makes the change read as a control moving rather than two buttons
- * swapping colour, and the active treatment then lives in exactly one rule.
- * Width is a third of the track, so the segments must stay equal — see the
- * `flex: 1 1 0` below.
- */
-.drawing-panes-pill {
-  position: absolute;
-  top: 2px;
-  bottom: 2px;
-  left: 2px;
-  width: calc((100% - 4px) / 3);
-  border-radius: 5px;
-  background: var(--ft-bg-tertiary);
-  box-shadow: 0 1px 2px rgb(0 0 0 / 18%);
-  transition: transform 160ms cubic-bezier(0.32, 0.72, 0, 1);
+.light .drawing-modal {
+  background: var(--ft-surface);
+  box-shadow:
+    0 32px 80px -16px rgba(15, 23, 42, 0.22),
+    0 0 0 1px rgba(15, 23, 42, 0.04);
 }
 
-.drawing-panes-seg {
-  position: relative;
-  z-index: 1;
-  flex: 1 1 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 3px 9px;
-  border-radius: 5px;
-  font-size: 10px;
-  font-weight: 500;
-  white-space: nowrap;
-  color: var(--ft-text-muted);
-  transition: color 140ms ease;
-}
-.drawing-panes-seg:hover {
-  color: var(--ft-text);
-}
-.drawing-panes-seg.selected {
-  color: var(--ft-text);
-}
-.drawing-panes-seg:focus-visible {
-  outline: 1px solid var(--ft-accent);
-  outline-offset: 1px;
+.light .drawing-header {
+  background: linear-gradient(180deg, #ffffff, #f4f6f9);
 }
 
-.drawing-panes-dot {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--ft-accent);
+.light .drawing-mark {
+  background: linear-gradient(160deg, #ffffff, #eef1f6);
 }
 
-/* The divider between canvas and notes in the Both view. The hit area is wider
- * than the line, which is what makes it grabbable without looking heavy. */
-.drawing-split-handle {
-  position: relative;
-  width: 7px;
-  flex-shrink: 0;
-  cursor: col-resize;
-  background: transparent;
-}
-.drawing-split-handle::after {
-  content: "";
-  position: absolute;
-  inset-block: 0;
-  left: 50%;
-  width: 1px;
-  transform: translateX(-50%);
-  background: var(--ft-border);
-  transition: background-color 120ms ease, width 120ms ease;
-}
-/* `:active` rather than a data attribute: v4 of the panel library sets only
- * `data-separator`, and the repo's own `SplitHandle` styles the drag state the
- * same way. */
-.drawing-split-handle:hover::after,
-.drawing-split-handle:active::after {
-  width: 2px;
-  background: var(--ft-accent);
+/* Every white wash above becomes an ink wash here. */
+.light .drawing-iconbtn:hover:not(:disabled),
+.light .drawing-locator-name:hover,
+.light .drawing-row:hover {
+  background: rgba(15, 23, 42, 0.06);
 }
 
-/* ─── Drawing notes: tables ────────────────────────────────────────────────
- *
- * Notion's proportions: hairline rules, generous cell padding, a quiet header
- * row, and no outer shadow or stripe. The table should read as structure in the
- * prose rather than as a widget dropped into it.
- *
- * `border-collapse: separate` with per-cell right/bottom borders, rather than
- * `collapse`: collapsed borders cannot be rounded, and the outer radius is what
- * stops the grid looking like a spreadsheet.
- */
-.drawing-note-table {
-  border-collapse: separate;
-  border-spacing: 0;
-  table-layout: fixed;
-  width: 100%;
-  /* The top margin is the column grips' gutter as well as spacing. */
-  margin: 1.2em 0 0.9em;
-  border: 1px solid var(--ft-border);
-  border-radius: 6px;
-  /* Clips the corner cells to the outer radius. */
-  overflow: hidden;
-  font-size: 0.95em;
+.light .drawing-row.cursor {
+  background: rgba(15, 23, 42, 0.085);
 }
 
-.drawing-note-td,
-.drawing-note-th {
-  position: relative;
-  min-width: 68px;
-  padding: 7px 10px;
-  border-right: 1px solid var(--ft-border);
-  border-bottom: 1px solid var(--ft-border);
-  vertical-align: top;
-  text-align: left;
-  outline: none;
-  transition: background-color 90ms ease;
-}
-/* The outer border already draws these two edges; drawing them again is the
- * doubled hairline that makes a table look heavy. */
-.drawing-note-tr > *:last-child {
-  border-right: none;
-}
-.drawing-note-table tr:last-child > * {
-  border-bottom: none;
+.light .drawing-statusbar {
+  background: rgba(15, 23, 42, 0.022);
 }
 
-.drawing-note-th {
-  background: var(--ft-bg-secondary);
-  font-weight: 600;
+/* The dark theme's pale indigo and pale red are tints for near-black; on white
+   they read as lilac and pink. Light mode takes the palette's own tones. */
+.light .drawing-iconbtn.on {
+  color: var(--ft-accent);
+  background: rgba(79, 70, 229, 0.12);
 }
 
-/* Paragraphs in a cell drop the block margin that separates paragraphs in the
- * document, or every row grows a gap under its text. */
-.drawing-note-td > .drawing-note-p:last-child,
-.drawing-note-th > .drawing-note-p:last-child {
-  margin-bottom: 0;
-}
-
-/* Neutral grey rather than a token: it reads as a lift in the light theme and
- * as a lift in the dark one, which no single token colour does. */
-.drawing-note-tr:hover > .drawing-note-td {
-  background: rgb(127 127 127 / 6%);
-}
-
-.drawing-note-td-selected::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: var(--ft-accent);
-  opacity: 0.14;
-}
-.drawing-note-table-selected {
-  outline: 1px solid var(--ft-accent);
-}
-
-/* ─── Drawing notes: table grips ──────────────────────────────────────────── */
-
-/* The chrome layer sits over the pane, not in the document: the note that gets
- * saved holds a plain table and none of this. */
-.drawing-tbl-layer {
-  position: absolute;
-  inset: 0;
-  z-index: 20;
-  pointer-events: none;
-}
-.drawing-tbl-layer > * {
-  pointer-events: auto;
-}
-
-.drawing-tbl-grip,
-.drawing-tbl-add {
-  position: absolute;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 3px;
-  background: var(--ft-bg-tertiary);
-  color: var(--ft-text-muted);
-  transition: opacity 110ms ease, background-color 110ms ease;
+.light .drawing-iconbtn.danger:hover:not(:disabled) {
+  color: var(--ft-error);
+  background: rgba(220, 38, 38, 0.1);
 }
 
 /*
- * Visible whenever the layer exists, which is only while a table is hovered or
- * holds the cursor — the component decides that, not CSS.
- *
- * It cannot be a `:hover` rule on the layer: the table is not inside the layer,
- * so hovering the table never puts the layer in `:hover`, and the grips would
- * appear only once you had already found one.
- */
-.drawing-tbl-grip,
-.drawing-tbl-add {
-  opacity: 0.45;
-}
-.drawing-tbl-grip:hover,
-.drawing-tbl-add:hover,
-.drawing-tbl-grip.open {
-  opacity: 1;
-  background: var(--ft-accent);
-  color: #fff;
-}
-.drawing-tbl-grip.col {
-  cursor: pointer;
-}
-.drawing-tbl-grip.row {
-  cursor: pointer;
+  `--ft-text-muted` is the quietest tone the palette has, and against #f8f9fb
+  at the 9–10px this chrome uses it drops under the contrast a small font
+  needs. The same step-up the Claude window takes.
+*/
+.light .drawing-statusbar,
+.light .drawing-rail-count {
+  color: var(--ft-text-secondary);
 }
 
-.drawing-tbl-add.col {
-  flex-direction: column;
-}
-
-/* ── The grip menu ── */
-
-.drawing-tbl-scrim {
-  position: fixed;
-  inset: 0;
-  z-index: 1;
-}
-
-.drawing-tbl-menu {
-  position: absolute;
-  z-index: 2;
-  min-width: 150px;
-  padding: 4px;
-  border-radius: 7px;
-  background: var(--ft-bg-secondary);
-  border: 1px solid var(--ft-border);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 30%);
-}
-
-.drawing-tbl-menu-item {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  width: 100%;
-  padding: 5px 7px;
-  border-radius: 4px;
-  font-size: 11px;
-  text-align: left;
-  color: var(--ft-text);
-}
-.drawing-tbl-menu-item:hover {
-  background: var(--ft-bg-tertiary);
-}
-.drawing-tbl-menu-item.danger {
-  color: var(--ft-text-muted);
-}
-.drawing-tbl-menu-item.danger:hover {
-  background: rgb(239 68 68 / 15%);
-  color: rgb(248 113 113);
-}
-
-.drawing-tbl-menu-sep {
-  display: block;
-  height: 1px;
-  margin: 3px 2px;
-  background: var(--ft-border);
-}
-
-/* ─── Drawing: the Draw · Notes · Both control ─────────────────────────────── */
-
-.drawing-panes {
-  position: relative;
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-  padding: 2px;
-  border-radius: 7px;
-  background: var(--ft-bg);
-  border: 1px solid var(--ft-border);
+.light .drawing-medallion {
+  background: linear-gradient(160deg, #ffffff, #eef1f6);
 }
 
 /*
- * The sliding selection.
- *
- * One pill for the whole control rather than a background per button: it is
- * what makes the change read as a control moving rather than two buttons
- * swapping colour, and the active treatment then lives in exactly one rule.
- * Width is a third of the track, so the segments must stay equal — see the
- * `flex: 1 1 0` below.
- */
-.drawing-panes-pill {
-  position: absolute;
-  top: 2px;
-  bottom: 2px;
-  left: 2px;
-  width: calc((100% - 4px) / 3);
-  border-radius: 5px;
-  background: var(--ft-bg-tertiary);
-  box-shadow: 0 1px 2px rgb(0 0 0 / 18%);
-  transition: transform 160ms cubic-bezier(0.32, 0.72, 0, 1);
-}
-
-.drawing-panes-seg {
-  position: relative;
-  z-index: 1;
-  flex: 1 1 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 3px 9px;
-  border-radius: 5px;
-  font-size: 10px;
-  font-weight: 500;
-  white-space: nowrap;
-  color: var(--ft-text-muted);
-  transition: color 140ms ease;
-}
-.drawing-panes-seg:hover {
+  Secondary buttons only — `:not(.primary)`, or this rule would win the
+  background from `.drawing-btn.primary` (same specificity, further down the
+  file) and leave its `color: #fff` behind it: a white label on a white button.
+  That is the exact bug the Claude window's light theme carries a comment for.
+*/
+.light .drawing-btn:not(.primary) {
+  background: #ffffff;
+  border-color: var(--ft-border);
   color: var(--ft-text);
 }
-.drawing-panes-seg.selected {
-  color: var(--ft-text);
-}
-.drawing-panes-seg:focus-visible {
-  outline: 1px solid var(--ft-accent);
-  outline-offset: 1px;
+
+.light .drawing-btn:not(.primary):hover {
+  background: #f4f6f9;
+  border-color: var(--ft-text-muted);
 }
 
-.drawing-panes-dot {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--ft-accent);
+/* A black drop shadow under an indigo button muddies it; tint it to match. */
+.light .drawing-btn.primary {
+  box-shadow:
+    0 1px 2px rgba(79, 70, 229, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
-
-/* The divider between canvas and notes in the Both view. The hit area is wider
- * than the line, which is what makes it grabbable without looking heavy. */
-.drawing-split-handle {
-  position: relative;
-  width: 7px;
-  flex-shrink: 0;
-  cursor: col-resize;
-  background: transparent;
-}
-.drawing-split-handle::after {
-  content: "";
-  position: absolute;
-  inset-block: 0;
-  left: 50%;
-  width: 1px;
-  transform: translateX(-50%);
-  background: var(--ft-border);
-  transition: background-color 120ms ease, width 120ms ease;
-}
-/* `:active` rather than a data attribute: v4 of the panel library sets only
- * `data-separator`, and the repo's own `SplitHandle` styles the drag state the
- * same way. */
-.drawing-split-handle:hover::after,
-.drawing-split-handle:active::after {
-  width: 2px;
-  background: var(--ft-accent);
-}
-
-/* ─── Drawing notes: tables ────────────────────────────────────────────────── */
-
-.drawing-note-table {
-  border-collapse: collapse;
-  table-layout: fixed;
-  width: 100%;
-  margin: 0 0 0.8em;
-  overflow: hidden;
-  border-radius: 5px;
-  border: 1px solid var(--ft-border);
-  font-size: 0.95em;
-}
-
-.drawing-note-td,
-.drawing-note-th {
-  position: relative;
-  min-width: 72px;
-  padding: 5px 8px;
-  border: 1px solid var(--ft-border);
-  vertical-align: top;
-  text-align: left;
-  outline: none;
-}
-.drawing-note-th {
-  background: var(--ft-bg-secondary);
-  font-weight: 600;
-}
-/* Paragraphs inside a cell must not carry the block margin that separates
- * paragraphs in the document, or every row grows a gap under its text. */
-.drawing-note-td > .drawing-note-p:last-child,
-.drawing-note-th > .drawing-note-p:last-child {
-  margin-bottom: 0;
-}
-
-.drawing-note-td-selected::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: var(--ft-accent);
-  opacity: 0.16;
-}
-.drawing-note-table-selected {
-  outline: 1px solid var(--ft-accent);
-}
-
 
 /* ─── API client ──────────────────────────────────────────────────────────
  *
