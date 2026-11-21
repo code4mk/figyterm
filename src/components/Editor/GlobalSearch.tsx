@@ -100,6 +100,11 @@ export function GlobalSearch({ root, onOpen, onClose }: GlobalSearchProps) {
       setStatus("searching");
       setError(null);
       setComplete(true);
+      // Which files are folded open belongs to a result set, not to the panel.
+      // Carried over, it both contradicts the "first few expanded" default for
+      // the new results and silently collapses a file that happens to appear in
+      // two searches running — with no sign of why that one is different.
+      setOverrides(new Map());
       void startSearch(root, trimmed, options)
         .then((id) => {
           activeId.current = id;

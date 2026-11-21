@@ -492,7 +492,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       buffers: state.buffers.map((b) => (b.id === id ? { ...b, dirty } : b)),
     })),
 
-  markSaved: (id, mtime, path) =>
+  markSaved: (id, mtime, path) => {
     set((state) => ({
       buffers: state.buffers.map((b) =>
         b.id === id
@@ -507,7 +507,14 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
             }
           : b
       ),
-    })),
+    }));
+    // Only when a path arrived, which is "save as": the buffer has just
+    // stopped being a scratch file and become one of the workspace's open
+    // tabs, and until that is written down the folder's remembered tab list
+    // doesn't know it exists. An ordinary save changes nothing persisted, and
+    // shouldn't pay for a storage write.
+    if (path) persist(get());
+  },
 
   setDiskState: (id, disk) =>
     set((state) => ({

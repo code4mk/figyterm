@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUp, ChevronRight, GitMerge } from "lucide-react";
 import { GitCommit, GitCommitFile, gitLog, relativeDate } from "../../services/git";
 import { Remote } from "../../services/git-forge";
@@ -57,6 +57,18 @@ export function CommitHistory({
   const [open, setOpen] = useState<GitCommit | null>(null);
 
   /**
+   * Bumped every time the list is rebuilt from the top.
+   *
+   * A page fetched by `loadMore` is identified by an *offset* into the list as
+   * it was when the button was pressed. Reload the list underneath it — which
+   * any watcher burst does, since `revision` moves on every save — and that
+   * offset describes a list that no longer exists: the page lands on top of a
+   * fresh page 0 it overlaps, and the repeated commits become duplicate React
+   * keys. This is how a page in flight notices it has been overtaken.
+   */
+  const generation = useRef(0);
+
+  /**
    * Reloads from the top.
    *
    * Everything already loaded is discarded rather than merged. A new commit
@@ -66,6 +78,7 @@ export function CommitHistory({
    */
   useEffect(() => {
     let cancelled = false;
+    generation.current++;
     setLoading(true);
 
     void gitLog(dir, 0)
@@ -100,9 +113,13 @@ export function CommitHistory({
 
   const loadMore = useCallback(() => {
     if (loading || done || !commits) return;
+    const mine = generation.current;
     setLoading(true);
     void gitLog(dir, commits.length)
       .then((page) => {
+        // The list was rebuilt from the top while this page was in flight, so
+        // the offset it was fetched at means nothing now; see `generation`.
+        if (mine !== generation.current) return;
         // A short page means the end: asking again would return nothing and
         // the button would sit there forever offering to.
         setDone(page.length === 0);

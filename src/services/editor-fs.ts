@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
+import { isUnder, samePath } from "./explorer-paths";
 import { isSeparator, lastSeparatorIndex, PATH_SEP } from "./paths";
 
 /**
@@ -262,13 +263,25 @@ function stripTrailingSeparator(path: string): string {
  * `joinPath(root, …)`, which turned `~/project` into `~/project/project` and
  * failed with "Path does not exist". Callers that want a label for the root
  * should ask `basename` for one.
+ *
+ * Containment is asked of `explorer-paths` rather than done with `startsWith`
+ * here, which gets two cases wrong that the tree's own rule does not. A bare
+ * prefix test says `/work/api-old/x.ts` is inside `/work/api` and hands back
+ * `-old/x.ts` — a breadcrumb of nothing, and a "Copy Relative Path" that
+ * copies a path to no file. And off Linux, where the filesystem matches names
+ * without case, a root that differs only in case from the path the backend
+ * canonicalised reads as "outside the folder" and the whole absolute path
+ * comes back where a relative one was wanted.
  */
 export function relativeTo(root: string, path: string): string {
   const base = stripTrailingSeparator(root);
-  if (path === base) return "";
-  if (!path.startsWith(base)) return path;
+  if (samePath(path, base)) return "";
+  if (!isUnder(path, base)) return path;
   const rest = path.slice(base.length);
-  return isSeparator(rest[0]) ? rest.slice(1) : rest;
+  // Both separators, matching the rule `isUnder` just applied rather than the
+  // shell's platform-specific one. Asking two different questions about the
+  // same character is how the join came back with a leading separator on it.
+  return rest[0] === "/" || rest[0] === "\\" ? rest.slice(1) : rest;
 }
 
 /** The path's segments, for the breadcrumb. */

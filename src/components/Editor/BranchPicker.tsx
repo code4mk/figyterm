@@ -97,18 +97,23 @@ export function BranchPicker({
   /** Does the switch, having decided what to do about the working tree. */
   const run = useCallback(
     async (branch: Branch, plan: Plan | null) => {
+      /*
+        The title is required, not defaulted. A generated name — "Before
+        switching to X" — is the same sentence on every row, and a stash list
+        where every entry reads alike is a list you have to open one by one to
+        use. The one thing only the person stashing knows is what the work was.
+
+        Checked before anything is marked busy, not after. Returning from
+        inside the `try` below left `working` true for good: every button in
+        the dialog is disabled on it, so the only way out of a dialog that had
+        decided it was busy forever was to click the backdrop.
+      */
+      const message = stashMessage.trim();
+      if (plan === "stash" && !message) return;
+
       setWorking(true);
       try {
         if (plan === "stash") {
-          /*
-            The title is required, not defaulted. A generated name — "Before
-            switching to X" — is the same sentence on every row, and a stash
-            list where every entry reads alike is a list you have to open one
-            by one to use. The one thing only the person stashing knows is what
-            the work was.
-          */
-          const message = stashMessage.trim();
-          if (!message) return;
           await gitStashPush(dir, message);
         }
         await gitSwitch(dir, branch.name, branch.remote);

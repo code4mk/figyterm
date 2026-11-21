@@ -275,7 +275,12 @@ export function FileExplorer({
 
   useEffect(() => {
     if (!root) return;
-    const wanted = [root, ...expanded.filter((path) => path.startsWith(root))];
+    // `isUnder`, not `startsWith`: the remembered expansions are persisted and
+    // a bare prefix lets `/work/api-old` through as if it were inside
+    // `/work/api`. The backend refuses to read it, the directory joins the
+    // failed set, and the workspace quietly forgets an expansion that was
+    // never its own.
+    const wanted = [root, ...expanded.filter((path) => isUnder(path, root))];
     wanted.forEach((dir) => {
       if (!children.has(dir) && !failedRef.current.has(dir)) void load(dir);
     });

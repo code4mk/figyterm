@@ -64,6 +64,7 @@ import {
 } from "@codemirror/view";
 import { EditorSettings } from "../../services/editor-session";
 import { loadLanguage } from "../../services/editor-lang";
+import { samePath } from "../../services/explorer-paths";
 import { lsp, LspSession } from "../../services/lsp/manager";
 import { closePopup, lspExtension } from "./lsp";
 import { indentGuides } from "./editorIndent";
@@ -421,6 +422,18 @@ export interface EditorSurfaceHandle {
   ) => boolean;
   /** An open buffer's current text, by path, for resolving a server's ranges. */
   textOf: (path: string) => string | null;
+  /**
+   * Follows a rename that has already happened on disk.
+   *
+   * A record's path is what a `WorkspaceEdit` is matched against and what its
+   * language server knows the document as, and neither survives the file being
+   * renamed underneath it: edits meant for the buffer would miss it and be
+   * written to disk behind its back, and the server would go on answering
+   * about a URI that no longer exists. The session is reopened rather than
+   * renamed because a document *is* its URI as far as the protocol is
+   * concerned.
+   */
+  repath: (bufferId: string, path: string) => void;
 }
 
 /**
@@ -1381,26 +1394,21 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
     // --- Language servers on buffers that are already open -------------------
 
     /**
-     * Attaches or detaches servers when the setting or the workspace changes.
+     * Closes a record's server sessions and opens the ones it should have now.
      *
-     * Unlike the other settings, this one cannot wait for a buffer to be
-     * reactivated: switching language servers on is a thing you do *because* of
-     * the file in front of you, and having to close and reopen it first would
-     * make the setting look broken. So every record is rebuilt, not just the
-     * one on screen — a background tab with a stale session would otherwise keep
-     * a document open on a server that is no longer wanted.
+     * Shared by the two things that invalidate a session — the configuration
+     * changing under every buffer, and one buffer's file being renamed — so
+     * that both leave a record in the same state. Safe on a background buffer:
+     * with no view to dispatch into, the effects are folded into its stored
+     * state instead and take hold when it is next activated.
      */
-    useEffect(() => {
-      const view = viewRef.current;
-
-      records.current.forEach((record, id) => {
-        if (record.lspKey === lspKey) return;
-        record.lspKey = lspKey;
-
+    const rebindSessions = useCallback(
+      (id: string, record: BufferRecord) => {
         record.sessions.forEach((session) => session.close());
-        const sessions = record.serverEligible
-          ? lsp.open(record.path!, () => record.state.doc.toString())
-          : [];
+        const sessions =
+          record.serverEligible && record.path
+            ? lsp.open(record.path, () => record.state.doc.toString())
+            : [];
         record.sessions = sessions;
 
         const effects = [
@@ -1412,14 +1420,34 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
           ),
         ];
 
+        const view = viewRef.current;
         if (currentRef.current === id && view) {
           view.dispatch({ effects });
           record.state = view.state;
         } else {
           record.state = record.state.update({ effects }).state;
         }
+      },
+      [currentRecord]
+    );
+
+    /**
+     * Attaches or detaches servers when the setting or the workspace changes.
+     *
+     * Unlike the other settings, this one cannot wait for a buffer to be
+     * reactivated: switching language servers on is a thing you do *because* of
+     * the file in front of you, and having to close and reopen it first would
+     * make the setting look broken. So every record is rebuilt, not just the
+     * one on screen — a background tab with a stale session would otherwise keep
+     * a document open on a server that is no longer wanted.
+     */
+    useEffect(() => {
+      records.current.forEach((record, id) => {
+        if (record.lspKey === lspKey) return;
+        record.lspKey = lspKey;
+        rebindSessions(id, record);
       });
-    }, [lspKey, currentRecord]);
+    }, [lspKey, rebindSessions]);
 
     // --- Language and read-only changes on the open buffer -------------------
 
@@ -1762,8 +1790,13 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
         },
 
         applyServerEdits: (path, edits) => {
-          const found = [...records.current.entries()].find(
-            ([, candidate]) => candidate.path === path
+          // `samePath`, not `===`: everything else in the editor matches paths
+          // by the platform's own rule, and a server that answers about
+          // `C:\Src\a.ts` for a buffer opened as `C:\src\a.ts` would otherwise
+          // look like a file that isn't open — so a rename's edits would be
+          // written to disk behind a buffer holding the old text.
+          const found = [...records.current.entries()].find(([, candidate]) =>
+            candidate.path ? samePath(candidate.path, path) : false
           );
           if (!found) return false;
           const [targetId, record] = found;
@@ -1790,10 +1823,19 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
         },
 
         textOf: (path) => {
-          const found = [...records.current.values()].find(
-            (record) => record.path === path
+          const found = [...records.current.values()].find((record) =>
+            record.path ? samePath(record.path, path) : false
           );
           return found ? found.state.doc.toString() : null;
+        },
+
+        repath: (id, path) => {
+          const record = records.current.get(id);
+          // A scratch buffer has no session to move and no path to match on;
+          // it only gets one by being saved, which builds the session itself.
+          if (!record || !record.path || samePath(record.path, path)) return;
+          record.path = path;
+          rebindSessions(id, record);
         },
 
         getCursor: (id) => {
@@ -1810,7 +1852,7 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
           return { line: line.number, column: head - line.from + 1 };
         },
       }),
-      [currentRecord, onDirtyChange]
+      [currentRecord, onDirtyChange, rebindSessions]
     );
 
     return (

@@ -220,6 +220,30 @@ export function SourceControl({
     [repo.files]
   );
 
+  /**
+   * Forgets exclusions for files that no longer have changes.
+   *
+   * Without this an untick is permanent for the session, and the way that bites
+   * is quiet: untick `package-lock.json`, then revert it in the terminal — or
+   * discard it here — and the file leaves the list carrying its exclusion. When
+   * it is next modified it arrives **already unticked**, is left out of the
+   * commit, and is actively `git reset` on the way past, because committing
+   * unstages everything not included. Nothing on screen says why.
+   *
+   * It is also the rule the excluded-set design already assumes: a file that
+   * appears is included by default, and one that goes away has no opinion left
+   * to keep. `prev` is returned unchanged when nothing was dropped, so this
+   * cannot loop.
+   */
+  useEffect(() => {
+    setExcluded((prev) => {
+      if (prev.size === 0) return prev;
+      const live = new Set(changes.map((file) => file.relative));
+      const next = new Set([...prev].filter((relative) => live.has(relative)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [changes]);
+
   const included = useMemo(
     () => changes.filter((file) => !excluded.has(file.relative)),
     [changes, excluded]

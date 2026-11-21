@@ -454,7 +454,17 @@ export function EditorModal({
    */
   const [sidePanel, setSidePanel] = useState<"files" | "search" | "git">("files");
   const [cursor, setCursor] = useState({ line: 1, column: 1 });
-  const [wrapped, setWrapped] = useState(false);
+  /**
+   * What the status bar's wrap indicator says.
+   *
+   * Seeded from the setting, exactly as the surface seeds its own wrap state —
+   * a lazy initial value, so that the two agree at the start and then both let
+   * the session's toggle own it. Hard-coding `false` here meant that with word
+   * wrap on in the settings the indicator read "off" over an editor that was
+   * plainly wrapping, and the first click on it turned wrapping *off* while
+   * leaving the indicator unchanged.
+   */
+  const [wrapped, setWrapped] = useState(() => editorSettings.wordWrap);
   const [fullscreen, setFullscreen] = useState(false);
   const [pipMode, setPipMode] = useState(false);
   /**
@@ -1286,6 +1296,32 @@ export function EditorModal({
     [reloadBuffer, setDiskState]
   );
 
+  /**
+   * Follows a rename or a move the explorer has already made on disk.
+   *
+   * The store re-points every affected tab; the surface has to be told
+   * separately, because a buffer's CodeMirror record carries a path of its own.
+   * That path is what a language server knows the document as and what an
+   * incoming workspace edit is matched against, so a renamed file left holding
+   * its old one had its edits written to disk behind the tab showing it — and
+   * its server went on answering about a URI that no longer exists.
+   *
+   * Pushed from the store rather than re-derived here: `pathMoved` has already
+   * done the prefix arithmetic for a whole folder that moved, and `repath`
+   * ignores a buffer whose path didn't change.
+   */
+  const followMove = useCallback(
+    (from: string, to: string) => {
+      pathMoved(from, to);
+      const surface = surfaceRef.current;
+      if (!surface) return;
+      for (const buffer of useEditorStore.getState().buffers) {
+        if (buffer.path) surface.repath(buffer.id, buffer.path);
+      }
+    },
+    [pathMoved]
+  );
+
   // --- Reconciling with the disk -------------------------------------------
 
   /**
@@ -1692,29 +1728,82 @@ export function EditorModal({
     };
   }, []);
 
-  /** Recovers journalled drafts from a session that ended badly. */
+  /**
+   * Resolves once the surface has built a buffer's CodeMirror state.
+   *
+   * Opening a file only puts a buffer in the store; its document is created by
+   * an effect, and asynchronously at that, because the grammar is a dynamic
+   * import. So anything that has to *write into* a buffer it has just opened
+   * must wait, exactly as the queued cursor move does — `setContent` on a
+   * buffer with no record yet is a silent no-op.
+   *
+   * False means it never appeared, which is the caller's cue not to treat the
+   * write as having happened.
+   */
+  const whenBufferLive = useCallback(
+    (bufferId: string) =>
+      new Promise<boolean>((resolve) => {
+        let frames = 0;
+        const attempt = () => {
+          if (surfaceRef.current?.getContent(bufferId) != null) {
+            resolve(true);
+            return;
+          }
+          // Two seconds at 60Hz. A grammar chunk that hasn't arrived by then
+          // is not going to.
+          if (frames++ < 120) requestAnimationFrame(attempt);
+          else resolve(false);
+        };
+        requestAnimationFrame(attempt);
+      }),
+    []
+  );
+
+  /**
+   * Recovers journalled drafts from a session that ended badly.
+   *
+   * Two rules, and both exist because getting them wrong loses the work this
+   * whole mechanism was built to keep:
+   *
+   * - The draft is written only once the buffer's document exists. Writing it
+   *   immediately after opening the file landed on nothing, so the tab came
+   *   back holding what was on *disk* while being marked unsaved.
+   * - A draft is only forgotten once it has actually been restored. It used to
+   *   be cleared whether or not the file could be reopened, so a draft for a
+   *   file that had since been deleted, moved out of the workspace, or renamed
+   *   was deleted along with it — permanently, and without a word.
+   */
   const restoreDrafts = useCallback(
     async (drafts: ReturnType<typeof listDrafts>) => {
       setDraftPrompt(null);
+      const kept: string[] = [];
+
       for (const { id, draft } of drafts) {
-        if (draft.path) {
-          const bufferId = await openPath(draft.path);
-          if (bufferId) {
-            // `clean: false` — the draft differs from disk deliberately, so the
-            // buffer has to come back dirty and saveable.
-            surfaceRef.current?.setContent(bufferId, draft.content, { clean: false });
-            setDirty(bufferId, true);
-          }
-          clearDraft(id);
-        } else {
-          const bufferId = openScratch(draft.languageId);
-          surfaceRef.current?.setContent(bufferId, draft.content, { clean: false });
-          setDirty(bufferId, true);
-          clearDraft(id);
+        const bufferId = draft.path
+          ? await openPath(draft.path)
+          : openScratch(draft.languageId);
+
+        if (!bufferId || !(await whenBufferLive(bufferId))) {
+          kept.push(draft.name);
+          continue;
         }
+
+        // `clean: false` — the draft differs from disk deliberately, so the
+        // buffer has to come back dirty and saveable. The surface works out
+        // and reports the dirtiness itself by comparing against the baseline,
+        // which is also the honest answer when a draft turns out to match what
+        // was saved after all.
+        surfaceRef.current?.setContent(bufferId, draft.content, { clean: false });
+        clearDraft(id);
+      }
+
+      if (kept.length > 0) {
+        setError(
+          `Could not reopen ${kept.join(", ")} — the unsaved changes are still stored and will be offered again.`
+        );
       }
     },
-    [openPath, openScratch, setDirty]
+    [openPath, openScratch, whenBufferLive]
   );
 
   /**
@@ -2919,7 +3008,7 @@ export function EditorModal({
                       onCollapseAll={collapseAll}
                       onOpenFile={(path) => void openPath(path)}
                       onOpenTerminal={openTerminalAt}
-                      onMoved={pathMoved}
+                      onMoved={followMove}
                       onForgetExpanded={collapse}
                       onError={setError}
                       change={treeChange}
