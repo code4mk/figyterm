@@ -774,6 +774,7 @@ function ShortcutsTab() {
       title: "Tabs",
       icon: <TerminalIcon size={13} />,
       shortcuts: [
+        { keys: keys(SHORTCUTS.newWindow), description: "New window" },
         { keys: keys(SHORTCUTS.newTab), description: "New tab" },
         { keys: keys(SHORTCUTS.newTabSameDir), description: "New tab (same directory)" },
         { keys: keys(SHORTCUTS.closePane), description: "Close active pane" },

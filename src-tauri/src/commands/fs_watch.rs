@@ -11,7 +11,7 @@
 //! disagreeing sources, this emits *invalidations*: "these paths changed, look
 //! again". The frontend re-reads what it cares about and ignores the rest.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::sync::Mutex;
@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 
 use notify::{Config, Event, EventKind, PollWatcher, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, State, Window};
 
 use super::fs::{resolve, FsState};
 
@@ -41,12 +41,27 @@ const OVERFLOW_PATHS: usize = 400;
 /// used. Deliberately slow: it costs a full `stat` walk of the tree each time.
 const POLL_INTERVAL: Duration = Duration::from_secs(3);
 
+/// The running watchers, **one per window**.
+///
+/// Dropping a watcher is what stops it, and dropping its event closure closes
+/// the channel that stops the coalescing thread — so an absent entry means
+/// nothing is running for that window.
+///
+/// Keyed by window label rather than being a single watcher, because each
+/// window's editor has its own folder open. With one global, opening the editor
+/// in window B stopped window A's watcher: window A then quietly stopped
+/// noticing that files had changed underneath it, which is the exact failure
+/// this module exists to prevent.
 #[derive(Default)]
 pub struct WatchState {
-    /// Dropping the watcher is what stops it, and dropping its event closure
-    /// closes the channel that stops the coalescing thread — so `None` here
-    /// means nothing is running.
-    active: Mutex<Option<Box<dyn Watcher + Send>>>,
+    active: Mutex<HashMap<String, Box<dyn Watcher + Send>>>,
+}
+
+/// Stops watching on a window's behalf, if it was.
+pub fn forget_window(state: &WatchState, label: &str) {
+    if let Ok(mut active) = state.active.lock() {
+        active.remove(label);
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -148,8 +163,9 @@ fn handler(tx: Sender<Vec<PathBuf>>) -> impl Fn(notify::Result<Event>) + Send + 
     }
 }
 
-/// Coalesces bursts of raw events into at most one app event per [`DEBOUNCE`].
-fn spawn_coalescer(app: AppHandle, rx: mpsc::Receiver<Vec<PathBuf>>) {
+/// Coalesces bursts of raw events into at most one event per [`DEBOUNCE`],
+/// addressed to the window whose editor asked for the watch.
+fn spawn_coalescer(app: AppHandle, label: String, rx: mpsc::Receiver<Vec<PathBuf>>) {
     std::thread::spawn(move || {
         let mut pending: HashSet<String> = HashSet::new();
         let mut oldest: Option<Instant> = None;
@@ -168,7 +184,14 @@ fn spawn_coalescer(app: AppHandle, rx: mpsc::Receiver<Vec<PathBuf>>) {
                 overflow,
             };
             paths.clear();
-            let _ = app.emit(CHANGE_EVENT, payload);
+            /*
+              To that window alone. Another window's editor is watching another
+              folder and reconciling its own open buffers against it: handed
+              this, it would stat every one of them against paths that have
+              nothing to do with it, on every burst, for as long as both are
+              open.
+            */
+            let _ = app.emit_to(label.as_str(), CHANGE_EVENT, payload);
         };
 
         loop {
@@ -212,20 +235,23 @@ fn spawn_coalescer(app: AppHandle, rx: mpsc::Receiver<Vec<PathBuf>>) {
 /// three seconds to show up.
 #[tauri::command]
 pub fn fs_watch_root(
+    window: Window,
     app: AppHandle,
     fs_state: State<FsState>,
     state: State<WatchState>,
     path: String,
 ) -> Result<String, String> {
-    let root = resolve(&fs_state, &path)?;
+    let label = window.label().to_string();
+    let root = resolve(&fs_state, &label, &path)?;
 
     let mut active = state
         .active
         .lock()
         .map_err(|_| "The file watcher is unavailable".to_string())?;
-    // Dropped before the new one is built, so two recursive watchers never
-    // exist over the same tree.
-    *active = None;
+    // This window's previous watcher is dropped before the new one is built, so
+    // it never holds two recursive watches at once. Other windows' are left
+    // exactly where they are.
+    active.remove(&label);
 
     let (tx, rx) = mpsc::channel::<Vec<PathBuf>>();
 
@@ -258,21 +284,21 @@ pub fn fs_watch_root(
         }
     };
 
-    spawn_coalescer(app, rx);
-    *active = Some(watcher);
+    spawn_coalescer(app, label.clone(), rx);
+    active.insert(label, watcher);
 
     Ok(mechanism.to_string())
 }
 
-/// Stops watching. Called when the editor closes, so an unopened modal costs
-/// nothing.
+/// Stops watching for this window. Called when the editor closes, so an
+/// unopened modal costs nothing.
 #[tauri::command]
-pub fn fs_unwatch(state: State<WatchState>) -> Result<(), String> {
-    let mut active = state
+pub fn fs_unwatch(window: Window, state: State<WatchState>) -> Result<(), String> {
+    state
         .active
         .lock()
-        .map_err(|_| "The file watcher is unavailable".to_string())?;
-    *active = None;
+        .map_err(|_| "The file watcher is unavailable".to_string())?
+        .remove(window.label());
     Ok(())
 }
 

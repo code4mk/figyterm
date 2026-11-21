@@ -10,15 +10,25 @@ interface ThemeStore {
   setTheme: (theme: Theme) => void;
 }
 
+const THEME_KEY = "figyterm-theme";
+
 function getInitialTheme(): Theme {
   try {
-    const stored = localStorage.getItem("figyterm-theme");
+    const stored = localStorage.getItem(THEME_KEY);
     if (stored === "light" || stored === "dark") return stored;
   } catch {}
   return "dark";
 }
 
-function applyTheme(theme: Theme) {
+/**
+ * Puts a theme into effect.
+ *
+ * `persist` is false when the change *came from* storage — another window
+ * having set it. Writing it back there would be an echo, and on the engines
+ * that fire `storage` for a same-value write, a loop between two windows each
+ * telling the other what it already knows.
+ */
+function applyTheme(theme: Theme, persist = true) {
   const root = document.documentElement;
   if (theme === "dark") {
     root.classList.add("dark");
@@ -27,9 +37,11 @@ function applyTheme(theme: Theme) {
     root.classList.add("light");
     root.classList.remove("dark");
   }
-  try {
-    localStorage.setItem("figyterm-theme", theme);
-  } catch {}
+  if (persist) {
+    try {
+      localStorage.setItem(THEME_KEY, theme);
+    } catch {}
+  }
 
   // Update native macOS titlebar to match
   try {
@@ -59,3 +71,22 @@ export const useThemeStore = create<ThemeStore>((set) => ({
     set({ theme });
   },
 }));
+
+/*
+  The theme is one choice for the whole app, so every window follows it.
+
+  Windows share an origin and so share this key; the `storage` event fires in
+  the windows that did *not* write, which is exactly the set that needs to
+  catch up. Applied without persisting — see `applyTheme` — so the one that
+  made the change stays the only one that wrote it.
+*/
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (event) => {
+    if (event.key !== THEME_KEY) return;
+    const next = event.newValue;
+    if (next !== "dark" && next !== "light") return;
+    if (useThemeStore.getState().theme === next) return;
+    applyTheme(next, false);
+    useThemeStore.setState({ theme: next });
+  });
+}

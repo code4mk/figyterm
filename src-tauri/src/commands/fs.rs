@@ -19,12 +19,13 @@
 //! IPC surface, the confinement, and the two things that need to stream —
 //! project search and the file watcher's events.
 
+use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, State, Window};
 
 use crate::filesystem::operations::{
     self, Encoding, FileEntry, LineEnding, OpenedFile, SearchMatch, SearchOptions,
@@ -47,13 +48,67 @@ const SEARCH_MAX_RESULTS: usize = 2000;
 /// hand; past it the list says it was truncated rather than pretending.
 const QUICK_OPEN_MAX_FILES: usize = 20_000;
 
+/// The editor's state, **per window**.
+///
+/// Every map here is keyed by window label, and that is not tidiness. Each of
+/// these used to be a single global, which was the same thing while there was
+/// one window and is wrong the moment there are two: opening a folder in window
+/// B replaced window A's roots, so window A's editor started answering "outside
+/// the folders open in the editor" for its own files, and window A's project
+/// search was cancelled by window B starting one.
+///
+/// Entries are dropped when a window closes — see [`forget_window`] — so a long
+/// session of opening and closing windows does not accumulate root lists for
+/// windows that no longer exist.
 #[derive(Default)]
 pub struct FsState {
-    /// Canonical, display-form paths the editor is allowed to touch.
-    roots: Mutex<Vec<PathBuf>>,
-    /// Bumped by every new or cancelled search, so an in-flight walk can notice
-    /// it has been superseded and stop.
-    search_generation: AtomicU64,
+    /// Canonical, display-form paths each window's editor may touch.
+    roots: Mutex<HashMap<String, Vec<PathBuf>>>,
+    /// Allocates search ids.
+    ///
+    /// Deliberately **not** per window: an id reaches the frontend and comes
+    /// back on every result event, and two windows handed the same number is a
+    /// bug that would only ever show up as one window's results appearing in
+    /// the other.
+    next_search: AtomicU64,
+    /// The search each window currently wants, by label.
+    ///
+    /// An `Arc<AtomicU64>` rather than a plain number because the walker checks
+    /// it once per hit, on another thread, for the whole length of the walk —
+    /// taking the map's lock that often would put every window's searches in
+    /// each other's way. The thread takes its window's counter once and then
+    /// reads it lock-free.
+    searches: Mutex<HashMap<String, Arc<AtomicU64>>>,
+}
+
+impl FsState {
+    /// The counter the given window's searches are cancelled through.
+    fn search_slot(&self, label: &str) -> Result<Arc<AtomicU64>, String> {
+        let mut searches = self
+            .searches
+            .lock()
+            .map_err(|_| "The search state is unavailable".to_string())?;
+        Ok(searches.entry(label.to_string()).or_default().clone())
+    }
+}
+
+/// Drops everything a window had registered.
+///
+/// Called when the window goes away. Without it the roots a closed window had
+/// open stay in the map, which is a leak rather than a correctness problem —
+/// but the leak is a list of paths the editor is still willing to write to on
+/// behalf of a window that is not there.
+pub fn forget_window(state: &FsState, label: &str) {
+    if let Ok(mut roots) = state.roots.lock() {
+        roots.remove(label);
+    }
+    if let Ok(mut searches) = state.searches.lock() {
+        // Bumped before it goes, so a walk still running for that window stops
+        // at its next hit rather than finishing into a window that has closed.
+        if let Some(slot) = searches.remove(label) {
+            slot.fetch_add(1, Ordering::SeqCst);
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -206,7 +261,10 @@ fn expand_home(raw: &str) -> PathBuf {
 /// name itself is checked for separators and `..` first, since a canonical
 /// parent plus `../../etc/passwd` would otherwise escape the root the parent
 /// was checked against.
-pub fn resolve(state: &FsState, raw: &str) -> Result<PathBuf, String> {
+/// `label` is the window asking. Each one has its own roots, so the same path
+/// can legitimately be inside the workspace for one window and outside it for
+/// another — which is the entire point of per-window roots.
+pub fn resolve(state: &FsState, label: &str, raw: &str) -> Result<PathBuf, String> {
     let requested = expand_home(raw.trim());
     if requested.as_os_str().is_empty() {
         return Err("No path given".into());
@@ -233,14 +291,15 @@ pub fn resolve(state: &FsState, raw: &str) -> Result<PathBuf, String> {
         canonicalize(parent)?.join(name)
     };
 
-    let roots = state
+    let all = state
         .roots
         .lock()
         .map_err(|_| "The workspace root list is unavailable".to_string())?;
 
-    if roots.is_empty() {
+    let roots = all.get(label).filter(|roots| !roots.is_empty());
+    let Some(roots) = roots else {
         return Err("No workspace is open in the editor".into());
-    }
+    };
     if roots.iter().any(|root| is_under(root, &resolved)) {
         return Ok(resolved);
     }
@@ -265,7 +324,7 @@ fn to_string(path: &Path) -> String {
 /// what the explorer then uses as its tree root — resolving it here means the
 /// frontend and the backend never disagree about what the root is called.
 #[tauri::command]
-pub fn fs_set_roots(state: State<FsState>, paths: Vec<String>) -> Result<Vec<String>, String> {
+pub fn fs_set_roots(window: Window, state: State<FsState>, paths: Vec<String>) -> Result<Vec<String>, String> {
     let mut resolved = Vec::with_capacity(paths.len());
     for raw in &paths {
         let path = expand_home(raw.trim());
@@ -280,32 +339,34 @@ pub fn fs_set_roots(state: State<FsState>, paths: Vec<String>) -> Result<Vec<Str
     }
 
     let display = resolved.iter().map(|p| to_string(p)).collect();
-    *state
+    state
         .roots
         .lock()
-        .map_err(|_| "The workspace root list is unavailable".to_string())? = resolved;
+        .map_err(|_| "The workspace root list is unavailable".to_string())?
+        .insert(window.label().to_string(), resolved);
     Ok(display)
 }
 
 #[tauri::command]
 pub fn fs_list_dir(
+    window: Window,
     state: State<FsState>,
     path: String,
     show_hidden: bool,
 ) -> Result<Vec<FileEntry>, String> {
-    let resolved = resolve(&state, &path)?;
+    let resolved = resolve(&state, window.label(), &path)?;
     operations::list_directory(&resolved, show_hidden)
 }
 
 #[tauri::command]
-pub fn fs_stat(state: State<FsState>, path: String) -> Result<FileEntry, String> {
-    let resolved = resolve(&state, &path)?;
+pub fn fs_stat(window: Window, state: State<FsState>, path: String) -> Result<FileEntry, String> {
+    let resolved = resolve(&state, window.label(), &path)?;
     operations::stat(&resolved)
 }
 
 #[tauri::command]
-pub fn fs_read_text(state: State<FsState>, path: String) -> Result<OpenedFile, String> {
-    let resolved = resolve(&state, &path)?;
+pub fn fs_read_text(window: Window, state: State<FsState>, path: String) -> Result<OpenedFile, String> {
+    let resolved = resolve(&state, window.label(), &path)?;
     operations::read_text_file(&resolved)
 }
 
@@ -318,6 +379,7 @@ pub fn fs_read_text(state: State<FsState>, path: String) -> Result<OpenedFile, S
 /// is how editors eat other people's work.
 #[tauri::command]
 pub fn fs_write_text(
+    window: Window,
     state: State<FsState>,
     path: String,
     content: String,
@@ -325,7 +387,7 @@ pub fn fs_write_text(
     line_ending: LineEnding,
     expected_mtime: Option<u64>,
 ) -> Result<WriteOutcome, String> {
-    let resolved = resolve(&state, &path)?;
+    let resolved = resolve(&state, window.label(), &path)?;
 
     if let Some(expected) = expected_mtime {
         if let Some(actual) = operations::mtime_of(&resolved) {
@@ -348,30 +410,30 @@ pub fn fs_write_text(
 }
 
 #[tauri::command]
-pub fn fs_create(state: State<FsState>, path: String, is_dir: bool) -> Result<String, String> {
-    let resolved = resolve(&state, &path)?;
+pub fn fs_create(window: Window, state: State<FsState>, path: String, is_dir: bool) -> Result<String, String> {
+    let resolved = resolve(&state, window.label(), &path)?;
     operations::create(&resolved, is_dir)?;
     Ok(to_string(&resolved))
 }
 
 #[tauri::command]
-pub fn fs_rename(state: State<FsState>, from: String, to: String) -> Result<String, String> {
-    let source = resolve(&state, &from)?;
-    let target = resolve(&state, &to)?;
+pub fn fs_rename(window: Window, state: State<FsState>, from: String, to: String) -> Result<String, String> {
+    let source = resolve(&state, window.label(), &from)?;
+    let target = resolve(&state, window.label(), &to)?;
     operations::rename(&source, &target)?;
     Ok(to_string(&target))
 }
 
 #[tauri::command]
-pub fn fs_delete(state: State<FsState>, path: String, to_trash: bool) -> Result<(), String> {
-    let resolved = resolve(&state, &path)?;
+pub fn fs_delete(window: Window, state: State<FsState>, path: String, to_trash: bool) -> Result<(), String> {
+    let resolved = resolve(&state, window.label(), &path)?;
     operations::delete(&resolved, to_trash)
 }
 
 /// Shows a path in the system file manager, selected.
 #[tauri::command]
-pub fn fs_reveal(state: State<FsState>, path: String) -> Result<(), String> {
-    let resolved = resolve(&state, &path)?;
+pub fn fs_reveal(window: Window, state: State<FsState>, path: String) -> Result<(), String> {
+    let resolved = resolve(&state, window.label(), &path)?;
     let target = to_string(&resolved);
 
     #[cfg(target_os = "macos")]
@@ -415,11 +477,12 @@ pub fn fs_reveal(state: State<FsState>, path: String) -> Result<(), String> {
 /// finder needs the full set in hand to rank against as the user types.
 #[tauri::command]
 pub fn fs_list_files(
+    window: Window,
     state: State<FsState>,
     root: String,
     show_hidden: bool,
 ) -> Result<FileList, String> {
-    let resolved = resolve(&state, &root)?;
+    let resolved = resolve(&state, window.label(), &root)?;
     let (files, truncated) = operations::list_files(&resolved, QUICK_OPEN_MAX_FILES, show_hidden);
     Ok(FileList {
         root: to_string(&resolved),
@@ -436,29 +499,39 @@ pub fn fs_list_files(
 /// supersedes whatever was running.
 #[tauri::command]
 pub fn fs_search(
+    window: Window,
     app: AppHandle,
     state: State<FsState>,
     root: String,
     query: String,
     options: SearchOptions,
 ) -> Result<u64, String> {
-    let resolved = resolve(&state, &root)?;
-    let id = state.search_generation.fetch_add(1, Ordering::SeqCst) + 1;
+    let label = window.label().to_string();
+    let resolved = resolve(&state, &label, &root)?;
+
+    // Globally unique, so no two windows are ever handed the same id; which
+    // search is *current* is the window's own, below.
+    let id = state.next_search.fetch_add(1, Ordering::SeqCst) + 1;
+    let current = state.search_slot(&label)?;
+    current.store(id, Ordering::SeqCst);
 
     // The walk is blocking and can run for seconds on a large tree, so it gets
     // its own thread; the command itself has to return for the UI to show the
     // "searching" state at all.
     std::thread::spawn(move || {
-        let generation = app.state::<FsState>();
         let mut batch: Vec<SearchMatch> = Vec::with_capacity(SEARCH_BATCH);
         let mut total = 0usize;
         let mut complete = true;
 
+        // Addressed to the window that asked. Every other window has a search
+        // panel of its own, listening for the same event and filtering on an
+        // id it was never given.
         let flush = |app: &AppHandle, batch: &mut Vec<SearchMatch>| {
             if batch.is_empty() {
                 return;
             }
-            let _ = app.emit(
+            let _ = app.emit_to(
+                label.as_str(),
                 SEARCH_RESULT_EVENT,
                 SearchResultPayload {
                     id,
@@ -469,8 +542,9 @@ pub fn fs_search(
 
         let outcome = operations::search_files(&resolved, &query, &options, &mut |hit| {
             // Superseded or cancelled: stop walking rather than finish a search
-            // whose results the UI has already thrown away.
-            if generation.search_generation.load(Ordering::SeqCst) != id {
+            // whose results the UI has already thrown away. Read lock-free —
+            // this runs once per hit.
+            if current.load(Ordering::SeqCst) != id {
                 complete = false;
                 return false;
             }
@@ -490,7 +564,8 @@ pub fn fs_search(
 
         flush(&app, &mut batch);
 
-        let _ = app.emit(
+        let _ = app.emit_to(
+            label.as_str(),
             SEARCH_DONE_EVENT,
             SearchDonePayload {
                 id,
@@ -504,8 +579,11 @@ pub fn fs_search(
     Ok(id)
 }
 
-/// Stops the running search, if any.
+/// Stops this window's running search, if any.
 #[tauri::command]
-pub fn fs_cancel_search(state: State<FsState>) {
-    state.search_generation.fetch_add(1, Ordering::SeqCst);
+pub fn fs_cancel_search(window: Window, state: State<FsState>) -> Result<(), String> {
+    // Any value no walk is using will do; the id allocator never hands out
+    // zero, so nothing can mistake this for "search 0 is now current".
+    state.search_slot(window.label())?.store(0, Ordering::SeqCst);
+    Ok(())
 }

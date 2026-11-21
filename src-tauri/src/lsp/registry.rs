@@ -29,6 +29,10 @@ const MAX_SERVERS: usize = 6;
 #[derive(Default)]
 pub struct Registry {
     servers: HashMap<String, Arc<Server>>,
+    /// Which window started each server, so its windows' servers can be ended
+    /// with it. Kept beside the map rather than inside `Server`, which is about
+    /// a child process and knows nothing about windows.
+    owners: HashMap<String, String>,
 }
 
 impl Registry {
@@ -41,6 +45,7 @@ impl Registry {
     pub fn start(
         &mut self,
         id: String,
+        owner: String,
         language: String,
         program: String,
         args: Vec<String>,
@@ -51,6 +56,7 @@ impl Registry {
         // A server that died while nobody was looking is cleared out first, so
         // its slot doesn't count against the cap and asking again restarts it.
         self.servers.retain(|_, server| server.is_alive());
+        self.owners.retain(|id, _| self.servers.contains_key(id));
 
         if let Some(existing) = self.servers.get(&id) {
             return Ok(existing.info());
@@ -64,6 +70,7 @@ impl Registry {
 
         let server = Server::start(id.clone(), language, program, args, root, on_message, on_exit)?;
         let info = server.info();
+        self.owners.insert(id.clone(), owner);
         self.servers.insert(id, Arc::new(server));
         Ok(info)
     }
@@ -75,8 +82,27 @@ impl Registry {
     /// Stops one server and forgets it. Unknown ids are not an error: the client
     /// may be tidying up after something that already died.
     pub fn stop(&mut self, id: &str) {
+        self.owners.remove(id);
         if let Some(server) = self.servers.remove(id) {
             server.stop();
+        }
+    }
+
+    /// Ends every server a window started, as that window goes away.
+    ///
+    /// The same reason the PTYs go: a `rust-analyzer` holding a gigabyte for a
+    /// window that is no longer on screen is the costliest thing the app can
+    /// leave behind, and the frontend never gets to stop it — the webview is
+    /// gone before it could.
+    pub fn stop_owned_by(&mut self, owner: &str) {
+        let ids: Vec<String> = self
+            .owners
+            .iter()
+            .filter(|(_, label)| label.as_str() == owner)
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in ids {
+            self.stop(&id);
         }
     }
 
@@ -94,6 +120,7 @@ impl Registry {
     /// gigabyte of resident memory belonging to a window that is no longer on
     /// screen.
     pub fn shutdown_all(&mut self) {
+        self.owners.clear();
         for (_, server) in self.servers.drain() {
             server.stop_blocking();
         }

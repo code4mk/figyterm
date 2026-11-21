@@ -1,5 +1,5 @@
 use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::{AppHandle, Emitter, Wry};
+use tauri::{AppHandle, Emitter, Manager, Wry};
 use tauri_plugin_shell::ShellExt;
 
 pub const MENU_CHECK_UPDATES: &str = "app_check_updates";
@@ -13,6 +13,7 @@ const URL_RELEASES: &str = "https://github.com/code4mk/figyterm/releases";
 const URL_ISSUE: &str = "https://github.com/code4mk/figyterm/issues/new";
 const URL_LICENSE: &str = "https://github.com/code4mk/figyterm/blob/main/LICENSE";
 
+pub const MENU_NEW_WINDOW: &str = "shell_new_window";
 pub const MENU_NEW_TAB: &str = "shell_new_tab";
 pub const MENU_NEW_TAB_SAME_DIR: &str = "shell_new_tab_same_dir";
 pub const MENU_SPLIT_RIGHT: &str = "shell_split_right";
@@ -37,6 +38,7 @@ pub const MENU_UNDO: &str = "edit_undo";
 #[cfg(target_os = "macos")]
 pub const MENU_REDO: &str = "edit_redo";
 
+const EVENT_NEW_WINDOW: &str = "menu://new-window";
 const EVENT_NEW_TAB: &str = "menu://new-tab";
 const EVENT_NEW_TAB_SAME_DIR: &str = "menu://new-tab-same-dir";
 const EVENT_SPLIT_RIGHT: &str = "menu://split-right";
@@ -124,6 +126,21 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         ..Default::default()
     };
 
+    /*
+      ⌘N, which is what every app on macOS puts New Window on, and Ctrl+Shift+N
+      elsewhere. Both were free: the shell's own Ctrl+N is next-history-entry
+      and this is Ctrl+Shift+N, and nothing in the app had claimed either.
+
+      Unlike everything below it, this one never reaches the frontend — there
+      is no window yet to tell. `handle_menu_event` builds it directly.
+    */
+    let new_window = MenuItem::with_id(
+        app,
+        MENU_NEW_WINDOW,
+        label("New Window…", "Ctrl+Shift+N"),
+        true,
+        accel("CmdOrCtrl+N", "Ctrl+Shift+N"),
+    )?;
     let new_tab = MenuItem::with_id(
         app,
         MENU_NEW_TAB,
@@ -282,6 +299,7 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         accel("CmdOrCtrl+V", "Ctrl+Shift+V"),
     )?;
 
+    let sep0 = PredefinedMenuItem::separator(app)?;
     let sep1 = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
     let sep3 = PredefinedMenuItem::separator(app)?;
@@ -293,6 +311,10 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         "Shell",
         true,
         &[
+            // Above the tabs, and separated from them: a window is the bigger
+            // of the two things, and this is where every terminal puts it.
+            &new_window,
+            &sep0,
             &new_tab,
             &new_tab_same_dir,
             &sep1,
@@ -451,8 +473,48 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     Ok(menu)
 }
 
+/// Sends a menu action to the window the user was looking at, and only it.
+///
+/// `app.emit` goes to **every** window, which with one window was the same
+/// thing and with two is not: New Tab opened a tab in each of them, Toggle
+/// Theme fought itself, and Close Pane closed a pane in a window nobody was
+/// looking at. A menu is a statement about the front window.
+///
+/// With nothing focused there is no right answer — which happens on macOS if
+/// the menu is reached while another application is in front — so it falls
+/// back to the old behaviour rather than to silence, since a menu item that
+/// does nothing at all is the worse failure.
+fn emit_focused(app: &AppHandle, event: &str) -> tauri::Result<()> {
+    match app.get_focused_window() {
+        Some(window) => app.emit_to(window.label(), event, ()),
+        None => app.emit(event, ()),
+    }
+}
+
 pub fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
     let id = event.id().as_ref();
+
+    /*
+      New Window asks for a name first, and the only place to ask is a window
+      that already exists — so this goes to the front one like everything else
+      and comes back as `new_window` once the prompt is answered.
+
+      With no window at all there is nobody to ask, so it opens one outright
+      and lets the name be picked for it. That is barely reachable (closing
+      the last window exits), but a New Window that does nothing because there
+      is no window is the wrong way round.
+    */
+    if id == MENU_NEW_WINDOW {
+        let result = if app.webview_windows().is_empty() {
+            crate::commands::window::open_window(app, None).map(|_| ())
+        } else {
+            emit_focused(app, EVENT_NEW_WINDOW)
+        };
+        if let Err(err) = result {
+            log::warn!("menu event '{id}' could not open a window: {err}");
+        }
+        return;
+    }
 
     // Help entries are pure "open a URL" actions; no need to round-trip
     // through the frontend for them.
@@ -475,30 +537,30 @@ pub fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
     }
 
     let result = match id {
-        MENU_NEW_TAB => app.emit(EVENT_NEW_TAB, ()),
-        MENU_NEW_TAB_SAME_DIR => app.emit(EVENT_NEW_TAB_SAME_DIR, ()),
-        MENU_SPLIT_RIGHT => app.emit(EVENT_SPLIT_RIGHT, ()),
-        MENU_SPLIT_DOWN => app.emit(EVENT_SPLIT_DOWN, ()),
-        MENU_CLOSE_PANE => app.emit(EVENT_CLOSE_PANE, ()),
-        MENU_CLEAR_TERMINAL => app.emit(EVENT_CLEAR_TERMINAL, ()),
-        MENU_BROWSER => app.emit(EVENT_BROWSER, ()),
-        MENU_EDITOR => app.emit(EVENT_EDITOR, ()),
-        MENU_CLAUDE => app.emit(EVENT_CLAUDE, ()),
-        MENU_DRAWING => app.emit(EVENT_DRAWING, ()),
-        MENU_API => app.emit(EVENT_API, ()),
-        MENU_MONITOR => app.emit(EVENT_MONITOR, ()),
-        MENU_COMMAND_PALETTE => app.emit(EVENT_COMMAND_PALETTE, ()),
-        MENU_SETTINGS => app.emit(EVENT_SETTINGS, ()),
-        MENU_TOGGLE_THEME => app.emit(EVENT_TOGGLE_THEME, ()),
-        MENU_CHECK_UPDATES => app.emit(EVENT_CHECK_UPDATES, ()),
-        MENU_COPY => app.emit(EVENT_COPY, ()),
-        MENU_PASTE => app.emit(EVENT_PASTE, ()),
+        MENU_NEW_TAB => emit_focused(app, EVENT_NEW_TAB),
+        MENU_NEW_TAB_SAME_DIR => emit_focused(app, EVENT_NEW_TAB_SAME_DIR),
+        MENU_SPLIT_RIGHT => emit_focused(app, EVENT_SPLIT_RIGHT),
+        MENU_SPLIT_DOWN => emit_focused(app, EVENT_SPLIT_DOWN),
+        MENU_CLOSE_PANE => emit_focused(app, EVENT_CLOSE_PANE),
+        MENU_CLEAR_TERMINAL => emit_focused(app, EVENT_CLEAR_TERMINAL),
+        MENU_BROWSER => emit_focused(app, EVENT_BROWSER),
+        MENU_EDITOR => emit_focused(app, EVENT_EDITOR),
+        MENU_CLAUDE => emit_focused(app, EVENT_CLAUDE),
+        MENU_DRAWING => emit_focused(app, EVENT_DRAWING),
+        MENU_API => emit_focused(app, EVENT_API),
+        MENU_MONITOR => emit_focused(app, EVENT_MONITOR),
+        MENU_COMMAND_PALETTE => emit_focused(app, EVENT_COMMAND_PALETTE),
+        MENU_SETTINGS => emit_focused(app, EVENT_SETTINGS),
+        MENU_TOGGLE_THEME => emit_focused(app, EVENT_TOGGLE_THEME),
+        MENU_CHECK_UPDATES => emit_focused(app, EVENT_CHECK_UPDATES),
+        MENU_COPY => emit_focused(app, EVENT_COPY),
+        MENU_PASTE => emit_focused(app, EVENT_PASTE),
         #[cfg(target_os = "macos")]
-        MENU_CLOSE_WINDOW => app.emit(EVENT_CLOSE_WINDOW, ()),
+        MENU_CLOSE_WINDOW => emit_focused(app, EVENT_CLOSE_WINDOW),
         #[cfg(target_os = "macos")]
-        MENU_UNDO => app.emit(EVENT_UNDO, ()),
+        MENU_UNDO => emit_focused(app, EVENT_UNDO),
         #[cfg(target_os = "macos")]
-        MENU_REDO => app.emit(EVENT_REDO, ()),
+        MENU_REDO => emit_focused(app, EVENT_REDO),
         _ => Ok(()),
     };
     if let Err(err) = result {

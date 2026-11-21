@@ -53,7 +53,14 @@ const DEFAULT_SETTINGS: Settings = {
   dismissedVersion: null,
 };
 
-const STORAGE_KEY = "figy-term-settings";
+/**
+ * Exported so the store can tell which `storage` event is about these.
+ *
+ * Windows of one app share an origin and so share this; see the listener in
+ * `settingsStore` for what that means and why it is the behaviour you want.
+ */
+export const SETTINGS_STORAGE_KEY = "figy-term-settings";
+const STORAGE_KEY = SETTINGS_STORAGE_KEY;
 
 export function loadSettings(): Settings {
   try {

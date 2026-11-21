@@ -11,7 +11,6 @@ use tauri::{
 /// Child webviews are addressed by label, so tab ids get a namespace to keep them
 /// from ever colliding with the app's own `main` webview.
 const LABEL_PREFIX: &str = "figy-browser-";
-const HOST_LABEL: &str = "main";
 const STATE_EVENT: &str = "browser://state";
 const POPUP_EVENT: &str = "browser://popup";
 const CLOSED_EVENT: &str = "browser://closed";
@@ -102,6 +101,16 @@ struct ClosedPayload {
 /// `pending_history_navs` keeps those from being counted as new entries.
 #[derive(Debug, Default)]
 struct TabNav {
+    /// The window this tab's webview is a child of.
+    ///
+    /// Every event about a tab goes back to *that* window and no other. It used
+    /// to be the constant `"main"`, which with one window was the same thing:
+    /// opened from a second window the tab appeared, and then every title, URL
+    /// and load-state update went to the first window's browser modal, which
+    /// knew nothing about it. The label is recorded here rather than looked up
+    /// from the webview because the close path has to know where to send the
+    /// notice *after* the webview is gone.
+    host: String,
     url: String,
     title: String,
     loading: bool,
@@ -312,10 +321,6 @@ fn label_for(tab_id: &str) -> String {
     format!("{LABEL_PREFIX}{tab_id}")
 }
 
-fn tab_id_from_label(label: &str) -> Option<&str> {
-    label.strip_prefix(LABEL_PREFIX)
-}
-
 fn webview(app: &AppHandle, tab_id: &str) -> Result<tauri::Webview, String> {
     app.get_webview(&label_for(tab_id))
         .ok_or_else(|| format!("browser tab '{tab_id}' is not open"))
@@ -327,7 +332,7 @@ fn update<F>(app: &AppHandle, tab_id: &str, edit: F)
 where
     F: FnOnce(&mut TabNav) -> bool,
 {
-    let snapshot = {
+    let published = {
         let state = app.state::<BrowserState>();
         let mut tabs = match state.tabs.lock() {
             Ok(tabs) => tabs,
@@ -335,15 +340,15 @@ where
         };
         tabs.get_mut(tab_id).and_then(|tab| {
             if edit(&mut *tab) {
-                Some(tab.snapshot(tab_id))
+                Some((tab.host.clone(), tab.snapshot(tab_id)))
             } else {
                 None
             }
         })
     };
 
-    if let Some(snapshot) = snapshot {
-        let _ = app.emit_to(HOST_LABEL, STATE_EVENT, snapshot);
+    if let Some((host, snapshot)) = published {
+        let _ = app.emit_to(host.as_str(), STATE_EVENT, snapshot);
     }
 }
 
@@ -423,7 +428,7 @@ pub fn browser_open_tab(
         apply_webview_theme(&existing, &theme);
     } else {
         let theme = current_theme(&app.state::<BrowserState>());
-        let builder = build_webview(&app, &label, &tab_id, target.clone(), &theme);
+        let builder = build_webview(&app, window.label(), &label, &tab_id, target.clone(), &theme);
         window
             .add_child(builder, bounds.physical_position(), bounds.physical_size())
             .map_err(|e| {
@@ -444,6 +449,11 @@ pub fn browser_open_tab(
     // The opening URL is itself the first history entry, so later navigations correctly
     // start enabling the back button.
     let initial = TabNav {
+        // Not defaulted. `TabNav::default()` would leave this empty, and an
+        // empty label is a target no window matches — every state event about
+        // the tab would go nowhere at all, which looks like a browser that
+        // loads pages and never updates its address bar.
+        host: window.label().to_string(),
         url: target.to_string(),
         loading: true,
         visible: true,
@@ -464,6 +474,7 @@ pub fn browser_open_tab(
 
 fn build_webview(
     app: &AppHandle,
+    host: &str,
     label: &str,
     tab_id: &str,
     url: Url,
@@ -519,9 +530,10 @@ fn build_webview(
     // than detached OS windows.
     let popup_app = app.clone();
     let popup_tab = tab_id.to_string();
+    let popup_host = host.to_string();
     builder = builder.on_new_window(move |url, _features| {
         let _ = popup_app.emit_to(
-            HOST_LABEL,
+            popup_host.as_str(),
             POPUP_EVENT,
             PopupPayload {
                 opener_tab_id: popup_tab.clone(),
@@ -713,17 +725,23 @@ pub fn browser_close_tab(app: AppHandle, tab_id: String) -> Result<(), String> {
         view.close().map_err(|e| e.to_string())?;
     }
 
-    if let Ok(mut tabs) = app.state::<BrowserState>().tabs.lock() {
-        tabs.remove(&tab_id);
-    }
+    // Taken out and kept: the tab records which window was showing it, and the
+    // notice below is for that window. Reading it off the webview instead
+    // would be too late — it has just been closed.
+    let host = match app.state::<BrowserState>().tabs.lock() {
+        Ok(mut tabs) => tabs.remove(&tab_id).map(|tab| tab.host),
+        Err(_) => None,
+    };
 
-    let _ = app.emit_to(
-        HOST_LABEL,
-        CLOSED_EVENT,
-        ClosedPayload {
-            tab_id: tab_id.clone(),
-        },
-    );
+    if let Some(host) = host {
+        let _ = app.emit_to(
+            host.as_str(),
+            CLOSED_EVENT,
+            ClosedPayload {
+                tab_id: tab_id.clone(),
+            },
+        );
+    }
 
     Ok(())
 }
@@ -778,22 +796,30 @@ fn expire_pending_nav(app: &AppHandle, tab_id: &str) {
 
 /// Tears down every browser webview. Used when the modal closes or the app shuts down.
 #[tauri::command(async)]
-pub fn browser_close_all(app: AppHandle) -> Result<(), String> {
-    let labels: Vec<String> = app
-        .webviews()
-        .keys()
-        .filter(|label| label.starts_with(LABEL_PREFIX))
-        .cloned()
-        .collect();
+pub fn browser_close_all(app: AppHandle, window: Window) -> Result<(), String> {
+    /*
+      This window's tabs, not every tab in the process.
 
-    for label in labels {
-        if let Some(view) = app.get_webview(&label) {
+      The webview labels say which *tab* a view is, and nothing about which
+      window is showing it, so the answer comes from the tab table — which
+      records its host. Without that, closing the browser in one window shut
+      the other window's browser down with it, tabs and all.
+    */
+    let mine: Vec<String> = match app.state::<BrowserState>().tabs.lock() {
+        Ok(tabs) => tabs
+            .iter()
+            .filter(|(_, tab)| tab.host == window.label())
+            .map(|(tab_id, _)| tab_id.clone())
+            .collect(),
+        Err(_) => return Ok(()),
+    };
+
+    for tab_id in mine {
+        if let Some(view) = app.get_webview(&label_for(&tab_id)) {
             let _ = view.close();
         }
-        if let Some(tab_id) = tab_id_from_label(&label) {
-            if let Ok(mut tabs) = app.state::<BrowserState>().tabs.lock() {
-                tabs.remove(tab_id);
-            }
+        if let Ok(mut tabs) = app.state::<BrowserState>().tabs.lock() {
+            tabs.remove(&tab_id);
         }
     }
 

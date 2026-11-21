@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State, Window};
 
 use crate::lsp::registry::LspState;
 use crate::lsp::server::{ExitInfo, ServerInfo};
@@ -61,6 +61,7 @@ pub fn lsp_detect(programs: Vec<String>) -> Vec<Detected> {
 /// language costs nothing.
 #[tauri::command(async)]
 pub fn lsp_start(
+    window: Window,
     app: AppHandle,
     state: State<'_, LspState>,
     id: String,
@@ -69,22 +70,36 @@ pub fn lsp_start(
     args: Vec<String>,
     root: String,
 ) -> Result<ServerInfo, String> {
+    /*
+      Addressed to the window that started this server, not broadcast.
+
+      Two things turn on it. The obvious one is cost: document sync means every
+      keystroke in one window became an event every other window parsed and
+      threw away. The other is correctness — the client keys a server by
+      `(window, root, server)` now, so a message belongs to exactly one window,
+      and delivering it anywhere else is handing a reply to somebody who did
+      not ask the question.
+    */
+    let label = window.label().to_string();
+
     let on_message = {
         let app = app.clone();
+        let label = label.clone();
         Arc::new(move |id: &str, body: String| {
-            let _ = app.emit(MESSAGE_EVENT, MessagePayload { id, body });
+            let _ = app.emit_to(label.as_str(), MESSAGE_EVENT, MessagePayload { id, body });
         })
     };
 
     let on_exit = {
         let app = app.clone();
+        let label = label.clone();
         Arc::new(move |info: ExitInfo| {
-            let _ = app.emit(EXIT_EVENT, info);
+            let _ = app.emit_to(label.as_str(), EXIT_EVENT, info);
         })
     };
 
     let mut registry = state.registry.lock().map_err(|e| e.to_string())?;
-    registry.start(id, language, program, args, root, on_message, on_exit)
+    registry.start(id, label, language, program, args, root, on_message, on_exit)
 }
 
 /// Writes one already-formed JSON-RPC message to a server's stdin.
@@ -124,6 +139,15 @@ pub fn lsp_status(state: State<'_, LspState>) -> Result<Vec<ServerInfo>, String>
 /// `lib.rs` already reaps the PTYs on `RunEvent::Exit` for the same reason: a
 /// server left running is a process nobody can see, attached to a window that
 /// no longer exists.
+/// Ends every language server a window started, as it closes.
+pub fn forget_window(app: &AppHandle, label: &str) {
+    let state = app.state::<LspState>();
+    let Ok(mut registry) = state.registry.lock() else {
+        return;
+    };
+    registry.stop_owned_by(label);
+}
+
 pub fn shutdown_servers(app: &AppHandle) {
     let state = app.state::<LspState>();
     let Ok(mut registry) = state.registry.lock() else {

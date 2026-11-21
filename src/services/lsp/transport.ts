@@ -8,7 +8,8 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
-import { listen, UnlistenFn } from "@tauri-apps/api/event";
+import { UnlistenFn } from "@tauri-apps/api/event";
+import { listenToSelf } from "../windows";
 import type { IncomingMessage } from "./protocol";
 
 /** Mirrors `ServerInfo` in `lsp/server.rs`. */
@@ -47,17 +48,17 @@ function ensureListening(): Promise<UnlistenFn[]> {
   if (listening) return listening;
 
   listening = Promise.all([
-    listen<{ id: string; body: string }>("lsp://message", (event) => {
-      const handler = handlers.get(event.payload.id);
+    listenToSelf<{ id: string; body: string }>("lsp://message", (payload) => {
+      const handler = handlers.get(payload.id);
       if (!handler) return;
       let message: IncomingMessage;
       try {
-        message = JSON.parse(event.payload.body) as IncomingMessage;
+        message = JSON.parse(payload.body) as IncomingMessage;
       } catch {
         // A server that emits something that isn't JSON has a bug, and there is
         // nothing useful to do with it beyond not throwing inside an event
         // handler — which would take the listener down with it.
-        console.warn("lsp: unparseable message from", event.payload.id);
+        console.warn("lsp: unparseable message from", payload.id);
         return;
       }
       try {
@@ -66,8 +67,8 @@ function ensureListening(): Promise<UnlistenFn[]> {
         console.error("lsp: handler threw", error);
       }
     }),
-    listen<LspExitInfo>("lsp://exit", (event) => {
-      handlers.get(event.payload.id)?.exit(event.payload);
+    listenToSelf<LspExitInfo>("lsp://exit", (payload) => {
+      handlers.get(payload.id)?.exit(payload);
     }),
   ]);
 

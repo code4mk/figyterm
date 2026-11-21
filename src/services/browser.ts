@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
-import { listen, UnlistenFn } from "@tauri-apps/api/event";
+import { UnlistenFn } from "@tauri-apps/api/event";
+import { listenToSelf } from "./windows";
 
 export const BROWSER_HOME_URL = "https://www.google.com";
 
@@ -129,19 +130,19 @@ export function setBrowserTheme(theme: "light" | "dark"): Promise<void> {
 export function onBrowserState(
   handler: (state: BrowserTabState) => void
 ): Promise<UnlistenFn> {
-  return listen<BrowserTabState>("browser://state", (event) => handler(event.payload));
+  return listenToSelf<BrowserTabState>("browser://state", handler);
 }
 
 export function onBrowserPopup(
   handler: (openerTabId: string, url: string) => void
 ): Promise<UnlistenFn> {
-  return listen<PopupPayload>("browser://popup", (event) =>
-    handler(event.payload.openerTabId, event.payload.url)
+  return listenToSelf<PopupPayload>("browser://popup", (payload) =>
+    handler(payload.openerTabId, payload.url)
   );
 }
 
 export function onBrowserClosed(handler: (tabId: string) => void): Promise<UnlistenFn> {
-  return listen<ClosedPayload>("browser://closed", (event) => handler(event.payload.tabId));
+  return listenToSelf<ClosedPayload>("browser://closed", (payload) => handler(payload.tabId));
 }
 
 export function rectToBounds(rect: DOMRect): BrowserBounds {

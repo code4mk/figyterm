@@ -22,6 +22,7 @@
  */
 
 import type { Diagnostic, WorkspaceEdit } from "./protocol";
+import { currentWindowLabel } from "../windows";
 import type { CustomLspServer } from "../editor-session";
 import { LspClient, LspPhase, LspStatus } from "./client";
 import {
@@ -151,8 +152,24 @@ type Unsubscribe = () => void;
  * `grep`. The separator is `@` because a server id comes from our own table and
  * cannot contain one, while a root path very much can contain a space.
  */
+/*
+  The window is part of the key, and not for tidiness.
+
+  A language server is a single-client protocol: the client owns the document
+  versions it reports in `didChange` and the request ids it correlates replies
+  by, and both are counted from one. Two windows sharing a server therefore
+  both call the same file version 1 and both send a request id 5 — so one
+  window's go-to-definition can resolve with the other's answer, and the
+  server's idea of the document drifts from either buffer, which shows up as
+  diagnostics on lines that have moved.
+
+  The cost is a second `rust-analyzer` when the *same* project is open in two
+  windows, which is real and is the right trade: a shared server is cheaper and
+  quietly wrong, and wrong is the expensive kind. Different projects cost
+  nothing extra either way, since the root already distinguished them.
+*/
 function serverKey(root: string, serverId: string): string {
-  return `${serverId}@${root}`;
+  return `${serverId}@${currentWindowLabel()}@${root}`;
 }
 
 /** How long a server's complaint may be before the settings row swallows it. */

@@ -14,3 +14,4 @@ pub mod specs;
 pub mod sync;
 pub mod system;
 pub mod terminal;
+pub mod window;

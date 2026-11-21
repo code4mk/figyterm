@@ -2,6 +2,7 @@ import { useEffect, useCallback, useRef, useState } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { listenToSelf } from "../../services/windows";
 import { SearchAddon } from "@xterm/addon-search";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { invoke } from "@tauri-apps/api/core";
@@ -661,10 +662,10 @@ export function Terminal({ instanceId, isActive, initialCwd, onSessionCreated, o
   useEffect(() => {
     if (!isActive) return;
     const pending = [
-      listen("menu://copy", () => void copySelection()),
-      listen("menu://paste", () => void pasteFromClipboard()),
-      listen("menu://find", () => openSearch()),
-      listen("menu://history", () => setShowHistory(true)),
+      listenToSelf("menu://copy", () => void copySelection()),
+      listenToSelf("menu://paste", () => void pasteFromClipboard()),
+      listenToSelf("menu://find", () => openSearch()),
+      listenToSelf("menu://history", () => setShowHistory(true)),
     ];
     return () => {
       pending.forEach((p) => p.then((off) => off()).catch(() => {}));

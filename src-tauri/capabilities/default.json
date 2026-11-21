@@ -2,8 +2,8 @@
   "$schema": "https://raw.githubusercontent.com/nicegui/nicegui/main/tauri/capabilities/schema.json",
   "identifier": "default",
   "description": "Default capabilities for the terminal app",
-  "windows": ["main"],
-  "webviews": ["main"],
+  "windows": ["main", "main-*"],
+  "webviews": ["main", "main-*"],
   "permissions": [
     "core:default",
     "core:window:allow-close",

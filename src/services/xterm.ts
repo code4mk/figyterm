@@ -10,8 +10,8 @@
 
 import type { ILink, ILinkProvider, ITheme, Terminal as XTerm } from "@xterm/xterm";
 import type { FitAddon } from "@xterm/addon-fit";
-import { emit } from "@tauri-apps/api/event";
 import { languageFor } from "./editor-lang";
+import { emitToSelf } from "./windows";
 import { PATH_SEP } from "./paths";
 
 export const DARK_THEME: ITheme = {
@@ -257,7 +257,14 @@ export function pathLinkProvider(
           },
           text: candidate,
           activate() {
-            void emit("editor://open-path", {
+            /*
+              To this window only. `emit` reaches every window, and the
+              listener that picks this up *opens the editor* — so clicking a
+              path in one window's terminal opened the editor in all of them,
+              each then trying to open a file that, for the others, is very
+              likely outside the folder they have open.
+            */
+            void emitToSelf("editor://open-path", {
               path: resolved,
               line: target.line,
               column: target.column,

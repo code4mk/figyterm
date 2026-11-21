@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef, lazy, Suspense } from "react";
-import { listen, emit } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { emitToSelf, listenToSelf, openWindow } from "../../services/windows";
+import { NewWindowPrompt } from "./NewWindowPrompt";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import { TabBar } from "../Terminal/TabBar";
 import { StatusBar } from "../Terminal/StatusBar";
@@ -159,7 +160,29 @@ export function AppShell() {
    * the active pane picks them up (see `Terminal.tsx`).
    */
   const askActivePane = useCallback((action: "copy" | "paste" | "find" | "history") => {
-    void emit(`menu://${action}`);
+    // To this window only. A plain `emit` reaches every window, so with two
+    // open, Copy from the palette copied in the other window's focused pane
+    // too and Find opened a search box in a window nobody was looking at.
+    void emitToSelf(`menu://${action}`);
+  }, []);
+
+  /**
+   * Another window, with its own tabs, shells and editor workspace.
+   *
+   * Asks what to call it first — every route in (the Shell menu, the chord,
+   * the palette) goes through the same prompt, so a window is never made
+   * without the one chance to say what it is for. The window itself is built
+   * on the Rust side; `services/windows.ts` says why.
+   */
+  const [newWindowPrompt, setNewWindowPrompt] = useState(false);
+
+  const handleNewWindow = useCallback(() => setNewWindowPrompt(true), []);
+
+  const confirmNewWindow = useCallback((name: string) => {
+    setNewWindowPrompt(false);
+    // An empty name is passed through rather than withheld: the backend reads
+    // it as "you pick" and answers with a fruit nothing else is called.
+    void openWindow(name).catch((e) => console.error("could not open a window", e));
   }, []);
   const {
     info: updateInfo,
@@ -578,20 +601,20 @@ export function AppShell() {
 
   /** A path clicked in terminal output; see the link provider in `Terminal.tsx`. */
   useEffect(() => {
-    const pending = listen<{
+    const pending = listenToSelf<{
       path: string;
       line?: number;
       column?: number;
       root?: string;
-    }>("editor://open-path", (event) => {
+    }>("editor://open-path", (payload) => {
       setEditorOpen(true);
       setEditorRequest((prev) => ({
-        path: event.payload.path,
-        line: event.payload.line,
-        column: event.payload.column,
+        path: payload.path,
+        line: payload.line,
+        column: payload.column,
         // Where the link came from, so the editor can adopt that folder when
         // the file is outside the one it has open.
-        root: event.payload.root,
+        root: payload.root,
         // The token is what lets the same path be asked for twice.
         token: (prev?.token ?? 0) + 1,
       }));
@@ -609,10 +632,10 @@ export function AppShell() {
    * editor takes a clicked path this way. Opening it here is what mounts it.
    */
   useEffect(() => {
-    const pending = listen<{ path: string }>("claude://mention", (event) => {
+    const pending = listenToSelf<{ path: string }>("claude://mention", (payload) => {
       setClaudeOpen(true);
       setClaudeMention((previous) => ({
-        path: event.payload.path,
+        path: payload.path,
         // The token is what lets the same file be handed over twice.
         token: (previous?.token ?? 0) + 1,
       }));
@@ -672,22 +695,23 @@ export function AppShell() {
 
   useEffect(() => {
     const unlisteners = [
-      listen("menu://new-tab", () => handleNewTab()),
-      listen("menu://new-tab-same-dir", () => handleNewTabInSameDir()),
-      listen("menu://split-right", () => handleSplitPane("horizontal")),
-      listen("menu://split-down", () => handleSplitPane("vertical")),
-      listen("menu://close-pane", () => handleClosePane()),
-      listen("menu://clear-terminal", () => handleClearTerminal()),
-      listen("menu://browser", () => setBrowserOpen((open) => !open)),
-      listen("menu://editor", () => toggleEditor()),
-      listen("menu://claude", () => toggleClaude()),
-      listen("menu://drawing", () => toggleDrawing()),
-      listen("menu://api", () => toggleApi()),
-      listen("menu://monitor", () => setMonitorOpen((open) => !open)),
-      listen("menu://command-palette", () => setCommandPaletteOpen((open) => !open)),
-      listen("menu://settings", () => setSettingsOpen(true)),
-      listen("menu://toggle-theme", () => toggleTheme()),
-      listen("menu://check-updates", () => handleOpenUpdates()),
+      listenToSelf("menu://new-window", () => handleNewWindow()),
+      listenToSelf("menu://new-tab", () => handleNewTab()),
+      listenToSelf("menu://new-tab-same-dir", () => handleNewTabInSameDir()),
+      listenToSelf("menu://split-right", () => handleSplitPane("horizontal")),
+      listenToSelf("menu://split-down", () => handleSplitPane("vertical")),
+      listenToSelf("menu://close-pane", () => handleClosePane()),
+      listenToSelf("menu://clear-terminal", () => handleClearTerminal()),
+      listenToSelf("menu://browser", () => setBrowserOpen((open) => !open)),
+      listenToSelf("menu://editor", () => toggleEditor()),
+      listenToSelf("menu://claude", () => toggleClaude()),
+      listenToSelf("menu://drawing", () => toggleDrawing()),
+      listenToSelf("menu://api", () => toggleApi()),
+      listenToSelf("menu://monitor", () => setMonitorOpen((open) => !open)),
+      listenToSelf("menu://command-palette", () => setCommandPaletteOpen((open) => !open)),
+      listenToSelf("menu://settings", () => setSettingsOpen(true)),
+      listenToSelf("menu://toggle-theme", () => toggleTheme()),
+      listenToSelf("menu://check-updates", () => handleOpenUpdates()),
       /*
         ⌘W, on macOS only — see `menu.rs` for why it arrives as an event rather
         than as a key the editor could bind. With the editor up the chord
@@ -698,13 +722,13 @@ export function AppShell() {
         Three claimants now, and the order is "whichever window is in front of
         you": the Claude window opens over the editor, so it answers first.
       */
-      listen("menu://close-window", () => {
+      listenToSelf("menu://close-window", () => {
         if (claudeOpenRef.current) setClaudeCloseTab((count) => count + 1);
         else if (editorOpenRef.current) setEditorCloseTab((count) => count + 1);
         else void getCurrentWindow().close();
       }),
-      listen("menu://undo", () => runHistoryCommand("undo")),
-      listen("menu://redo", () => runHistoryCommand("redo")),
+      listenToSelf("menu://undo", () => runHistoryCommand("undo")),
+      listenToSelf("menu://redo", () => runHistoryCommand("redo")),
     ];
 
     return () => {
@@ -713,6 +737,7 @@ export function AppShell() {
       });
     };
   }, [
+    handleNewWindow,
     handleNewTab,
     handleNewTabInSameDir,
     handleSplitPane,
@@ -729,7 +754,10 @@ export function AppShell() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (matches(e, SHORTCUTS.newTabSameDir)) {
+      if (matches(e, SHORTCUTS.newWindow)) {
+        e.preventDefault();
+        handleNewWindow();
+      } else if (matches(e, SHORTCUTS.newTabSameDir)) {
         e.preventDefault();
         handleNewTabInSameDir();
       } else if (matches(e, SHORTCUTS.newTab)) {
@@ -826,6 +854,7 @@ export function AppShell() {
    * that should handle them is the focused one; see `askActivePane`.
    */
   const commands = [
+    { id: "new-window", label: "New Window…", shortcut: keys(SHORTCUTS.newWindow), action: handleNewWindow },
     { id: "new-terminal", label: "New Terminal", shortcut: keys(SHORTCUTS.newTab), action: handleNewTab },
     { id: "new-terminal-same-dir", label: "New Terminal in Same Directory", shortcut: keys(SHORTCUTS.newTabSameDir), action: handleNewTabInSameDir },
     { id: "split-right", label: "Split Right", shortcut: keys(SHORTCUTS.splitRight), action: () => handleSplitPane("horizontal") },
@@ -1019,6 +1048,11 @@ export function AppShell() {
         version={updateInfo?.latestVersion ?? ""}
         onView={handleOpenUpdates}
         onDismiss={dismissToast}
+      />
+      <NewWindowPrompt
+        open={newWindowPrompt}
+        onCancel={() => setNewWindowPrompt(false)}
+        onSubmit={confirmNewWindow}
       />
     </div>
   );

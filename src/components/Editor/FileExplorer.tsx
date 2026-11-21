@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { emit } from "@tauri-apps/api/event";
 import {
   ChevronDown,
   ChevronRight,
@@ -31,6 +30,7 @@ import {
   renamePath,
   revealPath,
 } from "../../services/editor-fs";
+import { emitToSelf } from "../../services/windows";
 import {
   canMoveInto,
   cleanName,
@@ -972,7 +972,9 @@ export function FileExplorer({
               icon={<MessageSquare size={12} />}
               label="Ask Claude about this"
               onClick={() => {
-                void emit("claude://mention", { path: menu.entry!.path });
+                // This window's Claude, not every window's: the listener opens
+                // the window, so a broadcast opened one in each of them.
+                void emitToSelf("claude://mention", { path: menu.entry!.path });
                 setMenu(null);
               }}
             />

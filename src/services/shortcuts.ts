@@ -54,6 +54,10 @@ function define<T extends Record<string, Shortcut>>(table: T): T {
 }
 
 export const SHORTCUTS = define({
+  // ⌘N, where every macOS app puts New Window, and Ctrl+Shift+N elsewhere.
+  // Both were free: the shell's own Ctrl+N steps forward through history and
+  // this is Ctrl+Shift+N.
+  newWindow: { key: "n", label: "N", mac: MOD_ONLY, other: CTRL_SHIFT },
   newTab: { key: "t", label: "T", mac: MOD_ONLY, other: CTRL_SHIFT },
   newTabSameDir: { key: "t", label: "T", mac: MOD_SHIFT, other: CTRL_ALT },
   splitRight: { key: "d", label: "D", mac: MOD_ONLY, other: CTRL_SHIFT },

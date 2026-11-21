@@ -72,6 +72,31 @@ pub fn run() {
         .on_menu_event(|app, event| {
             menu::handle_menu_event(app, event);
         })
+        /*
+          A window going away takes everything that was keyed to it.
+
+          Each of these is a per-window map on the Rust side, and a window can
+          close without the frontend getting to tidy up — the user hits the
+          close button and the webview is gone. Left alone, a closed window's
+          shells keep running, its editor's workspace roots stay writable, and
+          its recursive file watcher keeps a watch descriptor per directory of
+          a tree nobody is looking at.
+
+          `Destroyed` rather than `CloseRequested`: the second can still be
+          vetoed, and ending somebody's shells for a close that then doesn't
+          happen is the one mistake here that costs work.
+        */
+        .on_window_event(|window, event| {
+            if !matches!(event, tauri::WindowEvent::Destroyed) {
+                return;
+            }
+            let app = window.app_handle();
+            let label = window.label();
+            commands::terminal::close_sessions_of_window(app, label);
+            commands::fs::forget_window(&app.state::<FsState>(), label);
+            commands::fs_watch::forget_window(&app.state::<WatchState>(), label);
+            commands::lsp::forget_window(app, label);
+        })
         .invoke_handler(tauri::generate_handler![
             commands::terminal::create_terminal_session,
             commands::terminal::write_terminal_session,
@@ -79,6 +104,7 @@ pub fn run() {
             commands::terminal::close_terminal_session,
             commands::terminal::get_default_shell,
             commands::terminal::get_default_working_directory,
+            commands::window::new_window,
             commands::claude::claude_probe,
             commands::claude::claude_transcript_head,
             commands::claude::claude_past_conversations,

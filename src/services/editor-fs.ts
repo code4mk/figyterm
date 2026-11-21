@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
-import { listen, UnlistenFn } from "@tauri-apps/api/event";
+import { UnlistenFn } from "@tauri-apps/api/event";
 import { isUnder, samePath } from "./explorer-paths";
+import { listenToSelf } from "./windows";
 import { isSeparator, lastSeparatorIndex, PATH_SEP } from "./paths";
 
 /**
@@ -187,15 +188,15 @@ export function cancelSearch(): Promise<void> {
 export function onSearchResult(
   handler: (id: number, matches: SearchMatch[]) => void
 ): Promise<UnlistenFn> {
-  return listen<SearchResultPayload>("editor://search-result", (event) =>
-    handler(event.payload.id, event.payload.matches)
+  return listenToSelf<SearchResultPayload>("editor://search-result", (payload) =>
+    handler(payload.id, payload.matches)
   );
 }
 
 export function onSearchDone(
   handler: (payload: SearchDonePayload) => void
 ): Promise<UnlistenFn> {
-  return listen<SearchDonePayload>("editor://search-done", (event) => handler(event.payload));
+  return listenToSelf<SearchDonePayload>("editor://search-done", handler);
 }
 
 // ─── Watching ───────────────────────────────────────────────────────────────
@@ -212,8 +213,8 @@ export function unwatch(): Promise<void> {
 export function onFsChange(
   handler: (paths: string[], overflow: boolean) => void
 ): Promise<UnlistenFn> {
-  return listen<ChangePayload>("editor://fs-change", (event) =>
-    handler(event.payload.paths, event.payload.overflow)
+  return listenToSelf<ChangePayload>("editor://fs-change", (payload) =>
+    handler(payload.paths, payload.overflow)
   );
 }
 

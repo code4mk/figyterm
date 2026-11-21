@@ -1,4 +1,4 @@
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State, Window};
 
 use crate::state::app_state::AppState;
 use crate::terminal::session::{PtyCommand, TerminalSession};
@@ -110,6 +110,7 @@ fn resolve_cwd(cwd: Option<String>) -> String {
 /// the backend mint one.
 #[tauri::command(async)]
 pub fn create_terminal_session(
+    window: Window,
     app: AppHandle,
     state: State<'_, AppState>,
     cols: u16,
@@ -150,7 +151,11 @@ pub fn create_terminal_session(
     }
 
     let mgr = manager.as_mut().unwrap();
-    mgr.create_session(session_id, shell, command, cwd, cols, rows)
+    let session = mgr.create_session(session_id, shell, command, cwd, cols, rows)?;
+    // Recorded before the handle goes back, so the window closing a moment
+    // later still finds it; see `AppState::session_windows`.
+    state.claim_session(&session.id, window.label());
+    Ok(session)
 }
 
 #[tauri::command]
@@ -185,11 +190,38 @@ pub fn close_terminal_session(
     state: State<'_, AppState>,
     session_id: String,
 ) -> Result<(), String> {
+    state.release_session(&session_id);
     let mut manager = state.terminal_manager.lock().map_err(|e| e.to_string())?;
     let mgr = manager
         .as_mut()
         .ok_or_else(|| "Terminal manager not initialized".to_string())?;
     mgr.close_session(&session_id)
+}
+
+/// Ends every shell a window owned, as that window goes away.
+///
+/// A pane closed by hand goes through `close_terminal_session`; this is the
+/// other way out — the whole window, with however many tabs and panes were in
+/// it, none of which gets the chance to tidy up after itself.
+pub fn close_sessions_of_window(app: &AppHandle, label: &str) {
+    let state = app.state::<AppState>();
+    let ids = state.take_sessions_of(label);
+    if ids.is_empty() {
+        return;
+    }
+
+    log::info!("window '{label}' closed; ending {} shell(s)", ids.len());
+    let Ok(mut manager) = state.terminal_manager.lock() else {
+        return;
+    };
+    let Some(mgr) = manager.as_mut() else {
+        return;
+    };
+    for id in ids {
+        if let Err(err) = mgr.close_session(&id) {
+            log::warn!("could not end session '{id}': {err}");
+        }
+    }
 }
 
 #[tauri::command]
