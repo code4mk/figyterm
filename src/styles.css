@@ -1568,8 +1568,13 @@
 }
 
 .browser-toolbar {
-  background: #12151a;
-  border-bottom: 1px solid #2a2f37;
+  /*
+    The same tone as `.browser-tab.active` above, and that is the whole point:
+    an active tab is drawn attached to the toolbar beneath it, which only reads
+    if the two are the same colour. They are one token so they cannot drift.
+  */
+  background: var(--ft-bg);
+  border-bottom: 1px solid var(--ft-border-subtle);
 }
 
 .browser-address {
@@ -1582,31 +1587,51 @@
   background: rgba(255, 255, 255, 0.06);
 }
 
+/*
+  Focused, and saying so loudly enough to count.
+
+  This is the address bar's whole focus indicator — the input inside it is
+  `outline-none`, and it is not given a `:focus-visible` ring of its own,
+  because two indicators on one control in two different accents is worse than
+  one. So this has to read as focus rather than as a slightly lighter box: a
+  solid sky border and a ring outside it, which is the same shape as the accent
+  ring every other input in the app draws, in the browser's own colour.
+*/
 .browser-address:focus-within {
   background: rgba(255, 255, 255, 0.07);
-  border-color: rgba(56, 189, 248, 0.45);
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.18);
 }
 
 .browser-address-input {
-  color: #e6edf3;
+  color: var(--ft-text);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 .browser-address-input::placeholder {
-  color: #5d636e;
+  color: var(--ft-text-muted);
   font-family: inherit;
 }
 
 .browser-address-icon {
-  color: #6e7681;
+  color: var(--ft-text-muted);
 }
 
+/*
+  The two that mean something.
+
+  `#4ade80` and `#fbbf24` were Tailwind's green and amber, a third pair of
+  colours for "fine" and "not fine" in an app that already has `--ft-success`
+  and `--ft-warning`. A padlock is the one icon in this window that has to be
+  believed, so it should be the same green as everywhere else, and it should
+  follow the theme rather than staying a dark-mode green on a white toolbar.
+*/
 .browser-address-icon.secure {
-  color: #4ade80;
+  color: var(--ft-success);
 }
 
 .browser-address-icon.insecure {
-  color: #fbbf24;
+  color: var(--ft-warning);
 }
 
 /* Indeterminate load indicator pinned to the bottom edge of the toolbar. */
@@ -1644,11 +1669,11 @@
 }
 
 .browser-placeholder-icon {
-  color: #2f343d;
+  color: var(--ft-border);
 }
 
 .browser-placeholder-text {
-  color: #5d636e;
+  color: var(--ft-text-muted);
 }
 
 .browser-statusbar {
@@ -1692,8 +1717,7 @@
 
 .browser-btn:focus-visible,
 .browser-newtab-btn:focus-visible,
-.browser-tab-close:focus-visible,
-.browser-address-input:focus-visible {
+.browser-tab-close:focus-visible {
   outline: 2px solid var(--ft-accent);
   outline-offset: -1px;
   border-radius: 5px;
@@ -1758,43 +1782,25 @@
   background: rgba(220, 38, 38, 0.1);
 }
 
-.light .browser-toolbar {
-  background: #ffffff;
-  border-bottom: 1px solid #e2e5eb;
-}
 
 .light .browser-address {
-  background: #f2f4f7;
+  background: rgba(15, 23, 42, 0.05);
 }
 
 .light .browser-address:hover {
-  background: #eef1f5;
+  background: rgba(15, 23, 42, 0.075);
 }
 
 .light .browser-address:focus-within {
   background: #ffffff;
-  border-color: rgba(2, 132, 199, 0.45);
+  border-color: #0284c7;
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.16);
 }
 
-.light .browser-address-input {
-  color: #111827;
-}
 
-.light .browser-address-input::placeholder {
-  color: #9ca3af;
-}
 
-.light .browser-address-icon {
-  color: #6b7280;
-}
 
-.light .browser-address-icon.secure {
-  color: #059669;
-}
 
-.light .browser-address-icon.insecure {
-  color: #d97706;
-}
 
 .light .browser-progress {
   background: linear-gradient(90deg, transparent, #0284c7, transparent);
@@ -1813,11 +1819,6 @@
     #f7f8fa;
 }
 
-.light .browser-placeholder-icon {
-  color: #cbd2dc;
-}
-
-.light .browser-placeholder-text,
 
 .light .browser-statusbar {
   background: rgba(15, 23, 42, 0.022);
