@@ -14,6 +14,7 @@
 
 import { Figy } from "../types/figy";
 import { specRegistry } from "./figy-spec-registry";
+import { argsToOffer, isFlagToken, tokenize } from "./figy-args";
 import { invoke } from "@tauri-apps/api/core";
 
 export interface AutocompleteSuggestion {
@@ -37,52 +38,6 @@ interface ParsedContext {
   usedOptions: Set<string>;
 }
 
-function tokenize(input: string): string[] {
-  const tokens: string[] = [];
-  let current = "";
-  let inSingleQuote = false;
-  let inDoubleQuote = false;
-  let escaped = false;
-
-  for (const char of input) {
-    if (escaped) {
-      current += char;
-      escaped = false;
-      continue;
-    }
-    if (char === "\\") {
-      escaped = true;
-      continue;
-    }
-    if (char === "'" && !inDoubleQuote) {
-      inSingleQuote = !inSingleQuote;
-      continue;
-    }
-    if (char === '"' && !inSingleQuote) {
-      inDoubleQuote = !inDoubleQuote;
-      continue;
-    }
-    if (char === " " && !inSingleQuote && !inDoubleQuote) {
-      if (current.length > 0) {
-        tokens.push(current);
-        current = "";
-      }
-      continue;
-    }
-    current += char;
-  }
-
-  if (current.length > 0) {
-    tokens.push(current);
-  }
-
-  if (input.endsWith(" ") && !inSingleQuote && !inDoubleQuote) {
-    tokens.push("");
-  }
-
-  return tokens;
-}
-
 function normalizeOptionNames(option: Figy.Option): string[] {
   return Array.isArray(option.name) ? option.name : [option.name];
 }
@@ -93,6 +48,34 @@ function normalizeSubcommandNames(sub: Figy.Subcommand): string[] {
 
 function matchesPrefix(name: string, prefix: string): boolean {
   return name.toLowerCase().startsWith(prefix.toLowerCase());
+}
+
+/**
+ * Marks that this argument wants paths, so the terminal goes and gets them.
+ *
+ * `filepaths` and `folders` are not suggestions — the engine never reads a
+ * directory. It emits one entry of type `file` or `folder` carrying whatever
+ * has been typed so far, and `Terminal.tsx` takes that as the signal to call
+ * `list_path_completions` and splice the real listing in. The entry is a flag
+ * in the shape of a suggestion, which is why its `name` looks like a
+ * placeholder.
+ */
+function pushTemplateSentinels(
+  template: Figy.Arg["template"],
+  currentToken: string,
+  into: AutocompleteSuggestion[]
+): void {
+  if (!template) return;
+  const templates = Array.isArray(template) ? template : [template];
+  for (const t of templates) {
+    if (t !== "filepaths" && t !== "folders") continue;
+    into.push({
+      name: currentToken || ".",
+      type: t === "folders" ? "folder" : "file",
+      description: t === "folders" ? "Directory" : "File path",
+      priority: 60,
+    });
+  }
 }
 
 async function resolveContext(input: string, cwd?: string): Promise<(ParsedContext & { cwd?: string }) | null> {
@@ -119,9 +102,19 @@ async function resolveContext(input: string, cwd?: string): Promise<(ParsedConte
       continue;
     }
 
-    if (tok.startsWith("-") && currentSpec.options) {
+    /*
+      A flag is a flag whether or not this subcommand's spec lists any.
+
+      The condition used to be `tok.startsWith("-") && currentSpec.options`, so
+      against a subcommand with no `options` of its own a typed flag fell all
+      the way to the bottom of the loop and was counted as a *positional
+      argument*. That inflates `consumedArgs`, and an inflated count retires
+      arguments the user has not supplied yet — so the suggestion they wanted
+      had already been struck off by the time they asked for it.
+    */
+    if (isFlagToken(tok)) {
       usedOptions.add(tok);
-      const opt = currentSpec.options.find((o) => {
+      const opt = currentSpec.options?.find((o) => {
         const names = normalizeOptionNames(o);
         return names.includes(tok);
       });
@@ -374,6 +367,16 @@ export async function getAutocompleteSuggestions(
           suggestions.push(...genSuggestions.filter((s) => matchesPrefix(s.name, currentToken)));
         }
       }
+      /*
+        An option's argument can ask for paths too.
+
+        This branch handled `suggestions` and `generators` and simply forgot
+        `template`, so an option declared to take a file — `pnpm --filter
+        <path>` is the one in the shipped specs — offered nothing at all, while
+        the identical declaration on a *subcommand's* argument worked. The two
+        are the same kind of thing and now read the same way.
+      */
+      pushTemplateSentinels(arg.template, currentToken, suggestions);
     }
     return suggestions;
   }
@@ -441,14 +444,9 @@ export async function getAutocompleteSuggestions(
       ? (Array.isArray(currentSpec.args) ? currentSpec.args : [currentSpec.args])
       : [];
 
-    // Skip args already consumed.
-    // For variadic args, stop showing suggestions once at least one arg is consumed
-    // and the current token is empty (user has moved past it).
-    const args = allArgs.filter((arg, idx) => {
-      if (idx < consumedArgs && !arg.isVariadic) return false;
-      if (arg.isVariadic && consumedArgs > 0 && currentToken === "") return false;
-      return true;
-    });
+    // Arguments already supplied drop off; a variadic one never does. See
+    // `argsToOffer` for what that used to do instead and what it cost.
+    const args = argsToOffer(allArgs, consumedArgs);
 
     for (const arg of args) {
       if (arg.suggestions) {
@@ -473,19 +471,7 @@ export async function getAutocompleteSuggestions(
           suggestions.push(...genSuggestions.filter((s) => matchesPrefix(s.name, currentToken)));
         }
       }
-      if (arg.template) {
-        const templates = Array.isArray(arg.template) ? arg.template : [arg.template];
-        for (const t of templates) {
-          if (t === "filepaths" || t === "folders") {
-            suggestions.push({
-              name: currentToken || ".",
-              type: t === "folders" ? "folder" : "file",
-              description: t === "folders" ? "Directory" : "File path",
-              priority: 60,
-            });
-          }
-        }
-      }
+      pushTemplateSentinels(arg.template, currentToken, suggestions);
     }
 
     if (currentSpec.additionalSuggestions) {
