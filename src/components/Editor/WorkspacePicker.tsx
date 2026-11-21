@@ -1,5 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, FolderPlus, RefreshCw, Search, Star, Trash2, X } from "lucide-react";
+import {
+  Check,
+  FolderMinus,
+  FolderPlus,
+  RefreshCw,
+  Search,
+  Star,
+  Trash2,
+  X,
+} from "lucide-react";
 import { scrollIntoViewWithin } from "../../services/scroll";
 import { basename } from "../../services/editor-fs";
 import { collapseHome } from "../../services/recent-dirs";
@@ -35,6 +44,14 @@ interface WorkspacePickerProps {
   /** Re-reads the open folder from disk, keeping its tabs. */
   onReload: () => void;
   /**
+   * Leaves the open folder without opening another.
+   *
+   * Distinct from forgetting one: the folder keeps its place in this list and
+   * its remembered tabs, and the editor goes back to asking which project you
+   * want. Absent when there is no folder to close.
+   */
+  onCloseFolder: () => void;
+  /**
    * Forgets a folder: its remembered tabs and expanded tree. The folder itself
    * is not touched.
    */
@@ -60,6 +77,7 @@ export function WorkspacePicker({
   favorites,
   onOpen,
   onReload,
+  onCloseFolder,
   onForget,
   onToggleFavorite,
   onBrowse,
@@ -335,6 +353,24 @@ export function WorkspacePicker({
             >
               <RefreshCw size={12} />
               Reload
+            </button>
+          )}
+          {/*
+            Next to Reload because both act on the folder that is open, and
+            away from Forget in the rows above — one leaves a project, the
+            other throws away what was remembered about it.
+          */}
+          {root && (
+            <button
+              className="editor-dialog-btn flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium"
+              onClick={() => {
+                onCloseFolder();
+                onClose();
+              }}
+              title="Leave this folder — it stays in this list, with its tabs"
+            >
+              <FolderMinus size={12} />
+              Close Folder
             </button>
           )}
           <div className="flex-1" />

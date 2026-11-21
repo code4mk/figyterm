@@ -1,5 +1,6 @@
 import React from "react";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
+import { Mermaid } from "./Mermaid";
 
 /**
  * A GitHub-flavoured Markdown renderer.
@@ -31,9 +32,12 @@ import { open as openExternal } from "@tauri-apps/plugin-shell";
  *   `<details>` is the one exception, special-cased below, because collapsed
  *   sections are too common in READMEs to drop — and it's matched as whole
  *   lines, with no attributes carried through.
- * - **Math and Mermaid.** Both mean shipping a renderer (KaTeX, Mermaid) an
- *   order of magnitude larger than this file. Their source shows as a code
- *   block, which is at least readable.
+ * - **Math.** KaTeX is a renderer an order of magnitude larger than this file,
+ *   and its source shows as a code block, which is at least readable.
+ *
+ * Mermaid *is* covered, and only in the `document` variant — see `Mermaid` for
+ * why a diagram is the one thing allowed to inject markup, and why the release
+ * notes deliberately do not get it.
  * - **Emoji shortcodes.** `:tada:` needs GitHub's several-thousand-entry map.
  * - **Underscore italics.** `_x_` needs a word-boundary rule to avoid mangling
  *   `snake_case` identifiers, and that needs lookbehind, which isn't safe to
@@ -599,6 +603,28 @@ function renderBlocks(lines: string[], ctx: Context, lineOffset = 0): React.Reac
         index++;
       }
       index++; // the closing fence, or the end of input
+
+      const source = (
+        <pre className={doc ? CODE_DOC : CODE_COMPACT}>
+          <code>{body.join("\n")}</code>
+        </pre>
+      );
+
+      /*
+        A diagram, in the editor's preview of a local file.
+
+        Not in `compact`, which is the release-notes path: that renders remote,
+        author-controlled text and keeps the no-markup-injection guarantee this
+        file is built on. There the fence stays a code block, as it always was.
+        `Mermaid` explains the rest of the reasoning.
+      */
+      if (doc && language?.toLowerCase() === "mermaid" && body.join("").trim()) {
+        blocks.push(
+          <Mermaid key={ctx.next()} code={body.join("\n")} fallback={source} />
+        );
+        continue;
+      }
+
       blocks.push(
         <div key={ctx.next()} className="relative">
           {/* The fence's language, where it declared one — worth seeing in a
@@ -608,9 +634,7 @@ function renderBlocks(lines: string[], ctx: Context, lineOffset = 0): React.Reac
               {language}
             </span>
           )}
-          <pre className={doc ? CODE_DOC : CODE_COMPACT}>
-            <code>{body.join("\n")}</code>
-          </pre>
+          {source}
         </div>
       );
       continue;

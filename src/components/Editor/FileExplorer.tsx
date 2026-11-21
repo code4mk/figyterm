@@ -45,7 +45,11 @@ import { EditorDialog } from "./EditorDialog";
 import { MoveToFolder } from "./MoveToFolder";
 
 /**
- * The file tree, pinned to the right of the editor.
+ * The file tree, down one side of the editor.
+ *
+ * Which side is a setting — left by default, where every editor people have
+ * used puts one. See `SidePanelSide`; nothing in here depends on the answer
+ * beyond the border the stylesheet puts on the edge facing the text.
  *
  * Virtualized, and not optionally: expanding `node_modules` in a real project
  * is 40,000 rows, and rendering that as DOM locks the window for seconds. Rows

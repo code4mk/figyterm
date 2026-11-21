@@ -584,7 +584,10 @@ export function AppShell() {
   }, [closeApi]);
 
   /** The editor's undo/redo, while it is mounted and holding the keyboard. */
-  const editorHistoryRef = useRef<((command: "undo" | "redo") => boolean) | null>(null);
+  /** The editor's handler for the chords the native menu owns; see `runMenuChord`. */
+  const editorChordRef = useRef<
+    ((command: "undo" | "redo" | "selectAll") => boolean) | null
+  >(null);
 
   /**
    * ⌘Z / ⇧⌘Z, on macOS only — see `menu.rs`.
@@ -594,9 +597,18 @@ export function AppShell() {
    * stack is the correct one and `execCommand` is how to reach it now that the
    * menu no longer performs it directly.
    */
-  const runHistoryCommand = useCallback((command: "undo" | "redo") => {
-    if (editorHistoryRef.current?.(command)) return;
-    document.execCommand(command);
+  /**
+   * A chord the native macOS menu owns, offered to the editor first.
+   *
+   * The editor declines unless its text actually holds the keyboard, in which
+   * case the webview's own handling is the right answer — the caret is in a
+   * search field or the quick-open box, and `selectAll` there means that
+   * field. See `menu.rs` for why these three cannot simply be bound in the
+   * webview.
+   */
+  const runMenuChord = useCallback((command: "undo" | "redo" | "selectAll") => {
+    if (editorChordRef.current?.(command)) return;
+    document.execCommand(command === "selectAll" ? "selectAll" : command);
   }, []);
 
   /** A path clicked in terminal output; see the link provider in `Terminal.tsx`. */
@@ -727,8 +739,9 @@ export function AppShell() {
         else if (editorOpenRef.current) setEditorCloseTab((count) => count + 1);
         else void getCurrentWindow().close();
       }),
-      listenToSelf("menu://undo", () => runHistoryCommand("undo")),
-      listenToSelf("menu://redo", () => runHistoryCommand("redo")),
+      listenToSelf("menu://undo", () => runMenuChord("undo")),
+      listenToSelf("menu://redo", () => runMenuChord("redo")),
+      listenToSelf("menu://select-all", () => runMenuChord("selectAll")),
     ];
 
     return () => {
@@ -749,7 +762,7 @@ export function AppShell() {
     toggleClaude,
     toggleDrawing,
     toggleApi,
-    runHistoryCommand,
+    runMenuChord,
   ]);
 
   useEffect(() => {
@@ -990,7 +1003,7 @@ export function AppShell() {
               onOpenTerminal={createTab}
               openRequest={editorRequest}
               closeTabRequest={editorCloseTab}
-              historyRef={editorHistoryRef}
+              chordRef={editorChordRef}
             />
           </Suspense>
         </OverlayBoundary>

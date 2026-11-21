@@ -17,6 +17,7 @@ import {
   DiffLayout,
   DiffStyle,
   EditorSettings,
+  SidePanelSide,
 } from "../../services/editor-session";
 import { lsp, LspServerState } from "../../services/lsp/manager";
 import { installHint } from "../../services/lsp/servers";
@@ -65,6 +66,11 @@ const TABS: { id: SettingsTab; label: string; icon: ReactNode }[] = [
 const FONT_SIZES = [10, 11, 12, 13, 14, 15, 16, 18, 20];
 const LINE_HEIGHTS = [1.2, 1.35, 1.5, 1.55, 1.7, 2];
 const INDENT_WIDTHS = [2, 4, 8];
+
+const SIDE_PANEL_SIDES: { value: SidePanelSide; label: string }[] = [
+  { value: "left", label: "Left" },
+  { value: "right", label: "Right" },
+];
 
 const DIFF_LAYOUTS: { value: DiffLayout; label: string }[] = [
   { value: "unified", label: "Unified" },
@@ -282,6 +288,22 @@ export function EditorSettingsModal({
                     options={LINE_HEIGHTS.map((height) => ({
                       value: String(height),
                       label: height.toFixed(2).replace(/0$/, ""),
+                    }))}
+                  />
+                </Row>
+
+                <Row
+                  label="File tree and source control"
+                  hint="Which side of the editor the explorer, search and git column sits on"
+                >
+                  <Select
+                    value={settings.sidePanelSide}
+                    onChange={(value) =>
+                      onChange({ sidePanelSide: value as SidePanelSide })
+                    }
+                    options={SIDE_PANEL_SIDES.map((option) => ({
+                      value: option.value,
+                      label: option.label,
                     }))}
                   />
                 </Row>

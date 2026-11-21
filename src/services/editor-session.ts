@@ -132,6 +132,8 @@ export interface EditorSettings {
   fontSize: number;
   lineHeight: number;
   indentGuides: boolean;
+  /** Which side the explorer, search and source control column sits on. */
+  sidePanelSide: SidePanelSide;
   /**
    * Who last changed the line the cursor is on, shown at the end of it.
    *
@@ -229,6 +231,20 @@ export type DiffLayout = "unified" | "split";
  */
 export type DiffStyle = "github" | "gitlab" | "vscode" | "delta" | "plain";
 
+/**
+ * Which side of the editor the explorer, search and source control sit on.
+ *
+ * **Left by default**, where every editor people have used puts a file tree —
+ * VS Code, JetBrains, Sublime, Xcode. It started on the right because the
+ * screenshot this was built from had it there, and that is a reason to offer
+ * the choice rather than a reason to make it for everybody.
+ *
+ * It is one setting for all three panels because they share the column: they
+ * are alternatives to each other, not three things that could be in three
+ * places.
+ */
+export type SidePanelSide = "left" | "right";
+
 export interface PersistedDraft {
   /** Null for a scratch buffer that was never saved anywhere. */
   path: string | null;
@@ -247,6 +263,7 @@ export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   // fits a useful number of lines in a modal this size.
   lineHeight: 1.55,
   indentGuides: true,
+  sidePanelSide: "left",
   gitBlame: true,
   useTabs: false,
   indentWidth: 2,
@@ -361,6 +378,7 @@ function sanitizeLspServers(stored: unknown): Record<string, LspServerOverride> 
   return clean;
 }
 
+const SIDE_PANEL_SIDES: SidePanelSide[] = ["left", "right"];
 const DIFF_LAYOUTS: DiffLayout[] = ["unified", "split"];
 const DIFF_STYLES: DiffStyle[] = ["github", "gitlab", "vscode", "delta", "plain"];
 
@@ -402,6 +420,12 @@ export function loadSession(): PersistedSession {
     merged.settings.lineHeight = clamp(merged.settings.lineHeight, 1, 3);
     merged.settings.indentWidth = clamp(merged.settings.indentWidth, 1, 8);
     merged.settings.lsp = merged.settings.lsp === true;
+    // Checked against the known values for the same reason the diff ones are:
+    // it decides a layout, and a stored string from a hand-edited session
+    // would put the panel on neither side.
+    if (!SIDE_PANEL_SIDES.includes(merged.settings.sidePanelSide)) {
+      merged.settings.sidePanelSide = DEFAULT_EDITOR_SETTINGS.sidePanelSide;
+    }
     merged.settings.lspServers = sanitizeLspServers(parsed.settings?.lspServers);
     merged.settings.lspCustom = sanitizeLspCustom(parsed.settings?.lspCustom);
     return merged;

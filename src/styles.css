@@ -1837,16 +1837,37 @@
 }
 
 /* Explorer and Source Control, as one segmented switcher. */
+/*
+  The side column's switcher, drawn as the source-control panel's own tabs are.
+
+  Deliberately the same control in two places: Files / Search / Git chooses
+  what the column *is*, and Changes / History / Stashes chooses what one of
+  those shows. They are one level apart in the same column, so they read as
+  nested when they look alike and as unrelated when they do not — which is
+  what a boxed segmented control up here did.
+
+  It keeps the underline **and** a tint, which the source-control tabs do not
+  need. Those sit alone in a row of their own, against that row's bottom rule,
+  where a 2px line is unmissable. These sit in a toolbar among other controls
+  and against the toolbar's own border — an underline alone was read as part
+  of the chrome, and the active tab became impossible to pick out. The tint is
+  what carries the state here; the underline is what ties it to the tabs below.
+*/
 .editor-panel-switch {
-  border: 1px solid #2a2f37;
-  border-radius: 5px;
-  overflow: hidden;
-  margin-right: 2px;
+  /* Symmetric, because the group it sits in is reversed when the panel is on
+     the left and a margin on one side would then be on the wrong one. */
+  margin-inline: 2px;
 }
 
 .editor-panel-tab {
   color: #8b949e;
-  transition: color 0.12s ease, background 0.12s ease;
+  border-bottom: 2px solid transparent;
+  border-radius: 4px 4px 0 0;
+  transition: color 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+}
+
+.editor-panel-label {
+  white-space: nowrap;
 }
 
 .editor-panel-tab:hover {
@@ -1857,6 +1878,24 @@
 .editor-panel-tab.on {
   color: #a5b4fc;
   background: rgba(99, 102, 241, 0.16);
+  border-bottom-color: #6366f1;
+}
+
+/*
+  The mode the column is on while the column itself is hidden.
+
+  Collapsing used to leave all three looking alike, so nothing said which one
+  ⌘B would bring back — the choice was still there, just invisible, and the
+  only way to find out was to open it. This says which, and says it in the
+  accent so it reads as the same selection.
+
+  Marked without the fill on purpose: the difference between *selected* and
+  *selected and open* is exactly the difference between these two rules, so
+  the pair tells you both things at once instead of one of them.
+*/
+.editor-panel-tab.standby {
+  color: #a5b4fc;
+  border-bottom-color: rgba(99, 102, 241, 0.5);
 }
 
 /*
@@ -1963,6 +2002,40 @@
 .editor-toolbar {
   background: #12151a;
   border-bottom: 1px solid #2a2f37;
+}
+
+/*
+  A rule between the panel's own controls and the rest of the bar.
+
+  Without it the toolbar is one unbroken row of icons: the file arrows sit
+  straight against the panel switcher, and nothing says that three of them act
+  on the column beside you and the next two act on the file in front of you.
+  Short of the bar's full height on purpose — a full-height rule reads as a
+  structural edge, and this is a comma, not a wall.
+
+  It is always the group's *first* child, which lands it on the correct side
+  either way: in normal order it draws to the group's left, and under
+  `flex-row-reverse` — which is how the group sits when the panel is on the
+  left — it draws to its right. Both face the rest of the bar.
+*/
+.editor-toolbar-sep {
+  /*
+    The divider's width, not the line's. The box has to occupy exactly what
+    `.editor-divider` does below it, because that is what makes the two line
+    up; the hairline is drawn centred inside it.
+  */
+  width: 4px;
+  flex: none;
+  align-self: stretch;
+  display: flex;
+  justify-content: center;
+}
+
+.editor-toolbar-sep::before {
+  content: "";
+  width: 1px;
+  margin: 3px 0;
+  background: #2a2f37;
 }
 
 .editor-breadcrumb {
@@ -2365,11 +2438,172 @@
   background: #6366f1;
 }
 
+/* ── The editor with no folder open ─────────────────────────────────────── */
+
+.editor-welcome {
+  background: #12151a;
+}
+
+.editor-welcome-icon {
+  color: #6366f1;
+  opacity: 0.85;
+  margin-bottom: 0.2rem;
+}
+
+.editor-welcome-primary {
+  background: #6366f1;
+  color: #ffffff;
+  transition: background 0.12s ease;
+}
+
+.editor-welcome-primary:hover {
+  background: #4f46e5;
+}
+
+.editor-welcome-secondary {
+  background: rgba(255, 255, 255, 0.07);
+  color: #e6edf3;
+  transition: background 0.12s ease;
+}
+
+.editor-welcome-secondary:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.editor-welcome-label {
+  color: #5d636e;
+}
+
+.editor-welcome-row {
+  color: #b6bec8;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.editor-welcome-row:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #e6edf3;
+}
+
+.editor-welcome-path {
+  color: #5d636e;
+}
+
+.editor-welcome-pinned {
+  color: #d29922;
+}
+
+/*
+  The tab count a folder was left with. A number rather than a list: it is the
+  reason to pick this folder over the one below it, and the files themselves
+  come back the moment it opens.
+*/
+.editor-welcome-count {
+  color: #5d636e;
+}
+
+.light .editor-welcome {
+  background: #ffffff;
+}
+
+.light .editor-welcome-secondary {
+  background: rgba(0, 0, 0, 0.05);
+  color: #111827;
+}
+
+.light .editor-welcome-secondary:hover {
+  background: rgba(0, 0, 0, 0.09);
+}
+
+.light .editor-welcome-row {
+  color: #374151;
+}
+
+.light .editor-welcome-row:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: #111827;
+}
+
+.light .editor-welcome-label,
+.light .editor-welcome-path,
+.light .editor-welcome-count {
+  color: #9ca3af;
+}
+
+.light .editor-welcome-pinned {
+  color: #9a6700;
+}
+
+/* ── Markdown preview: Mermaid ──────────────────────────────────────────── */
+
+/*
+  Centred, and allowed to scroll rather than to stretch the pane.
+
+  A sequence diagram with a dozen participants is wider than any preview
+  column, and the two honest answers are shrink-to-fit or scroll. Scroll,
+  because a diagram shrunk to a quarter of its size is a picture of a diagram
+  rather than one you can read.
+*/
+.editor-mermaid {
+  /*
+    A block, not a flex row. A flex container gives an SVG that carries only a
+    `viewBox` no definite size to resolve against, and it collapses to nothing
+    — which is a diagram that was drawn correctly and cannot be seen. Centring
+    is the child's own margin instead.
+  */
+  display: block;
+  overflow-x: auto;
+  margin: 0.9rem 0;
+  padding: 0.6rem 0.2rem;
+}
+
+.editor-mermaid svg {
+  display: block;
+  margin: 0 auto;
+  max-width: 100%;
+  height: auto;
+}
+
+/* Two classes, so this beats the `display: block` above whatever the order. */
+.editor-mermaid.is-pending {
+  display: none;
+}
+
+/*
+  A diagram mid-sentence is the ordinary state of one being typed, so the note
+  is quiet and the source stays underneath — you keep editing what you can see
+  rather than a blank space where a picture should be.
+*/
+.editor-mermaid-failed {
+  margin: 0.9rem 0;
+}
+
+.editor-mermaid-note {
+  font-size: 10px;
+  color: #d29922;
+  margin-bottom: 0.3rem;
+}
+
+.light .editor-mermaid-note {
+  color: #9a6700;
+}
+
 /* File explorer */
 
 .editor-explorer {
   background: #171b21;
   border-left: 1px solid #2a2f37;
+}
+
+/*
+  The panel's edge belongs on whichever side faces the editor, so a panel moved
+  to the left loses its left border and grows a right one. Set on the wrapper
+  rather than on each of the three panels, which share the column and would
+  otherwise each need the same pair of rules.
+*/
+.editor-sidepanel.on-left .editor-explorer,
+.editor-sidepanel.on-left .editor-search-panel {
+  border-left: none;
+  border-right: 1px solid #2a2f37;
 }
 
 .editor-explorer-header {
@@ -3018,6 +3252,10 @@
   border-bottom: 1px solid #e2e5eb;
 }
 
+.light .editor-toolbar-sep::before {
+  background: #e2e5eb;
+}
+
 .light .editor-crumb {
   color: #6b7280;
 }
@@ -3081,6 +3319,12 @@
 .light .editor-search-panel {
   background: #f7f8fa;
   border-left: 1px solid #e2e5eb;
+}
+
+.light .editor-sidepanel.on-left .editor-explorer,
+.light .editor-sidepanel.on-left .editor-search-panel {
+  border-left: none;
+  border-right: 1px solid #e2e5eb;
 }
 
 .light .editor-explorer-header,
@@ -5428,19 +5672,12 @@
 
 /* A dot rather than a number: the count is in the panel, and this only has to
    say that there is something to look at. */
-.editor-status-dot,
-.editor-btn-dot {
+.editor-status-dot {
   width: 5px;
   height: 5px;
   border-radius: 50%;
   background: #d29922;
   display: inline-block;
-}
-
-.editor-btn-dot {
-  position: absolute;
-  top: 2px;
-  right: 2px;
 }
 
 /* ── Git: diff view ─────────────────────────────────────────────────────── */
@@ -5937,8 +6174,7 @@
 }
 
 .light .editor-row-git-dot,
-.light .editor-status-dot,
-.light .editor-btn-dot {
+.light .editor-status-dot {
   background: #9a6700;
 }
 
@@ -5960,10 +6196,6 @@
   color: #9a6700;
 }
 
-.light .editor-panel-switch {
-  border-color: #e2e5eb;
-}
-
 .light .editor-panel-tab {
   color: #6b7280;
 }
@@ -5976,6 +6208,12 @@
 .light .editor-panel-tab.on {
   color: #4338ca;
   background: rgba(79, 70, 229, 0.12);
+  border-bottom-color: #4f46e5;
+}
+
+.light .editor-panel-tab.standby {
+  color: #4338ca;
+  border-bottom-color: rgba(79, 70, 229, 0.45);
 }
 
 .light .editor-scm-sync,

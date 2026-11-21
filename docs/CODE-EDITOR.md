@@ -8,7 +8,7 @@ integration. The `figy edit` CLI shim is still not wanted — see
 and isn't done.
 
 Reference: the screenshot in [`issues/`](./issues) — Cursor's editor pane with a
-file tree pinned to the right, file tabs across the top, and a breadcrumb bar
+file tree down one side, file tabs across the top, and a breadcrumb bar
 under them. That's the shape we're copying. What follows is how it should be
 built here, and what it needs to be worth opening twice.
 

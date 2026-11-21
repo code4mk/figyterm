@@ -37,6 +37,8 @@ pub const MENU_CLOSE_WINDOW: &str = "window_close";
 pub const MENU_UNDO: &str = "edit_undo";
 #[cfg(target_os = "macos")]
 pub const MENU_REDO: &str = "edit_redo";
+#[cfg(target_os = "macos")]
+pub const MENU_SELECT_ALL: &str = "edit_select_all";
 
 const EVENT_NEW_WINDOW: &str = "menu://new-window";
 const EVENT_NEW_TAB: &str = "menu://new-tab";
@@ -63,6 +65,8 @@ const EVENT_CLOSE_WINDOW: &str = "menu://close-window";
 const EVENT_UNDO: &str = "menu://undo";
 #[cfg(target_os = "macos")]
 const EVENT_REDO: &str = "menu://redo";
+#[cfg(target_os = "macos")]
+const EVENT_SELECT_ALL: &str = "menu://select-all";
 
 /// An accelerator spelled for the platform it runs on.
 ///
@@ -365,15 +369,27 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
       own history and has to be asked directly, so the frontend decides: the
       editor when it has focus, the webview's own undo for any other field.
 
-      Cut, copy, paste and select all stay predefined. Those genuinely are the
-      webview's to perform — CodeMirror listens for the `copy`, `cut` and
-      `paste` DOM events they produce — and on macOS an Edit menu holding them
-      is what makes the clipboard work in a WKWebView at all.
+      Cut, copy and paste stay predefined. Those genuinely are the webview's
+      to perform — CodeMirror listens for the `copy`, `cut` and `paste` DOM
+      events they produce — and on macOS an Edit menu holding them is what
+      makes the clipboard work in a WKWebView at all.
+
+      **Select All is not one of them, though it reads like one.** The
+      predefined item owns ⌘A, so the chord becomes WebKit's `selectAll:` over
+      the DOM — and CodeMirror only *has* the visible lines in the DOM. It
+      renders a window onto the document, so selecting the DOM selects the
+      viewport, and ⌘A followed by ⌘C on a long file copied the part that
+      happened to be on screen. Routed through the frontend, the editor sets
+      its own selection over the whole document, which is what copy then
+      reads.
     */
     #[cfg(target_os = "macos")]
     let undo_item = MenuItem::with_id(app, MENU_UNDO, "Undo", true, Some("CmdOrCtrl+Z"))?;
     #[cfg(target_os = "macos")]
     let redo_item = MenuItem::with_id(app, MENU_REDO, "Redo", true, Some("CmdOrCtrl+Shift+Z"))?;
+    #[cfg(target_os = "macos")]
+    let select_all_item =
+        MenuItem::with_id(app, MENU_SELECT_ALL, "Select All", true, Some("CmdOrCtrl+A"))?;
 
     // `PredefinedMenuItem::minimize` carries CmdOrCtrl+M, and off macOS that is
     // Ctrl+M — which is carriage return. A menu that holds it swallows every
@@ -452,7 +468,7 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
                     &PredefinedMenuItem::cut(app, None)?,
                     &PredefinedMenuItem::copy(app, None)?,
                     &PredefinedMenuItem::paste(app, None)?,
-                    &PredefinedMenuItem::select_all(app, None)?,
+                    &select_all_item,
                 ],
             )?,
             #[cfg(not(target_os = "macos"))]
@@ -561,6 +577,8 @@ pub fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
         MENU_UNDO => emit_focused(app, EVENT_UNDO),
         #[cfg(target_os = "macos")]
         MENU_REDO => emit_focused(app, EVENT_REDO),
+        #[cfg(target_os = "macos")]
+        MENU_SELECT_ALL => emit_focused(app, EVENT_SELECT_ALL),
         _ => Ok(()),
     };
     if let Err(err) = result {

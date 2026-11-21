@@ -11,21 +11,28 @@ import {
   Copy,
   Crosshair,
   Eye,
+  EyeOff,
   FilePlus,
   FolderInput,
+  FolderOpen,
+  FolderSearch,
   FolderTree,
   GitBranch,
   ListOrdered,
   Maximize2,
   Minus,
   Minimize2,
-  PanelRight,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
   PenLine,
   PictureInPicture2,
   Redo2,
   Save,
   Scissors,
   Settings2,
+  Star,
   Search,
   SquareArrowOutUpRight,
   TextSearch,
@@ -63,7 +70,12 @@ import {
   statPath,
   writeTextFile,
 } from "../../services/editor-fs";
-import { clearDraft, listDrafts, saveDraft } from "../../services/editor-session";
+import {
+  clearDraft,
+  listDrafts,
+  saveDraft,
+  Workspace,
+} from "../../services/editor-session";
 import {
   GitCommit,
   GitCommitFile,
@@ -94,7 +106,7 @@ import {
 import { setLspHost } from "./lsp";
 import { findBySlug, parseOutline } from "../../services/markdown-outline";
 import { isLinux, isMac, platform } from "../../services/platform";
-import { normalizeDir } from "../../services/recent-dirs";
+import { collapseHome, normalizeDir } from "../../services/recent-dirs";
 import { ContextMenu, ContextMenuItem, ContextMenuSeparator } from "./ContextMenu";
 import { DiffView } from "./DiffView";
 import { EditorSettingsModal } from "./EditorSettingsModal";
@@ -134,6 +146,61 @@ const MAX_EXPLORER = 520;
 
 const MIN_PREVIEW = 240;
 const MAX_PREVIEW = 1200;
+
+/**
+ * The toolbar's own horizontal padding, and the divider's width, in pixels.
+ *
+ * Named because the panel controls' width is derived from them: the toolbar is
+ * padded and the row below it is not, so a group that simply matched the
+ * panel's width would sit one padding to the side of it. Mirrors `px-2` on the
+ * toolbar and `.editor-divider` in the stylesheet — change either and change
+ * these.
+ */
+const TOOLBAR_PAD = 8;
+const DIVIDER_W = 4;
+
+/**
+ * Below this panel width the switcher's tabs lose their labels.
+ *
+ * Measured against what the three words need rather than picked round: at the
+ * default 260 they sit comfortably, and by `MIN_EXPLORER` (180) they would be
+ * ellipses. Half a word is worse than the icon alone, so they are dropped
+ * rather than truncated.
+ */
+const LABELLED_CONTROLS = 230;
+
+/**
+ * The three modes the side column can be in.
+ *
+ * A table because they are three of a kind — the same control, the same
+ * state, differing only in which value they select — and written out three
+ * times they drifted: search was a loose button outside the group the other
+ * two shared.
+ */
+const PANEL_MODES = [
+  {
+    id: "files" as const,
+    label: "Files",
+    aria: "Explorer",
+    title: "Explorer — the file tree (⌘B)",
+    icon: <FolderTree size={13} />,
+  },
+  {
+    id: "search" as const,
+    label: "Search",
+    aria: "Search in folder",
+    title: "Search in folder (⌘⇧F)",
+    icon: <TextSearch size={13} />,
+  },
+  {
+    id: "git" as const,
+    label: "Git",
+    aria: "Source control",
+    // Filled in per render: it counts the changes.
+    title: "Source control",
+    icon: <GitBranch size={13} />,
+  },
+];
 
 /** The editor itself never gets dragged narrower than this. */
 const MIN_EDITOR = 320;
@@ -189,15 +256,22 @@ interface EditorModalProps {
    */
   closeTabRequest: number;
   /**
-   * Filled in with a handler for ⌘Z and ⇧⌘Z, which arrive the same way and for
-   * the same reason.
+   * Filled in with a handler for the chords the native menu owns — ⌘Z, ⇧⌘Z
+   * and ⌘A — which all arrive this way and for the same reason.
+   *
+   * ⌘A is here because CodeMirror renders a *window* onto the document: only
+   * the visible lines are in the DOM, so WebKit's own `selectAll:` selects the
+   * viewport and a following ⌘C copied whatever happened to be on screen. The
+   * editor has to set its own selection over the whole document instead.
    *
    * A callback rather than a counted prop: undo is held down and repeated, and
    * two presses in one React batch would collapse into a single re-render and
    * so into a single undo. It returns whether the editor took the chord, so
-   * `AppShell` knows whether to fall back to the webview's own undo.
+   * `AppShell` knows whether to fall back to the webview's own.
    */
-  historyRef: React.MutableRefObject<((command: "undo" | "redo") => boolean) | null>;
+  chordRef: React.MutableRefObject<
+    ((command: "undo" | "redo" | "selectAll") => boolean) | null
+  >;
 }
 
 /**
@@ -304,6 +378,56 @@ function within(dir: string, path: string): boolean {
   return target.startsWith(root) && /[\\/]/.test(target.charAt(root.length));
 }
 
+/**
+ * The home directory, asked for once and remembered.
+ *
+ * Asked for here rather than read from `collapseHome`, which also knows it:
+ * that copy is set as a side effect inside `Terminal.tsx` after an IPC call,
+ * so whether it is there yet when the editor first opens is a race. Losing
+ * that race is silent and looks exactly like the bug it was meant to fix —
+ * the check says "not home", the editor adopts home, and the file tree fills
+ * with Downloads and Library.
+ *
+ * Memoised at module level, so every window and every open shares the one
+ * call.
+ */
+let homeLookup: Promise<string | null> | null = null;
+
+function homeDirectory(): Promise<string | null> {
+  if (!homeLookup) {
+    homeLookup = invoke<string>("get_home_dir").catch(() => null);
+  }
+  return homeLookup;
+}
+
+/**
+ * Folders the editor will not take as a workspace, however it was asked.
+ *
+ * Not a preference — a workspace is recursively listed, recursively searched
+ * and recursively *watched*, and at this size all three stop working at once:
+ * the tree is unreadable, quick open gives up at its cap, and the watcher
+ * spends a descriptor per directory until the kernel refuses it more. None of
+ * these is anybody's project either, which is the simpler reason.
+ *
+ * Four of them: the filesystem root, the folder every account lives under, and
+ * this account's own folder — the last being where a shell starts when it has
+ * not been pointed anywhere, and so the one that kept arriving by accident.
+ *
+ * Applied to **every** route in, including a root remembered from a previous
+ * session. One of those stored before this rule existed should not keep
+ * reopening forever.
+ */
+function tooBroadForWorkspace(dir: string, home: string | null): boolean {
+  const path = normalizeDir(dir.trim());
+  if (!path) return true;
+  // `/`, or a bare drive letter with or without its separator.
+  if (path === "/" || /^[A-Za-z]:[/\\]?$/.test(path)) return true;
+  // `/Users`, `/home`, `C:\Users` — the container, not an account.
+  if (/^\/(Users|home)$/i.test(path)) return true;
+  if (/^[A-Za-z]:[/\\]Users$/i.test(path)) return true;
+  return !!home && sameFolder(path, home);
+}
+
 function sameFolder(a: string | null, b: string | null): boolean {
   if (!a || !b) return false;
   const left = normalizeDir(a);
@@ -326,7 +450,7 @@ export function EditorModal({
   onOpenTerminal,
   openRequest,
   closeTabRequest,
-  historyRef,
+  chordRef,
 }: EditorModalProps) {
   const {
     root,
@@ -367,6 +491,7 @@ export function EditorModal({
     setDiffStyle,
     setEditorSettings,
     setPythonPath,
+    closeWorkspace,
     resetEditorSettings,
     toggleExpanded,
     collapse,
@@ -445,7 +570,7 @@ export function EditorModal({
   /** Files a discard is waiting to be confirmed for. */
   const [discardPrompt, setDiscardPrompt] = useState<GitFile[] | null>(null);
   /**
-   * What the right-hand panel is showing.
+   * What the side panel is showing.
    *
    * One mode rather than a boolean per panel: they're mutually exclusive, and
    * separate flags would let two of them claim the column at once. The outline
@@ -511,13 +636,48 @@ export function EditorModal({
    * the editor", and the tree sat on "Reading…" for the rest of the session.
    */
   const [rootReady, setRootReady] = useState(false);
+  /**
+   * Whether the question "which folder" has been answered yet.
+   *
+   * Adopting one takes a round trip — the home lookup, then `fs_set_roots` —
+   * and `root` is null throughout. Rendering the welcome on that alone would
+   * flash "Open a folder to start" in front of somebody whose project is
+   * already on its way, so the screen waits to be sure there is nothing
+   * coming.
+   */
+  const [workspaceSettled, setWorkspaceSettled] = useState(false);
+  /**
+   * The home directory, for the one question that has to be asked of it:
+   * is the folder on offer actually a project, or just where a shell starts?
+   */
+  const [homeDir, setHomeDir] = useState<string | null>(null);
   const [conflictFor, setConflictFor] = useState<string | null>(null);
   const [closePrompt, setClosePrompt] = useState<string | null>(null);
   const [saveAsFor, setSaveAsFor] = useState<string | null>(null);
   const [draftPrompt, setDraftPrompt] = useState<ReturnType<typeof listDrafts> | null>(null);
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   /** A folder waiting on the user to deal with unsaved files first. */
-  const [pendingWorkspace, setPendingWorkspace] = useState<string | null>(null);
+  /**
+   * A folder change waiting on the user to deal with unsaved files first.
+   *
+   * One shape for both, because they are the same question asked of the same
+   * tabs: opening another folder and leaving this one each close everything
+   * that is open, and only the verb differs. Two dialogs would be two places
+   * to keep the save-all logic correct.
+   */
+  const [pendingWorkspace, setPendingWorkspace] = useState<
+    { kind: "open"; root: string } | { kind: "close" } | null
+  >(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void homeDirectory().then((home) => {
+      if (!cancelled) setHomeDir(home);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const modalRef = useRef<HTMLDivElement>(null);
   const surfaceRef = useRef<EditorSurfaceHandle>(null);
@@ -737,16 +897,31 @@ export function EditorModal({
    */
   const requestWorkspace = useCallback(
     (dir: string, force = false) => {
+      /*
+        Refused here rather than only where folders are suggested, because this
+        is the one road every route in goes down — the picker, the welcome's
+        list, the Open Folder dialog and a path clicked in terminal output. A
+        browse dialog will happily hand back `/`, and the editor cannot usefully
+        be rooted there; saying so is better than appearing to work and then
+        spending the session walking the filesystem.
+      */
+      if (tooBroadForWorkspace(dir, homeDir)) {
+        setError(
+          `${basename(normalizeDir(dir)) || dir} is too broad to open as a folder — pick a project inside it.`
+        );
+        return;
+      }
+
       // Re-opening the folder already open would discard its tabs to restore
       // the same ones; "Reload" passes `force` to ask for that on purpose.
       if (dir === root && !force) return;
       if (useEditorStore.getState().buffers.some((buffer) => buffer.dirty)) {
-        setPendingWorkspace(dir);
+        setPendingWorkspace({ kind: "open", root: dir });
         return;
       }
       void enterWorkspace(dir);
     },
-    [root, enterWorkspace]
+    [root, homeDir, enterWorkspace]
   );
 
   /**
@@ -767,6 +942,37 @@ export function EditorModal({
       await reconcileRef.current?.(null);
     })();
   }, [root, registerRoot, refreshTree]);
+
+  /**
+   * Leaves the folder without opening another.
+   *
+   * The backend's roots go with it, so a stale path cannot be read on behalf
+   * of a window that has no folder; the watcher stops because `useFileWatcher`
+   * is handed a null root and tears itself down.
+   */
+  const leaveWorkspace = useCallback(() => {
+    surfaceRef.current?.forgetAll();
+    setPreview(null);
+    // The setters rather than `closeDiff`, which is declared further down and
+    // would be a temporal-dead-zone throw read from here.
+    setDiffTarget(null);
+    setDiffFocused(false);
+    setQuickOpen(false);
+    setRootReady(false);
+    setWorkspaceSettled(true);
+    closeWorkspace();
+    // Nothing to wait for: the editor is already showing the welcome by the
+    // time this lands, and a failure means the roots were already gone.
+    void setRoots([]).catch(() => {});
+  }, [closeWorkspace]);
+
+  const requestLeaveWorkspace = useCallback(() => {
+    if (useEditorStore.getState().buffers.some((buffer) => buffer.dirty)) {
+      setPendingWorkspace({ kind: "close" });
+      return;
+    }
+    leaveWorkspace();
+  }, [leaveWorkspace]);
 
   const browseForWorkspace = useCallback(() => {
     void (async () => {
@@ -967,13 +1173,34 @@ export function EditorModal({
 
     let cancelled = false;
     void (async () => {
-      // The focused pane's folder wins over the last session's: opening the
-      // editor from a shell sitting in a project should land on that project.
-      let desired = cwd ?? root ?? null;
-      if (!desired) {
-        desired = await invoke<string>("get_home_dir").catch(() => null);
+      /*
+        With no folder to adopt there is **no folder**, and the editor says so
+        rather than finding one. It used to fall back to the home directory,
+        which is not a project and is the one folder guaranteed to be enormous
+        — so the first thing a new user saw was a tree of their entire home,
+        Downloads and Library included, with no sign that picking a folder was
+        a step they were meant to take. `WorkspaceWelcome` is what shows
+        instead, and it is the only screen here that exists to be left.
+      */
+      const home = await homeDirectory();
+      if (cancelled) return;
+
+      /*
+        **The shell's folder, or nothing.** The last session's folder is not a
+        fallback: rejecting home and then quietly reopening whatever was last
+        open puts you in a project you did not ask for, which is the thing
+        being complained about rather than a lesser version of it.
+
+        The terminal is the signal. Pointed at a project, that is the project.
+        Pointed at home, it is not pointing anywhere, and the honest answer is
+        to ask — the folder you were in last is still one click away in the
+        welcome's Recent list, where choosing it is a choice.
+      */
+      const desired = cwd && !tooBroadForWorkspace(cwd, home) ? cwd : null;
+      if (!desired || cancelled) {
+        setWorkspaceSettled(true);
+        return;
       }
-      if (!desired || cancelled) return;
 
       // Held across the restore for the same reason a switch holds it: an
       // empty tab strip mid-restore must not overwrite the folder's remembered
@@ -982,26 +1209,38 @@ export function EditorModal({
       const canonical = await applyRoot(desired);
       if (!canonical) {
         setRestoring(false);
+        setWorkspaceSettled(true);
         // Unlatched, so reopening the editor tries again rather than leaving it
         // permanently rootless with an error nobody can act on.
         initStarted.current = false;
         return;
       }
+      setWorkspaceSettled(true);
       if (cancelled || sessionRestored.current) {
         setRestoring(false);
         return;
       }
       sessionRestored.current = true;
 
+      /*
+        The remembered tabs, but only when this is the folder they belong to.
+
+        They are the *active* workspace's, so opening a different project and
+        restoring them anyway meant asking for a dozen files that are outside
+        the folder now open. Each one was refused and skipped, so it looked
+        like nothing happened — a quiet dozen failed reads on every launch
+        that started somewhere new.
+      */
       const previous = restorableSession();
+      const mine = sameFolder(canonical, previous.root);
       // Files that have since been deleted or moved out of the root are
       // skipped silently — a restored session shouldn't open with a stack of
       // errors about last week's branch.
-      for (const path of previous.openPaths.slice(0, 12)) {
+      for (const path of (mine ? previous.openPaths : []).slice(0, 12)) {
         if (cancelled) return;
         await openPath(path).catch(() => null);
       }
-      if (previous.activePath && !cancelled) {
+      if (mine && previous.activePath && !cancelled) {
         const buffer = useEditorStore.getState().bufferFor(previous.activePath);
         if (buffer) useEditorStore.getState().setActiveBuffer(buffer.id);
       }
@@ -1035,12 +1274,22 @@ export function EditorModal({
     if (!visible || !rootReady || !root) return;
     const target = pendingAdopt.current;
     if (!target) return;
+    /*
+      Held, not decided, until home is known — and `homeDir` is a dependency so
+      this runs again the moment it is. Deciding without it is exactly how a
+      shell sitting in home became the workspace: the guard below reads `null`,
+      says "not home", and the request is consumed before the answer arrives.
+    */
+    if (homeDir === null) return;
     // Cleared before the switch, not after: a cancelled switch must not be
     // retried on the next render.
     pendingAdopt.current = null;
     if (sameFolder(target, root)) return;
+    // Same rule as the first open: a shell sitting in home is not a request to
+    // make home the workspace, least of all over a project already open.
+    if (tooBroadForWorkspace(target, homeDir)) return;
     requestWorkspace(target);
-  }, [visible, rootReady, root, cwd, requestWorkspace]);
+  }, [visible, rootReady, root, cwd, homeDir, requestWorkspace]);
 
   // --- Opening files -------------------------------------------------------
 
@@ -1477,23 +1726,23 @@ export function EditorModal({
   }, [closeTabRequest, activeBufferId, requestCloseBuffer]);
 
   /**
-   * ⌘Z and ⇧⌘Z, likewise by way of the native menu.
+   * ⌘Z, ⇧⌘Z and ⌘A, by way of the native menu.
    *
    * Declined unless the text actually holds the keyboard: with the editor
-   * hidden, or the caret in the search field or the quick-open box, undo is
-   * that field's and `AppShell` should let the webview have it.
+   * hidden, or the caret in the search field or the quick-open box, these are
+   * that field's and `AppShell` should let the webview have them.
    */
   useEffect(() => {
-    historyRef.current = (command) => {
+    chordRef.current = (command) => {
       const surface = surfaceRef.current;
       if (!visible || !surface?.hasFocus()) return false;
       surface.command(command);
       return true;
     };
     return () => {
-      historyRef.current = null;
+      chordRef.current = null;
     };
-  }, [visible, historyRef]);
+  }, [visible, chordRef]);
 
   // --- Terminal integration ------------------------------------------------
 
@@ -1508,9 +1757,23 @@ export function EditorModal({
   // --- Explorer sizing -----------------------------------------------------
 
   /**
-   * Drags a divider for one of the right-hand panes.
+   * Which side of the editor the explorer, search and git column takes.
    *
-   * Both panes sit to the right of the editor, so dragging left widens them.
+   * Declared up here because the resize callbacks below depend on it, and a
+   * `const` read from a dependency array above its own declaration is a
+   * temporal-dead-zone throw on every render rather than a lint.
+   */
+  const panelSide = editorSettings.sidePanelSide;
+
+  /**
+   * Drags the divider beside one of the side panes.
+   *
+   * `side` is which side of the editor the pane is on, and it decides the sign
+   * of the whole gesture: a pane to the *right* of its divider grows as the
+   * pointer moves left, one to the left grows as it moves right. Hard-coded to
+   * the first, the explorer shrank when you dragged it wider the moment it
+   * could sit on the left.
+   *
    * The live width is local state and only committed to the store on release:
    * the store persists to `localStorage`, and writing that on every pointer
    * move would put a synchronous storage write in the middle of a drag.
@@ -1522,6 +1785,7 @@ export function EditorModal({
         width: number;
         min: number;
         max: number;
+        side: "left" | "right";
         onDrag: (width: number | null) => void;
         onCommit: (width: number) => void;
       }
@@ -1532,7 +1796,8 @@ export function EditorModal({
       let latest = pane.width;
 
       const onMove = (ev: PointerEvent) => {
-        const next = pane.width - (ev.clientX - startX);
+        const travelled = ev.clientX - startX;
+        const next = pane.side === "right" ? pane.width - travelled : pane.width + travelled;
         latest = Math.min(pane.max, Math.max(pane.min, next));
         pane.onDrag(latest);
       };
@@ -1567,10 +1832,11 @@ export function EditorModal({
         width: explorerWidth,
         min: MIN_EXPLORER,
         max: paneLimit(MAX_EXPLORER, previewOpen && isMarkdown ? previewWidth : 0),
+        side: panelSide,
         onDrag: setDragWidth,
         onCommit: setExplorerWidth,
       }),
-    [startPaneResize, explorerWidth, setExplorerWidth, paneLimit, previewOpen, isMarkdown, previewWidth]
+    [startPaneResize, explorerWidth, setExplorerWidth, paneLimit, previewOpen, isMarkdown, previewWidth, panelSide]
   );
 
   const startPreviewResize = useCallback(
@@ -1579,6 +1845,11 @@ export function EditorModal({
         width: previewWidth,
         min: MIN_PREVIEW,
         max: paneLimit(MAX_PREVIEW, explorerVisible ? explorerWidth : 0),
+        // The preview stays to the right of the text whichever side the panel
+        // takes: panel, editor, preview is the arrangement every editor with
+        // both has, and a preview on the left would put the rendered document
+        // on the far side of the tree from the source it is of.
+        side: "right",
         onDrag: setPreviewDragWidth,
         onCommit: setPreviewWidth,
       }),
@@ -1619,7 +1890,12 @@ export function EditorModal({
     });
   }, [place, reset]);
 
-  const panelShown = explorerVisible;
+  /*
+    No folder, no panel. The explorer, search and source control all describe a
+    folder, so with none open the column has nothing to say — and showed a
+    blank 260px of chrome beside the one screen asking you to pick one.
+  */
+  const panelShown = explorerVisible && !!root;
   const previewShown = previewOpen && isMarkdown;
 
   /**
@@ -2444,6 +2720,232 @@ export function EditorModal({
     : null;
   const saveAsBuffer = saveAsFor ? buffers.find((b) => b.id === saveAsFor) ?? null : null;
 
+  /** Wide enough for the switcher's tabs to be worth labelling. */
+  const wideControls =
+    panelShown && paneWidth(dragWidth ?? explorerWidth) >= LABELLED_CONTROLS;
+
+  const gitPanelTitle = git.isRepo
+    ? `Source control — ${git.files.length} change${git.files.length === 1 ? "" : "s"}`
+    : "Source control";
+
+  /**
+   * The three controls that act on the side panel, kept with the panel.
+   *
+   * They move to whichever side it is on, because a button that opens a column
+   * on the left does not belong at the far right of the bar — the eye looks for
+   * the control where the thing it controls is, which is the whole reason an
+   * activity bar sits against its own sidebar rather than opposite it.
+   *
+   * Reversed rather than written out twice, so the toggle stays the outermost
+   * of the three either way: nearest the window's edge, and so nearest the
+   * panel it shows and hides. Quick open and Settings stay put — a palette and
+   * a dialog are not the panel's, and moving them would be moving furniture
+   * for its own sake.
+   *
+   * The rule is the group's first child and so draws on whichever side faces
+   * the rest of the bar; see `.editor-toolbar-sep`. Without it the panel's
+   * controls and the file arrows run together into one row of icons with
+   * nothing to say they do different things.
+   *
+   * **With the panel open the group is as wide as the panel**, which lands the
+   * rule exactly on the panel's own divider and splits the bar where the view
+   * below it is split — the Finder and Xcode arrangement, and the thing that
+   * makes the icons read as belonging to the column rather than as floating
+   * beside it. The width is the panel's, less the toolbar's padding, plus the
+   * divider the rule stands in for; the row below the toolbar has no padding,
+   * which is the whole of why that arithmetic is needed.
+   *
+   * Hidden, it has no width to spread into and collapses to the icons
+   * themselves, which is the right answer for a group that is then pointing at
+   * nothing.
+   */
+  const panelControls = (
+    <div
+      className={`flex items-center gap-1 shrink-0 ${
+        panelSide === "left" ? "flex-row-reverse" : ""
+      }`}
+      style={
+        panelShown
+          ? {
+              width: paneWidth(dragWidth ?? explorerWidth) - TOOLBAR_PAD + DIVIDER_W,
+              // Never narrower than the icons: a panel dragged to its minimum
+              // in picture-in-picture must not push them out of their own box.
+              minWidth: "fit-content",
+            }
+          : undefined
+      }
+    >
+      <span className="editor-toolbar-sep" aria-hidden />
+      {/*
+        The three things the side column can be, as one switcher rather than
+        as a loose button and a pair. They are the same kind of choice — which
+        mode the one column is in — and search sitting outside the group said
+        they were not, which is exactly the confusion a radio group exists to
+        remove.
+
+        It grows into the width the group has, so with the panel open the tabs
+        are the panel's width between them rather than three 20px glyphs at one
+        end of a 260px space. `flex-1` here, unlike the source-control tabs it
+        is drawn as: those carry one word each, these carry a word and an icon
+        and look lopsided at three different widths.
+      */}
+      <div
+        className={`editor-panel-switch flex items-center ${
+          panelShown ? "flex-1 min-w-0" : "shrink-0"
+        }`}
+        role="tablist"
+      >
+        {PANEL_MODES.map((mode) => (
+          <button
+            key={mode.id}
+            role="tab"
+            /* Selected is selected whether or not the column is open; the
+               collapsed state is the toggle's to report, not this one's. */
+            aria-selected={sidePanel === mode.id}
+            className={`editor-panel-tab flex items-center justify-center gap-1.5 px-1.5 py-1 ${
+              panelShown ? "flex-1 min-w-0" : ""
+            } ${
+              sidePanel === mode.id ? (panelShown ? "on" : "standby") : ""
+            }`}
+            onClick={() => showPanel(mode.id)}
+            title={mode.id === "git" ? gitPanelTitle : mode.title}
+            aria-label={mode.aria}
+          >
+            {mode.icon}
+            {/* Dropped rather than truncated when the panel is too narrow to
+                read them: half a word is worse than the icon alone. */}
+            {wideControls && (
+              <span className="editor-panel-label text-[10px] font-semibold uppercase tracking-wide truncate">
+                {mode.label}
+              </span>
+            )}
+            {/*
+              The number, where the source-control panel's own Changes tab puts
+              one — and the same chip, so the two agree about what it means. A
+              bare dot said only "something"; this says how much, which is the
+              question anybody glancing at it has.
+            */}
+            {mode.id === "git" && git.files.length > 0 && (
+              <span
+                className={`editor-scm-tabcount tabular-nums ${
+                  panelShown && sidePanel === "git" ? "on" : ""
+                }`}
+              >
+                {git.files.length}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+      <button
+        className={`editor-btn p-1 rounded shrink-0 ${explorerVisible ? "on" : ""}`}
+        onClick={() => setExplorerVisible(!explorerVisible)}
+        title={explorerVisible ? "Hide the side panel (⌘B)" : "Show the side panel (⌘B)"}
+        aria-label="Toggle the side panel"
+      >
+        {/*
+          Two things at once, and it used to say only the first: which side the
+          column is on, and whether it is there. The plain panel glyph was the
+          same open and closed, so the button that hides the panel looked
+          exactly like the button that brings it back.
+
+          The paired icons carry both — the panel is drawn on its own side, and
+          the arrow points the way pressing it would move things.
+        */}
+        {panelSide === "left" ? (
+          explorerVisible ? <PanelLeftClose size={13} /> : <PanelLeftOpen size={13} />
+        ) : explorerVisible ? (
+          <PanelRightClose size={13} />
+        ) : (
+          <PanelRightOpen size={13} />
+        )}
+      </button>
+    </div>
+  );
+
+  /**
+   * The explorer, search or source control column, and its divider.
+   *
+   * Built once and placed on whichever side the setting asks for, rather than
+   * written out twice: two copies of a 60-line subtree are two copies to keep
+   * in step, and the divider has to sit between the column and the editor
+   * either way — so on the left the divider follows the panel and on the right
+   * it leads it.
+   */
+  const sidePanelColumn = (
+    <>
+      {panelSide === "right" && (
+        <div
+          className="editor-divider shrink-0"
+          onPointerDown={startExplorerResize}
+          role="separator"
+          aria-orientation="vertical"
+        />
+      )}
+      <div
+        className={`shrink-0 min-h-0 editor-sidepanel on-${panelSide}`}
+        style={{ width: paneWidth(dragWidth ?? explorerWidth) }}
+      >
+        {sidePanel === "git" && root && rootReady ? (
+          <SourceControl
+            repo={git}
+            dir={root}
+            remote={gitRemote}
+            error={gitError}
+            busy={gitBusy}
+            revision={`${gitTick}:${change.token}`}
+            onRefresh={refreshGit}
+            // The line comes from the conflict report, which links
+            // each marker to the place it is.
+            onOpenFile={(path, line) => void openPath(path, line)}
+            onOpenDiff={openDiff}
+            onOpenCommitDiff={openCommitDiff}
+            onDiscard={setDiscardPrompt}
+            onCommit={commitFiles}
+            onFetch={() => syncRemote("fetch")}
+            onPull={() => syncRemote("pull")}
+            onPush={() => syncRemote("push")}
+            onError={setError}
+            onClose={() => setSidePanel("files")}
+          />
+        ) : sidePanel === "search" && root && rootReady ? (
+          <GlobalSearch
+            root={root}
+            onOpen={(path, line, column) => void openPath(path, line, column)}
+            onClose={() => setSidePanel("files")}
+          />
+        ) : root && rootReady ? (
+          <FileExplorer
+            root={root}
+            activePath={activeBuffer?.path ?? null}
+            showHidden={showHidden}
+            onToggleHidden={() => setShowHidden(!showHidden)}
+            expanded={expanded}
+            onToggleExpand={toggleExpanded}
+            onCollapseAll={collapseAll}
+            onOpenFile={(path) => void openPath(path)}
+            onOpenTerminal={openTerminalAt}
+            onMoved={followMove}
+            onForgetExpanded={collapse}
+            onError={setError}
+            change={treeChange}
+            gitFiles={gitDecorations.files}
+            gitDirs={gitDecorations.dirs}
+            gitIgnored={gitIgnoredPaths}
+          />
+        ) : null}
+      </div>
+      {panelSide === "left" && (
+        <div
+          className="editor-divider shrink-0"
+          onPointerDown={startExplorerResize}
+          role="separator"
+          aria-orientation="vertical"
+        />
+      )}
+    </>
+  );
+
   return (
     <OverlayPortal>
       {/*
@@ -2579,6 +3081,7 @@ export function EditorModal({
 
           {/* Breadcrumb / toolbar */}
           <div className="editor-chrome editor-toolbar flex items-center gap-1 px-2 py-1">
+            {panelSide === "left" && panelControls}
             {/*
               These say "file", so they step away from the diff rather than
               paging the file underneath it out of sight.
@@ -2683,6 +3186,18 @@ export function EditorModal({
                   Labelled, not just an icon: it was an unmarked eye among six
                   other glyphs, which is not discoverable for the one action a
                   Markdown file is most often opened for.
+
+                  **The eye closes when the preview is open.** It used to be the
+                  same open eye in both states, with nothing but a faint tint to
+                  say which one you were in — so the button neither told you
+                  whether the preview was showing nor what pressing it would do,
+                  and the only way to find out was to press it. A struck-through
+                  eye is the one glyph everybody already reads as "hide this".
+
+                  The *label* stays "Preview" rather than flipping to "Hide":
+                  it names the thing the button is about, and a word that
+                  changes length makes the whole toolbar jump every time the
+                  preview is toggled.
                 */}
                 {isMarkdown && (
                   <button
@@ -2692,10 +3207,14 @@ export function EditorModal({
                     // The outline rides inside the preview now, so opening one
                     // brings the other with no panel juggling.
                     onClick={() => setPreviewOpen((open) => !open)}
-                    title={previewOpen ? "Hide the Markdown preview" : "Preview Markdown"}
+                    title={
+                      previewOpen
+                        ? "Hide the Markdown preview"
+                        : "Show the Markdown preview"
+                    }
                     aria-pressed={previewOpen}
                   >
-                    <Eye size={12} />
+                    {previewOpen ? <EyeOff size={12} /> : <Eye size={12} />}
                     <span className="text-[10px]">Preview</span>
                   </button>
                 )}
@@ -2711,56 +3230,6 @@ export function EditorModal({
               <Search size={13} />
             </button>
             <button
-              className={`editor-btn p-1 rounded ${
-                panelShown && sidePanel === "search" ? "on" : ""
-              }`}
-              onClick={() => showPanel("search")}
-              title="Search in folder (⌘⇧F)"
-              aria-label="Search in folder"
-            >
-              <TextSearch size={13} />
-            </button>
-            {/*
-              The two things the side column can be, as one switcher rather
-              than as a pair of independent toggles. With a toggle each, the
-              honest states were "tree shown", "source control shown" and
-              "both buttons look off but a panel is open" — which is what a
-              radio group is for.
-            */}
-            <div className="editor-panel-switch flex items-center shrink-0" role="tablist">
-              <button
-                role="tab"
-                aria-selected={panelShown && sidePanel === "files"}
-                className={`editor-panel-tab p-1 ${
-                  panelShown && sidePanel === "files" ? "on" : ""
-                }`}
-                onClick={() => showPanel("files")}
-                title="Explorer — the file tree (⌘B)"
-                aria-label="Explorer"
-              >
-                <FolderTree size={13} />
-              </button>
-              <button
-                role="tab"
-                aria-selected={panelShown && sidePanel === "git"}
-                className={`editor-panel-tab relative p-1 ${
-                  panelShown && sidePanel === "git" ? "on" : ""
-                }`}
-                onClick={() => showPanel("git")}
-                title={
-                  git.isRepo
-                    ? `Source control — ${git.files.length} change${
-                        git.files.length === 1 ? "" : "s"
-                      }`
-                    : "Source control"
-                }
-                aria-label="Source control"
-              >
-                <GitBranch size={13} />
-                {git.files.length > 0 && <span className="editor-btn-dot" aria-hidden />}
-              </button>
-            </div>
-            <button
               className={`editor-btn p-1 rounded ${settingsOpen ? "on" : ""}`}
               onClick={() => setSettingsOpen(true)}
               title="Editor settings"
@@ -2768,14 +3237,7 @@ export function EditorModal({
             >
               <Settings2 size={13} />
             </button>
-            <button
-              className={`editor-btn p-1 rounded ${explorerVisible ? "on" : ""}`}
-              onClick={() => setExplorerVisible(!explorerVisible)}
-              title={explorerVisible ? "Hide the side panel (⌘B)" : "Show the side panel (⌘B)"}
-              aria-label="Toggle the side panel"
-            >
-              <PanelRight size={13} />
-            </button>
+            {panelSide === "right" && panelControls}
           </div>
 
           {error && (
@@ -2830,6 +3292,8 @@ export function EditorModal({
 
           {/* Editor and side panel */}
           <div className="flex-1 min-h-0 flex overflow-hidden">
+            {panelShown && panelSide === "left" && sidePanelColumn}
+
             <div className="flex-1 min-w-0 min-h-0 relative">
               {/*
                 A diff takes the editor's whole column rather than the side
@@ -2875,6 +3339,16 @@ export function EditorModal({
                   onDismiss={() => setPreview(null)}
                   onReveal={() => void revealPath(preview.path).catch((e) => setError(String(e)))}
                 />
+              ) : !root && workspaceSettled ? (
+                <WorkspaceWelcome
+                  workspaces={workspaces}
+                  favorites={favorites}
+                  cwd={cwd}
+                  homeDir={homeDir}
+                  onOpen={requestWorkspace}
+                  onBrowse={browseForWorkspace}
+                  onBrowseWorkspaces={() => setWorkspaceMenuOpen(true)}
+                />
               ) : buffers.length === 0 ? (
                 <EmptyState
                   onQuickOpen={() => setQuickOpen(true)}
@@ -2888,7 +3362,7 @@ export function EditorModal({
               */}
               <div
                 className={
-                  diffShown || preview || buffers.length === 0
+                  diffShown || preview || !root || buffers.length === 0
                     ? "invisible absolute inset-0"
                     : "h-full"
                 }
@@ -2957,69 +3431,7 @@ export function EditorModal({
               </>
             )}
 
-            {panelShown && (
-              <>
-                <div
-                  className="editor-divider shrink-0"
-                  onPointerDown={startExplorerResize}
-                  role="separator"
-                  aria-orientation="vertical"
-                />
-                <div
-                  className="shrink-0 min-h-0"
-                  style={{ width: paneWidth(dragWidth ?? explorerWidth) }}
-                >
-                  {sidePanel === "git" && root && rootReady ? (
-                    <SourceControl
-                      repo={git}
-                      dir={root}
-                      remote={gitRemote}
-                      error={gitError}
-                      busy={gitBusy}
-                      revision={`${gitTick}:${change.token}`}
-                      onRefresh={refreshGit}
-                      // The line comes from the conflict report, which links
-                      // each marker to the place it is.
-                      onOpenFile={(path, line) => void openPath(path, line)}
-                      onOpenDiff={openDiff}
-                      onOpenCommitDiff={openCommitDiff}
-                      onDiscard={setDiscardPrompt}
-                      onCommit={commitFiles}
-                      onFetch={() => syncRemote("fetch")}
-                      onPull={() => syncRemote("pull")}
-                      onPush={() => syncRemote("push")}
-                      onError={setError}
-                      onClose={() => setSidePanel("files")}
-                    />
-                  ) : sidePanel === "search" && root && rootReady ? (
-                    <GlobalSearch
-                      root={root}
-                      onOpen={(path, line, column) => void openPath(path, line, column)}
-                      onClose={() => setSidePanel("files")}
-                    />
-                  ) : root && rootReady ? (
-                    <FileExplorer
-                      root={root}
-                      activePath={activeBuffer?.path ?? null}
-                      showHidden={showHidden}
-                      onToggleHidden={() => setShowHidden(!showHidden)}
-                      expanded={expanded}
-                      onToggleExpand={toggleExpanded}
-                      onCollapseAll={collapseAll}
-                      onOpenFile={(path) => void openPath(path)}
-                      onOpenTerminal={openTerminalAt}
-                      onMoved={followMove}
-                      onForgetExpanded={collapse}
-                      onError={setError}
-                      change={treeChange}
-                      gitFiles={gitDecorations.files}
-                      gitDirs={gitDecorations.dirs}
-                      gitIgnored={gitIgnoredPaths}
-                    />
-                  ) : null}
-                </div>
-              </>
-            )}
+            {panelShown && panelSide === "right" && sidePanelColumn}
           </div>
 
           <EditorStatusBar
@@ -3423,6 +3835,7 @@ export function EditorModal({
             favorites={favorites}
             onOpen={requestWorkspace}
             onReload={reloadWorkspace}
+            onCloseFolder={requestLeaveWorkspace}
             onForget={removeWorkspace}
             onToggleFavorite={toggleFavorite}
             onBrowse={browseForWorkspace}
@@ -3433,17 +3846,24 @@ export function EditorModal({
         {pendingWorkspace && (
           <EditorDialog
             title="Unsaved changes"
-            message={`Switching folders closes the tabs you have open. ${
-              buffers.filter((b) => b.dirty).length
-            } of them have unsaved changes.`}
-            detail={pendingWorkspace}
+            message={`${
+              pendingWorkspace.kind === "close"
+                ? "Closing the folder closes the tabs you have open."
+                : "Switching folders closes the tabs you have open."
+            } ${buffers.filter((b) => b.dirty).length} of them have unsaved changes.`}
+            detail={
+              pendingWorkspace.kind === "open" ? pendingWorkspace.root : root ?? undefined
+            }
             onCancel={() => setPendingWorkspace(null)}
             actions={[
               {
-                label: "Save all and switch",
+                label:
+                  pendingWorkspace.kind === "close"
+                    ? "Save all and close"
+                    : "Save all and switch",
                 primary: true,
                 onClick: () => {
-                  const target = pendingWorkspace;
+                  const pending = pendingWorkspace;
                   setPendingWorkspace(null);
                   void (async () => {
                     for (const buffer of useEditorStore.getState().buffers) {
@@ -3451,22 +3871,27 @@ export function EditorModal({
                     }
                     // A buffer that still can't be saved — read-only, or a
                     // scratch file with no name — would be lost silently, so
-                    // the switch is abandoned instead.
+                    // the whole thing is abandoned instead.
                     if (useEditorStore.getState().buffers.some((b) => b.dirty)) {
                       setError("Some files could not be saved, so the folder was not changed");
                       return;
                     }
-                    await enterWorkspace(target);
+                    if (pending.kind === "close") leaveWorkspace();
+                    else await enterWorkspace(pending.root);
                   })();
                 },
               },
               {
-                label: "Discard and switch",
+                label:
+                  pendingWorkspace.kind === "close"
+                    ? "Discard and close"
+                    : "Discard and switch",
                 danger: true,
                 onClick: () => {
-                  const target = pendingWorkspace;
+                  const pending = pendingWorkspace;
                   setPendingWorkspace(null);
-                  void enterWorkspace(target);
+                  if (pending.kind === "close") leaveWorkspace();
+                  else void enterWorkspace(pending.root);
                 },
               },
               { label: "Cancel", onClick: () => setPendingWorkspace(null) },
@@ -3502,6 +3927,164 @@ export function EditorModal({
         )}
       </div>
     </OverlayPortal>
+  );
+}
+
+/**
+ * What the editor shows before a folder is chosen.
+ *
+ * The editor works *inside* one folder — the backend confines every read and
+ * write to it, which is why a file from anywhere else is refused — so "which
+ * folder" is not a setting, it is the first question. Before this the question
+ * was never asked: the home directory was assumed, and a new user met a tree
+ * of their entire home with no hint that picking a project was a step.
+ *
+ * Three ways in, in the order they are likely to be wanted: the folder the
+ * focused shell is already sitting in, a folder opened before, and the system
+ * picker. The first is the one that makes this disappear in a single click
+ * most of the time — if you are working in a project, the terminal already
+ * knows which.
+ */
+function WorkspaceWelcome({
+  workspaces,
+  favorites,
+  cwd,
+  homeDir,
+  onOpen,
+  onBrowse,
+  onBrowseWorkspaces,
+}: {
+  workspaces: Workspace[];
+  favorites: string[];
+  /** The focused terminal pane's folder, when it has one. */
+  cwd?: string;
+  /** For telling a project apart from where a shell happens to start. */
+  homeDir: string | null;
+  onOpen: (root: string) => void;
+  onBrowse: () => void;
+  /** Opens the full workspace list — search, favourites, and forgetting. */
+  onBrowseWorkspaces: () => void;
+}) {
+  /*
+    Offered only when the shell is somewhere worth opening. In home it is not
+    a shortcut, it is the thing this screen exists to avoid — and until the
+    lookup lands it is not offered either, so the button can never appear and
+    then turn out to have been home all along.
+  */
+  const fromTerminal =
+    cwd && homeDir && !tooBroadForWorkspace(cwd, homeDir) ? cwd : null;
+  /*
+    Pinned first, then most recently opened — which is the order `workspaces`
+    already arrives in, so a stable sort is all this needs. Capped, because
+    this is a shortcut and the full list is one click away in the picker.
+  */
+  const pinned = new Set(favorites);
+  const remembered = new Set([...workspaces.map((w) => w.root), ...favorites]).size;
+  const recent = [...workspaces]
+    // A folder stored before the rule existed is still in the list; offering
+    // it here would be offering the one thing this screen exists to avoid.
+    .filter((workspace) => !tooBroadForWorkspace(workspace.root, homeDir))
+    .sort((a, b) => Number(pinned.has(b.root)) - Number(pinned.has(a.root)))
+    .slice(0, 5);
+
+  return (
+    <div className="editor-welcome h-full w-full overflow-y-auto flex flex-col items-center justify-center gap-5 px-8 py-6">
+      <div className="flex flex-col items-center gap-1.5 text-center">
+        <FolderTree size={26} className="editor-welcome-icon" />
+        <div className="editor-placeholder-title text-[13px] font-semibold">
+          Open a folder to start
+        </div>
+        <div className="editor-placeholder-text text-[11px] max-w-[380px] leading-relaxed">
+          The editor works inside one folder at a time — its tree, its search
+          and its source control are all about that folder.
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2">
+        {/* The shell's folder, where there is one. Almost always the answer. */}
+        {fromTerminal && (
+          <button
+            className="editor-welcome-primary flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium"
+            onClick={() => onOpen(fromTerminal)}
+            title={`Open ${fromTerminal}`}
+          >
+            <FolderInput size={13} />
+            <span className="truncate max-w-[200px]">
+              {basename(fromTerminal) || fromTerminal}
+            </span>
+          </button>
+        )}
+        <button
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium ${
+            fromTerminal ? "editor-welcome-secondary" : "editor-welcome-primary"
+          }`}
+          onClick={onBrowse}
+        >
+          <FolderOpen size={13} />
+          Open Folder…
+        </button>
+        {/*
+          The full list, where the five rows below are only the top of it:
+          search, favourites, tab counts and forgetting all live there. Offered
+          only once there is something in it — a button onto an empty list is
+          a button that teaches you not to press it.
+        */}
+        {remembered > 0 && (
+          <button
+            className="editor-welcome-secondary flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium"
+            onClick={onBrowseWorkspaces}
+            title="All the folders this editor remembers"
+          >
+            <FolderSearch size={13} />
+            Workspaces…
+          </button>
+        )}
+      </div>
+
+      {recent.length > 0 && (
+        <div className="editor-welcome-recent w-full max-w-[420px]">
+          <div className="editor-welcome-label text-[9px] font-semibold uppercase tracking-wide px-1 pb-1">
+            Recent
+          </div>
+          {recent.map((workspace) => (
+            <button
+              key={workspace.root}
+              className="editor-welcome-row flex items-center gap-2 w-full px-2 py-1.5 rounded text-left"
+              onClick={() => onOpen(workspace.root)}
+              title={workspace.root}
+            >
+              <Star
+                size={11}
+                className={`shrink-0 ${
+                  pinned.has(workspace.root)
+                    ? "editor-welcome-pinned fill-current"
+                    : "opacity-0"
+                }`}
+                aria-hidden
+              />
+              <span className="flex flex-col min-w-0 flex-1">
+                <span className="text-[12px] truncate">
+                  {basename(workspace.root) || workspace.root}
+                </span>
+                <span className="editor-welcome-path text-[10px] truncate">
+                  {collapseHome(workspace.root)}
+                </span>
+              </span>
+              {workspace.openPaths.length > 0 && (
+                <span
+                  className="editor-welcome-count text-[10px] shrink-0 tabular-nums"
+                  title={`${workspace.openPaths.length} file${
+                    workspace.openPaths.length === 1 ? "" : "s"
+                  } were open`}
+                >
+                  {workspace.openPaths.length}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -3560,7 +4143,7 @@ function EmptyState({
         </button>
       </div>
       <div className="editor-placeholder-text text-[11px]">
-        Or pick something from the tree on the right.
+        Or pick something from the tree.
       </div>
     </div>
   );

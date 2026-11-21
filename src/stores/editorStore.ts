@@ -120,6 +120,18 @@ interface EditorStore {
    * Callers are expected to have dealt with unsaved buffers first.
    */
   switchWorkspace: (root: string) => WorkspaceRestore;
+  /**
+   * Leaves the current folder without opening another.
+   *
+   * The tabs are folded into the folder's entry on the way out, so reopening
+   * it brings them back — this is closing a project, not forgetting one.
+   *
+   * It also clears `activeRoot`, and that is the point: without it the next
+   * launch restores the folder you just left, and there is no way to tell the
+   * editor you are done with a project. Callers deal with unsaved buffers
+   * first, as they do for a switch.
+   */
+  closeWorkspace: () => void;
   /** Forgets a folder and everything remembered about it. */
   removeWorkspace: (root: string) => void;
   /** Pins or unpins a folder. */
@@ -251,7 +263,18 @@ const initialRoot = stored.activeRoot;
 const initialWorkspace = stored.workspaces.find((w) => w.root === initialRoot);
 
 export const useEditorStore = create<EditorStore>((set, get) => ({
-  root: initialRoot,
+  /*
+    Null until a folder has actually been opened *and registered*, even when
+    the last session left one behind. `root` is what the breadcrumb names, what
+    the tree lists and what every path check is made against, so seeding it
+    from storage meant the editor claimed a folder the backend had never been
+    told about: nothing was readable, the tree stayed blank, and the screen
+    that offers to open one could never appear because a root was already set.
+
+    The remembered folder is not lost — `restorableSession` hands it to the
+    modal, which decides whether to adopt it and then sets it here.
+  */
+  root: null,
   workspaces: stored.workspaces,
   favorites: stored.favorites,
   restoring: false,
@@ -347,6 +370,22 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     });
     persist(get());
     return restore;
+  },
+
+  closeWorkspace: () => {
+    const state = get();
+    // Folded away before the tabs are dropped, exactly as a switch does it —
+    // otherwise closing a folder quietly empties its remembered tab list.
+    const saved = foldWorkspaces({ ...state, restoring: false });
+    state.buffers.forEach((buffer) => clearDraft(buffer.id));
+    set({
+      root: null,
+      workspaces: saved,
+      buffers: [],
+      activeBufferId: null,
+      expanded: [],
+    });
+    persist(get());
   },
 
   removeWorkspace: (root) => {
