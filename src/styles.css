@@ -1761,15 +1761,10 @@
 }
 
 
-
 .light .browser-tab-spinner {
   border-color: rgba(2, 132, 199, 0.2);
   border-top-color: #0284c7;
 }
-
-
-
-
 
 
 .light .browser-btn.on {
@@ -1798,10 +1793,6 @@
 }
 
 
-
-
-
-
 .light .browser-progress {
   background: linear-gradient(90deg, transparent, #0284c7, transparent);
 }
@@ -1823,7 +1814,6 @@
 .light .browser-statusbar {
   background: rgba(15, 23, 42, 0.022);
 }
-
 
 
 /* ─── Code Editor ─── */
@@ -3930,68 +3920,213 @@
   color: #e6edf3;
   background: rgba(255, 255, 255, 0.09);
 }
+/* ─── The picker dialogs ────────────────────────────────────────────────────
 
-.editor-workspace-menu {
-  background: #262a30;
-  border: 1px solid #353b44;
-  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.55);
+   One vocabulary for the five dialogs that ask you to choose something from a
+   list: the editor's **Workspaces**, Claude's **Projects** and **Earlier
+   conversations**, the new-project setup, and the confirm dialog. They already
+   shared these class names. What they did not share was a palette.
+
+   Every value here used to be a hex, so the dark theme could not invert and
+   **twenty-three `.light` rules existed to restate it** — in greys (`#374151`,
+   `#111827`, `#9ca3af`) that are not the ones the rest of the app uses, so
+   these dialogs were quietly a different shade from the windows they open over.
+   Reading from the tokens deletes those rules and ends the divergence.
+
+   Three more things went with them. `.editor-workspace-menu`, `-row` and
+   `-icon` were leftovers from the dropdown the Workspaces modal replaced —
+   dead, and still being maintained. The favourite star had a gold of its own
+   (`#e3b341`) where the drawing rail's star uses `--ft-warning`: one idea,
+   two colours. And nothing in any of the five had a focus ring.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+.editor-workspace-modal {
+  background: var(--ft-elevated);
+  border: 1px solid var(--ft-border);
+  box-shadow:
+    0 24px 64px -12px rgba(0, 0, 0, 0.6),
+    0 0 0 1px rgba(255, 255, 255, 0.03);
 }
 
-.editor-workspace-heading {
-  color: #5d636e;
+.editor-workspace-header,
+.editor-workspace-search {
+  border-bottom: 1px solid var(--ft-border-subtle);
 }
 
-.editor-workspace-row {
-  color: #c9d1d9;
-  transition: background 0.1s ease, color 0.1s ease;
+.editor-workspace-footer {
+  border-top: 1px solid var(--ft-border-subtle);
+  background: rgba(255, 255, 255, 0.022);
 }
 
-.editor-workspace-row:hover {
-  background: rgba(99, 102, 241, 0.16);
-  color: #ffffff;
-}
+/* ─── Rows ──────────────────────────────────────────────────────────────── */
 
-.editor-workspace-row.current {
-  color: #a5b4fc;
-}
-
-.editor-workspace-path,
-.editor-workspace-icon {
-  color: #6e7681;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-
-.editor-workspace-icon {
-  font-family: inherit;
-}
-
-.editor-workspace-count {
-  color: #6e7681;
-  background: rgba(255, 255, 255, 0.06);
-  padding: 0 4px;
-  border-radius: 3px;
+.editor-workspace-item {
+  color: var(--ft-text-secondary);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
 }
 
 /*
-  Always visible, not hover-only.
+  The keyboard's row.
 
-  It used to be revealed by `.editor-workspace-row:hover` — a class belonging
-  to the dropdown this picker replaced — so it sat at zero opacity forever and
-  the action looked absent. A destructive control in a list is also better shown
+  `color-mix` rather than a hardcoded indigo at 16%: the accent token differs
+  between themes (#6366f1 / #4f46e5), so mixing it is what lets one rule serve
+  both — and is why the light override this used to need is gone.
+*/
+.editor-workspace-item.selected {
+  background: color-mix(in srgb, var(--ft-accent) 15%, transparent);
+  color: var(--ft-text);
+}
+
+/* The one already open. Not the same thing as the one under the cursor. */
+.editor-workspace-item.current {
+  color: var(--ft-accent-hover);
+}
+
+.editor-workspace-check {
+  color: var(--ft-accent);
+}
+
+.editor-workspace-path {
+  color: var(--ft-text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.editor-workspace-empty {
+  color: var(--ft-text-muted);
+}
+
+.editor-workspace-hint {
+  color: var(--ft-text-muted);
+}
+
+/*
+  A key, drawn as a key.
+
+  The shortcut used to be a sentence in a monospace face — "⌘⌫ forgets the
+  highlighted folder" — which is both the widest thing in the footer and more
+  explanation than it needs, since the row it describes has a visible *Forget*
+  button two inches above. Same shape as the Claude navigator's `⌘P` chip, so
+  a shortcut looks like a shortcut wherever the app shows one.
+*/
+.editor-workspace-kbd {
+  display: inline-grid;
+  place-items: center;
+  /*
+    Square, and wide enough for the widest cap in the set.
+
+    A cap sized to its own glyph makes `⌘` and `⌫` two different widths, and a
+    chord of two differently-sized keys looks like a mistake. A min-width with
+    centred content gives every cap the same footprint whatever is in it.
+  */
+  min-width: 17px;
+  height: 16px;
+  padding: 0 3px;
+  border: 1px solid var(--ft-border-subtle);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* 9px was too small for symbols that carry their meaning by shape. */
+  font-size: 10px;
+  line-height: 1;
+  color: var(--ft-text-muted);
+}
+
+.editor-workspace-count {
+  padding: 0 4px;
+  border-radius: 3px;
+  color: var(--ft-text-muted);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* ─── Tabs ──────────────────────────────────────────────────────────────── */
+
+.editor-workspace-tab {
+  color: var(--ft-text-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: color 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+}
+
+.editor-workspace-tab:hover {
+  color: var(--ft-text);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.editor-workspace-tab.active {
+  color: var(--ft-accent-hover);
+  background: color-mix(in srgb, var(--ft-accent) 15%, transparent);
+  border-color: color-mix(in srgb, var(--ft-accent) 35%, transparent);
+}
+
+.editor-workspace-tab-count {
+  padding: 0 4px;
+  border-radius: 3px;
+  color: var(--ft-text-muted);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.editor-workspace-tab.active .editor-workspace-tab-count {
+  color: var(--ft-accent-hover);
+  background: color-mix(in srgb, var(--ft-accent) 20%, transparent);
+}
+
+/* ─── The two row actions ───────────────────────────────────────────────── */
+
+/*
+  The star takes `--ft-warning`, which is the tone the drawing rail's favourite
+  already uses. It had a gold of its own before, and one idea in two colours is
+  how a palette stops being one.
+*/
+.editor-workspace-star {
+  color: var(--ft-text-muted);
+  opacity: 0.6;
+  cursor: pointer;
+  transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+
+.editor-workspace-item:hover .editor-workspace-star,
+.editor-workspace-item.selected .editor-workspace-star {
+  opacity: 1;
+}
+
+.editor-workspace-star:hover,
+.editor-workspace-star.on {
+  color: var(--ft-warning);
+  opacity: 1;
+}
+
+.editor-workspace-star:hover {
+  background: color-mix(in srgb, var(--ft-warning) 14%, transparent);
+}
+
+/*
+  Forget is always visible, not hover-only.
+
+  It used to be revealed by `.editor-workspace-row:hover` — a class belonging to
+  the dropdown this picker replaced — so it sat at zero opacity forever and the
+  action looked absent. A destructive control in a list is also better shown
   than hidden: guessing that a row has a delete button is not discoverable.
 */
 .editor-workspace-remove {
-  color: #6e7681;
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  color: var(--ft-text-muted);
   opacity: 0.75;
+  cursor: pointer;
   transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
 }
 
 .editor-workspace-item:hover .editor-workspace-remove,
 .editor-workspace-item.selected .editor-workspace-remove {
   opacity: 1;
+}
+
+.editor-workspace-remove:hover {
+  color: var(--ft-error);
+  background: color-mix(in srgb, var(--ft-error) 14%, transparent);
 }
 
 /* The label rides along only on the row in play, to keep the list quiet. */
@@ -4004,140 +4139,86 @@
   display: inline;
 }
 
-.editor-workspace-remove:hover {
-  color: #fca5a5;
-  background: rgba(248, 113, 113, 0.14);
+/* ─── Keyboard focus ────────────────────────────────────────────────────────
+
+   None of the five dialogs had any. Every row here is two or three tab stops —
+   choose, pin, forget — and tabbing through them moved a caret nobody could
+   see. The ring goes on the row where the wide button holds focus, so a row
+   does not look cut in half.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+.editor-workspace-tab:focus-visible,
+.editor-workspace-star:focus-visible,
+.editor-workspace-remove:focus-visible {
+  outline: 2px solid var(--ft-accent);
+  outline-offset: -1px;
+  border-radius: 5px;
+  /* Both row actions are dimmed until their row is hovered. */
+  opacity: 1;
 }
 
-.editor-workspace-empty {
-  color: #5d636e;
+.editor-workspace-item:has(> button:focus-visible) {
+  outline: 2px solid var(--ft-accent);
+  outline-offset: -2px;
 }
+
+.editor-workspace-item > button:focus-visible {
+  outline: none;
+}
+
+/* ─── Light ─────────────────────────────────────────────────────────────────
+
+   What is left after the tokens and `color-mix` have done their work: the
+   shadow, and the washes. A 2–6% white lift over near-black is a hover; over
+   #f8f9fb it is nothing at all.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+.light .editor-workspace-modal {
+  background: var(--ft-surface);
+  box-shadow:
+    0 24px 64px -12px rgba(15, 23, 42, 0.18),
+    0 0 0 1px rgba(15, 23, 42, 0.04);
+}
+
+.light .editor-workspace-footer {
+  background: rgba(15, 23, 42, 0.022);
+}
+
+.light .editor-workspace-tab:hover {
+  background: rgba(15, 23, 42, 0.06);
+}
+
+.light .editor-workspace-count,
+.light .editor-workspace-tab-count {
+  background: rgba(15, 23, 42, 0.06);
+}
+
+/*
+  `--ft-text-muted` is the quietest tone the palette has, and at the 9–10px
+  these dialogs use for paths, counts and hints it drops under the contrast a
+  small font needs against a light background. The same step-up the Claude and
+  drawing windows take.
+*/
+.light .editor-workspace-path,
+.light .editor-workspace-empty,
+.light .editor-workspace-hint,
+.light .editor-workspace-kbd,
+.light .editor-workspace-count,
+.light .editor-workspace-tab-count {
+  color: var(--ft-text-secondary);
+}
+
+/* The cap's own lift: white over near-black, ink over near-white. */
+.light .editor-workspace-kbd {
+  background: rgba(15, 23, 42, 0.04);
+}
+
 
 .light .editor-crumb-root.open {
   color: #111827;
   background: rgba(0, 0, 0, 0.07);
 }
 
-.light .editor-workspace-menu {
-  background: #ffffff;
-  border: 1px solid #e2e5eb;
-  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.15);
-}
-
-.light .editor-workspace-heading,
-.light .editor-workspace-path,
-.light .editor-workspace-icon,
-.light .editor-workspace-count,
-.light .editor-workspace-empty {
-  color: #9ca3af;
-}
-
-.light .editor-workspace-row {
-  color: #374151;
-}
-
-.light .editor-workspace-row:hover {
-  background: rgba(79, 70, 229, 0.1);
-  color: #111827;
-}
-
-.light .editor-workspace-row.current {
-  color: #4338ca;
-}
-
-.light .editor-workspace-count {
-  background: rgba(0, 0, 0, 0.05);
-}
-
-.light .editor-workspace-remove {
-  color: #9ca3af;
-}
-
-.light .editor-workspace-remove:hover {
-  color: #b91c1c;
-  background: rgba(185, 28, 28, 0.08);
-}
-
-/* ─── Code Editor · workspace picker ─── */
-
-.editor-workspace-modal {
-  background: #262a30;
-  border: 1px solid #353b44;
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
-}
-
-.editor-workspace-header {
-  border-bottom: 1px solid #2a2f37;
-}
-
-.editor-workspace-search {
-  border-bottom: 1px solid #2a2f37;
-}
-
-.editor-workspace-footer {
-  border-top: 1px solid #2a2f37;
-  background: rgba(255, 255, 255, 0.02);
-}
-
-.editor-workspace-item {
-  color: #c9d1d9;
-  cursor: pointer;
-}
-
-.editor-workspace-item.selected {
-  background: rgba(99, 102, 241, 0.16);
-  color: #ffffff;
-}
-
-.editor-workspace-item.current {
-  color: #a5b4fc;
-}
-
-.editor-workspace-check {
-  color: #6366f1;
-}
-
-.editor-workspace-hint {
-  color: #5d636e;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-
-.light .editor-workspace-modal {
-  background: #ffffff;
-  border: 1px solid #e2e5eb;
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.18);
-}
-
-.light .editor-workspace-header,
-.light .editor-workspace-search {
-  border-bottom: 1px solid #e2e5eb;
-}
-
-.light .editor-workspace-footer {
-  border-top: 1px solid #e2e5eb;
-  background: #f7f8fa;
-}
-
-.light .editor-workspace-item {
-  color: #374151;
-}
-
-.light .editor-workspace-item.selected {
-  background: rgba(79, 70, 229, 0.1);
-  color: #111827;
-}
-
-.light .editor-workspace-item.current {
-  color: #4338ca;
-}
-
-.light .editor-workspace-check {
-  color: #4f46e5;
-}
-
-.light .editor-workspace-hint {
-  color: #9ca3af;
-}
 
 /* The tree row an open context menu applies to. */
 .editor-row.context-target {
@@ -4160,100 +4241,6 @@
   background: rgba(79, 70, 229, 0.18);
 }
 
-/* ─── Code Editor · workspace tabs and favourites ─── */
-
-.editor-workspace-tab {
-  color: #8b949e;
-  background: transparent;
-  border: 1px solid transparent;
-  transition: color 0.12s ease, background 0.12s ease, border-color 0.12s ease;
-}
-
-.editor-workspace-tab:hover {
-  color: #e6edf3;
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.editor-workspace-tab.active {
-  color: #c7d2fe;
-  background: rgba(99, 102, 241, 0.16);
-  border-color: rgba(99, 102, 241, 0.35);
-}
-
-.editor-workspace-tab-count {
-  color: #6e7681;
-  background: rgba(255, 255, 255, 0.07);
-  padding: 0 4px;
-  border-radius: 3px;
-}
-
-.editor-workspace-tab.active .editor-workspace-tab-count {
-  color: #a5b4fc;
-  background: rgba(99, 102, 241, 0.2);
-}
-
-/*
-  The star is dim until it means something. A filled one is a pin, so it stays
-  bright whether or not the row is under the pointer.
-*/
-.editor-workspace-star {
-  color: #5d636e;
-  opacity: 0.6;
-  transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
-}
-
-.editor-workspace-item:hover .editor-workspace-star,
-.editor-workspace-item.selected .editor-workspace-star {
-  opacity: 1;
-}
-
-.editor-workspace-star:hover {
-  color: #e3b341;
-  background: rgba(210, 153, 34, 0.14);
-}
-
-.editor-workspace-star.on {
-  color: #e3b341;
-  opacity: 1;
-}
-
-.light .editor-workspace-tab {
-  color: #4b5163;
-}
-
-.light .editor-workspace-tab:hover {
-  color: #111827;
-  background: rgba(0, 0, 0, 0.05);
-}
-
-.light .editor-workspace-tab.active {
-  color: #4338ca;
-  background: rgba(79, 70, 229, 0.1);
-  border-color: rgba(79, 70, 229, 0.3);
-}
-
-.light .editor-workspace-tab-count {
-  color: #9ca3af;
-  background: rgba(0, 0, 0, 0.05);
-}
-
-.light .editor-workspace-tab.active .editor-workspace-tab-count {
-  color: #4338ca;
-  background: rgba(79, 70, 229, 0.14);
-}
-
-.light .editor-workspace-star {
-  color: #9ca3af;
-}
-
-.light .editor-workspace-star:hover,
-.light .editor-workspace-star.on {
-  color: #b45309;
-}
-
-.light .editor-workspace-star:hover {
-  background: rgba(217, 119, 6, 0.12);
-}
 
 /* ─── Browser Modal · brand ─── */
 
@@ -4266,7 +4253,6 @@
   color: var(--ft-text-secondary);
   letter-spacing: 0.01em;
 }
-
 
 
 /* ─── Fullscreen modals ─── */

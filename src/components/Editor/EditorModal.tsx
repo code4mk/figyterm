@@ -2762,7 +2762,16 @@ export function EditorModal({
    * themselves, which is the right answer for a group that is then pointing at
    * nothing.
    */
-  const panelControls = (
+  /*
+    Nothing to point at, so nothing to show.
+
+    `panelShown` is already `explorerVisible && !!root`, so with no workspace
+    the column cannot open — but its switcher was drawn anyway, offering Files,
+    Search and Source Control for a folder that does not exist. Three tabs and
+    a toggle that could not do anything, sitting beside a welcome screen whose
+    whole message is "pick a folder first".
+  */
+  const panelControls = !root ? null : (
     <div
       className={`flex items-center gap-1 shrink-0 ${
         panelSide === "left" ? "flex-row-reverse" : ""
@@ -3088,40 +3097,49 @@ export function EditorModal({
             {/*
               These say "file", so they step away from the diff rather than
               paging the file underneath it out of sight.
+
+              Gated on a workspace, not merely disabled by it: with no folder
+              open there are no buffers to step between, so the pair sat greyed
+              out beside the welcome screen the whole time it was up — and a
+              control that is never enabled is not a control.
             */}
-            <button
-              className="editor-btn p-1 rounded"
-              onClick={() => {
-                const index = buffers.findIndex((b) => b.id === activeBufferId);
-                setDiffFocused(false);
-                if (index > 0) setActiveBuffer(buffers[index - 1].id);
-              }}
-              disabled={
-                !diffShown && buffers.findIndex((b) => b.id === activeBufferId) <= 0
-              }
-              title="Previous file"
-              aria-label="Previous file"
-            >
-              <ArrowLeft size={13} />
-            </button>
-            <button
-              className="editor-btn p-1 rounded"
-              onClick={() => {
-                const index = buffers.findIndex((b) => b.id === activeBufferId);
-                setDiffFocused(false);
-                if (index >= 0 && index < buffers.length - 1) {
-                  setActiveBuffer(buffers[index + 1].id);
-                }
-              }}
-              disabled={
-                !diffShown &&
-                buffers.findIndex((b) => b.id === activeBufferId) >= buffers.length - 1
-              }
-              title="Next file"
-              aria-label="Next file"
-            >
-              <ArrowRight size={13} />
-            </button>
+            {root && (
+              <>
+                <button
+                  className="editor-btn p-1 rounded"
+                  onClick={() => {
+                    const index = buffers.findIndex((b) => b.id === activeBufferId);
+                    setDiffFocused(false);
+                    if (index > 0) setActiveBuffer(buffers[index - 1].id);
+                  }}
+                  disabled={
+                    !diffShown && buffers.findIndex((b) => b.id === activeBufferId) <= 0
+                  }
+                  title="Previous file"
+                  aria-label="Previous file"
+                >
+                  <ArrowLeft size={13} />
+                </button>
+                <button
+                  className="editor-btn p-1 rounded"
+                  onClick={() => {
+                    const index = buffers.findIndex((b) => b.id === activeBufferId);
+                    setDiffFocused(false);
+                    if (index >= 0 && index < buffers.length - 1) {
+                      setActiveBuffer(buffers[index + 1].id);
+                    }
+                  }}
+                  disabled={
+                    !diffShown &&
+                    buffers.findIndex((b) => b.id === activeBufferId) >= buffers.length - 1
+                  }
+                  title="Next file"
+                  aria-label="Next file"
+                >
+                  <ArrowRight size={13} />
+                </button>
+              </>
+            )}
 
             <div className="editor-breadcrumb flex items-center gap-0.5 flex-1 min-w-0 overflow-hidden px-1">
               {root && (
@@ -3224,14 +3242,17 @@ export function EditorModal({
               </>
             )}
 
-            <button
-              className="editor-btn p-1 rounded"
-              onClick={() => setQuickOpen(true)}
-              title="Go to file (⌘P)"
-              aria-label="Go to file"
-            >
-              <Search size={13} />
-            </button>
+            {/* Searches the workspace, so it needs one. */}
+            {root && (
+              <button
+                className="editor-btn p-1 rounded"
+                onClick={() => setQuickOpen(true)}
+                title="Go to file (⌘P)"
+                aria-label="Go to file"
+              >
+                <Search size={13} />
+              </button>
+            )}
             <button
               className={`editor-btn p-1 rounded ${settingsOpen ? "on" : ""}`}
               onClick={() => setSettingsOpen(true)}
@@ -3851,8 +3872,8 @@ export function EditorModal({
             title="Unsaved changes"
             message={`${
               pendingWorkspace.kind === "close"
-                ? "Closing the folder closes the tabs you have open."
-                : "Switching folders closes the tabs you have open."
+                ? "Leaving this workspace closes the tabs you have open."
+                : "Switching workspace closes the tabs you have open."
             } ${buffers.filter((b) => b.dirty).length} of them have unsaved changes.`}
             detail={
               pendingWorkspace.kind === "open" ? pendingWorkspace.root : root ?? undefined
@@ -3862,7 +3883,7 @@ export function EditorModal({
               {
                 label:
                   pendingWorkspace.kind === "close"
-                    ? "Save all and close"
+                    ? "Save all and leave"
                     : "Save all and switch",
                 primary: true,
                 onClick: () => {
@@ -3887,7 +3908,7 @@ export function EditorModal({
               {
                 label:
                   pendingWorkspace.kind === "close"
-                    ? "Discard and close"
+                    ? "Discard and leave"
                     : "Discard and switch",
                 danger: true,
                 onClick: () => {
