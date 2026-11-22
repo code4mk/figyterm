@@ -68,6 +68,7 @@ import { samePath } from "../../services/explorer-paths";
 import { lsp, LspSession } from "../../services/lsp/manager";
 import { closePopup, lspExtension } from "./lsp";
 import { indentGuides } from "./editorIndent";
+import { minimap } from "./editorMinimap";
 import { gitBlameAnnotation, setBlame } from "./editorBlame";
 import { GitBlame, GitFileDiff } from "../../services/git";
 import { Remote } from "../../services/git-forge";
@@ -116,6 +117,7 @@ const tabComp = new Compartment();
   change the colour of some hairlines.
 */
 const guidesComp = new Compartment();
+const minimapComp = new Compartment();
 const bracketsComp = new Compartment();
 /*
   The blame annotation, in a compartment so the setting can drop it entirely
@@ -450,6 +452,7 @@ function settingEffects(
 ): StateEffect<unknown>[] {
   return [
     guidesComp.reconfigure(settings.indentGuides ? indentGuides() : []),
+    minimapComp.reconfigure(settings.minimap ? minimap() : []),
     blameComp.reconfigure(settings.gitBlame ? gitBlameAnnotation() : []),
     bracketsComp.reconfigure(settings.autoCloseBrackets ? closeBrackets() : []),
     completionComp.reconfigure(wordCompletion(settings, record, currentRecord)),
@@ -869,6 +872,7 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
         EditorState.allowMultipleSelections.of(true),
         indentOnInput(),
         guidesComp.of(settingsRef.current.indentGuides ? indentGuides() : []),
+        minimapComp.of(settingsRef.current.minimap ? minimap() : []),
         bracketMatching(),
         bracketsComp.of(settingsRef.current.autoCloseBrackets ? closeBrackets() : []),
         /*

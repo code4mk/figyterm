@@ -316,6 +316,13 @@ export function EditorSettingsModal({
                 />
 
                 <Toggle
+                  label="Minimap"
+                  hint="The whole file as marks down the right edge. Click or drag it to move."
+                  checked={settings.minimap}
+                  onChange={(minimap) => onChange({ minimap })}
+                />
+
+                <Toggle
                   label="Blame on the current line"
                   hint="Who last changed the line the cursor is on, at the end of it. Only inside a git repository."
                   checked={settings.gitBlame}

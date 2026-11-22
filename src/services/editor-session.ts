@@ -132,6 +132,16 @@ export interface EditorSettings {
   fontSize: number;
   lineHeight: number;
   indentGuides: boolean;
+  /**
+   * The whole file as a column of marks down the right edge.
+   *
+   * **On by default.** It costs one canvas redraw a frame at most — the draw
+   * is shape only, so nothing asks the parser for the whole document — and it
+   * is the fastest way to answer "where am I" in a file long enough to ask.
+   * Off for anyone who would rather have the 74 pixels, which in a modal this
+   * size is a real amount of line.
+   */
+  minimap: boolean;
   /** Which side the explorer, search and source control column sits on. */
   sidePanelSide: SidePanelSide;
   /**
@@ -263,6 +273,7 @@ export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
   // fits a useful number of lines in a modal this size.
   lineHeight: 1.55,
   indentGuides: true,
+  minimap: true,
   sidePanelSide: "left",
   gitBlame: true,
   useTabs: false,
@@ -420,6 +431,13 @@ export function loadSession(): PersistedSession {
     merged.settings.lineHeight = clamp(merged.settings.lineHeight, 1, 3);
     merged.settings.indentWidth = clamp(merged.settings.indentWidth, 1, 8);
     merged.settings.lsp = merged.settings.lsp === true;
+    /*
+      `!== false`, not `=== true`, because this one defaults *on*: a stored
+      value of anything but an explicit `false` — including a hand-edited
+      string, and including the absent field an older session has — should
+      leave the map showing.
+    */
+    merged.settings.minimap = merged.settings.minimap !== false;
     // Checked against the known values for the same reason the diff ones are:
     // it decides a layout, and a stored string from a hand-edited session
     // would put the panel on neither side.

@@ -1,4 +1,5 @@
-import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
+import { HighlightStyle, syntaxHighlighting, TagStyle } from "@codemirror/language";
+import { Highlighter, tagHighlighter } from "@lezer/highlight";
 import { EditorView } from "@codemirror/view";
 import type { Extension } from "@codemirror/state";
 import { tags as t } from "@lezer/highlight";
@@ -101,7 +102,7 @@ const LIGHT: Palette = {
   indentGuideActive: "rgba(0, 0, 0, 0.32)",
 };
 
-const DARK_SYNTAX = HighlightStyle.define([
+const DARK_SYNTAX_SPEC: TagStyle[] = [
   { tag: [t.comment, t.lineComment, t.blockComment, t.docComment], color: "#7d8590", fontStyle: "italic" },
   { tag: [t.keyword, t.controlKeyword, t.moduleKeyword, t.operatorKeyword], color: "#ff7b72" },
   { tag: [t.definitionKeyword, t.self], color: "#ff7b72" },
@@ -125,9 +126,12 @@ const DARK_SYNTAX = HighlightStyle.define([
   { tag: t.deleted, color: "#f85149" },
   { tag: t.changed, color: "#d29922" },
   { tag: t.invalid, color: "#f85149", textDecoration: "underline wavy" },
-]);
+];
 
-const LIGHT_SYNTAX = HighlightStyle.define([
+const DARK_SYNTAX = HighlightStyle.define(DARK_SYNTAX_SPEC);
+
+
+const LIGHT_SYNTAX_SPEC: TagStyle[] = [
   { tag: [t.comment, t.lineComment, t.blockComment, t.docComment], color: "#6e7781", fontStyle: "italic" },
   { tag: [t.keyword, t.controlKeyword, t.moduleKeyword, t.operatorKeyword], color: "#cf222e" },
   { tag: [t.definitionKeyword, t.self], color: "#cf222e" },
@@ -151,7 +155,10 @@ const LIGHT_SYNTAX = HighlightStyle.define([
   { tag: t.deleted, color: "#dc2626" },
   { tag: t.changed, color: "#d97706" },
   { tag: t.invalid, color: "#dc2626", textDecoration: "underline wavy" },
-]);
+];
+
+const LIGHT_SYNTAX = HighlightStyle.define(LIGHT_SYNTAX_SPEC);
+
 
 export interface ThemeOptions {
   dark: boolean;
@@ -195,6 +202,41 @@ export function editorTheme({
           caretColor: p.cursor,
           padding: "6px 0",
         },
+        /*
+          The minimap's two surfaces. The marks themselves are drawn on a
+          canvas in `editorMinimap.ts`, which reads the content colour from
+          the DOM — only the panel behind them and the viewport box are
+          styled here, where the rest of the palette is.
+        */
+        ".cm-minimap": {
+          backgroundColor: p.gutter,
+          borderLeft: `1px solid ${p.border}`,
+        },
+        /*
+          The box lifts on hover and again while dragging, which is the whole
+          of its affordance: at rest it reports where you are, under the
+          pointer it says it can be moved.
+        */
+        ".cm-minimap-box": {
+          backgroundColor: p.activeLine,
+          transition: "background-color 120ms ease",
+        },
+        ".cm-minimap:hover .cm-minimap-box": {
+          backgroundColor: p.selection,
+        },
+        ".cm-minimap.cm-minimap-active .cm-minimap-box": {
+          backgroundColor: p.selection,
+        },
+        /* The bar beyond the map, drawn here because the native one is off. */
+        ".cm-minimap-bar": { backgroundColor: p.gutter },
+        ".cm-minimap-thumb": {
+          backgroundColor: p.gutterText,
+          opacity: "0.45",
+          transition: "opacity 120ms ease",
+        },
+        ".cm-minimap-bar:hover .cm-minimap-thumb": { opacity: "0.75" },
+        /* Nothing to scroll — see `place()`. */
+        ".cm-minimap-bar-idle .cm-minimap-thumb": { opacity: "0" },
         ".cm-gutters": {
           backgroundColor: p.gutter,
           color: p.gutterText,
@@ -399,4 +441,28 @@ export function editorTheme({
     ),
     syntaxHighlighting(dark ? DARK_SYNTAX : LIGHT_SYNTAX),
   ];
+}
+
+/**
+ * The editor's syntax colours, addressed by tag instead of by CSS class.
+ *
+ * `HighlightStyle` turns the table above into class names and a stylesheet,
+ * which is exactly right for text in the DOM and no use at all to a canvas.
+ * The minimap needs the colours themselves, so this rebuilds a highlighter
+ * from the *same table* with the colour in the slot where the class would go —
+ * `highlightTree` hands whatever is in that slot straight to its callback, and
+ * nothing here ever reaches the DOM, so a `#rrggbb` in it is harmless.
+ *
+ * Built from the one table rather than a second copy of the colours, so the
+ * map cannot drift from the text it is a map of.
+ */
+export function syntaxHighlighter(dark: boolean): Highlighter {
+  const spec = dark ? DARK_SYNTAX_SPEC : LIGHT_SYNTAX_SPEC;
+  return tagHighlighter(
+    spec
+      .filter((entry): entry is TagStyle & { color: string } =>
+        typeof entry.color === "string"
+      )
+      .map((entry) => ({ tag: entry.tag, class: entry.color }))
+  );
 }
