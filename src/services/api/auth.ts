@@ -1,3 +1,5 @@
+import { authorizationHeader, readToken } from "./oauth";
+
 /**
  * Authentication: what a request inherits, and what that turns into on the wire.
  *
@@ -11,10 +13,17 @@
  * which is why it has its own test.
  */
 
-export type AuthType = "inherit" | "noauth" | "basic" | "bearer" | "apikey";
+export type AuthType = "inherit" | "noauth" | "basic" | "bearer" | "apikey" | "oauth2";
 
 /** The types this can apply. Others are preserved and reported, not applied. */
-export const SUPPORTED_AUTH: AuthType[] = ["inherit", "noauth", "basic", "bearer", "apikey"];
+export const SUPPORTED_AUTH: AuthType[] = [
+  "inherit",
+  "noauth",
+  "basic",
+  "bearer",
+  "apikey",
+  "oauth2",
+];
 
 export interface ParsedAuth {
   type: string;
@@ -143,6 +152,30 @@ export function applyAuth(auth: ParsedAuth, target: AuthTarget): AuthOutcome {
       return withHeader(target, "Authorization", `Bearer ${token}`);
     }
 
+    /*
+      An OAuth 2 block is a bearer token by the time a request is sent.
+
+      Everything that makes it OAuth — the grants, the exchange, the refresh —
+      happens before this, in `oauth.ts`, and leaves its result in the same
+      flat parameters every other type uses. So there is nothing special to do
+      here, which is the point: the send path has no idea where a token came
+      from and does not need one.
+
+      A block with no token yet says so rather than sending `Bearer ` with
+      nothing after it, which servers answer with a 401 that reads like a bad
+      credential instead of a missing one.
+    */
+    case "oauth2": {
+      const token = readToken(auth.params);
+      if (!token.accessToken) {
+        return {
+          ...target,
+          note: "This request uses OAuth 2 but has no token yet — fetch one from the Auth tab.",
+        };
+      }
+      return withHeader(target, "Authorization", authorizationHeader(token));
+    }
+
     case "apikey": {
       const key = auth.params.key ?? "";
       const value = auth.params.value ?? "";
@@ -181,6 +214,17 @@ export const AUTH_FIELDS: Record<string, { key: string; label: string; secret?: 
     { key: "value", label: "Value", secret: true },
     { key: "in", label: "Add to" },
   ],
+  /*
+    OAuth 2's fields are not a flat list — which apply depends on the grant,
+    and the token half is read-only — so the Auth tab builds its own editor for
+    this one. The entry is here so the generic code that walks `AUTH_FIELDS`
+    sees the secrets and masks them.
+  */
+  oauth2: [
+    { key: "clientSecret", label: "Client secret", secret: true },
+    { key: "accessToken", label: "Access token", secret: true },
+    { key: "refreshToken", label: "Refresh token", secret: true },
+  ],
 };
 
 /** What the Auth tab calls each type. */
@@ -190,4 +234,5 @@ export const AUTH_LABELS: Record<AuthType, string> = {
   basic: "Basic",
   bearer: "Bearer token",
   apikey: "API key",
+  oauth2: "OAuth 2.0",
 };

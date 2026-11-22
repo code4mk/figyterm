@@ -149,9 +149,29 @@ test("no auth changes nothing", () => {
 });
 
 test("a type this cannot apply says so instead of sending nothing quietly", () => {
-  const applied = applyAuth({ type: "oauth2", params: { accessToken: "x" } }, target());
-  assert.ok(applied.note?.includes("oauth2"));
+  // `oauth2` used to be the example here. It is applied now, so the case needs
+  // a type that genuinely still is not — Digest is next on the list.
+  const applied = applyAuth({ type: "digest", params: { username: "u" } }, target());
+  assert.ok(applied.note?.includes("digest"));
   assert.equal(applied.headers.length, 1, "and it adds no credentials it cannot compute");
+});
+
+test("an OAuth 2 block sends its token as a bearer header", () => {
+  const applied = applyAuth(
+    { type: "oauth2", params: { accessToken: "t0ken", tokenType: "Bearer" } },
+    target()
+  );
+  assert.equal(applied.note, undefined);
+  const auth = applied.headers.find((h) => h.name === "Authorization");
+  assert.equal(auth?.value, "Bearer t0ken");
+});
+
+test("an OAuth 2 block with no token yet says so rather than sending an empty one", () => {
+  // `Bearer ` with nothing after it comes back as a 401 that reads like a bad
+  // credential instead of a missing one.
+  const applied = applyAuth({ type: "oauth2", params: {} }, target());
+  assert.ok(applied.note?.includes("no token"));
+  assert.ok(!applied.headers.some((h) => h.name === "Authorization"));
 });
 
 if (failures > 0) {
