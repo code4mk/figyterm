@@ -10204,32 +10204,68 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
-/* ─── API client ──────────────────────────────────────────────────────────
- *
- * The window borrows the browser's chrome for its title bar, so only what is
- * particular to a request editor is here: the method chip, the URL bar, the
- * tab strips, the spreadsheet cells and the divider between the two halves.
- *
- * Everything is a theme variable rather than a literal, so the light theme
- * needs no second copy of any of it.
- */
+/* ─── Keyboard focus ────────────────────────────────────────────────────────
 
-.api-method {
-  height: 26px;
-  padding: 0 6px;
-  border-radius: 6px;
-  border: 1px solid var(--ft-border);
-  background: var(--ft-surface);
-  color: var(--ft-text);
-  font-size: 11px;
-  font-weight: 600;
-  font-family: var(--ft-mono, ui-monospace, monospace);
-  cursor: pointer;
+   Twenty-nine controls in this window had a `:hover` and no `:focus-visible` —
+   they lit under the pointer and showed nothing at all under the keyboard. In
+   the largest feature in the app, that is most of a window somebody navigating
+   by Tab cannot see themselves moving through.
+
+   One rule rather than twenty-nine, so a control added later inherits the
+   treatment by being named here instead of by somebody remembering. Listed by
+   class and not as `.api-modal :focus-visible`, because this window embeds
+   CodeMirror in three places — the body editor, the scripts editor and the
+   response viewer — and those manage their own focus on elements we do not
+   own.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+.api-select:focus-visible,
+.api-body-mode:focus-visible,
+.api-button:focus-visible,
+.api-button-cancel:focus-visible,
+.api-button-quiet:focus-visible,
+.api-cell:focus-visible,
+.api-chip-action:focus-visible,
+.api-description:focus-visible,
+.api-empty-action:focus-visible,
+.api-empty-recent:focus-visible,
+.api-env-tick:focus-visible,
+.api-file-add:focus-visible,
+.api-file-chip-x:focus-visible,
+.api-history-row:focus-visible,
+.api-icon-button:focus-visible,
+.api-icon-tab:focus-visible,
+.api-rail-action:focus-visible,
+.api-rail-button:focus-visible,
+.api-request-tab:focus-visible,
+.api-request-tab-close:focus-visible,
+.api-row:focus-visible,
+.api-tab:focus-visible,
+.api-tab-main:focus-visible,
+.api-tabstrip-arrow:focus-visible,
+.api-url-bare:focus-visible,
+.api-urlbar:focus-visible,
+.api-var-input:focus-visible,
+.api-workspace-row:focus-visible,
+.api-workspace-tool:focus-visible {
+  outline: 2px solid var(--ft-accent);
+  outline-offset: -1px;
+  border-radius: 5px;
+  /* Row actions in the rail and the tables are dimmed until their row is
+     hovered; focus has to reveal them or the ring frames nothing. */
+  opacity: 1;
 }
-.api-method:focus-visible,
-.api-select:focus-visible {
-  outline: 1px solid var(--ft-accent);
-  outline-offset: 1px;
+
+/*
+  A row whose halves focus separately still reads as one row.
+
+  A request tab is a name plus a ✕, and a rail row is a name plus its actions —
+  an outline on the wide half alone cuts them in two.
+*/
+.api-request-tab:has(> button:focus-visible),
+.api-row:has(> button:focus-visible) {
+  outline: 2px solid var(--ft-accent);
+  outline-offset: -2px;
 }
 
 .api-select {
@@ -10684,91 +10720,6 @@
   text-underline-offset: 2px;
 }
 
-/* The hover card.
- *
- * Three lines, in the order the questions come: what is this called and is it
- * all right, what is it worth, and who said so. It used to be a name and one
- * run-on sentence, which made the value — the thing being asked about — the
- * hardest part to find. */
-.api-var-tip {
-  width: max-content;
-  max-width: 340px;
-  padding: 7px 9px 8px;
-  font-size: 11px;
-  line-height: 1.5;
-  /* Its own left edge in the state's colour, so the answer is legible before
-   * a word of it has been read. */
-  border-left: 2px solid var(--ft-accent);
-}
-.api-var-tip.dynamic {
-  border-left-color: var(--ft-success);
-}
-.api-var-tip.empty {
-  border-left-color: var(--ft-warning);
-}
-.api-var-tip.missing {
-  border-left-color: var(--ft-error);
-}
-
-.api-var-tip-head {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-.api-var-tip-name {
-  font-family: ui-monospace, SFMono-Regular, monospace;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--ft-text);
-  word-break: break-all;
-}
-/* The state as a word, not only as a colour. */
-.api-var-tip-badge {
-  margin-left: auto;
-  flex: none;
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--ft-accent);
-}
-.api-var-tip.dynamic .api-var-tip-badge {
-  color: var(--ft-success);
-}
-.api-var-tip.empty .api-var-tip-badge {
-  color: var(--ft-warning);
-}
-.api-var-tip.missing .api-var-tip-badge {
-  color: var(--ft-error);
-}
-
-/* The value, which is what was actually being asked about. Capped at four
- * lines: a variable holding a JWT is three hundred characters, and the whole
- * of it would be a tooltip the height of the window. */
-.api-var-tip-value {
-  margin-top: 4px;
-  font-family: ui-monospace, SFMono-Regular, monospace;
-  font-size: 11px;
-  color: var(--ft-text);
-  word-break: break-all;
-  display: -webkit-box;
-  -webkit-line-clamp: 4;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.api-var-tip.empty .api-var-tip-value,
-.api-var-tip.missing .api-var-tip-value,
-.api-var-tip.dynamic .api-var-tip-value {
-  color: var(--ft-text-muted);
-  font-style: italic;
-}
-
-.api-var-tip-from {
-  margin-top: 5px;
-  padding-top: 5px;
-  border-top: 1px solid var(--ft-border-subtle);
-  font-size: 10px;
-  color: var(--ft-text-muted);
-}
 
 /* Tooltips parented to the body.
  *
@@ -10940,66 +10891,6 @@ body > .cm-api-completions .cm-completionMatchedText {
   color: var(--ft-accent);
 }
 
-/* Where it comes from, beside the name — dimmed, and the first to shrink. */
-.api-var-from {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 10px;
-  color: var(--ft-text-muted);
-}
-
-/* The kind, as a chip held to the right so the column of them lines up. */
-.api-var-badge {
-  margin-left: auto;
-  flex-shrink: 0;
-  min-width: 16px;
-  padding: 0 5px;
-  border-radius: 3px;
-  text-align: center;
-  font-family: ui-sans-serif, -apple-system, system-ui, sans-serif;
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--ft-text-muted);
-  background: color-mix(in srgb, var(--ft-text-muted) 16%, transparent);
-}
-.api-var-badge.environment {
-  background: color-mix(in srgb, var(--ft-accent) 20%, transparent);
-  color: var(--ft-accent);
-}
-.api-var-badge.collection {
-  background: color-mix(in srgb, var(--ft-warning) 20%, transparent);
-  color: var(--ft-warning);
-}
-.api-var-badge.global,
-.api-var-badge.dynamic {
-  background: color-mix(in srgb, var(--ft-success) 20%, transparent);
-  color: var(--ft-success);
-}
-
-/* The value, on the second line.
- *
- * `flex-basis: 100%` is what breaks the row: it takes the full width, so it
- * wraps beneath the first line and gets the whole popup to be read across. */
-.api-var-value {
-  flex-basis: 100%;
-  margin-top: 1px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10.5px;
-  color: var(--ft-text-muted);
-}
-body > .cm-api-completions > ul > li[aria-selected] .api-var-value {
-  color: var(--ft-text-secondary);
-}
-.api-var-value.empty {
-  font-style: italic;
-  color: var(--ft-warning);
-}
 
 /* The detail column — what the script list puts its one-line explanation in.
  * Context for the name, so it shrinks first and never pushes the name out. */
@@ -11194,49 +11085,6 @@ body > .cm-api-completions .cm-completionDetail {
   font: inherit;
 }
 .api-suggest-field::placeholder {
-  color: var(--ft-text-muted);
-}
-
-.api-suggest-list {
-  position: absolute;
-  top: calc(100% + 3px);
-  left: 0;
-  min-width: 100%;
-  max-width: 420px;
-  max-height: 260px;
-  overflow-y: auto;
-  /* Above the panes, below nothing: the same flat high number the context
-   * menu and the variable tooltips use, for the same reason. */
-  z-index: 9997;
-  padding: 4px;
-  border-radius: 8px;
-  border: 1px solid var(--ft-border);
-  background: var(--ft-elevated);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.34);
-}
-.api-suggest-option {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  width: 100%;
-  padding: 3px 7px;
-  border-radius: 5px;
-  text-align: left;
-  white-space: nowrap;
-}
-.api-suggest-option.active {
-  background: color-mix(in srgb, var(--ft-accent) 20%, transparent);
-}
-.api-suggest-value {
-  font-family: ui-monospace, SFMono-Regular, monospace;
-  font-size: 11px;
-  color: var(--ft-text);
-}
-.api-suggest-hint {
-  margin-left: auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: 10px;
   color: var(--ft-text-muted);
 }
 
@@ -11883,37 +11731,6 @@ body > .cm-api-completions .cm-completionDetail {
   background: var(--ft-tab);
 }
 
-/* One variable the request uses. The value rides alongside the name when there
- * is one, because "what will this send" is the question being asked. */
-.api-chip {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 4px;
-  max-width: 260px;
-  padding: 1px 6px;
-  border-radius: 10px;
-  border: 1px solid var(--ft-border);
-  background: var(--ft-surface);
-  color: var(--ft-text-secondary);
-  font-family: ui-monospace, SFMono-Regular, monospace;
-  font-size: 10px;
-  white-space: nowrap;
-  overflow: hidden;
-}
-.api-chip-value {
-  color: var(--ft-text-muted);
-  text-overflow: ellipsis;
-  overflow: hidden;
-}
-/* No value anywhere in the chain: this is why the send was refused. */
-.api-chip.missing {
-  border-color: var(--ft-warning);
-  color: var(--ft-warning);
-}
-/* Generated fresh per send, so there is no stored value to show. */
-.api-chip.dynamic {
-  border-style: dashed;
-}
 
 /*
   `inline-flex` because some of these carry an icon beside their label — Save
@@ -12386,13 +12203,13 @@ body > .cm-api-completions .cm-completionDetail {
 
 .light .api-method-menu {
   background: var(--ft-surface);
-  border-color: #d9dde5;
+  border-color: var(--ft-border);
   box-shadow:
     0 1px 2px rgba(16, 24, 40, 0.06),
     0 14px 40px rgba(16, 24, 40, 0.16);
 }
 .light .api-method-item.active {
-  background: color-mix(in srgb, var(--ft-accent) 10%, #ffffff);
+  background: color-mix(in srgb, var(--ft-accent) 10%, var(--ft-surface));
 }
 .light .api-method-button:hover,
 .light .api-method-button.open {
@@ -12626,13 +12443,13 @@ body > .cm-api-completions .cm-completionDetail {
 
 .light .api-picker-menu {
   background: var(--ft-surface);
-  border-color: #d9dde5;
+  border-color: var(--ft-border);
   box-shadow:
     0 1px 2px rgba(16, 24, 40, 0.06),
     0 14px 40px rgba(16, 24, 40, 0.16);
 }
 .light .api-picker-item.active {
-  background: color-mix(in srgb, var(--ft-accent) 10%, #ffffff);
+  background: color-mix(in srgb, var(--ft-accent) 10%, var(--ft-surface));
 }
 
 /* ──────────────────────────────────────────────────────────────────────────
@@ -12881,14 +12698,14 @@ body > .cm-api-completions .cm-completionDetail {
 
 .light .api-dialog {
   background: var(--ft-surface);
-  border-color: #d9dde5;
+  border-color: var(--ft-border);
   box-shadow:
     0 1px 2px rgba(16, 24, 40, 0.06),
     0 24px 60px rgba(16, 24, 40, 0.22);
 }
 .light .api-dialog-head,
 .light .api-dialog-foot {
-  background: #fafbfd;
+  background: rgba(15, 23, 42, 0.022);
 }
 .light .api-dialog-scrim {
   background: rgba(16, 24, 40, 0.28);
@@ -13086,7 +12903,7 @@ body > .cm-api-completions .cm-completionDetail {
 
 .light .api-workspace-row:hover,
 .light .api-workspace-row.active {
-  background: color-mix(in srgb, var(--ft-accent) 9%, #ffffff);
+  background: color-mix(in srgb, var(--ft-accent) 9%, var(--ft-surface));
 }
 .light .api-workspace-tool:hover {
   background: color-mix(in srgb, var(--ft-text-muted) 12%, transparent);
