@@ -1890,66 +1890,7 @@
 }
 
 /* Explorer and Source Control, as one segmented switcher. */
-/*
-  The side column's switcher, drawn as the source-control panel's own tabs are.
 
-  Deliberately the same control in two places: Files / Search / Git chooses
-  what the column *is*, and Changes / History / Stashes chooses what one of
-  those shows. They are one level apart in the same column, so they read as
-  nested when they look alike and as unrelated when they do not — which is
-  what a boxed segmented control up here did.
-
-  It keeps the underline **and** a tint, which the source-control tabs do not
-  need. Those sit alone in a row of their own, against that row's bottom rule,
-  where a 2px line is unmissable. These sit in a toolbar among other controls
-  and against the toolbar's own border — an underline alone was read as part
-  of the chrome, and the active tab became impossible to pick out. The tint is
-  what carries the state here; the underline is what ties it to the tabs below.
-*/
-.editor-panel-switch {
-  /* Symmetric, because the group it sits in is reversed when the panel is on
-     the left and a margin on one side would then be on the wrong one. */
-  margin-inline: 2px;
-}
-
-.editor-panel-tab {
-  color: #8b949e;
-  border-bottom: 2px solid transparent;
-  border-radius: 4px 4px 0 0;
-  transition: color 0.12s ease, background 0.12s ease, border-color 0.12s ease;
-}
-
-.editor-panel-label {
-  white-space: nowrap;
-}
-
-.editor-panel-tab:hover {
-  color: #e6edf3;
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.editor-panel-tab.on {
-  color: #a5b4fc;
-  background: rgba(99, 102, 241, 0.16);
-  border-bottom-color: #6366f1;
-}
-
-/*
-  The mode the column is on while the column itself is hidden.
-
-  Collapsing used to leave all three looking alike, so nothing said which one
-  ⌘B would bring back — the choice was still there, just invisible, and the
-  only way to find out was to open it. This says which, and says it in the
-  accent so it reads as the same selection.
-
-  Marked without the fill on purpose: the difference between *selected* and
-  *selected and open* is exactly the difference between these two rules, so
-  the pair tells you both things at once instead of one of them.
-*/
-.editor-panel-tab.standby {
-  color: #a5b4fc;
-  border-bottom-color: rgba(99, 102, 241, 0.5);
-}
 
 /*
   One box, two glyphs: the dirty dot and the close cross swap on hover so the
@@ -6239,26 +6180,6 @@
   color: #9a6700;
 }
 
-.light .editor-panel-tab {
-  color: #6b7280;
-}
-
-.light .editor-panel-tab:hover {
-  color: #111827;
-  background: rgba(0, 0, 0, 0.05);
-}
-
-.light .editor-panel-tab.on {
-  color: #4338ca;
-  background: rgba(79, 70, 229, 0.12);
-  border-bottom-color: #4f46e5;
-}
-
-.light .editor-panel-tab.standby {
-  color: #4338ca;
-  border-bottom-color: rgba(79, 70, 229, 0.45);
-}
-
 .light .editor-scm-sync,
 .light .editor-scm-tabs {
   border-bottom-color: #e2e5eb;
@@ -9792,9 +9713,25 @@
   pointer-events: none;
 }
 
-/* ─── Drawing: the Draw · Notes · Both control ─────────────────────────────── */
+/* ─── Segmented tabs ────────────────────────────────────────────────────────
 
-.drawing-panes {
+   One choice, several options, a pill that slides — the control the drawing
+   window's Draw · Notes · Both switcher introduced, now shared with the
+   editor's Files · Search · Git column switcher.
+
+   Those two ask the same kind of question and were answering it in two
+   different shapes: a segmented control in one window, underlined tabs with a
+   coloured fill in the other. The editor's version also carried its own
+   hardcoded indigos and a parallel set of `.light` rules to invert them.
+
+   **The pill is one element**, not a background per button. That is what makes
+   the change read as a control moving rather than two buttons swapping colour,
+   and it keeps the selected treatment in exactly one rule. It also fixes the
+   segments at equal width — the pill is `100% / n` and slides in whole steps —
+   which is why every item is `flex: 1 1 0` rather than sized by its label.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+.seg-tabs {
   position: relative;
   display: flex;
   align-items: center;
@@ -9806,27 +9743,46 @@
 }
 
 /*
- * The sliding selection.
- *
- * One pill for the whole control rather than a background per button: it is
- * what makes the change read as a control moving rather than two buttons
- * swapping colour, and the active treatment then lives in exactly one rule.
- * Width is a third of the track, so the segments must stay equal — see the
- * `flex: 1 1 0` below.
- */
-.drawing-panes-pill {
+  The sliding selection.
+
+  Width is one segment of the track and it moves in whole steps, so the two
+  numbers the component passes down — how many segments there are and which is
+  current — are all the arithmetic this needs.
+*/
+.seg-pill {
   position: absolute;
   top: 2px;
   bottom: 2px;
   left: 2px;
-  width: calc((100% - 4px) / 3);
+  width: calc((100% - 4px) / var(--seg-count, 3));
+  transform: translateX(calc(var(--seg-index, 0) * 100%));
   border-radius: 5px;
   background: var(--ft-elevated);
   box-shadow: 0 1px 2px rgb(0 0 0 / 18%);
   transition: transform 160ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
-.drawing-panes-seg {
+/*
+  Selected, but what it selects is put away.
+
+  The editor's column collapses while still being *on* a mode. Hollow rather
+  than filled says both facts at once — this one, and not right now — where
+  before the collapsed control looked identical whichever mode would come back.
+*/
+.seg-pill.standby {
+  background: transparent;
+  border: 1px dashed var(--ft-border);
+  box-shadow: none;
+}
+
+/* Someone who asked for less motion gets the move, not the glide. */
+@media (prefers-reduced-motion: reduce) {
+  .seg-pill {
+    transition: none;
+  }
+}
+
+.seg-item {
   position: relative;
   z-index: 1;
   flex: 1 1 0;
@@ -9834,25 +9790,56 @@
   align-items: center;
   justify-content: center;
   gap: 4px;
+  min-width: 0;
   padding: 3px 9px;
+  border: none;
+  background: none;
   border-radius: 5px;
   font-size: 10px;
   font-weight: 500;
   white-space: nowrap;
   color: var(--ft-text-muted);
+  cursor: pointer;
   transition: color 140ms ease;
 }
-.drawing-panes-seg:hover {
+
+.seg-item:hover {
   color: var(--ft-text);
 }
-.drawing-panes-seg.selected {
+
+.seg-item.selected {
   color: var(--ft-text);
 }
-.drawing-panes-seg:focus-visible {
+
+/* Lit, but quietly, to match the pill behind it. */
+.seg-item.standby {
+  color: var(--ft-text-secondary);
+}
+
+.seg-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.seg-item:focus-visible {
   outline: 1px solid var(--ft-accent);
   outline-offset: 1px;
 }
 
+/* The track reads as recessed against a dark surface and against a light one;
+   only the fill behind the pill needs saying twice. */
+.light .seg-pill {
+  background: var(--ft-surface);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 12%);
+}
+
+/*
+  Notes has something in it.
+
+  The one piece of the drawing window's switcher that did not generalise: a
+  marker particular to that document's second half, passed in as the segment's
+  badge. Everything else about the control is in `.seg-*` above.
+*/
 .drawing-panes-dot {
   width: 4px;
   height: 4px;

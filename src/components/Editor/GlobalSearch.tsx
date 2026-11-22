@@ -154,7 +154,15 @@ export function GlobalSearch({ root, onOpen, onClose }: GlobalSearchProps) {
         </button>
       </div>
 
-      <div className="px-2 pb-1.5 shrink-0">
+      {/*
+        `pt-2`, which this had none of.
+
+        The field was `px-2 pb-1.5` — padding on three sides — so it sat
+        against the header's bottom border with the gap only underneath it. The
+        space above a field is what separates it from the thing above; without
+        it the border reads as the field's own top edge.
+      */}
+      <div className="px-2 pt-2 pb-1.5 shrink-0">
         <div className="editor-search-field flex items-center gap-1 px-2 py-1 rounded-md">
           <input
             autoFocus

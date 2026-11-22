@@ -118,6 +118,7 @@ import { EditorTabs } from "./EditorTabs";
 import { EditorStatusBar } from "./EditorStatusBar";
 import { EditorDialog } from "./EditorDialog";
 import { ExplorerChange, FileExplorer } from "./FileExplorer";
+import { SegmentedTabs } from "../Shared/SegmentedTabs";
 import { GlobalSearch } from "./GlobalSearch";
 import { WorkspacePicker } from "./WorkspacePicker";
 import { MarkdownPreview, MarkdownPreviewHandle } from "./MarkdownPreview";
@@ -2801,43 +2802,33 @@ export function EditorModal({
         is drawn as: those carry one word each, these carry a word and an icon
         and look lopsided at three different widths.
       */}
-      <div
-        className={`editor-panel-switch flex items-center ${
-          panelShown ? "flex-1 min-w-0" : "shrink-0"
-        }`}
-        role="tablist"
-      >
-        {PANEL_MODES.map((mode) => (
-          <button
-            key={mode.id}
-            role="tab"
-            /* Selected is selected whether or not the column is open; the
-               collapsed state is the toggle's to report, not this one's. */
-            aria-selected={sidePanel === mode.id}
-            className={`editor-panel-tab flex items-center justify-center gap-1.5 px-1.5 py-1 ${
-              panelShown ? "flex-1 min-w-0" : ""
-            } ${
-              sidePanel === mode.id ? (panelShown ? "on" : "standby") : ""
-            }`}
-            onClick={() => showPanel(mode.id)}
-            title={mode.id === "git" ? gitPanelTitle : mode.title}
-            aria-label={mode.aria}
-          >
-            {mode.icon}
-            {/* Dropped rather than truncated when the panel is too narrow to
-                read them: half a word is worse than the icon alone. */}
-            {wideControls && (
-              <span className="editor-panel-label text-[10px] font-semibold uppercase tracking-wide truncate">
-                {mode.label}
-              </span>
-            )}
-            {/*
-              The number, where the source-control panel's own Changes tab puts
-              one — and the same chip, so the two agree about what it means. A
-              bare dot said only "something"; this says how much, which is the
-              question anybody glancing at it has.
-            */}
-            {mode.id === "git" && git.files.length > 0 && (
+      {/*
+        The drawing window's switcher, which this now shares — see
+        `SegmentedTabs`. It was three underlined tabs with a coloured fill on
+        the selected one, which is a different shape for the same question the
+        other window answers with a sliding pill.
+
+        **`standby` is the editor's own addition to it.** The column can be
+        collapsed while still being *on* Search, and those are two facts. The
+        pill stays where it is and goes hollow, so the control says both: this
+        mode, and not open right now. Collapsing used to leave all three
+        looking alike, with nothing to say which one ⌘B would bring back.
+      */}
+      <SegmentedTabs
+        segments={PANEL_MODES.map((mode) => ({
+          value: mode.id,
+          label: mode.label,
+          icon: mode.icon,
+          title: mode.id === "git" ? gitPanelTitle : mode.title,
+          aria: mode.aria,
+          /*
+            The number, where the source-control panel's own Changes tab puts
+            one — and the same chip, so the two agree about what it means. A
+            bare dot said only "something"; this says how much, which is the
+            question anybody glancing at it has.
+          */
+          badge:
+            mode.id === "git" && git.files.length > 0 ? (
               <span
                 className={`editor-scm-tabcount tabular-nums ${
                   panelShown && sidePanel === "git" ? "on" : ""
@@ -2845,10 +2836,15 @@ export function EditorModal({
               >
                 {git.files.length}
               </span>
-            )}
-          </button>
-        ))}
-      </div>
+            ) : undefined,
+        }))}
+        value={sidePanel}
+        onChange={showPanel}
+        ariaLabel="Side panel"
+        showLabels={wideControls}
+        standby={!panelShown}
+        className={panelShown ? "flex-1 min-w-0" : "shrink-0"}
+      />
       <button
         className={`editor-btn p-1 rounded shrink-0 ${explorerVisible ? "on" : ""}`}
         onClick={() => setExplorerVisible(!explorerVisible)}
