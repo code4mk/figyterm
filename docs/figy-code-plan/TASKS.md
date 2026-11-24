@@ -3,11 +3,11 @@
 The build order from [`TOOLS.md`](./TOOLS.md), as things to tick off. Checked
 means written **and tested**; a task with no test is not done.
 
-**Where it stands (2026-11-24):** sections 1–4 are in, bar the items still
-marked open. `cargo test --lib` is 369 passing, of which 149 are the agent's
-own. Ten tools, and a turn that runs end to end against any
-OpenAI-compatible endpoint. Nothing in the window is wired to it yet, which
-is section 5.
+**Where it stands (2026-11-25):** sections 1–6 are in and 8 is half in, bar
+the items still marked open. `cargo test --lib` is 406 passing (186 the
+agent's own) and `npm test` carries 33 more over the window's reducer and
+its diff. Fifteen tools, a turn that runs end to end, and nothing scripted
+left in the window.
 
 The shape of the thing being built, decided and not re-opened here:
 
@@ -105,16 +105,69 @@ The shape of the thing being built, decided and not re-opened here:
 
 ## 5 · The window, told the truth
 
-- [ ] Replace `figycode-demo.ts` with real events
-- [ ] Permission prompts wired to the real permission classes
-- [ ] Interrupt actually interrupts
+- [x] `figycode-demo.ts` is deleted. The scripted runs, the invented
+      projects, the fake checkpoints and the notice gallery are gone
+- [x] `figycode-session.ts` — the transcript as `(state, event) => state`,
+      pure and tested: streamed text becoming one paragraph, a tool row
+      filled in two seconds after it appears, a refusal that must not look
+      like a crash
+- [x] Permission prompts are the real ones: the card is built from the
+      pending call, the answer goes back through `agent_approve`, and
+      "allow all edits" switches the mode rather than remembering a key
+- [x] Interrupt actually interrupts — Escape calls `agent_cancel`, which
+      drops the connection rather than draining it
+- [x] `/model` configures a real provider; the key goes to the keychain
+- [x] `/usage` and the status bar show the ledger's own numbers, including
+      the cache hit rate
+- [x] `!` runs one tool with no model and no prompt. Its output stays out
+      of the conversation: the loop owns the history
+- [x] **Every tool row opens.** The result is already in the conversation
+      and already paid for; a transcript of one-line summaries is one you
+      have to take on trust. The triangle says what opening it will show
+- [x] An edit renders as a **line diff** with context — `figycode-diff.ts`,
+      an LCS with long unchanged runs elided — rather than as everything
+      removed then everything added, which on a six-line replacement that
+      changed one word was twelve lines of noise. A diff opens itself; a
+      build log does not
+- [x] A new file shows the content it wrote, as added lines. The content
+      rides in `detail` rather than in the tool result: the model wrote
+      that text and it is already in the conversation as the call's
+      arguments, so returning it would be paying twice on every later turn
+- [x] The permission card for an edit shows the same diff the row will,
+      so saying yes does not change what you were looking at
+- [x] The token meter moves while the answer streams. The provider's own
+      count arrives at the end of the turn and replaces the estimate
+- [ ] Six block renderers were deleted with the scripts — plans, to-do
+      lists, command-output cards, the task summary. They come back with
+      the `plan` and `todo_write` tools in section 8, out of the history
+- [ ] Background commands in a visible terminal tab (carried from 4)
+- [ ] **The API key is in plain text.** `figycode-agent.json` in the app
+      data directory, 0600 where the platform understands it, and the
+      window states the path when it saves. Deliberate while the agent is
+      being built against a throwaway token on a self-hosted endpoint —
+      a keychain prompt per launch of a debug build is friction with
+      nothing behind it yet. `secrets::store(Credential::Key, …)` is the
+      three-line change back, and it happens before anyone else runs this
 
 ## 6 · The differentiator
 
-- [ ] `definition`, `references`, `diagnostics` over the LSP client
+- [x] `definition`, `references`, `diagnostics`, through the language
+      server **this process is already running**. The obvious build — an
+      LSP client in Rust beside the loop — was the wrong one: it would
+      start a second `rust-analyzer`, which is gigabytes and half a minute
+      of indexing on exactly the projects where these tools are worth
+      having. So the tool emits `agent://lsp-request`, the app shell
+      answers with the client the editor already owns, and
+      `agent/code.rs` is the bridge between them
+- [x] Tool dispatch moved to `spawn_blocking`. A thirty-second wait for a
+      cold server on a runtime worker would stall the command delivering
+      the answer it is waiting for — a deadlock rather than a stall
 - [ ] `workspace/symbol` in the client, then `find_symbol` — the gap worth
-      closing first
+      closing first, and the one request `lsp/client.ts` does not implement
 - [ ] `rename_symbol` through `lsp/edits.ts`'s `WorkspaceEdit` applier
+- [ ] The bridge needs the webview alive and the language-server switch on.
+      Each tool says so rather than failing in a way the model would retry,
+      but it is a real limit and belongs in the window's own copy one day
 
 ## 7 · The editor panel
 
@@ -124,7 +177,24 @@ The shape of the thing being built, decided and not re-opened here:
 
 ## 8 · Outside
 
-- [ ] `search_web` through Exa
-- [ ] `fetch_url`, returning markdown rather than 40K of HTML
+- [x] `search_web` through Exa. The extract comes back in the same call —
+      `contents.text` with a small `maxCharacters` — because the extract
+      is what decides whether a result is worth fetching whole, and asking
+      for it separately is a second round trip to learn the same thing
+- [x] `fetch_url`, returning the text Exa extracted rather than 40K of
+      HTML. Capped at 200 lines with a note, because a page is re-sent on
+      every later turn of the session
+- [x] Both are `net` class, so both are asked about every time with the
+      query or the URL on the card. `acceptEdits` means edits
+- [x] No Exa key means no web tools at all, rather than tools that attempt
+      a request with an empty header and report a 401
 - [ ] git tools: `git_status`, `git_diff`, `git_log`, `git_blame`,
       `git_commit`. Nothing that pushes
+- [ ] The Exa cost comes back on every call (`costDollars.total`) and is
+      put in the tool's detail for the window. It is not in the ledger,
+      which only counts the model — one bill is visible and the other is
+      not
+- [ ] Locations in a `definition` or `references` result, and URLs in a
+      search result, are text. Clicking a `path:line` to open the editor
+      there, and a URL to open the browser window, is the obvious next
+      thing the transcript should do

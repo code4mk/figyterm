@@ -31,6 +31,7 @@ import type { EditorOpenRequest } from "../Editor/EditorModal";
 import type { ClaudeMentionRequest } from "../Claude/ClaudeModal";
 import { isMac, EMBEDDED_BROWSER_SUPPORTED } from "../../services/platform";
 import { DockWindow, MinimizedDock } from "./MinimizedDock";
+import { serveAgentLsp } from "../../services/figycode-lsp";
 
 const MAX_PANES_PER_TAB = 4;
 
@@ -463,6 +464,28 @@ export function AppShell() {
   useEffect(() => {
     if (figyOpen) setFigyMounted(true);
   }, [figyOpen]);
+
+  /*
+    The agent's questions about code are answered here rather than inside
+    the FigyCode window.
+
+    They go to the language server this process is already running — see
+    `services/figycode-lsp.ts` — and the agent can be mid-turn while its
+    window is minimised. A listener that came and went with the window
+    would drop the reply and leave the turn waiting out its timeout.
+  */
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let alive = true;
+    void serveAgentLsp().then((off) => {
+      if (alive) unlisten = off;
+      else off();
+    });
+    return () => {
+      alive = false;
+      unlisten?.();
+    };
+  }, []);
 
   useEffect(() => {
     if (drawingOpen) setDrawingMounted(true);

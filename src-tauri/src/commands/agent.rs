@@ -15,6 +15,7 @@
 //! that?" without a model in the way.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -23,35 +24,57 @@ use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager, State, Window};
 use tokio::sync::oneshot;
 
+use crate::agent::code::{Ask, Bridge, Lsp};
 use crate::agent::ledger::{Ledger, Price, Surface, Totals};
 use crate::agent::message::ToolCall;
 use crate::agent::policy::Mode;
 use crate::agent::provider::{OpenAiProvider, ProviderConfig};
 use crate::agent::shell::{Shell, SystemShell};
+use crate::agent::web::{Exa, Web};
 use crate::agent::session::{
     Approver, OfferEverything, Session, SessionConfig, Turn, TurnEvent,
 };
 use crate::agent::tools::{self, ToolContext};
 use crate::agent::workspace::Workspace;
-use crate::secrets::{self, Credential};
 
 /// The event every turn is narrated through.
 pub const AGENT_EVENT: &str = "agent://event";
 
-/// Where the key is kept. One account name, because this is the app's own
-/// provider setting rather than one per project.
-const KEY_ACCOUNT: &str = "figycode:provider";
+/// A question for the window's language-server client. See `agent/code.rs`
+/// for why these go out rather than being asked in Rust.
+pub const AGENT_LSP_EVENT: &str = "agent://lsp-request";
+
+/// Where the provider settings are kept, **key and all, in plain text**.
+///
+/// The rest of this app puts credentials in the OS keychain and says so
+/// loudly — see `secrets/mod.rs`, which refuses to fall back to a file.
+/// This one does not, deliberately and temporarily: the agent is being
+/// built against a self-hosted endpoint with a throwaway token, and a
+/// keychain prompt on every launch of a debug build is friction with
+/// nothing behind it yet.
+///
+/// What that costs: anything that can read this user's files can read the
+/// key. The file is written 0600 where the platform understands it, which
+/// narrows it to this account and no further, and the window states the
+/// path when it saves — a secret in a place nobody mentioned is worse than
+/// one in a place everybody knows about.
+///
+/// **Before this ships to anyone**, `secrets::store(Credential::Key, …)` is
+/// the three-line change that moves it, and `TASKS.md` carries it as an
+/// open item.
+const SETTINGS_FILE: &str = "figycode-agent.json";
 
 /* ─── State ──────────────────────────────────────────────────────────────── */
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct AgentSettings {
     /// The part before `/chat/completions`.
     pub base_url: String,
     pub model: String,
-    /// Only on the call that sets it. Afterwards it lives in the keychain
-    /// and never comes back out to the webview.
+    /// Stored, but never handed back to the webview: a window that can
+    /// read the key is a window that can leak it into a screenshot, a log
+    /// or a bug report.
     pub api_key: Option<String>,
     pub temperature: Option<f32>,
     /// Dollars per million tokens, as data rather than a table baked into
@@ -60,6 +83,9 @@ pub struct AgentSettings {
     pub input_price: Option<f64>,
     pub cached_price: Option<f64>,
     pub output_price: Option<f64>,
+    /// Exa, for `search_web` and `fetch_url`. Absent means the agent has
+    /// no web tools — which is a configuration, not a failure.
+    pub exa_key: Option<String>,
 }
 
 #[derive(Default)]
@@ -77,6 +103,8 @@ pub struct AgentState {
     ledger: Mutex<Option<Arc<Ledger>>>,
     /// One shell per window, so its background commands die with it.
     shells: Mutex<HashMap<String, Arc<SystemShell>>>,
+    /// One bridge per window, holding the questions it has outstanding.
+    bridges: Mutex<HashMap<String, Arc<Bridge>>>,
 }
 
 pub fn forget_window(state: &AgentState, label: &str) {
@@ -88,6 +116,12 @@ pub fn forget_window(state: &AgentState, label: &str) {
     // blame, is the alternative.
     if let Ok(mut shells) = state.shells.lock() {
         shells.remove(label);
+    }
+    // Anything waiting on that window's editor will never be answered now.
+    if let Ok(mut bridges) = state.bridges.lock() {
+        if let Some(bridge) = bridges.remove(label) {
+            bridge.abandon();
+        }
     }
     if let Ok(mut running) = state.running.lock() {
         // Dropping the sender cancels the turn, which is what a closed
@@ -154,25 +188,119 @@ pub fn agent_call_tool(
 
 /// Points the agent at a provider.
 ///
-/// The key goes to the OS keychain and nowhere else — not to settings, not
-/// to the ledger, and never back to the webview. Everything else is kept in
-/// memory, because it is a setting rather than a secret and the window
-/// already holds the copy the user is editing.
+/// Saves the settings, and answers with what actually stuck.
+///
+/// An empty key means "leave the one you have", so the form can be
+/// reopened to change a model without retyping a token — and so a save
+/// cannot silently blank the key by submitting a field that was never
+/// filled in.
 #[tauri::command]
-pub fn agent_configure(state: State<AgentState>, settings: AgentSettings) -> Result<(), String> {
-    if let Some(key) = settings.api_key.as_ref().filter(|k| !k.trim().is_empty()) {
-        secrets::store(Credential::Key, KEY_ACCOUNT, key.trim())?;
-    }
-    let mut stored = settings.clone();
-    stored.api_key = None;
-    *state.settings.lock().map_err(|e| e.to_string())? = Some(stored);
-    Ok(())
+pub fn agent_configure(
+    app: AppHandle,
+    state: State<AgentState>,
+    settings: AgentSettings,
+) -> Result<AgentStatus, String> {
+    let existing = current(&app, &state)?;
+    let mut next = settings;
+    /*
+      An empty key means "keep the one you have", for both of them.
+
+      The form cannot show a stored key — it never comes back out — so a
+      save after changing the model would otherwise blank whichever field
+      the user did not retype.
+    */
+    let keep = |typed: Option<String>, stored: Option<String>| -> Option<String> {
+        match typed.map(|k| k.trim().to_string()) {
+            Some(k) if !k.is_empty() => Some(k),
+            _ => stored,
+        }
+    };
+    let old = existing.unwrap_or_default();
+    next.api_key = keep(next.api_key, old.api_key);
+    next.exa_key = keep(next.exa_key, old.exa_key);
+
+    write_settings(&app, &next)?;
+    *state.settings.lock().map_err(|e| e.to_string())? = Some(next.clone());
+    Ok(status_of(&app, &next))
 }
 
-/// Whether a key has been stored, which is all the webview may know.
+/// What the agent is actually set up with, as the backend knows it.
+///
+/// One question with one owner. The window used to assemble this from a
+/// key check plus its own copy of the settings, which is two sources of
+/// truth for "can I send a message" — and the one that refuses.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentStatus {
+    pub has_key: bool,
+    /// Whether the web tools will work. Shown, never the key itself.
+    pub has_exa_key: bool,
+    /// The settings as stored, with the key removed.
+    pub settings: AgentSettings,
+    /// Where they are written, which the window states when it saves.
+    pub path: String,
+}
+
 #[tauri::command]
-pub fn agent_has_key() -> Result<bool, String> {
-    Ok(secrets::read(Credential::Key, KEY_ACCOUNT)?.is_some())
+pub fn agent_status(app: AppHandle, state: State<AgentState>) -> Result<AgentStatus, String> {
+    let settings = current(&app, &state)?.unwrap_or_default();
+    Ok(status_of(&app, &settings))
+}
+
+fn status_of(app: &AppHandle, settings: &AgentSettings) -> AgentStatus {
+    let mut public = settings.clone();
+    public.api_key = None;
+    public.exa_key = None;
+    let present = |key: &Option<String>| key.as_ref().map(|k| !k.trim().is_empty()).unwrap_or(false);
+    AgentStatus {
+        has_key: present(&settings.api_key),
+        has_exa_key: present(&settings.exa_key),
+        settings: public,
+        path: settings_path(app)
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default(),
+    }
+}
+
+/// The settings, from memory or from the file they were last written to.
+///
+/// Read through on a miss rather than at launch: a terminal that never
+/// opens this window should not be reading its configuration.
+fn current(app: &AppHandle, state: &AgentState) -> Result<Option<AgentSettings>, String> {
+    let mut guard = state.settings.lock().map_err(|e| e.to_string())?;
+    if guard.is_none() {
+        *guard = read_settings(app);
+    }
+    Ok(guard.clone())
+}
+
+fn settings_path(app: &AppHandle) -> Option<PathBuf> {
+    let dir = app.path().app_data_dir().ok()?;
+    Some(dir.join(SETTINGS_FILE))
+}
+
+fn read_settings(app: &AppHandle) -> Option<AgentSettings> {
+    let raw = std::fs::read_to_string(settings_path(app)?).ok()?;
+    serde_json::from_str(&raw).ok()
+}
+
+fn write_settings(app: &AppHandle, settings: &AgentSettings) -> Result<(), String> {
+    let path = settings_path(app).ok_or_else(|| "No application data directory".to_string())?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let json = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
+    std::fs::write(&path, json).map_err(|e| format!("Could not save the settings: {e}"))?;
+
+    // Narrowed to this account where the platform understands it. It does
+    // not make a plaintext key safe; it keeps it from being readable by
+    // every other account on a shared machine.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+    }
+    Ok(())
 }
 
 /* ─── A turn ─────────────────────────────────────────────────────────────── */
@@ -242,6 +370,53 @@ pub fn agent_approve(
     }
 }
 
+/// The window's answer to an `agent://lsp-request`.
+///
+/// `result` on success, `error` when the editor could not ask — no server
+/// for that language, the switch off, the server still starting. Both are
+/// ordinary; the tool turns either into a sentence the model can act on.
+#[tauri::command]
+pub fn agent_lsp_reply(
+    window: Window,
+    state: State<AgentState>,
+    id: String,
+    result: Option<Value>,
+    error: Option<String>,
+) -> Result<(), String> {
+    let bridge = state
+        .bridges
+        .lock()
+        .map_err(|e| e.to_string())?
+        .get(window.label())
+        .cloned();
+    if let Some(bridge) = bridge {
+        bridge.reply(
+            &id,
+            match error {
+                Some(error) => Err(error),
+                None => Ok(result.unwrap_or(Value::Null)),
+            },
+        );
+    }
+    Ok(())
+}
+
+/// Forgets this window's conversation.
+///
+/// The session, not the folder: a new conversation in the same project is
+/// the commonest thing to want after a task is finished, and carrying the
+/// last one's forty turns into it is paying for them again on every turn of
+/// the next.
+#[tauri::command]
+pub fn agent_clear(window: Window, state: State<AgentState>) -> Result<(), String> {
+    state
+        .sessions
+        .lock()
+        .map_err(|e| e.to_string())?
+        .remove(window.label());
+    Ok(())
+}
+
 /// Stops the turn this window is running.
 #[tauri::command]
 pub fn agent_cancel(window: Window, state: State<AgentState>) -> Result<(), String> {
@@ -279,18 +454,47 @@ pub async fn agent_send(
     system: String,
 ) -> Result<(), String> {
     let label = window.label().to_string();
-    let root = workspace
-        .root(&label)
-        .ok_or_else(|| "No folder is open in FigyCode".to_string())?;
 
-    let settings = state
-        .settings
-        .lock()
-        .map_err(|e| e.to_string())?
-        .clone()
-        .ok_or_else(|| "FigyCode has no model configured yet".to_string())?;
-    let key = secrets::read(Credential::Key, KEY_ACCOUNT)?
-        .ok_or_else(|| "FigyCode has no API key — add one in settings".to_string())?;
+    /*
+      Everything that can stop a turn before it starts, reported the same
+      way a turn that fails half-way through is.
+
+      These used to return `Err` and nothing else, which the window could
+      only surface by inventing its own copy of the question — and did, by
+      guessing from two round trips whether a key existed. A window that
+      has to guess at the backend's state will eventually guess wrong and
+      refuse to send a message the agent would have accepted.
+    */
+    let setup = (|| -> Result<(PathBuf, AgentSettings, String), String> {
+        let root = workspace
+            .root(&label)
+            .ok_or_else(|| "No folder is open in FigyCode.".to_string())?;
+        let settings = current(&app, &state)?
+            .filter(|s| !s.base_url.trim().is_empty())
+            .ok_or_else(|| "No model is set up yet — add one in /model.".to_string())?;
+        if settings.model.trim().is_empty() {
+            return Err("No model name is set — add one in /model.".into());
+        }
+        let key = settings
+            .api_key
+            .clone()
+            .filter(|k| !k.trim().is_empty())
+            .ok_or_else(|| "No API key is stored — add one in /model.".to_string())?;
+        Ok((root, settings, key))
+    })();
+
+    let (root, settings, key) = match setup {
+        Ok(ready) => ready,
+        Err(error) => {
+            let _ = window.emit(
+                AGENT_EVENT,
+                &TurnEvent::Failed {
+                    error: error.clone(),
+                },
+            );
+            return Err(error);
+        }
+    };
 
     let price = Price {
         input: settings.input_price.unwrap_or(0.0),
@@ -354,6 +558,39 @@ pub async fn agent_send(
         )
     };
     let shell: Arc<dyn Shell> = system;
+
+    /*
+      The bridge to this window's language-server client.
+
+      Per window, because the event goes to that window and the answer
+      comes back from it; a bridge shared between two would deliver one
+      window's definition to the other's turn.
+    */
+    let bridge = {
+        let mut bridges = state.bridges.lock().map_err(|e| e.to_string())?;
+        Arc::clone(bridges.entry(label.clone()).or_insert_with(|| {
+            let emitter = window.clone();
+            Arc::new(Bridge::new(move |ask: &Ask| {
+                emitter
+                    .emit(AGENT_LSP_EVENT, ask)
+                    .map_err(|e| format!("the window could not be reached: {e}"))
+            }))
+        }))
+    };
+    let lsp: Arc<dyn Lsp> = bridge;
+
+    /*
+      The web tools exist only when there is a key for them.
+
+      Not a stub that fails on use: `ToolContext` without a `web` is how
+      `search_web` knows to say "no Exa key is set" rather than attempting
+      a request with an empty header and reporting a 401.
+    */
+    let web: Option<Arc<dyn Web>> = settings
+        .exa_key
+        .clone()
+        .filter(|k| !k.trim().is_empty())
+        .map(|key| Arc::new(Exa::new(key, tokio::runtime::Handle::current())) as Arc<dyn Web>);
     let ledger = ledger(&app, &state);
     let result = session
         .send(
@@ -362,7 +599,13 @@ pub async fn agent_send(
                 provider: &provider,
                 picker: &OfferEverything,
                 approver: &WindowApprover { state: &state },
-                ctx: &ToolContext::new(root).with_shell(shell),
+                ctx: &{
+                    let ctx = ToolContext::new(root).with_shell(shell).with_lsp(lsp);
+                    match web {
+                        Some(web) => ctx.with_web(web),
+                        None => ctx,
+                    }
+                },
                 ledger: ledger.as_deref(),
             },
             events_tx,

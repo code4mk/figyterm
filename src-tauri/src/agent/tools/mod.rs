@@ -38,8 +38,10 @@ pub mod edit;
 pub mod fsops;
 pub mod grep;
 pub mod ls;
+pub mod lsp;
 pub mod output;
 pub mod read;
+pub mod web;
 pub mod write;
 
 use std::path::{Path, PathBuf};
@@ -101,19 +103,39 @@ impl ToolSpec {
 /// The shell is optional, and that is how the editor panel gets a narrower
 /// tool set: not by remembering to leave `bash` out of a list, but by having
 /// nowhere to run it. A tool that needs one and has none says so and stops.
+/// The bridge to the language server is the same arrangement, for a
+/// different reason: it needs a live window on the other end.
+#[derive(Clone)]
 pub struct ToolContext {
     pub root: PathBuf,
     pub shell: Option<Arc<dyn crate::agent::shell::Shell>>,
+    pub lsp: Option<Arc<dyn crate::agent::code::Lsp>>,
+    pub web: Option<Arc<dyn crate::agent::web::Web>>,
 }
 
 impl ToolContext {
-    /// A context that can read and write, and cannot run anything.
+    /// A context that can read and write, and cannot run or ask anything.
     pub fn new(root: PathBuf) -> Self {
-        Self { root, shell: None }
+        Self {
+            root,
+            shell: None,
+            lsp: None,
+            web: None,
+        }
     }
 
     pub fn with_shell(mut self, shell: Arc<dyn crate::agent::shell::Shell>) -> Self {
         self.shell = Some(shell);
+        self
+    }
+
+    pub fn with_lsp(mut self, lsp: Arc<dyn crate::agent::code::Lsp>) -> Self {
+        self.lsp = Some(lsp);
+        self
+    }
+
+    pub fn with_web(mut self, web: Arc<dyn crate::agent::web::Web>) -> Self {
+        self.web = Some(web);
         self
     }
 
@@ -126,6 +148,23 @@ impl ToolContext {
         self.shell
             .as_deref()
             .ok_or_else(|| "Commands cannot be run from here.".to_string())
+    }
+
+    /// The language-server bridge, or the reason there is not one.
+    ///
+    /// Phrased as a fact about this session rather than as a failure: the
+    /// model should fall back to `grep` and carry on, not retry.
+    pub fn lsp(&self) -> Result<&dyn crate::agent::code::Lsp, ToolError> {
+        self.lsp.as_deref().ok_or_else(|| {
+            "no language server is available in this session — use grep instead".to_string()
+        })
+    }
+
+    /// The search provider, or why there is not one.
+    pub fn web(&self) -> Result<&dyn crate::agent::web::Web, ToolError> {
+        self.web
+            .as_deref()
+            .ok_or_else(|| "no Exa key is set, so the web is unreachable from here".to_string())
     }
 }
 
@@ -183,6 +222,11 @@ pub fn registry() -> Vec<Box<dyn Tool>> {
         Box::new(bash::Bash),
         Box::new(bash::BashOutput),
         Box::new(bash::BashKill),
+        Box::new(lsp::Definition),
+        Box::new(lsp::References),
+        Box::new(lsp::Diagnostics),
+        Box::new(web::SearchWeb),
+        Box::new(web::FetchUrl),
     ]
 }
 
@@ -329,7 +373,8 @@ mod tests {
             names,
             vec![
                 "read", "grep", "edit", "write", "ls", "move", "delete", "bash",
-                "bash_output", "bash_kill"
+                "bash_output", "bash_kill", "definition", "references", "diagnostics",
+                "search_web", "fetch_url"
             ]
         );
     }

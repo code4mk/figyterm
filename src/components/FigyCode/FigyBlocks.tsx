@@ -1,52 +1,79 @@
 /**
  * Everything that can appear in the Figy Code transcript, drawn.
  *
- * One component per block kind, all of them stateless except for the tool
- * row — which owns whether its own body is open, because that is a fact about
- * the row and not about the conversation, and lifting it would mean the run
- * loop knew about disclosure triangles.
+ * Four kinds now — a turn from each side, a tool call, and a notice — down
+ * from ten. The other six drew a scripted transcript: plans, to-do lists,
+ * command output cards, a task summary. They were good and they are in the
+ * history; they come back with the `plan` and `todo_write` tools that would
+ * produce them. A renderer with nothing on the other end of it is a state
+ * nobody can reason about and the first thing to rot.
  *
- * The transcript is monospaced throughout. Not decoration: almost everything
- * in it is a path, a diff, a command or a count, and the one prose line per
- * turn reads perfectly well in the same face. A proportional font here would
- * mean choosing, per span, which of the two this is.
+ * The transcript is monospaced throughout. Not decoration: almost
+ * everything in it is a path, a diff, a command or a count, and the one
+ * prose line per turn reads perfectly well in the same face.
  */
 
-import { useState } from "react";
-import type { Block, DiffLine, Notice, ToolRow } from "../../services/figycode-demo";
+import { memo, useState } from "react";
+import { Check, Copy } from "lucide-react";
+import { Markdown } from "../Updates/Markdown";
+import type { Block, DiffLine, Notice, ToolRow } from "../../services/figycode-blocks";
 
-/* ─── Inline emphasis ─────────────────────────────────────────────────────── */
+/* ─── Copying ─────────────────────────────────────────────────────────────── */
 
 /**
- * `**bold**`, and nothing else.
+ * The button every code block gets in the corner.
  *
- * A real agent streams markdown and will need a parser; a scripted one writes
- * its own lines, and the only thing those lines do is name a symbol. Shipping
- * a markdown dependency for that would be a decision made by the prototype on
- * behalf of the product.
+ * A transcript is read, and then one piece of it is wanted somewhere else
+ * — a command to run by hand, a diff to paste into a message. Selecting
+ * monospaced text across a scrolling pane with the mouse is the worst way
+ * to do that, and it is the only way without this.
  */
-export function Emphasis({ text }: { text: string }) {
-  const parts = text.split(/\*\*(.+?)\*\*/g);
+function CopyButton({ text, label }: { text: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+
   return (
-    <>
-      {parts.map((part, i) =>
-        i % 2 === 1 ? (
-          <strong key={i} className="figy-strong">
-            {part}
-          </strong>
-        ) : (
-          <span key={i}>{part}</span>
-        )
-      )}
-    </>
+    <button
+      type="button"
+      className={`figy-copy ${copied ? "done" : ""}`}
+      title={copied ? "Copied" : label}
+      aria-label={label}
+      onClick={(e) => {
+        e.stopPropagation();
+        void navigator.clipboard.writeText(text).then(() => {
+          setCopied(true);
+          // Long enough to be seen, short enough that the button is ready
+          // again before anybody tries twice.
+          window.setTimeout(() => setCopied(false), 1400);
+        });
+      }}
+    >
+      {copied ? <Check size={11} /> : <Copy size={11} />}
+    </button>
   );
 }
 
 /* ─── Diffs ───────────────────────────────────────────────────────────────── */
 
 export function Diff({ lines }: { lines: DiffLine[] }) {
+  const added = lines.filter((line) => line.sign === "+").length;
+  const removed = lines.filter((line) => line.sign === "-").length;
+  const text = lines
+    .filter((line) => line.sign !== "…")
+    .map((line) => `${line.sign === " " ? " " : line.sign}${line.text}`)
+    .join("\n");
+
   return (
     <div className="figy-diff">
+      {/*
+        A header, because a diff with no scale on it makes the reader
+        count rows to find out whether this was a tweak or a rewrite.
+      */}
+      <div className="figy-diff-head">
+        {added > 0 && <span className="figy-add">+{added}</span>}
+        {removed > 0 && <span className="figy-del">-{removed}</span>}
+        <span className="figy-diff-head-spacer" />
+        <CopyButton text={text} label="Copy this change" />
+      </div>
       {lines.map((line, i) =>
         line.sign === "…" ? (
           <div key={i} className="figy-diff-gap">
@@ -75,9 +102,9 @@ export function Diff({ lines }: { lines: DiffLine[] }) {
  * Hollow for the calls that only look, filled for the ones that change
  * something.
  *
- * The distinction is the one a reader actually scans for — "what did it *do*"
- * — so it is carried by the shape rather than by the verb, which is a word
- * among other words.
+ * The distinction is the one a reader actually scans for — "what did it
+ * *do*" — so it is carried by the shape rather than by the verb, which is a
+ * word among other words.
  */
 const GLYPH: Record<ToolRow["kind"], string> = {
   read: "◇",
@@ -88,29 +115,66 @@ const GLYPH: Record<ToolRow["kind"], string> = {
 };
 
 export function ToolCall({ tool }: { tool: ToolRow }) {
-  const [open, setOpen] = useState(!!tool.open);
+  /*
+    `null` until somebody clicks: a diff opens itself and output does not.
+
+    What changed is the answer to the question an edit was asked, so
+    hiding it behind a triangle makes the reader click every row. A
+    command's four hundred lines of build log is the opposite — it is
+    there to be opened when something went wrong.
+
+    It cannot be a plain `useState(!!tool.diff)`, because the row exists
+    before its result does: the initial value would be read while the call
+    was still running, and the diff would arrive to find the row shut.
+  */
+  const [toggled, setToggled] = useState<boolean | null>(null);
   const body = tool.diff ?? tool.output;
   const expandable = !!body && body.length > 0;
+  const open = toggled ?? !!tool.diff;
+
+  /** What opening would show, so the triangle is worth pressing. */
+  const size = tool.diff
+    ? `${tool.diff.filter((line) => line.sign === "+" || line.sign === "-").length} changed`
+    : tool.output
+      ? `${tool.output.length} lines`
+      : "";
 
   return (
     <div className="figy-tool">
       <button
         type="button"
         className={`figy-tool-row ${expandable ? "expandable" : ""}`}
-        onClick={expandable ? () => setOpen((o) => !o) : undefined}
-        /* Not a button at all when there is nothing behind it: a row that
-           highlights on hover and then does nothing is a worse affordance
-           than a row that never offered. */
+        onClick={expandable ? () => setToggled(!open) : undefined}
         tabIndex={expandable ? 0 : -1}
         aria-expanded={expandable ? open : undefined}
       >
-        <span className={`figy-tool-glyph ${tool.kind}`}>{GLYPH[tool.kind]}</span>
+        {/* While it runs there is no result to glyph, and a spinner in the
+            same place says the row is not finished rather than that it
+            found nothing. */}
+        {tool.running ? (
+          <span className="figy-tool-spinner" aria-hidden />
+        ) : (
+          <span className={`figy-tool-glyph ${tool.kind}`}>{GLYPH[tool.kind]}</span>
+        )}
         <span className="figy-tool-name">{tool.name}</span>
-        <span className="figy-tool-target">{tool.target}</span>
+        {tool.target && <span className="figy-tool-target">{tool.target}</span>}
         {tool.added !== undefined && <span className="figy-add">+{tool.added}</span>}
         {tool.removed !== undefined && <span className="figy-del">-{tool.removed}</span>}
-        {tool.meta && <span className="figy-tool-meta">· {tool.meta}</span>}
-        {expandable && <span className="figy-caret">{open ? "▾" : "▸"}</span>}
+        {tool.meta && (
+          <span
+            className={`figy-tool-meta ${tool.failed ? "failed" : ""} ${
+              tool.refused ? "refused" : ""
+            }`}
+          >
+            {tool.meta}
+          </span>
+        )}
+        {expandable && (
+          <span className="figy-tool-size">
+            {size}
+            <span className="figy-caret">{open ? "▾" : "▸"}</span>
+          </span>
+        )}
       </button>
 
       {expandable && open && (
@@ -118,137 +182,13 @@ export function ToolCall({ tool }: { tool: ToolRow }) {
           {tool.diff ? (
             <Diff lines={tool.diff} />
           ) : (
-            <pre className="figy-output">{tool.output!.join("\n")}</pre>
+            <div className="figy-output-wrap">
+              <CopyButton text={tool.output!.join("\n")} label="Copy this output" />
+              <pre className="figy-output">{tool.output!.join("\n")}</pre>
+            </div>
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-/* ─── A plan ──────────────────────────────────────────────────────────────── */
-
-export function Plan({ steps, note }: { steps: string[]; note: string }) {
-  return (
-    <div className="figy-card figy-plan">
-      <ol className="figy-plan-list">
-        {steps.map((step, i) => (
-          <li key={i}>
-            <span className="figy-plan-no">{i + 1}</span>
-            <span>
-              <Emphasis text={step} />
-            </span>
-          </li>
-        ))}
-      </ol>
-      <div className="figy-plan-note">{note}</div>
-    </div>
-  );
-}
-
-/* ─── To-dos ──────────────────────────────────────────────────────────────── */
-
-const TODO_MARK = { done: "▣", doing: "▪", todo: "□" } as const;
-
-export function Todos({
-  items,
-  hidden,
-  onToggle,
-}: {
-  items: { text: string; state: "done" | "doing" | "todo" }[];
-  hidden?: boolean;
-  onToggle: () => void;
-}) {
-  const done = items.filter((i) => i.state === "done").length;
-
-  return (
-    <div className="figy-todos">
-      <button type="button" className="figy-todos-head" onClick={onToggle}>
-        <span className="figy-tool-glyph edit">◆</span>
-        <span className="figy-tool-name">To-dos</span>
-        <span className="figy-tool-meta">
-          {done} of {items.length} · ctrl+t to {hidden ? "show" : "hide"}
-        </span>
-      </button>
-      {!hidden && (
-        <ul className="figy-todo-list">
-          {items.map((item, i) => (
-            <li key={i} className={`figy-todo ${item.state}`}>
-              <span className="figy-todo-mark">{TODO_MARK[item.state]}</span>
-              <span className="figy-todo-text">{item.text}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-/* ─── A shell command the user ran ────────────────────────────────────────── */
-
-export function ShellBlock({
-  command,
-  output,
-  note,
-}: {
-  command: string;
-  output: string[];
-  note: string;
-}) {
-  return (
-    <div className="figy-shell">
-      <div className="figy-shell-cmd">
-        <span className="figy-bang">!</span>
-        <span>{command}</span>
-      </div>
-      <div className="figy-card figy-shell-out">
-        {output.map((line, i) => (
-          <div key={i} className="figy-shell-line">
-            {/* A leading hash is a commit, and reads as one. */}
-            {/^[0-9a-f]{7}\s/.test(line) ? (
-              <>
-                <span className="figy-sha">{line.slice(0, 7)}</span>
-                {line.slice(7)}
-              </>
-            ) : (
-              line
-            )}
-          </div>
-        ))}
-      </div>
-      <div className="figy-shell-note">{note}</div>
-    </div>
-  );
-}
-
-/* ─── The end of a task ───────────────────────────────────────────────────── */
-
-export function Summary({
-  headline,
-  stats,
-  detail,
-  files,
-}: {
-  headline: string;
-  stats: string;
-  detail: string;
-  files: string[];
-}) {
-  return (
-    <div className="figy-card figy-summary">
-      <div className="figy-summary-head">
-        <span className="figy-check">✓</span>
-        <span className="figy-summary-headline">{headline}</span>
-        <span className="figy-add">{stats.split(" ")[0]}</span>
-        <span className="figy-del">{stats.split(" ")[1]}</span>
-        <span className="figy-tool-meta">{detail}</span>
-      </div>
-      {files.map((file) => (
-        <div key={file} className="figy-summary-file">
-          <span className="figy-summary-status">{file.slice(0, 1)}</span>
-          {file.slice(2)}
-        </div>
-      ))}
     </div>
   );
 }
@@ -296,81 +236,64 @@ export function NoticeBlock({
   );
 }
 
-/* ─── What to do next ─────────────────────────────────────────────────────── */
-
-export function Actions({
-  chips,
-  onAction,
-}: {
-  chips: { label: string; primary?: boolean }[];
-  onAction: (label: string) => void;
-}) {
-  return (
-    <div className="figy-actions">
-      {chips.map((chip) => (
-        <button
-          key={chip.label}
-          type="button"
-          className={`figy-chip ${chip.primary ? "primary" : ""}`}
-          onClick={() => onAction(chip.label)}
-        >
-          {chip.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-/* ─── A question that has already been answered ───────────────────────────── */
-
-/**
- * Collapsed to one line once it is settled.
- *
- * The card is tall — a diff, four options and a keyboard line — and leaving
- * ten of them stacked in the scroll would bury the work between them. What is
- * worth keeping is that it was asked and what was said, which is a line.
- */
-export function AnsweredPrompt({ title, answer }: { title: string; answer: string }) {
-  return (
-    <div className="figy-answered">
-      <span className="figy-check">✓</span>
-      <span className="figy-answered-title">{title}</span>
-      <span className="figy-tool-meta">· {answer}</span>
-    </div>
-  );
-}
-
 /* ─── The two plain ones ──────────────────────────────────────────────────── */
 
 export function UserTurn({ text }: { text: string }) {
   return (
     <div className="figy-user">
-      <span className="figy-chevron">›</span>
-      <span className="figy-user-text">{text}</span>
+      <div className="figy-user-text">{text}</div>
     </div>
   );
 }
 
-export function AssistantTurn({ text }: { text: string }) {
+/**
+ * What the model said, as Markdown.
+ *
+ * Models write Markdown — headings, lists, tables, fenced code — and this
+ * window used to render one thing from it, `**bold**`, with everything
+ * else arriving as the characters the model typed. A numbered list came
+ * out as `1. 2. 3.` run together in one paragraph, and a fenced block was
+ * three backticks and its content as prose.
+ *
+ * The renderer is the repository's own, the one the release notes and the
+ * editor's `.md` preview already use. It builds React elements and never
+ * touches `dangerouslySetInnerHTML`, which matters more here than
+ * anywhere else in the app: this is a language model's output, going
+ * straight onto a page, and "we sanitised it correctly" is a weaker claim
+ * than "there is no HTML path at all".
+ *
+ * `compact` rather than `document`: these are a few sentences between
+ * tool calls, not a file being read. It is also the variant without
+ * Mermaid, which is right — a diagram in a one-line answer is not a thing
+ * to render, and the component behind it is a megabyte.
+ *
+ * **Memoised**, because the last block of a streaming turn re-renders on
+ * every token and the ones above it have not changed. Without this, a
+ * long answer re-parses the whole transcript per token.
+ */
+export const AssistantTurn = memo(function AssistantTurn({ text }: { text: string }) {
   return (
     <div className="figy-assistant">
-      <span className="figy-f">ƒ</span>
-      <span className="figy-assistant-text">
-        <Emphasis text={text} />
-      </span>
+      {/*
+        A mark, not a letter. The brand belongs in the title bar; repeated
+        down the left of every paragraph it is furniture, and what the
+        reader needs there is only "a new thing starts here".
+      */}
+      <span className="figy-turn-mark" aria-hidden />
+      <div className="figy-assistant-text">
+        <Markdown source={text} variant="compact" />
+      </div>
     </div>
   );
-}
+});
 
 /** The union, dispatched. Keeps the switch out of the window itself. */
 export function BlockView({
   block,
   onAction,
-  onToggleTodos,
 }: {
   block: Block;
   onAction: (label: string) => void;
-  onToggleTodos: () => void;
 }) {
   switch (block.kind) {
     case "user":
@@ -379,30 +302,7 @@ export function BlockView({
       return <AssistantTurn text={block.text} />;
     case "tool":
       return <ToolCall tool={block.tool} />;
-    case "plan":
-      return <Plan steps={block.steps} note={block.note} />;
-    case "todos":
-      return <Todos items={block.items} hidden={block.hidden} onToggle={onToggleTodos} />;
-    case "shell":
-      return <ShellBlock command={block.command} output={block.output} note={block.note} />;
-    case "summary":
-      return (
-        <Summary
-          headline={block.headline}
-          stats={block.stats}
-          detail={block.detail}
-          files={block.files}
-        />
-      );
     case "notice":
       return <NoticeBlock notice={block.notice} onAction={onAction} />;
-    case "actions":
-      return <Actions chips={block.chips} onAction={onAction} />;
-    case "prompt":
-      // The live one is drawn by the window, pinned above the composer; this
-      // is only ever the settled version.
-      return block.answer ? (
-        <AnsweredPrompt title={block.prompt.title} answer={block.answer} />
-      ) : null;
   }
 }

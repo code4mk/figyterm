@@ -1,49 +1,53 @@
 /**
- * The three screens that are not the transcript: the start, `/rewind` and
- * `/model`.
+ * The two screens that are not the transcript: the start, and `/model`.
  *
- * All three take over the body rather than opening a dialog over it. A modal
+ * Both take over the body rather than opening a dialog over it. A modal
  * inside a modal is two Escape keys deep, and the window already has a rule
  * about Escape that the user has just learned; these borrow it instead. The
  * composer stays visible underneath for the same reason — typing is always
- * the way out, including out of a screen you opened by mistake.
+ * the way out, including out of a screen opened by mistake.
+ *
+ * There used to be a third, `/rewind`, over an invented list of
+ * checkpoints. Rewinding means a snapshot of the working tree per turn and
+ * nothing here takes one, so the screen went with the rest of the fiction.
  */
 
+import { useState } from "react";
 import { FolderOpen, FolderSearch } from "lucide-react";
-import { CHECKPOINTS, MODELS, type DemoModel } from "../../services/figycode-demo";
 import { collapseHome } from "../../services/recent-dirs";
 import { projectLabel, type FigyProject } from "../../services/figycode-projects";
-import { ChoiceList } from "./FigyPrompt";
+import { formatCost, formatTokens } from "../../services/figycode-blocks";
+import type { AgentSettings, Totals } from "../../services/figycode-agent";
 
 /* ─── Start ───────────────────────────────────────────────────────────────── */
 
 /**
- * The first screen, and the only one that has to be honest about two things
- * at once: the folder is real and chosen, and everything the window will then
- * appear to do is not.
+ * The first screen, and the only one that has to say two true things at
+ * once: which folder this is, and whether there is a model behind the box.
  *
- * So the right-hand column states facts it can actually stand behind — the
- * folder, the model, and the fact that nothing is wired up — and the list
- * under it is the other folders this window knows, which is both true and the
- * thing most likely to be wanted next.
+ * Both are facts it can stand behind — the folder was chosen through the OS
+ * dialog, and the key either exists in the keychain or does not. Nothing
+ * here is decorative, which is a change: it used to greet the user by an
+ * invented name and list conversations that had never happened.
  */
 export function Welcome({
-  model,
-  user,
   root,
   index,
+  model,
+  configured,
   others,
   onPick,
   onBrowse,
+  onConfigure,
 }: {
-  model: DemoModel;
-  user: string;
   root: string | null;
-  /** What the backend found in that folder, once it has looked. */
   index: { files: number; folders: number; truncated: boolean } | null;
+  model: string;
+  configured: boolean;
   others: FigyProject[];
   onPick: (root: string) => void;
   onBrowse: () => void;
+  onConfigure: () => void;
 }) {
   return (
     <div className="figy-welcome">
@@ -51,10 +55,10 @@ export function Welcome({
         <div className="figy-welcome-left">
           <div className="figy-welcome-mark">ƒ</div>
           <div className="figy-welcome-name">FigyCode</div>
-          <div className="figy-welcome-version">0.1 · {model.short}</div>
+          <div className="figy-welcome-version">0.1</div>
           <p className="figy-welcome-copy">
-            Welcome back, {user}. Ask for a change, a fix, or an explanation — FigyCode reads,
-            edits and runs commands, and asks before anything risky.
+            Ask for a change, a fix, or an explanation. FigyCode reads the folder, edits
+            files and runs commands — and asks before anything that changes or runs.
           </p>
         </div>
 
@@ -71,8 +75,7 @@ export function Welcome({
               </button>
             )}
           </div>
-          {/* Real, counted, and the one line that proves the window is
-              looking at the folder it claims to be looking at. */}
+
           <div className="figy-welcome-check">
             <span className="figy-welcome-check-label">files</span>
             <span className="figy-welcome-check-detail">
@@ -87,16 +90,21 @@ export function Welcome({
               )}
             </span>
           </div>
+
+          {/*
+            The one thing that stops the window working, said where it will
+            be read rather than discovered on the first message.
+          */}
           <div className="figy-welcome-check">
             <span className="figy-welcome-check-label">model</span>
             <span className="figy-welcome-check-detail">
-              {model.name} · {model.note}
-            </span>
-          </div>
-          <div className="figy-welcome-check">
-            <span className="figy-welcome-check-label">agent</span>
-            <span className="figy-welcome-check-detail dim">
-              not wired up — replies here are scripted
+              {configured ? (
+                model
+              ) : (
+                <button type="button" className="figy-link" onClick={onConfigure}>
+                  not set up yet — add a provider
+                </button>
+              )}
             </span>
           </div>
 
@@ -131,60 +139,11 @@ export function Welcome({
       <div className="figy-welcome-hints">
         <span className="figy-key">@</span> mention files
         <span className="figy-sub">·</span>
-        <span className="figy-key warn">!</span> run a shell command
+        <span className="figy-key accent">/</span> commands
         <span className="figy-sub">·</span>
         <span className="figy-key accent">shift+tab</span> plan mode
         <span className="figy-sub">·</span>
-        <span className="figy-key accent">ctrl+r</span> rewind
-      </div>
-    </div>
-  );
-}
-
-/* ─── /rewind ─────────────────────────────────────────────────────────────── */
-
-export type RewindScope = "both" | "chat" | "code";
-
-const SCOPES: { id: RewindScope; label: string }[] = [
-  { id: "both", label: "Restore code and conversation" },
-  { id: "chat", label: "Conversation only" },
-  { id: "code", label: "Code only" },
-];
-
-export function RewindScreen({
-  selected,
-  onSelect,
-  onRestore,
-}: {
-  selected: number;
-  onSelect: (index: number) => void;
-  onRestore: (scope: RewindScope) => void;
-}) {
-  return (
-    <div className="figy-screen">
-      <div className="figy-screen-title">Rewind</div>
-      <div className="figy-screen-copy">
-        Pick a message to go back to. Files and the conversation return to how they were then.
-      </div>
-
-      <ChoiceList
-        options={CHECKPOINTS.map((c) => ({ label: c.label, hint: c.detail }))}
-        selected={selected}
-        onSelect={onSelect}
-        onChoose={() => onRestore("both")}
-      />
-
-      <div className="figy-screen-foot">
-        {SCOPES.map((scope, i) => (
-          <button
-            key={scope.id}
-            type="button"
-            className={`figy-button ${i === 0 ? "primary" : ""}`}
-            onClick={() => onRestore(scope.id)}
-          >
-            {scope.label}
-          </button>
-        ))}
+        <span className="figy-key accent">esc</span> interrupt
       </div>
     </div>
   );
@@ -192,48 +151,199 @@ export function RewindScreen({
 
 /* ─── /model ──────────────────────────────────────────────────────────────── */
 
+/**
+ * Where the model is, which one, and what it costs.
+ *
+ * A form rather than a list of three names, because the provider is a base
+ * URL: anything that speaks OpenAI's `/chat/completions` works, and
+ * pretending otherwise would mean a hard-coded list that is wrong the week
+ * somebody ships a new one.
+ *
+ * The prices are fields for the same reason, and a sharper one — a price
+ * baked into a release is out of date by the release after it. What is in
+ * these boxes is what the status bar will claim; it is not what anybody is
+ * charged.
+ */
 export function ModelScreen({
-  selected,
-  onSelect,
-  onChoose,
-  thinking,
-  onToggleThinking,
+  settings,
+  hasKey,
+  hasExaKey,
+  onSave,
 }: {
-  selected: number;
-  onSelect: (index: number) => void;
-  onChoose: (index: number) => void;
-  thinking: boolean;
-  onToggleThinking: () => void;
+  settings: AgentSettings;
+  hasKey: boolean;
+  hasExaKey: boolean;
+  onSave: (settings: AgentSettings) => void;
 }) {
+  const [draft, setDraft] = useState<AgentSettings>(settings);
+  const [key, setKey] = useState("");
+  const [exa, setExa] = useState("");
+
+  const ready = !!draft.baseUrl.trim() && !!draft.model.trim();
+  // An empty field means "keep what is stored", on both keys — neither can
+  // be shown, so a save after changing the model must not blank them.
+  const save = () => {
+    if (ready) {
+      onSave({ ...draft, apiKey: key.trim() || undefined, exaKey: exa.trim() || undefined });
+    }
+  };
+
+  const field = (
+    label: string,
+    value: string,
+    onChange: (value: string) => void,
+    placeholder: string,
+    hint?: string
+  ) => (
+    <label className="figy-field" key={label}>
+      <span className="figy-field-label">{label}</span>
+      <input
+        className="figy-input"
+        value={value}
+        placeholder={placeholder}
+        spellCheck={false}
+        onChange={(e) => onChange(e.target.value)}
+        onPaste={(e) => e.stopPropagation()}
+        /* Enter saves, because a form with one button and three fields is
+           a form everybody submits from the keyboard. */
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            save();
+          }
+        }}
+      />
+      {hint && <span className="figy-field-hint">{hint}</span>}
+    </label>
+  );
+
+  const price = (label: string, value: number | undefined, set: (n: number) => void) => (
+    <label className="figy-field narrow" key={label}>
+      <span className="figy-field-label">{label}</span>
+      <input
+        className="figy-input"
+        value={value ?? ""}
+        placeholder="0"
+        inputMode="decimal"
+        onChange={(e) => set(Number(e.target.value) || 0)}
+        onPaste={(e) => e.stopPropagation()}
+      />
+    </label>
+  );
+
   return (
     <div className="figy-screen">
       <div className="figy-screen-title">Model</div>
       <div className="figy-screen-copy">
-        Applies to this session. Set a default in <span className="figy-inline-code">/config</span>.
+        Anything that speaks the OpenAI chat API. The key goes to this machine&rsquo;s
+        keychain and is never shown again.
       </div>
 
-      <ChoiceList
-        options={MODELS.map((m) => ({
-          label: m.name,
-          hint: m.badge ? `${m.badge} · ${m.note}` : m.note,
-        }))}
-        selected={selected}
-        onSelect={onSelect}
-        onChoose={onChoose}
-      />
+      <div className="figy-form">
+        {field(
+          "Base URL",
+          draft.baseUrl,
+          (baseUrl) => setDraft({ ...draft, baseUrl }),
+          "https://api.openai.com/v1",
+          "The part before /chat/completions"
+        )}
+        {field("Model", draft.model, (model) => setDraft({ ...draft, model }), "gpt-5.6")}
+        {field(
+          "API key",
+          key,
+          setKey,
+          hasKey ? "•••••••• — stored. Type to replace it." : "sk-…",
+          hasKey ? "A key is stored for this machine." : "Required before the first message."
+        )}
 
-      <button
-        type="button"
-        className="figy-card figy-toggle-row"
-        onClick={onToggleThinking}
-        aria-pressed={thinking}
-      >
-        <span className="figy-toggle-label">Extended thinking</span>
-        <span className="figy-toggle-note">slower, better for hard bugs</span>
-        <span className={`figy-switch ${thinking ? "on" : ""}`}>
-          <span className="figy-switch-knob" />
+        {field(
+          "Exa API key",
+          exa,
+          setExa,
+          hasExaKey ? "•••••••• — stored. Type to replace it." : "optional",
+          hasExaKey
+            ? "search_web and fetch_url are available."
+            : "Without one the agent has no web search. Everything else works."
+        )}
+
+        <div className="figy-field-row">
+          <span className="figy-field-label">Price per million tokens</span>
+          <div className="figy-field-group">
+            {price("input", draft.inputPrice, (n) => setDraft({ ...draft, inputPrice: n }))}
+            {price("cached", draft.cachedPrice, (n) => setDraft({ ...draft, cachedPrice: n }))}
+            {price("output", draft.outputPrice, (n) => setDraft({ ...draft, outputPrice: n }))}
+          </div>
+          <span className="figy-field-hint">
+            What the status bar will claim a turn cost. Nobody is charged from here.
+          </span>
+        </div>
+      </div>
+
+      <div className="figy-screen-foot">
+        <button type="button" className="figy-button primary" onClick={save} disabled={!ready}>
+          Save
+        </button>
+        <span className="figy-field-hint">
+          {hasKey ? "A key is stored. Saving without typing one keeps it." : "↵ saves."}
         </span>
-      </button>
+      </div>
+    </div>
+  );
+}
+
+/* ─── /usage ──────────────────────────────────────────────────────────────── */
+
+/**
+ * What the session has spent, and the one number that says whether the
+ * caching is working.
+ *
+ * A hit rate below ~70% over a long session is a bug to go and find, not a
+ * figure to tune — so it is given a sentence rather than left as a
+ * percentage nobody knows how to read.
+ */
+export function UsageScreen({ totals }: { totals: Totals }) {
+  const healthy = totals.hitRate >= 70;
+  const rows: [string, string][] = [
+    ["turns", String(totals.turns)],
+    ["input", `${formatTokens(totals.input)} tokens`],
+    ["from cache", `${formatTokens(totals.cached)} tokens · ${totals.hitRate}%`],
+    ["output", `${formatTokens(totals.output)} tokens`],
+    ["spent", formatCost(totals.costUsd)],
+    ["largest tool result", `${formatTokens(totals.largestToolResult)} tokens`],
+  ];
+
+  return (
+    <div className="figy-screen">
+      <div className="figy-screen-title">This session</div>
+      <div className="figy-screen-copy">
+        Every turn re-sends the whole conversation, so input is nearly all of the cost and
+        the cache is nearly all of the saving.
+      </div>
+
+      <div className="figy-usage">
+        {rows.map(([label, value]) => (
+          <div className="figy-usage-row" key={label}>
+            <span className="figy-usage-label">{label}</span>
+            <span className="figy-usage-value">{value}</span>
+          </div>
+        ))}
+      </div>
+
+      {totals.turns > 2 && (
+        <div className={`figy-card figy-notice ${healthy ? "info" : "warn"}`}>
+          <div className="figy-notice-main">
+            <div className="figy-notice-title">
+              <span className="figy-notice-glyph">{healthy ? "◔" : "!"}</span>
+              {healthy ? "The cache is working" : "The cache is not being hit"}
+            </div>
+            <div className="figy-notice-body">
+              {healthy
+                ? "Most of each turn's input is being read from cache rather than re-sent."
+                : "Below about 70% over a long conversation means something is changing the start of the request between turns."}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

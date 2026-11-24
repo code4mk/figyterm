@@ -65,7 +65,7 @@ pub struct Completion {
 
 /// What the window is told while a turn runs.
 #[derive(Debug, Clone, Serialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum StreamEvent {
     /// A piece of the assistant's prose, as it is produced.
     Text { text: String },

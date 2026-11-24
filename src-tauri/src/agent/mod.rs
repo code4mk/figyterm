@@ -33,11 +33,15 @@
 //!   cache discipline is invisible when it breaks.
 //! - [`shell`] — running commands, in the foreground and out of it. Behind a
 //!   trait, and absent from a context that should not have one.
+//! - [`code`] — the bridge to the language server the app is already
+//!   running, which is the one thing a CLI agent cannot have.
+//! - [`web`] — Exa, for the questions whose answer is not in the project.
 //!
 //! What is not written: compaction, the dirty-buffer handshake before an
 //! edit, and the rest of the tool surface.
 //! `docs/figy-code-plan/TASKS.md` is the order they arrive in.
 
+pub mod code;
 pub mod ledger;
 pub mod message;
 pub mod policy;
@@ -45,4 +49,5 @@ pub mod provider;
 pub mod session;
 pub mod shell;
 pub mod tools;
+pub mod web;
 pub mod workspace;

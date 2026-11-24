@@ -80,7 +80,7 @@ impl Picker for OfferEverything {
 /// tool calls, and only the loop knows what a tool *returned*, what was
 /// refused, and what the turn cost.
 #[derive(Debug, Clone, Serialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum TurnEvent {
     Text {
         text: String,
@@ -403,7 +403,28 @@ impl Session {
             }
         }
 
-        match tools::call(ctx, &call.name, &arguments) {
+        /*
+          Off the async thread.
+
+          Every tool here does blocking work — a walk, a write, a process,
+          and now a round trip to the window's language server that can
+          wait thirty seconds for a cold `rust-analyzer`. Running that on a
+          runtime worker would stall every other task in the process,
+          including the command that delivers the answer it is waiting for,
+          which deadlocks rather than merely stalling.
+        */
+        let dispatch = {
+            let ctx = ctx.clone();
+            let name = call.name.clone();
+            let arguments = arguments.clone();
+            tokio::task::spawn_blocking(move || tools::call(&ctx, &name, &arguments)).await
+        };
+        let outcome = match dispatch {
+            Ok(result) => result,
+            Err(error) => Err(format!("{}: the tool did not finish ({error})", call.name)),
+        };
+
+        match outcome {
             Ok(out) => {
                 let _ = events.send(TurnEvent::ToolFinished {
                     id: call.id.clone(),
@@ -893,6 +914,39 @@ mod tests {
         let second = OfferEverything.tools_for("something else");
         assert_eq!(first, second);
         assert_eq!(first, tools::openai_tools());
+    }
+
+    #[test]
+    fn the_wire_names_are_the_ones_typescript_reads() {
+        // The window matches on these strings. A serde default that
+        // produced `cost_usd` here would leave the status bar reading
+        // `undefined` with nothing in the build to say why.
+        let turn = serde_json::to_value(TurnEvent::Turn {
+            input: 10,
+            cached: 5,
+            output: 2,
+            cost_usd: 0.01,
+            hit_rate: 50,
+        })
+        .unwrap();
+        assert_eq!(turn["kind"], "turn");
+        assert!(turn.get("costUsd").is_some());
+        assert!(turn.get("hitRate").is_some());
+
+        let finished = serde_json::to_value(TurnEvent::Finished {
+            reason: "stop".into(),
+        })
+        .unwrap();
+        assert_eq!(finished["kind"], "finished");
+
+        let asked = serde_json::to_value(TurnEvent::NeedsApproval {
+            id: "c1".into(),
+            name: "bash".into(),
+            arguments: json!({ "cmd": "ls" }),
+        })
+        .unwrap();
+        assert_eq!(asked["kind"], "needsApproval");
+        assert_eq!(asked["arguments"]["cmd"], "ls");
     }
 
     #[test]

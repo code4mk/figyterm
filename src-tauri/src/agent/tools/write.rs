@@ -19,6 +19,10 @@ use super::{arg_bool, arg_str, Class, Tool, ToolContext, ToolError, ToolOutput, 
 use crate::agent::workspace::{display_path, resolve_in};
 use crate::filesystem::operations::{self, Encoding, FileKind, LineEnding};
 
+/// How much of a written file the window is shown. The model already has
+/// the whole of it — it wrote it.
+const PREVIEW_LINES: usize = 300;
+
 pub struct Write;
 
 impl Tool for Write {
@@ -108,6 +112,25 @@ impl Tool for Write {
         let lines = content.lines().count();
         let created = matches!(existing.kind, FileKind::Missing);
         let verb = if created { "Created" } else { "Replaced" };
+        /*
+          The content goes in `detail`, not in the text.
+
+          The window draws the new file as a diff of added lines — the
+          same view an edit gets, because "what did it just write" is the
+          same question. It must not go into the tool *result*: the model
+          wrote that text, it is already in the conversation once as the
+          call's arguments, and sending it back would be paying for it
+          twice on every later turn.
+
+          Capped, because the window is not where a 4,000-line generated
+          file should be read either.
+        */
+        let preview: String = content
+            .lines()
+            .take(PREVIEW_LINES)
+            .collect::<Vec<_>>()
+            .join("\n");
+
         Ok(
             ToolOutput::text(format!("{verb} {shown}, {lines} lines")).with_detail(json!({
                 "path": shown,
@@ -115,6 +138,8 @@ impl Tool for Write {
                 "bytes": content.len(),
                 "created": created,
                 "tokens": approx_tokens(&content),
+                "content": preview,
+                "contentTruncated": lines > PREVIEW_LINES,
             })),
         )
     }
