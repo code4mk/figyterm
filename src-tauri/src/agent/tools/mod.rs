@@ -590,3 +590,34 @@ mod tests {
         assert!(arg_bool(&json!({ "all": "true" }), "all"));
     }
 }
+
+#[cfg(test)]
+mod prefix_cost {
+    use super::*;
+
+    /// What the tool list costs before anybody has said anything.
+    ///
+    /// This number is the whole argument about tool picking. Every
+    /// definition sits in the cached prefix of every request for the
+    /// session, so it is paid once at full price and then at the
+    /// cache-read rate — and anything that *varies* it per turn pays
+    /// the full price again, for the definitions and for every byte
+    /// after them.
+    ///
+    /// The ceiling is a regression guard rather than a target. A tool
+    /// whose description grows by three paragraphs is a bill nobody
+    /// traces back to the commit that wrote them.
+    #[test]
+    fn the_tool_definitions_stay_small_enough_to_offer_all_of_them() {
+        let window = output::approx_tokens(&openai_tools().to_string());
+        let panel = output::approx_tokens(&openai_tools_for(Surface::Panel).to_string());
+        println!("tool definitions: window {window} tokens, panel {panel} tokens");
+
+        assert!(
+            window < 6000,
+            "the window's tool definitions are {window} tokens — past this, picking a \
+             subset per session starts to be worth its complexity"
+        );
+        assert!(panel < window / 2, "the panel's set is the small one on purpose");
+    }
+}

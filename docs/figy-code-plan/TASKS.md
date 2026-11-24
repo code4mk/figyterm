@@ -69,11 +69,36 @@ The shape of the thing being built, decided and not re-opened here:
       largest tool result, into SQLite
 - [x] `commands/agent.rs` — configure, send, approve, cancel, usage, with
       the turn narrated over one `agent://event` stream
-- [ ] **typesafe.ai as the tool picker.** The `Picker` seam is in and the
-      default offers the whole registry; the router implementation needs its
-      API. Note the tension first: narrowing the tool list per turn changes
-      the first bytes of the request, which is the worst place to change
-      them. Measure it against the cache saving before believing it wins
+- [ ] **typesafe.ai as the tool picker — not built, and the case for it
+      is weaker than it looked.** The `Picker` seam is in and the
+      default offers the whole registry. What the seam is waiting for is
+      a reason, and three things have to be said before one exists.
+
+      *It is a model call.* `api.typesafe.ai/v1/systemone` is hosted and
+      billed per input token. It answers with typed choices rather than
+      text, which is not the same as answering without a model, and the
+      docs document no local runtime.
+
+      *Their own recipe does not narrow anything.* The skill-suggestion
+      cookbook sends the full roster to the agent and appends the
+      suggestion to the prompt. Its published numbers are accuracy —
+      wrong loads 15.7% → 7.9% on 452 requests — and not cost. Narrowing
+      is a thing we would have to do ourselves, on top.
+
+      *And here it would cost more than it saves.* The window's whole
+      tool set is **3,833 tokens** and the panel's is 1,297 (pinned by a
+      test in `tools/mod.rs`). Tools are the *first* bytes of the
+      request, so a set that varies per turn invalidates the entire
+      cached prefix every turn — forty turns of conversation rewritten
+      at 1.25× to save part of 3.8K that was being read from cache at
+      0.1×. The arithmetic is negative by an order of magnitude.
+
+      The version that could win is narrowing **once per session**,
+      before the first message, when the whole prefix is being written
+      anyway. That is a real use for the seam, and it needs the measured
+      `$ per completed task` either side of it before anybody believes
+      it — which is section 4's open item and the reason the ledger
+      exists
 - [ ] Explicit cache breakpoints for endpoints that take them (Anthropic's
       `cache_control`). Prefix stability is done; breakpoints are an
       Anthropic-shaped extra
