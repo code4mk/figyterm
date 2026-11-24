@@ -588,6 +588,12 @@ pub async fn agent_send(
             )
         });
 
+    // Per message, not per session. The mode lives in the window — a
+    // conversation started in `ask` and switched to `acceptEdits` with
+    // shift+tab was still being run under `ask`, because a session only
+    // ever read the mode it was built with.
+    session.set_mode(mode);
+
     let (cancel_tx, cancel_rx) = oneshot::channel();
     state
         .running

@@ -297,6 +297,20 @@ impl Session {
         self.spent
     }
 
+    /// The permission mode, for the turn about to start.
+    ///
+    /// Set per message rather than at construction. The mode was frozen
+    /// into `SessionConfig` when a session was made, which meant
+    /// shift+tab moved a label on screen and nothing else: the second
+    /// message of a conversation ran under whatever the first one did.
+    ///
+    /// Within a turn it stays put, which is the honest behaviour —
+    /// a run that changes what it is allowed to do half-way through is a
+    /// run nobody can reason about afterwards.
+    pub fn set_mode(&mut self, mode: Mode) {
+        self.config.mode = mode;
+    }
+
     /// Whether the session has spent what it was allowed.
     ///
     /// Checked before a request rather than after: the point is not to
@@ -963,6 +977,38 @@ mod tests {
             text_turn("Here is the plan instead."),
         ]);
         let mut session = session(Mode::Plan);
+
+        let (_, events) = run(&mut session, &provider, &Yes, &ctx, None).await;
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, TurnEvent::ToolRefused { reason, .. } if reason.contains("Plan mode"))));
+        assert_eq!(
+            std::fs::read_to_string(ctx.root().join("src/main.rs")).unwrap(),
+            before
+        );
+    }
+
+    /*
+      The mode is the window's, read fresh each message.
+
+      It used to be read once, at construction, so a conversation that
+      began in `ask` stayed in `ask` for ever and shift+tab moved a
+      label and nothing else. The test switches a live session into plan
+      mode and expects the next edit to be refused.
+    */
+    #[tokio::test]
+    async fn a_mode_set_after_the_session_began_is_the_one_that_applies() {
+        let ctx = scratch("mode-change");
+        let before = std::fs::read_to_string(ctx.root().join("src/main.rs")).unwrap();
+        let provider = answers(vec![
+            tool_turn(vec![call(
+                "edit",
+                json!({ "path": "src/main.rs", "old": "fn main", "new": "fn nope" }),
+            )]),
+            text_turn("Here is the plan instead."),
+        ]);
+        let mut session = session(Mode::AcceptEdits);
+        session.set_mode(Mode::Plan);
 
         let (_, events) = run(&mut session, &provider, &Yes, &ctx, None).await;
         assert!(events
