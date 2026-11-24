@@ -12926,3 +12926,1667 @@ body > .cm-api-completions .cm-completionDetail {
   background: var(--ft-accent);
   transition: width 0.25s ease;
 }
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   FigyCode — the agent window
+   ────────────────────────────────────────────────────────────────────────────
+
+   The chrome is the app's: a 44px title bar in three zones, a breadcrumb in
+   the middle, a 28px status bar saying what the agent can reach, and the
+   shared resize grip in the corner. Those rules are written out here rather
+   than borrowed from `.claude-*`, which is the same agreement the drawing
+   window made — the two bars match because they say the same numbers, not
+   because one inherits from the other, so changing one cannot silently move
+   the other.
+
+   The body is the part that is this window's own. It is monospaced
+   throughout, because almost every line in it is a path, a diff, a command
+   or a count, and the one sentence per turn reads perfectly well in the same
+   face. Everything reads from the `--ft-*` tokens — a few locals below are
+   derived from them for the diff colours — so light mode is one small block
+   at the end rather than a second palette.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+.figy-modal {
+  position: relative;
+  isolation: isolate;
+  background: var(--ft-surface);
+  border: 1px solid var(--ft-border);
+  /* Two shadows: the cast one for depth, a hairline for the lit top edge. */
+  box-shadow:
+    0 32px 80px -16px rgba(0, 0, 0, 0.7),
+    0 0 0 1px rgba(255, 255, 255, 0.03);
+
+  /* Tones the transcript needs and the app's tokens don't carry. */
+  --figy-add: #6ee7a8;
+  --figy-add-bg: rgba(63, 185, 80, 0.1);
+  --figy-del: #f9908b;
+  --figy-del-bg: rgba(248, 81, 73, 0.09);
+  --figy-amber: #e3b341;
+  --figy-teal: #4fd1b0;
+  --figy-line: rgba(255, 255, 255, 0.07);
+  --figy-well: rgba(0, 0, 0, 0.18);
+  --figy-mono: ui-monospace, SFMono-Regular, Menlo, "JetBrains Mono", monospace;
+
+  color: var(--ft-text);
+  font-family: var(--figy-mono);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+/* ─── Title bar ──────────────────────────────────────────────────────────── */
+
+.figy-header {
+  position: relative;
+  z-index: 3;
+  height: 44px;
+  flex-shrink: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.05),
+    rgba(255, 255, 255, 0.012)
+  );
+  border-bottom: 1px solid var(--ft-border-subtle);
+}
+
+/* The mark, in a tile of its own — the one place the product's own colour
+   appears in the chrome, so the window is identifiable at a glance in a
+   stack of five that are otherwise the same grey. */
+.figy-mark {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  background: linear-gradient(160deg, var(--ft-accent-hover), var(--ft-accent));
+  color: #fff;
+  font-size: 13px;
+  font-style: italic;
+  font-weight: 700;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+
+.figy-brand-title {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  font-size: 11.5px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--ft-text);
+  white-space: nowrap;
+}
+
+/* A hairline, wherever one group of controls ends and another begins. */
+.figy-sep {
+  flex: none;
+  width: 1px;
+  height: 18px;
+  margin: 0 4px;
+  background: var(--ft-border-subtle);
+}
+
+/* The locator: folder › conversation, read as a breadcrumb. A label is
+   allowed to be quiet, so it takes no background and only the half that
+   does something lifts under the pointer. */
+.figy-locator {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  font-size: 11.5px;
+  letter-spacing: -0.01em;
+}
+
+.figy-locator-project {
+  height: 22px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ft-text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.figy-locator-project:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.figy-locator-sep {
+  color: var(--ft-text-muted);
+  opacity: 0.8;
+}
+
+.figy-locator-conv {
+  color: var(--ft-text-secondary);
+  min-width: 0;
+}
+
+.figy-locator-conv.idle {
+  color: var(--ft-text-muted);
+  font-style: italic;
+}
+
+.figy-live-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--ft-text-secondary);
+}
+
+.figy-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ft-text-muted);
+}
+
+.figy-dot.live {
+  background: var(--ft-success);
+  box-shadow: 0 0 0 2px rgba(63, 185, 80, 0.16);
+}
+
+.figy-iconbtn {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ft-text-secondary);
+  cursor: pointer;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+
+.figy-iconbtn:hover:not(:disabled) {
+  color: var(--ft-text);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.figy-iconbtn:disabled {
+  color: var(--ft-text-muted);
+  opacity: 0.5;
+  cursor: default;
+}
+
+.figy-iconbtn.on {
+  color: #a5b4fc;
+  background: rgba(99, 102, 241, 0.16);
+}
+
+.figy-iconbtn.danger:hover:not(:disabled) {
+  color: #fca5a5;
+  background: rgba(248, 113, 113, 0.13);
+}
+
+/* ─── Body ───────────────────────────────────────────────────────────────── */
+
+.figy-body {
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 16px 20px 6px;
+  background: var(--ft-bg);
+}
+
+.figy-transcript {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  padding-bottom: 10px;
+}
+
+.figy-strong {
+  font-weight: 700;
+  color: var(--ft-text);
+}
+
+.figy-sub {
+  color: var(--ft-text-muted);
+}
+
+/* ─── A turn ─────────────────────────────────────────────────────────────── */
+
+/*
+  The user's words, boxed; the agent's, not.
+
+  Only one of the two needs finding again. Scrolling back through a long run
+  is almost always a search for "what did I ask for", and a filled box with a
+  rule down its left edge is the thing the eye lands on.
+*/
+.figy-user {
+  display: flex;
+  gap: 9px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border-left: 2px solid var(--ft-accent);
+  background: rgb(var(--ft-accent-rgb) / 0.08);
+}
+
+.figy-chevron {
+  color: var(--ft-accent-hover);
+  flex: none;
+}
+
+.figy-user-text {
+  color: var(--ft-text);
+  font-weight: 600;
+}
+
+.figy-assistant {
+  display: flex;
+  gap: 9px;
+  padding: 0 2px;
+}
+
+.figy-f {
+  flex: none;
+  width: 10px;
+  color: var(--ft-accent-hover);
+  font-style: italic;
+}
+
+.figy-assistant-text {
+  color: var(--ft-text-secondary);
+}
+
+/* ─── A tool call ────────────────────────────────────────────────────────── */
+
+/*
+  The run's own margin.
+
+  Tool rows are indented behind a hairline, so a turn reads as one block of
+  work under the sentence that introduced it rather than as a flat list in
+  which the agent's prose and its actions have equal weight.
+*/
+.figy-tool,
+.figy-todos,
+.figy-answered {
+  margin-left: 11px;
+  padding-left: 11px;
+  border-left: 1px solid var(--ft-border-subtle);
+}
+
+.figy-tool-row {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  width: 100%;
+  padding: 2px 6px 2px 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ft-text-secondary);
+  font-family: var(--figy-mono);
+  font-size: 12px;
+  text-align: left;
+  cursor: default;
+}
+
+.figy-tool-row.expandable {
+  cursor: pointer;
+}
+
+.figy-tool-row.expandable:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.figy-tool-glyph {
+  flex: none;
+  font-size: 10px;
+}
+
+.figy-tool-glyph.read,
+.figy-tool-glyph.search {
+  color: var(--ft-text-muted);
+}
+
+.figy-tool-glyph.edit,
+.figy-tool-glyph.write {
+  color: var(--figy-teal);
+}
+
+.figy-tool-glyph.bash {
+  color: var(--figy-amber);
+}
+
+.figy-tool-name {
+  color: var(--ft-text);
+  font-weight: 700;
+}
+
+.figy-tool-target {
+  color: var(--ft-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.figy-tool-meta {
+  color: var(--ft-text-muted);
+}
+
+.figy-add {
+  color: var(--figy-add);
+}
+
+.figy-del {
+  color: var(--figy-del);
+}
+
+.figy-caret {
+  margin-left: auto;
+  color: var(--ft-text-muted);
+  font-size: 9px;
+}
+
+.figy-tool-body {
+  margin: 5px 0 7px 17px;
+}
+
+.figy-output {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--ft-border-subtle);
+  border-radius: 8px;
+  background: var(--figy-well);
+  color: var(--ft-text-secondary);
+  font-family: var(--figy-mono);
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ─── Diffs ──────────────────────────────────────────────────────────────── */
+
+.figy-diff {
+  overflow: hidden;
+  border: 1px solid var(--ft-border-subtle);
+  border-radius: 8px;
+  background: var(--figy-well);
+  font-size: 11.5px;
+  line-height: 1.75;
+}
+
+.figy-diff-line {
+  display: flex;
+  gap: 8px;
+  padding: 0 10px;
+  white-space: pre;
+}
+
+.figy-diff-line.add {
+  background: var(--figy-add-bg);
+}
+
+.figy-diff-line.del {
+  background: var(--figy-del-bg);
+}
+
+.figy-diff-no {
+  flex: none;
+  width: 26px;
+  text-align: right;
+  color: var(--ft-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.figy-diff-sign {
+  flex: none;
+  width: 6px;
+}
+
+.figy-diff-line.add .figy-diff-sign,
+.figy-diff-line.add .figy-diff-text {
+  color: var(--figy-add);
+}
+
+.figy-diff-line.del .figy-diff-sign,
+.figy-diff-line.del .figy-diff-text {
+  color: var(--figy-del);
+}
+
+.figy-diff-text {
+  color: var(--ft-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The elision between two hunks, indented to the line numbers so it reads as
+   "lines are missing here" rather than as a line of its own. */
+.figy-diff-gap {
+  padding: 0 10px 0 14px;
+  color: var(--ft-text-muted);
+  letter-spacing: 2px;
+}
+
+/* ─── Cards ──────────────────────────────────────────────────────────────── */
+
+.figy-card {
+  border: 1px solid var(--ft-border-subtle);
+  border-radius: 10px;
+  background: var(--ft-surface);
+}
+
+/* ─── A plan ─────────────────────────────────────────────────────────────── */
+
+.figy-plan {
+  padding: 11px 14px 10px;
+}
+
+.figy-plan-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.figy-plan-list li {
+  display: flex;
+  gap: 10px;
+  color: var(--ft-text-secondary);
+}
+
+.figy-plan-no {
+  flex: none;
+  width: 10px;
+  color: var(--ft-text-muted);
+  text-align: right;
+}
+
+.figy-plan-note {
+  margin-top: 6px;
+  padding-left: 20px;
+  color: var(--ft-text-muted);
+  font-size: 11px;
+}
+
+/* ─── To-dos ─────────────────────────────────────────────────────────────── */
+
+.figy-todos-head {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 2px 6px 2px 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  font-family: var(--figy-mono);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.figy-todos-head:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.figy-todo-list {
+  list-style: none;
+  margin: 1px 0 0;
+  padding: 0 0 0 17px;
+}
+
+.figy-todo {
+  display: flex;
+  gap: 8px;
+  color: var(--ft-text-secondary);
+}
+
+.figy-todo-mark {
+  flex: none;
+  font-size: 10px;
+  color: var(--ft-text-muted);
+}
+
+/* Done is struck through and faded; the one in progress is the only bright
+   line in the list, which is the question the list is asked. */
+.figy-todo.done {
+  color: var(--ft-text-muted);
+}
+
+.figy-todo.done .figy-todo-text {
+  text-decoration: line-through;
+}
+
+.figy-todo.doing {
+  color: var(--ft-text);
+  font-weight: 600;
+}
+
+.figy-todo.doing .figy-todo-mark {
+  color: var(--ft-accent-hover);
+}
+
+/* ─── A shell command ────────────────────────────────────────────────────── */
+
+.figy-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.figy-shell-cmd {
+  display: flex;
+  gap: 8px;
+  color: var(--ft-text);
+  font-weight: 600;
+}
+
+.figy-bang {
+  color: var(--figy-amber);
+  font-weight: 700;
+}
+
+.figy-shell-out {
+  padding: 8px 12px;
+  background: var(--figy-well);
+  color: var(--ft-text-secondary);
+  font-size: 11.5px;
+}
+
+.figy-shell-line {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.figy-sha {
+  color: var(--figy-amber);
+}
+
+.figy-shell-note {
+  color: var(--ft-text-muted);
+  font-size: 11px;
+}
+
+/* ─── The end of a task ──────────────────────────────────────────────────── */
+
+.figy-summary {
+  padding: 10px 14px;
+}
+
+.figy-summary-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.figy-check {
+  color: var(--figy-add);
+}
+
+.figy-summary-headline {
+  color: var(--ft-text);
+  font-weight: 700;
+}
+
+.figy-summary-file {
+  display: flex;
+  gap: 8px;
+  padding-left: 16px;
+  color: var(--ft-text-secondary);
+}
+
+.figy-summary-status {
+  color: var(--ft-text-muted);
+}
+
+/* ─── Notices ────────────────────────────────────────────────────────────── */
+
+/*
+  Five tones, one shape.
+
+  The left edge carries the severity and nothing else does — no coloured
+  title, no icon in a tinted circle — because five of these stacked in a
+  transcript is a real state (see `/errors`) and anything louder turns the
+  window into a dashboard of alarms.
+*/
+.figy-notice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px 9px 14px;
+  border-left-width: 2px;
+}
+
+.figy-notice.stop {
+  border-left-color: var(--ft-text-muted);
+}
+
+.figy-notice.warn {
+  border-left-color: var(--figy-amber);
+  background: rgba(227, 179, 65, 0.06);
+}
+
+.figy-notice.info {
+  border-left-color: var(--ft-accent);
+  background: rgb(var(--ft-accent-rgb) / 0.07);
+}
+
+.figy-notice.error {
+  border-left-color: var(--figy-del);
+  background: rgba(248, 81, 73, 0.06);
+}
+
+.figy-notice-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.figy-notice-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--ft-text);
+  font-weight: 650;
+}
+
+.figy-notice-glyph {
+  flex: none;
+  width: 9px;
+  font-size: 10px;
+  color: var(--ft-text-muted);
+}
+
+.figy-notice.warn .figy-notice-glyph {
+  color: var(--figy-amber);
+}
+
+.figy-notice.info .figy-notice-glyph {
+  color: var(--ft-accent-hover);
+}
+
+.figy-notice.error .figy-notice-glyph {
+  color: var(--figy-del);
+}
+
+.figy-notice-body {
+  padding-left: 17px;
+  color: var(--ft-text-secondary);
+  font-size: 11.5px;
+}
+
+.figy-notice-actions {
+  display: flex;
+  gap: 6px;
+  flex: none;
+}
+
+/* ─── Chips ──────────────────────────────────────────────────────────────── */
+
+.figy-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding-top: 2px;
+}
+
+.figy-chip {
+  height: 26px;
+  padding: 0 11px;
+  border: 1px solid var(--ft-border);
+  border-radius: 999px;
+  background: var(--ft-elevated);
+  color: var(--ft-text-secondary);
+  font-family: var(--figy-mono);
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.figy-chip:hover {
+  color: var(--ft-text);
+  border-color: var(--ft-text-muted);
+}
+
+.figy-chip.primary {
+  border-color: transparent;
+  background: var(--ft-accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.figy-chip.primary:hover {
+  background: var(--ft-accent-hover);
+}
+
+/* ─── A settled question ─────────────────────────────────────────────────── */
+
+.figy-answered {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--ft-text-muted);
+}
+
+.figy-answered-title {
+  color: var(--ft-text-secondary);
+}
+
+/* ─── The live question ──────────────────────────────────────────────────── */
+
+.figy-prompt {
+  padding: 12px 14px 10px;
+  border-color: var(--ft-border);
+  background: var(--ft-elevated);
+  /* It sits below the transcript rather than in it, so a long diff would
+     otherwise squeeze the conversation out of the window entirely. */
+  max-height: 42vh;
+  overflow-y: auto;
+}
+
+/* The one about to run a command is the one worth a second look. */
+.figy-prompt.bash {
+  border-color: rgba(227, 179, 65, 0.4);
+}
+
+.figy-prompt-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.figy-prompt-glyph {
+  flex: none;
+  font-size: 10px;
+  color: var(--figy-teal);
+}
+
+.figy-prompt-glyph.bash {
+  color: var(--figy-amber);
+}
+
+.figy-prompt-glyph.question,
+.figy-prompt-glyph.plan {
+  color: var(--ft-accent-hover);
+  font-size: 12px;
+}
+
+.figy-prompt-title {
+  color: var(--ft-text);
+  font-weight: 700;
+}
+
+.figy-prompt-path {
+  color: var(--ft-text-secondary);
+}
+
+.figy-prompt-sub {
+  color: var(--ft-text-muted);
+}
+
+.figy-prompt-command {
+  display: flex;
+  gap: 9px;
+  padding: 9px 11px;
+  border: 1px solid var(--ft-border-subtle);
+  border-radius: 8px;
+  background: var(--figy-well);
+  color: var(--ft-text);
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.figy-dollar {
+  color: var(--ft-text-muted);
+}
+
+.figy-prompt-facts {
+  margin: 7px 0 2px;
+  color: var(--ft-text-muted);
+  font-size: 11px;
+}
+
+.figy-prompt-diff {
+  margin-bottom: 4px;
+}
+
+.figy-prompt-footer {
+  padding-top: 8px;
+  color: var(--ft-text-muted);
+  font-size: 11px;
+}
+
+/* ─── The numbered list, shared by prompts and the two screens ───────────── */
+
+.figy-choices {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+}
+
+.figy-choice {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ft-text-secondary);
+  font-family: var(--figy-mono);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Selection is a wash and a caret, not a border: the list is read as a column
+   and a box around one row breaks the column. */
+.figy-choice.on {
+  background: rgb(var(--ft-accent-rgb) / 0.17);
+}
+
+.figy-choice-caret {
+  flex: none;
+  width: 7px;
+  color: var(--ft-accent-hover);
+}
+
+.figy-choice-no {
+  flex: none;
+  color: var(--ft-text-muted);
+}
+
+.figy-choice.on .figy-choice-no,
+.figy-choice.on .figy-choice-label {
+  color: var(--ft-text);
+  font-weight: 650;
+}
+
+.figy-choice-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.figy-choice-hint {
+  color: var(--ft-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.figy-choice-chord {
+  margin-left: auto;
+  flex: none;
+  color: var(--ft-text-muted);
+  font-size: 11px;
+}
+
+/* ─── The start screen ───────────────────────────────────────────────────── */
+
+.figy-welcome {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.figy-welcome-card {
+  display: grid;
+  grid-template-columns: minmax(190px, 1fr) 1.4fr;
+  gap: 24px;
+  padding: 18px 20px;
+}
+
+.figy-welcome-mark {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  margin-bottom: 10px;
+  border-radius: 10px;
+  background: linear-gradient(160deg, var(--ft-accent-hover), var(--ft-accent));
+  color: #fff;
+  font-size: 19px;
+  font-style: italic;
+  font-weight: 700;
+}
+
+.figy-welcome-name {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ft-text);
+}
+
+.figy-welcome-version {
+  color: var(--ft-text-muted);
+  font-size: 11px;
+}
+
+.figy-welcome-copy {
+  margin-top: 12px;
+  color: var(--ft-text-secondary);
+  font-size: 11.5px;
+  line-height: 1.65;
+}
+
+.figy-welcome-right {
+  min-width: 0;
+  border-left: 1px solid var(--ft-border-subtle);
+  padding-left: 24px;
+}
+
+.figy-welcome-check {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.figy-welcome-check-label {
+  width: 48px;
+  flex: none;
+  color: var(--ft-text-muted);
+}
+
+.figy-welcome-check-detail {
+  min-width: 0;
+  color: var(--ft-text);
+}
+
+.figy-welcome-check-detail.dim,
+.figy-welcome-check-detail .dim {
+  color: var(--ft-text-muted);
+}
+
+.figy-link {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--ft-accent-hover);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.figy-welcome-resume-head {
+  margin: 14px 0 3px;
+  color: var(--ft-text-muted);
+  font-size: 11px;
+}
+
+.figy-welcome-resume {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 3px 8px 3px 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ft-text-secondary);
+  font-family: var(--figy-mono);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.figy-welcome-resume:hover {
+  color: var(--ft-text);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.figy-welcome-resume-icon {
+  flex: none;
+  color: var(--ft-text-muted);
+}
+
+.figy-welcome-resume-title {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.figy-welcome-resume-when {
+  min-width: 0;
+  margin-left: auto;
+  color: var(--ft-text-muted);
+  font-size: 11px;
+}
+
+.figy-welcome-hints {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 2px;
+  color: var(--ft-text-muted);
+  font-size: 11.5px;
+}
+
+.figy-key {
+  color: var(--ft-accent-hover);
+  font-weight: 650;
+}
+
+.figy-key.warn {
+  color: var(--figy-amber);
+}
+
+.figy-key.accent {
+  color: var(--ft-accent-hover);
+}
+
+/* ─── /rewind and /model ─────────────────────────────────────────────────── */
+
+.figy-screen {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding-bottom: 6px;
+}
+
+.figy-screen-title {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ft-text);
+}
+
+.figy-screen-copy {
+  margin: 4px 0 10px;
+  color: var(--ft-text-secondary);
+  font-size: 11.5px;
+}
+
+.figy-inline-code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--ft-elevated);
+  color: var(--ft-text);
+}
+
+/* Pushed to the bottom of the screen, where the decision is made. */
+.figy-screen-foot {
+  display: flex;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 14px;
+}
+
+.figy-button {
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--ft-border);
+  border-radius: 8px;
+  background: var(--ft-elevated);
+  color: var(--ft-text);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.figy-button:hover {
+  border-color: var(--ft-text-muted);
+}
+
+.figy-button.primary {
+  border-color: transparent;
+  background: var(--ft-accent);
+  color: #fff;
+}
+
+.figy-button.primary:hover {
+  background: var(--ft-accent-hover);
+}
+
+.figy-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin-top: 12px;
+  padding: 11px 14px;
+  color: var(--ft-text-secondary);
+  font-family: var(--figy-mono);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.figy-toggle-label {
+  font-weight: 650;
+  color: var(--ft-text);
+}
+
+.figy-toggle-note {
+  color: var(--ft-text-muted);
+}
+
+.figy-switch {
+  position: relative;
+  margin-left: auto;
+  flex: none;
+  width: 34px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--ft-border);
+  transition: background 0.15s ease;
+}
+
+.figy-switch.on {
+  background: var(--ft-accent);
+}
+
+.figy-switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s ease;
+}
+
+.figy-switch.on .figy-switch-knob {
+  transform: translateX(16px);
+}
+
+/* ─── The bottom of the window ───────────────────────────────────────────── */
+
+.figy-bottom {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 10px 20px 12px;
+  background: var(--ft-bg);
+  border-top: 1px solid var(--ft-border-subtle);
+}
+
+.figy-running {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 2px;
+  font-size: 11.5px;
+}
+
+.figy-running.idle {
+  justify-content: flex-end;
+}
+
+.figy-running-label {
+  color: var(--ft-accent-hover);
+  font-weight: 650;
+}
+
+.figy-running-meta {
+  color: var(--ft-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.figy-running-spacer {
+  flex: 1;
+}
+
+.figy-spinner {
+  flex: none;
+  width: 11px;
+  height: 11px;
+  border: 1.5px solid rgb(var(--ft-accent-rgb) / 0.3);
+  border-top-color: var(--ft-accent-hover);
+  border-radius: 50%;
+  animation: figy-spin 0.8s linear infinite;
+}
+
+@keyframes figy-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .figy-spinner {
+    animation-duration: 2.4s;
+  }
+}
+
+.figy-bg-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 24px;
+  padding: 0 11px;
+  border: 1px solid var(--ft-border);
+  border-radius: 999px;
+  background: var(--ft-elevated);
+  color: var(--ft-text-secondary);
+  font-family: var(--figy-mono);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.figy-bg-chip:hover {
+  color: var(--ft-text);
+  border-color: var(--ft-text-muted);
+}
+
+.figy-bg-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--figy-teal);
+}
+
+/* ─── Completion ─────────────────────────────────────────────────────────── */
+
+/*
+  Attached to the box rather than floating over the transcript.
+
+  It is a continuation of what is being typed, and a panel that hovered
+  somewhere above the caret made the composer feel like two unrelated
+  controls. The keyboard line lives at its foot, where it is true only while
+  the popup is open — the status bar used to carry it, and a status bar whose
+  text changes every keystroke is not a status bar.
+*/
+.figy-popup {
+  overflow: hidden;
+  border: 1px solid var(--ft-border);
+  border-radius: 10px;
+  background: var(--ft-surface);
+  box-shadow: 0 12px 28px -12px rgba(0, 0, 0, 0.5);
+}
+
+.figy-popup-list {
+  max-height: 196px;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.figy-popup-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  width: 100%;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ft-text-secondary);
+  font-family: var(--figy-mono);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.figy-popup-row.on {
+  background: rgb(var(--ft-accent-rgb) / 0.17);
+}
+
+.figy-popup-label {
+  flex: none;
+  min-width: 164px;
+  max-width: 52%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.figy-popup-row.on .figy-popup-label {
+  color: var(--ft-text);
+  font-weight: 650;
+}
+
+.figy-popup-meta {
+  min-width: 0;
+  color: var(--ft-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The popup opens with nothing in it when the answer is "nothing" — and an
+   absence has to say which absence it is: no folder, a folder that would not
+   read, an index still building, or a query that matches none of it. */
+.figy-popup-empty {
+  padding: 9px 12px;
+  color: var(--ft-text-muted);
+  font-size: 11.5px;
+}
+
+.figy-popup-hint {
+  padding: 5px 12px;
+  border-top: 1px solid var(--ft-border-subtle);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--ft-text-muted);
+  font-size: 10.5px;
+}
+
+/* ─── The box ────────────────────────────────────────────────────────────── */
+
+/*
+  A card with two rows, not a line with a glyph in front of it.
+
+  The second row is the point: `@`, `/` and `!` are the three things this
+  window can do that a chat box cannot, and they were discoverable only by
+  being told about them in a hint that vanished the moment anyone typed. Next
+  to them sit the two settings most likely to change mid-task and the send
+  key — which is a control, not a piece of folklore about the return key.
+*/
+.figy-composer {
+  border: 1px solid var(--ft-border);
+  border-radius: 12px;
+  background: var(--ft-surface);
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.figy-composer:focus-within {
+  border-color: rgb(var(--ft-accent-rgb) / 0.6);
+  box-shadow: 0 0 0 3px rgb(var(--ft-accent-rgb) / 0.12);
+}
+
+/* Shell mode is a different mode of the same box, and says so in its own
+   colour rather than by moving anything. */
+.figy-composer.shell {
+  border-color: rgba(227, 179, 65, 0.5);
+}
+
+.figy-composer.shell:focus-within {
+  box-shadow: 0 0 0 3px rgba(227, 179, 65, 0.14);
+}
+
+.figy-composer-top {
+  display: flex;
+  gap: 9px;
+  padding: 10px 12px 2px;
+}
+
+.figy-composer-glyph {
+  flex: none;
+  color: var(--ft-accent-hover);
+  line-height: 1.6;
+}
+
+.figy-composer-glyph.shell {
+  color: var(--figy-amber);
+  font-weight: 700;
+}
+
+.figy-composer-input {
+  flex: 1;
+  min-width: 0;
+  max-height: 150px;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--ft-text);
+  font-family: var(--figy-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  resize: none;
+  overflow-y: auto;
+}
+
+.figy-composer-input::placeholder {
+  color: var(--ft-text-muted);
+}
+
+.figy-composer-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px 7px;
+}
+
+.figy-composer-spacer {
+  flex: 1;
+}
+
+.figy-tool-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ft-text-muted);
+  cursor: pointer;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+
+.figy-tool-btn:hover {
+  color: var(--ft-text);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.figy-tool-btn.on {
+  color: var(--figy-amber);
+  background: rgba(227, 179, 65, 0.14);
+}
+
+/* The two settings worth changing without leaving the keyboard behind. */
+.figy-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--ft-border-subtle);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ft-text-secondary);
+  font-family: var(--figy-mono);
+  font-size: 10.5px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+
+.figy-pill:hover {
+  color: var(--ft-text);
+  border-color: var(--ft-text-muted);
+}
+
+.figy-mode-dot {
+  width: 5px;
+  height: 5px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--ft-text-muted);
+}
+
+.figy-mode-dot.accept {
+  background: var(--ft-success);
+}
+
+.figy-mode-dot.plan {
+  background: var(--ft-accent-hover);
+}
+
+.figy-pill.accept {
+  color: var(--ft-success);
+  border-color: rgb(var(--ft-success-rgb) / 0.4);
+}
+
+.figy-pill.plan {
+  color: var(--ft-accent-hover);
+  border-color: rgb(var(--ft-accent-rgb) / 0.45);
+}
+
+.figy-send {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin-left: 4px;
+  border: none;
+  border-radius: 8px;
+  background: var(--ft-accent);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.12s ease, opacity 0.12s ease;
+}
+
+.figy-send:hover:not(:disabled) {
+  background: var(--ft-accent-hover);
+}
+
+.figy-send:disabled {
+  background: var(--ft-elevated);
+  color: var(--ft-text-muted);
+  cursor: default;
+}
+
+/* Interrupting is the same button in the same place: whatever is in flight,
+   the key under your hand is the one that stops it. */
+.figy-send.stop {
+  background: rgba(248, 81, 73, 0.16);
+  color: #fca5a5;
+}
+
+.figy-send.stop:hover {
+  background: rgba(248, 81, 73, 0.26);
+}
+
+/* ─── Status bar ─────────────────────────────────────────────────────────── */
+
+.figy-statusbar {
+  height: 28px;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.022);
+  border-top: 1px solid var(--ft-border-subtle);
+  font-family: var(--figy-mono);
+  font-size: 10px;
+  color: var(--ft-text-muted);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.figy-statusbar::-webkit-scrollbar {
+  display: none;
+}
+
+.figy-folder-icon {
+  color: var(--ft-text-muted);
+}
+
+.figy-folder-primary {
+  color: var(--ft-text-secondary);
+  flex-shrink: 0;
+}
+
+/* A chip states what the agent can reach. Add-only, like the Claude window's:
+   a ✕ here would promise a revocation nothing can perform. */
+.figy-chip-sm {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px;
+  border: 1px solid var(--ft-border-subtle);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.055);
+  color: var(--ft-text-secondary);
+  white-space: nowrap;
+}
+
+.figy-chip-sm.add {
+  background: transparent;
+  border-style: dashed;
+  color: var(--ft-text-muted);
+  cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+
+.figy-chip-sm.add:hover {
+  color: var(--ft-text);
+  border-color: var(--ft-accent);
+  background: rgb(var(--ft-accent-rgb) / 0.09);
+}
+
+.figy-status-right {
+  color: var(--ft-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── The project picker ─────────────────────────────────────────────────── */
+
+/* A folder the terminal has been in, rather than one anyone pointed this
+   window at. Said once, quietly, and only in the list. */
+.figy-suggestion {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ft-text-muted);
+  font-size: 9px;
+}
+
+/* ─── Keyboard focus ─────────────────────────────────────────────────────── */
+
+.figy-modal button:focus-visible {
+  outline: 2px solid var(--ft-accent);
+  outline-offset: -1px;
+}
+
+/*
+  The box is not in that list, and must not be.
+
+  The card around it already lights up on `:focus-within` — a tinted border
+  and a soft ring — so an outline on the textarea as well drew a second
+  rectangle a few pixels inside the first. One focused control, one
+  indicator; the card is the control as far as anyone looking at it is
+  concerned.
+*/
+.figy-composer-input:focus,
+.figy-composer-input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+/* ─── Light ──────────────────────────────────────────────────────────────────
+
+   Almost nothing, because almost everything above is a token. What is left is
+   the handful of washes written as white-on-dark — a 7% white hover is
+   invisible on paper — and the diff tones, which need ink rather than neon.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+.light .figy-modal {
+  --figy-add: #117a42;
+  --figy-add-bg: rgba(5, 150, 105, 0.12);
+  --figy-del: #c0362f;
+  --figy-del-bg: rgba(220, 38, 38, 0.09);
+  --figy-amber: #a9690a;
+  --figy-teal: #0f8a74;
+  --figy-line: rgba(15, 17, 23, 0.08);
+  --figy-well: rgba(15, 17, 23, 0.04);
+
+  box-shadow: 0 24px 64px -16px rgba(15, 23, 42, 0.28);
+}
+
+.light .figy-header {
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.022), rgba(0, 0, 0, 0.006));
+}
+
+.light .figy-locator-project:hover,
+.light .figy-iconbtn:hover:not(:disabled),
+.light .figy-tool-row.expandable:hover,
+.light .figy-todos-head:hover,
+.light .figy-welcome-resume:hover,
+.light .figy-tool-btn:hover {
+  background: rgba(15, 17, 23, 0.06);
+}
+
+.light .figy-statusbar,
+.light .figy-popup-hint {
+  background: rgba(15, 17, 23, 0.02);
+}
+
+.light .figy-chip-sm,
+.light .figy-suggestion {
+  background: rgba(15, 17, 23, 0.05);
+}

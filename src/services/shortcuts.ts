@@ -76,6 +76,11 @@ export const SHORTCUTS = define({
   // key belongs to Claude Code itself, Escape above all, so it takes only the
   // chords that are unambiguously the window's; see `ClaudeModal.onKeyDown`.
   claude: { key: "a", label: "A", mac: MOD_SHIFT, other: CTRL_SHIFT },
+  // `G` for FigyCode, because `F` is Find and `C` is Copy. Free in both
+  // schemes: the shell's own Ctrl+G cancels a reverse-search, and this is
+  // Ctrl+Shift+G. Inside the window nearly every key belongs to the agent —
+  // see `FigyCodeModal.onKeyDown`, which stops them reaching the shell.
+  figyCode: { key: "g", label: "G", mac: MOD_SHIFT, other: CTRL_SHIFT },
   // `X` for Excalidraw. Free in both schemes — the shell's Ctrl+X is cut, and
   // this is Ctrl+Shift+X — where `D`, the obvious letter, is taken by split.
   drawing: { key: "x", label: "X", mac: MOD_SHIFT, other: CTRL_SHIFT },

@@ -23,6 +23,7 @@ pub const MENU_CLEAR_TERMINAL: &str = "shell_clear_terminal";
 pub const MENU_BROWSER: &str = "shell_browser";
 pub const MENU_EDITOR: &str = "shell_editor";
 pub const MENU_CLAUDE: &str = "shell_claude";
+pub const MENU_FIGY_CODE: &str = "shell_figy_code";
 pub const MENU_DRAWING: &str = "shell_drawing";
 pub const MENU_API: &str = "shell_api";
 pub const MENU_MONITOR: &str = "shell_monitor";
@@ -50,6 +51,7 @@ const EVENT_CLEAR_TERMINAL: &str = "menu://clear-terminal";
 const EVENT_BROWSER: &str = "menu://browser";
 const EVENT_EDITOR: &str = "menu://editor";
 const EVENT_CLAUDE: &str = "menu://claude";
+const EVENT_FIGY_CODE: &str = "menu://figy-code";
 const EVENT_DRAWING: &str = "menu://drawing";
 const EVENT_API: &str = "menu://api";
 const EVENT_MONITOR: &str = "menu://monitor";
@@ -208,6 +210,13 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         true,
         accel("CmdOrCtrl+Shift+A", "Ctrl+Shift+A"),
     )?;
+    let figy_code = MenuItem::with_id(
+        app,
+        MENU_FIGY_CODE,
+        label("FigyCode", "Ctrl+Shift+G"),
+        true,
+        accel("CmdOrCtrl+Shift+G", "Ctrl+Shift+G"),
+    )?;
     let drawing = MenuItem::with_id(
         app,
         MENU_DRAWING,
@@ -331,6 +340,7 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
             &browser,
             &editor,
             &claude,
+            &figy_code,
             &drawing,
             &api,
             &monitor,
@@ -562,6 +572,7 @@ pub fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
         MENU_BROWSER => emit_focused(app, EVENT_BROWSER),
         MENU_EDITOR => emit_focused(app, EVENT_EDITOR),
         MENU_CLAUDE => emit_focused(app, EVENT_CLAUDE),
+        MENU_FIGY_CODE => emit_focused(app, EVENT_FIGY_CODE),
         MENU_DRAWING => emit_focused(app, EVENT_DRAWING),
         MENU_API => emit_focused(app, EVENT_API),
         MENU_MONITOR => emit_focused(app, EVENT_MONITOR),

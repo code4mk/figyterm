@@ -188,7 +188,13 @@ fn strip_verbatim(path: PathBuf) -> PathBuf {
 /// The Windows retry covers paths past the 260-character limit: those need the
 /// `\\?\` prefix to be opened at all, and the frontend only ever holds the
 /// stripped form.
-fn canonicalize(path: &Path) -> Result<PathBuf, String> {
+///
+/// Also used by `figy_files.rs`, which keeps a root of its own — see the note
+/// there about why it does not go through [`resolve`]. It imports this under
+/// a clearer name, because `canonicalize` is also what `std` calls the
+/// function on the next line and a module reading that spelling in isolation
+/// could not tell which of the two it had.
+pub(crate) fn canonicalize(path: &Path) -> Result<PathBuf, String> {
     match std::fs::canonicalize(path) {
         Ok(resolved) => Ok(strip_verbatim(resolved)),
         Err(first) => {
@@ -242,7 +248,7 @@ fn components_match(a: Component, b: Component) -> bool {
 
 /// Expands a leading `~`, which the frontend passes through from recent
 /// directories and from anything the user typed.
-fn expand_home(raw: &str) -> PathBuf {
+pub(crate) fn expand_home(raw: &str) -> PathBuf {
     if raw == "~" || raw.starts_with("~/") || raw.starts_with("~\\") {
         if let Some(home) = operations::get_home_dir() {
             if raw.len() <= 1 {
@@ -310,7 +316,7 @@ pub fn resolve(state: &FsState, label: &str, raw: &str) -> Result<PathBuf, Strin
     ))
 }
 
-fn to_string(path: &Path) -> String {
+pub(crate) fn to_string(path: &Path) -> String {
     path.to_string_lossy().to_string()
 }
 

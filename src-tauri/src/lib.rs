@@ -13,6 +13,7 @@ pub mod terminal;
 pub mod updater;
 
 use commands::browser::BrowserState;
+use commands::figy_files::FigyState;
 use commands::fs::FsState;
 use commands::fs_watch::WatchState;
 use http::ApiState;
@@ -54,6 +55,7 @@ pub fn run() {
         .manage(AppState::new())
         .manage(BrowserState::default())
         .manage(FsState::default())
+        .manage(FigyState::default())
         .manage(WatchState::default())
         .manage(LspState::default())
         .manage(ApiState::default())
@@ -94,6 +96,7 @@ pub fn run() {
             let label = window.label();
             commands::terminal::close_sessions_of_window(app, label);
             commands::fs::forget_window(&app.state::<FsState>(), label);
+            commands::figy_files::forget_window(&app.state::<FigyState>(), label);
             commands::fs_watch::forget_window(&app.state::<WatchState>(), label);
             commands::lsp::forget_window(app, label);
         })
@@ -109,6 +112,8 @@ pub fn run() {
             commands::claude::claude_transcript_head,
             commands::claude::claude_past_conversations,
             commands::claude::claude_session_exists,
+            commands::figy_files::figy_open_project,
+            commands::figy_files::figy_find_files,
             commands::autocomplete::list_path_completions,
             commands::autocomplete::get_home_dir,
             commands::autocomplete::read_project_file,
