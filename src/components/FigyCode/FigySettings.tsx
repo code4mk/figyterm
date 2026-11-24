@@ -34,7 +34,12 @@
 import { useState } from "react";
 import { Check, Cpu, Globe, History, Plus, Sliders, Trash2 } from "lucide-react";
 import { Dialog } from "./FigyDialog";
-import { MODE_LABEL, formatCost, type PermissionMode } from "../../services/figycode-blocks";
+import {
+  MODE_LABEL,
+  formatCost,
+  typedNumber,
+  type PermissionMode,
+} from "../../services/figycode-blocks";
 import type { AgentSettings, AgentStatus, ProviderModel } from "../../services/figycode-agent";
 
 /* ─── Tabs ────────────────────────────────────────────────────────────────── */
@@ -85,6 +90,52 @@ function summarise(model: ProviderModel): string {
   return [host || "no address", model.model || "no model name", price]
     .filter(Boolean)
     .join(" · ");
+}
+
+/* ─── A number you can actually type ──────────────────────────────────────── */
+
+/**
+ * A number field that holds what was typed, not what it parses to.
+ *
+ * The arithmetic is in `typedNumber`, which is where the explanation of
+ * why this is not a one-liner lives. What is here is the half that
+ * needs a component: the text is state for as long as the field is
+ * mounted, and the parsed value is pushed up on every keystroke.
+ */
+function NumberField({
+  label,
+  value,
+  placeholder,
+  onChange,
+}: {
+  label: string;
+  value: number | undefined;
+  placeholder: string;
+  onChange: (n: number | undefined) => void;
+}) {
+  const [text, setText] = useState(value == null ? "" : String(value));
+
+  return (
+    <label className="figy-field narrow">
+      <span className="figy-field-label">{label}</span>
+      <input
+        className="figy-input"
+        value={text}
+        placeholder={placeholder}
+        inputMode="decimal"
+        spellCheck={false}
+        onChange={(e) => {
+          const next = typedNumber(e.target.value);
+          // A keystroke that cannot be part of a number changes
+          // nothing — what was there stays there.
+          if (!next) return;
+          setText(next.text);
+          onChange(next.value);
+        }}
+        onPaste={(e) => e.stopPropagation()}
+      />
+    </label>
+  );
 }
 
 /* ─── The dialog ──────────────────────────────────────────────────────────── */
@@ -193,20 +244,7 @@ export function SettingsDialog({
     set: (n: number | undefined) => void,
     placeholder = "0"
   ) => (
-    <label className="figy-field narrow" key={label}>
-      <span className="figy-field-label">{label}</span>
-      <input
-        className="figy-input"
-        value={value ?? ""}
-        placeholder={placeholder}
-        inputMode="decimal"
-        onChange={(e) => {
-          const text = e.target.value.trim();
-          set(text === "" ? undefined : Number(text) || 0);
-        }}
-        onPaste={(e) => e.stopPropagation()}
-      />
-    </label>
+    <NumberField key={label} label={label} value={value} placeholder={placeholder} onChange={set} />
   );
 
   const link = (label: string, command: string, value: string) => (

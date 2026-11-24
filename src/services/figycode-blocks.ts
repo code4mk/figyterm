@@ -247,6 +247,54 @@ export type Block =
    */
   | { id: number; kind: "todos"; items: TodoItem[] };
 
+/* ─── Typing a number ─────────────────────────────────────────────────────── */
+
+/**
+ * Bengali digits to Latin ones: `০.৬` becomes `0.6`.
+ *
+ * The number row of a Bangla InScript layout produces these, and
+ * `Number("০.৬")` is `NaN` — so without this, typing a price with the
+ * keyboard you are already using silently sets it to nothing.
+ */
+export function toLatinDigits(text: string): string {
+  return text.replace(/[\u09E6-\u09EF]/g, (d) => String(d.charCodeAt(0) - 0x09e6));
+}
+
+/** What may be in the box while a number is still being typed. */
+const PARTIAL_NUMBER = /^[0-9]*[.,]?[0-9]*$/;
+
+/**
+ * One keystroke in a number field: what the box should now show, and
+ * what that means as a number.
+ *
+ * `null` means the keystroke is refused and nothing changes.
+ *
+ * It exists as a function because the obvious version is wrong in a way
+ * that is invisible until somebody tries to type a real price. A field
+ * whose value is `Number(text)` turns `0.` into `0` on the keystroke
+ * after the zero, re-renders as `"0"`, and eats the decimal point —
+ * making `0.10`, and every other fractional price, impossible to enter.
+ *
+ * So the text and the number are two different things, and the text is
+ * what the box shows. Half-way through `0.10` the value really is zero
+ * for one keystroke — that part was never wrong — but the box goes on
+ * saying `0.` and the next digit lands where it should.
+ *
+ * An empty box, and a lone separator, are "no number" rather than zero:
+ * a context window of 0 and one nobody has set are different things.
+ * A letter is refused rather than silently becoming zero, which is how
+ * `Number("3x") || 0` used to turn a typo into a price of nothing.
+ */
+export function typedNumber(raw: string): { text: string; value: number | undefined } | null {
+  const text = toLatinDigits(raw.trim());
+  if (!PARTIAL_NUMBER.test(text)) return null;
+  const parsed = text.replace(",", ".");
+  return {
+    text,
+    value: parsed === "" || parsed === "." ? undefined : Number(parsed),
+  };
+}
+
 /* ─── Small arithmetic the footer and the spinner need ────────────────────── */
 
 /** `14s`, then `2m 41s`. Seconds all the way down would read as a stopwatch. */
