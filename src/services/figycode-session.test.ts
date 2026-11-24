@@ -14,6 +14,7 @@ import {
   answerOf,
   applyEvent,
   emptySession,
+  NONE_OF_THESE,
   promptFor,
   pushUser,
   resumeSession,
@@ -355,6 +356,50 @@ test("allowing all edits is a mode change, not a memory", () => {
   const answer = answerOf(edit, 1);
   assert.equal(answer.acceptEdits, true);
   assert.equal(answer.remember, undefined);
+});
+
+/* ─── A question of the model's own ────────────────────────────────────────── */
+
+test("a question the model asked is drawn as the card a permission uses", () => {
+  const state = play({
+    kind: "askingUser",
+    id: "ask_1",
+    question: "The field is used in two places. Rename both?",
+    options: ["Rename both", "Leave the old one"],
+  });
+  const live = state.live;
+  assert.ok(live);
+  assert.equal(live.kind, "question", "it goes back by a different route to an approval");
+  assert.equal(live.prompt.question, "The field is used in two places. Rename both?");
+  assert.equal(live.rememberKey, null, "the next question is a different question");
+});
+
+test("a question always offers the answer the model did not think of", () => {
+  // Otherwise the card is a trap: three options and no way to say none
+  // of them, with Escape meaning nothing.
+  const state = play({
+    kind: "askingUser",
+    id: "ask_1",
+    question: "Which?",
+    options: ["this", "that"],
+  });
+  const prompt = state.live!.prompt;
+  assert.equal(prompt.options.length, 3);
+  assert.equal(prompt.options[2].label, NONE_OF_THESE);
+  assert.equal(prompt.denyIndex, 2, "so Escape picks it");
+});
+
+test("an empty option is dropped rather than drawn as a blank row", () => {
+  const state = play({
+    kind: "askingUser",
+    id: "ask_1",
+    question: "Which?",
+    options: ["this", "   ", "that"],
+  });
+  assert.deepEqual(
+    state.live!.prompt.options.map((option) => option.label),
+    ["this", "that", NONE_OF_THESE]
+  );
 });
 
 /* ─── The plan ─────────────────────────────────────────────────────────────── */

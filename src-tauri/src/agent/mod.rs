@@ -35,6 +35,8 @@
 //!   trait, and absent from a context that should not have one.
 //! - [`code`] — the bridge to the language server the app is already
 //!   running, which is the one thing a CLI agent cannot have.
+//! - [`ask`] — the same shape with a person on the other end: a question
+//!   the run stops on, answered with a number rather than a paragraph.
 //! - [`web`] — Exa, for the questions whose answer is not in the project.
 //! - [`store`] — the conversation on disk, so a restart is an
 //!   interruption rather than an ending.
@@ -45,6 +47,7 @@
 //! agent's own rules file, and the rest of the tool surface.
 //! `docs/figy-code-plan/TASKS.md` is the order they arrive in.
 
+pub mod ask;
 pub mod code;
 pub mod ledger;
 pub mod message;

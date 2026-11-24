@@ -69,6 +69,7 @@ import {
   type PermissionMode,
 } from "../../services/figycode-blocks";
 import {
+  agentAnswer,
   agentApprove,
   agentCallTool,
   agentCancel,
@@ -93,6 +94,7 @@ import {
   answerOf,
   applyEvent,
   emptySession,
+  NONE_OF_THESE,
   pushUser,
   resumeSession,
   type SessionState,
@@ -561,9 +563,22 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
     (optionIndex: number) => {
       const live = session.live;
       if (!live) return;
-      const { allow, remember, acceptEdits } = answerOf(live, optionIndex);
-      if (acceptEdits) setMode("acceptEdits");
-      void agentApprove(live.id, allow, remember);
+
+      /*
+        Two things stop a run and they are drawn by the same card on
+        purpose — here is the situation, here are the few ways out. They
+        go back by different routes: a permission question is yes or no
+        to the policy, and a question of the model's own is a sentence
+        that lands in the conversation.
+      */
+      if (live.kind === "question") {
+        const picked = live.prompt.options[optionIndex]?.label ?? NONE_OF_THESE;
+        void agentAnswer(live.id, picked);
+      } else {
+        const { allow, remember, acceptEdits } = answerOf(live, optionIndex);
+        if (acceptEdits) setMode("acceptEdits");
+        void agentApprove(live.id, allow, remember);
+      }
       setSession((state) => ({ ...state, live: null }));
       setChoice(0);
     },

@@ -41,6 +41,7 @@ pub mod grep;
 pub mod ls;
 pub mod lsp;
 pub mod output;
+pub mod ask;
 pub mod read;
 pub mod todo;
 pub mod web;
@@ -115,6 +116,7 @@ pub struct ToolContext {
     pub shell: Option<Arc<dyn crate::agent::shell::Shell>>,
     pub lsp: Option<Arc<dyn crate::agent::code::Lsp>>,
     pub web: Option<Arc<dyn crate::agent::web::Web>>,
+    pub asker: Option<Arc<dyn crate::agent::ask::Asker>>,
 }
 
 impl ToolContext {
@@ -125,6 +127,7 @@ impl ToolContext {
             shell: None,
             lsp: None,
             web: None,
+            asker: None,
         }
     }
 
@@ -140,6 +143,11 @@ impl ToolContext {
 
     pub fn with_web(mut self, web: Arc<dyn crate::agent::web::Web>) -> Self {
         self.web = Some(web);
+        self
+    }
+
+    pub fn with_asker(mut self, asker: Arc<dyn crate::agent::ask::Asker>) -> Self {
+        self.asker = Some(asker);
         self
     }
 
@@ -169,6 +177,18 @@ impl ToolContext {
         self.web
             .as_deref()
             .ok_or_else(|| "no Exa key is set, so the web is unreachable from here".to_string())
+    }
+
+    /// The person, or the reason they cannot be reached.
+    ///
+    /// Phrased as what to do instead: a model told "ask in your answer"
+    /// ends the turn with a question, which is the fallback this tool
+    /// exists to improve on rather than replace.
+    pub fn asker(&self) -> Result<&dyn crate::agent::ask::Asker, ToolError> {
+        self.asker.as_deref().ok_or_else(|| {
+            "nobody can be asked from here — put the question in your answer instead"
+                .to_string()
+        })
     }
 }
 
@@ -237,6 +257,10 @@ const PANEL_TOOLS: &[&str] = &[
     "definition",
     "references",
     "diagnostics",
+    // The one thing on this list that is not about the buffer: a panel
+    // that cannot ask has to guess, and a wrong guess in a sidebar is
+    // the same wrong guess, made faster.
+    "ask_user",
 ];
 
 /// Every tool, in a fixed order.
@@ -266,6 +290,7 @@ pub fn registry() -> Vec<Box<dyn Tool>> {
         Box::new(git::Blame),
         Box::new(git::Commit),
         Box::new(todo::TodoWrite),
+        Box::new(ask::AskUser),
     ]
 }
 
@@ -473,7 +498,7 @@ mod tests {
                 "read", "grep", "edit", "write", "ls", "move", "delete", "bash",
                 "bash_output", "bash_kill", "definition", "references", "diagnostics",
                 "search_web", "fetch_url", "git_status", "git_diff", "git_log",
-                "git_blame", "git_commit", "todo_write"
+                "git_blame", "git_commit", "todo_write", "ask_user"
             ]
         );
     }

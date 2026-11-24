@@ -24,6 +24,7 @@ use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager, State, Window};
 use tokio::sync::oneshot;
 
+use crate::agent::ask::{Asker, Desk, Question};
 use crate::agent::code::{Ask, Bridge, Lsp};
 use crate::agent::ledger::{Ledger, Price, Surface, Totals};
 use crate::agent::message::ToolCall;
@@ -135,6 +136,9 @@ pub struct AgentState {
     shells: Mutex<HashMap<String, Arc<SystemShell>>>,
     /// One bridge per window, holding the questions it has outstanding.
     bridges: Mutex<HashMap<String, Arc<Bridge>>>,
+    /// One desk per window, holding the questions `ask_user` has put to
+    /// the person and not had answered yet.
+    desks: Mutex<HashMap<String, Arc<Desk>>>,
 }
 
 pub fn forget_window(state: &AgentState, label: &str) {
@@ -156,6 +160,12 @@ pub fn forget_window(state: &AgentState, label: &str) {
     if let Ok(mut bridges) = state.bridges.lock() {
         if let Some(bridge) = bridges.remove(label) {
             bridge.abandon();
+        }
+    }
+    // And anything waiting on the person at it.
+    if let Ok(mut desks) = state.desks.lock() {
+        if let Some(desk) = desks.remove(label) {
+            desk.abandon();
         }
     }
 }
@@ -473,6 +483,47 @@ pub fn agent_cancel(
             let _ = sender.send(false);
         }
     }
+    /*
+      And `ask_user` is released rather than left parked.
+
+      Its card is gone from the screen the moment the turn is cancelled;
+      a tool thread still blocked on it would be a turn that never ends
+      and a window that can never be asked anything again.
+    */
+    let desk = state
+        .desks
+        .lock()
+        .map_err(|e| e.to_string())?
+        .get(window.label())
+        .cloned();
+    if let Some(desk) = desk {
+        desk.abandon();
+    }
+    Ok(())
+}
+
+/// The window's answer to an `ask_user` card.
+///
+/// One string, which is the option as the person picked it — or whatever
+/// the window sends when they decline all of them. The tool puts it in
+/// the conversation verbatim, so this is the model's own reading of what
+/// was said.
+#[tauri::command]
+pub fn agent_answer(
+    window: Window,
+    state: State<AgentState>,
+    id: String,
+    answer: String,
+) -> Result<(), String> {
+    let desk = state
+        .desks
+        .lock()
+        .map_err(|e| e.to_string())?
+        .get(window.label())
+        .cloned();
+    if let Some(desk) = desk {
+        desk.answer(&id, answer);
+    }
     Ok(())
 }
 
@@ -659,6 +710,35 @@ pub async fn agent_send(
     let lsp: Arc<dyn Lsp> = bridge;
 
     /*
+      The desk `ask_user` puts its questions on.
+
+      Per window for the same reason as the bridge — the card is drawn
+      in the window that asked and the answer comes back from it — and
+      it emits on the *turn's* event channel rather than one of its own,
+      so the window has one stream to render rather than two to
+      interleave.
+    */
+    let desk = {
+        let mut desks = state.desks.lock().map_err(|e| e.to_string())?;
+        Arc::clone(desks.entry(label.clone()).or_insert_with(|| {
+            let emitter = window.clone();
+            Arc::new(Desk::new(move |question: &Question| {
+                emitter
+                    .emit(
+                        AGENT_EVENT,
+                        &TurnEvent::AskingUser {
+                            id: question.id.clone(),
+                            question: question.question.clone(),
+                            options: question.options.clone(),
+                        },
+                    )
+                    .map_err(|e| format!("the window could not be reached: {e}"))
+            }))
+        }))
+    };
+    let asker: Arc<dyn Asker> = desk;
+
+    /*
       The web tools exist only when there is a key for them.
 
       Not a stub that fails on use: `ToolContext` without a `web` is how
@@ -682,7 +762,10 @@ pub async fn agent_send(
                 picker: &OfferEverything(surface),
                 approver: &WindowApprover { state: &state },
                 ctx: &{
-                    let ctx = ToolContext::new(root).with_shell(shell).with_lsp(lsp);
+                    let ctx = ToolContext::new(root)
+                        .with_shell(shell)
+                        .with_lsp(lsp)
+                        .with_asker(asker);
                     match web {
                         Some(web) => ctx.with_web(web),
                         None => ctx,

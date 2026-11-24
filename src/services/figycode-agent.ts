@@ -62,6 +62,8 @@ export type TurnEvent =
   | { kind: "toolFailed"; id: string; name: string; error: string }
   | { kind: "toolRefused"; id: string; name: string; reason: string }
   | { kind: "needsApproval"; id: string; name: string; arguments: Record<string, unknown> }
+  /** A question of the model's own, from `ask_user`. */
+  | { kind: "askingUser"; id: string; question: string; options: string[] }
   | {
       kind: "turn";
       input: number;
@@ -170,6 +172,17 @@ export function agentSend(
   surface: Surface
 ): Promise<void> {
   return invoke("agent_send", { request: { prompt, mode, system, surface } });
+}
+
+/**
+ * Answers an `ask_user` card.
+ *
+ * One string, which is the option as it was picked. The tool puts it in
+ * the conversation verbatim, so this is what the model reads as the
+ * person's own words.
+ */
+export function agentAnswer(id: string, answer: string): Promise<void> {
+  return invoke("agent_answer", { id, answer });
 }
 
 /** Answers a permission question. `remember` is per command, never per class. */

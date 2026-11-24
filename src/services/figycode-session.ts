@@ -26,12 +26,31 @@ import { addedLines, lineDiff } from "./figycode-diff";
 
 /** A question the run has stopped on, waiting for the user. */
 export interface LivePrompt {
+  /**
+   * Which way the answer goes back.
+   *
+   * Two things stop a run and they look identical on screen, which is
+   * deliberate — but one is answered with yes or no to `agent_approve`
+   * and the other with a sentence to `agent_answer`, and a window that
+   * guessed from the shape of the card would eventually guess wrong.
+   */
+  kind: "approval" | "question";
   /** The tool call's id, which the answer must quote back. */
   id: string;
   /** What "don't ask again" would remember, or null when it cannot. */
   rememberKey: string | null;
   prompt: Prompt;
 }
+
+/**
+ * The way out of a question the model asked.
+ *
+ * Always offered, always last, so Escape has something to mean. A model
+ * that has imagined three answers has usually imagined three of the
+ * four, and the card must not be a trap when the real answer is the one
+ * it did not think of.
+ */
+export const NONE_OF_THESE = "None of these — I'll say what I want";
 
 export interface SessionState {
   blocks: Block[];
@@ -374,6 +393,14 @@ export function applyEvent(state: SessionState, event: TurnEvent): SessionState 
       return { ...state, live: promptFor(event.id, event.name, event.arguments) };
 
     /*
+      A question of the model's own, drawn as the card a permission
+      question uses. One interaction, one component: what is being asked
+      differs, what you do about it does not.
+    */
+    case "askingUser":
+      return { ...state, live: questionFrom(event.id, event.question, event.options) };
+
+    /*
       A wait, not a failure.
 
       It goes in the spinner's label rather than the transcript: a
@@ -482,6 +509,29 @@ export function applyEvent(state: SessionState, event: TurnEvent): SessionState 
       };
     }
   }
+}
+
+/**
+ * The card for an `ask_user` question.
+ *
+ * The model's options, then the way out. No "don't ask again": there is
+ * nothing to remember — the next question will be a different question.
+ */
+export function questionFrom(id: string, question: string, options: string[]): LivePrompt {
+  const offered = options.filter((option) => option.trim());
+  return {
+    kind: "question",
+    id,
+    rememberKey: null,
+    prompt: {
+      variant: "question",
+      title: "FigyCode is asking",
+      question,
+      options: [...offered.map((label) => ({ label })), { label: NONE_OF_THESE, chord: "esc" }],
+      footer: "↑↓ select · ↵ answer · 1–9 to pick one",
+      denyIndex: offered.length,
+    },
+  };
 }
 
 /** Updates the row belonging to a call, by the id the backend gave it. */
@@ -609,6 +659,7 @@ export function promptFor(
     const command = text("cmd") || text("id");
     const head = command.split(/\s+/).slice(0, 2).join(" ");
     return {
+      kind: "approval",
       id,
       rememberKey: head ? `${tool}:${head}` : null,
       prompt: {
@@ -633,6 +684,7 @@ export function promptFor(
     const old = text("old");
     const replacement = text("new");
     return {
+      kind: "approval",
       id,
       rememberKey: null,
       prompt: {
@@ -654,6 +706,7 @@ export function promptFor(
   }
 
   return {
+    kind: "approval",
     id,
     rememberKey: tool,
     prompt: {

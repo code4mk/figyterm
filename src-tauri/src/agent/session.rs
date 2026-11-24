@@ -172,6 +172,17 @@ pub enum TurnEvent {
         name: String,
         arguments: Value,
     },
+    /// A question of the model's own, with the answers it will accept.
+    ///
+    /// Not emitted by the loop: `ask_user` goes out through its own desk
+    /// in `agent/ask.rs`, on this channel, so the window has one stream
+    /// to render rather than two to interleave. It is in this enum
+    /// because this enum *is* the window's vocabulary.
+    AskingUser {
+        id: String,
+        question: String,
+        options: Vec<String>,
+    },
     /// The provider would not take it, and this is the wait. A silent
     /// thirty-second pause is indistinguishable from a hang.
     Retrying {

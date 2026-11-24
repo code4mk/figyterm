@@ -128,6 +128,7 @@ pub fn run() {
             commands::agent::agent_send,
             commands::agent::agent_approve,
             commands::agent::agent_lsp_reply,
+            commands::agent::agent_answer,
             commands::agent::agent_cancel,
             commands::agent::agent_clear,
             commands::agent::agent_usage,

@@ -403,9 +403,21 @@ conversation, and the ones most often left out of a first draft.
       recovers it from the one copy that is kept
 - [ ] `plan` — ends plan mode with something to approve. The refusal
       half is built (`policy.rs`); the proposal half is not
-- [ ] `ask_user` — a structured question. A model that asks in prose
-      gets answered in prose, which is a turn; one that asks with three
-      options gets answered with a number
+- [x] `ask_user` — a structured question, asked *inside* the turn.
+      `agent/ask.rs` is `code.rs` with a person on the other end: the
+      question goes out on the turn's own event channel, the tool blocks
+      on a rendezvous channel, and `agent_answer` hands the answer back
+- [x] Drawn by the card a permission question uses, because it is one
+      interaction — here is the situation, here are the few ways out —
+      and two cards would have drifted apart within a month
+- [x] The way out the model did not think of is always offered, last, so
+      Escape means something. A card with three options and no fourth is
+      a trap
+- [x] Released when the turn is cancelled or the window goes: a tool
+      thread parked on a card nobody can see is a turn that never ends
+- [x] Offered in the panel too. It is the one tool on that list which is
+      not about the buffer, and the reason is that a panel which cannot
+      ask has to guess — the same wrong guess, made faster
 - [ ] `task` — a sub-agent with its own context, returning a few hundred
       tokens instead of the forty files it read. The cost lever hiding in
       this group, and the only safe place for a cheaper model: it is off
