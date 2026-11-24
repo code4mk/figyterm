@@ -142,29 +142,46 @@ fn outside(path: &Path) -> String {
 /// Symlinks are resolved *before* the containment check rather than after
 /// it, which is the whole reason this is not string arithmetic: a symlinked
 /// `node_modules` pointing at `/` would otherwise read as being inside the
-/// project. A file about to be created has no symlinks of its own, so its
-/// parent is canonicalised and its last component checked for being a name
-/// rather than another step of a traversal.
+/// project.
+///
+/// A path that is not there yet is resolved against the deepest ancestor
+/// that **is**, and the rest re-appended. Not just the immediate parent:
+/// `write` and `move` both create folders on the way, so `src/deep/new.rs`
+/// in a project with no `src/deep` is an ordinary request and not an error.
+/// Each re-appended component is checked for being a name rather than
+/// another step of a traversal, since nothing on disk can vouch for it.
 fn canonical_target(path: &Path) -> Result<PathBuf, String> {
     if path.exists() {
         return canonicalize(path);
     }
-    let parent = path
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .ok_or_else(|| format!("{} does not exist", path.display()))?;
-    let name = path
-        .file_name()
-        .ok_or_else(|| format!("{} is not a file path", path.display()))?;
-    if Path::new(name).components().count() != 1
-        || matches!(
+
+    let mut tail: Vec<std::ffi::OsString> = Vec::new();
+    let mut cursor = path;
+    loop {
+        let name = cursor
+            .file_name()
+            .ok_or_else(|| format!("{} is not a file path", path.display()))?;
+        if matches!(
             Path::new(name).components().next(),
             Some(Component::ParentDir) | Some(Component::CurDir)
-        )
-    {
-        return Err(format!("{} is not a valid name", name.to_string_lossy()));
+        ) {
+            return Err(format!("{} is not a valid name", name.to_string_lossy()));
+        }
+        tail.push(name.to_os_string());
+
+        let parent = cursor
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .ok_or_else(|| format!("{} does not exist", path.display()))?;
+        if parent.exists() {
+            let mut out = canonicalize(parent)?;
+            for part in tail.iter().rev() {
+                out.push(part);
+            }
+            return Ok(out);
+        }
+        cursor = parent;
     }
-    Ok(canonicalize(parent)?.join(name))
 }
 
 /// `a/b/../c` → `a/c`, without touching the disk.
@@ -268,6 +285,15 @@ mod tests {
         let root = scratch("new-file");
         let got = resolve_in(&root, "src/new.rs").unwrap();
         assert_eq!(got, root.join("src").join("new.rs"));
+    }
+
+    #[test]
+    fn a_new_file_under_folders_that_do_not_exist_yet_resolves() {
+        // `write` and `move` both create the folders on the way, so this is
+        // an ordinary request rather than an error.
+        let root = scratch("new-deep");
+        let got = resolve_in(&root, "src/one/two/new.rs").unwrap();
+        assert_eq!(got, root.join("src").join("one").join("two").join("new.rs"));
     }
 
     #[test]

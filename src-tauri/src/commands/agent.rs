@@ -27,6 +27,7 @@ use crate::agent::ledger::{Ledger, Price, Surface, Totals};
 use crate::agent::message::ToolCall;
 use crate::agent::policy::Mode;
 use crate::agent::provider::{OpenAiProvider, ProviderConfig};
+use crate::agent::shell::{Shell, SystemShell};
 use crate::agent::session::{
     Approver, OfferEverything, Session, SessionConfig, Turn, TurnEvent,
 };
@@ -74,11 +75,19 @@ pub struct AgentState {
     remembered: Mutex<Vec<String>>,
     /// Opened once, on disk, and shared: two windows write to one file.
     ledger: Mutex<Option<Arc<Ledger>>>,
+    /// One shell per window, so its background commands die with it.
+    shells: Mutex<HashMap<String, Arc<SystemShell>>>,
 }
 
 pub fn forget_window(state: &AgentState, label: &str) {
     if let Ok(mut sessions) = state.sessions.lock() {
         sessions.remove(label);
+    }
+    // Dropping the shell kills what it was running. A window's `npm run dev`
+    // holding port 1420 against the next one, with nothing on screen to
+    // blame, is the alternative.
+    if let Ok(mut shells) = state.shells.lock() {
+        shells.remove(label);
     }
     if let Ok(mut running) = state.running.lock() {
         // Dropping the sender cancels the turn, which is what a closed
@@ -133,7 +142,7 @@ pub fn agent_call_tool(
     let root = workspace
         .root(window.label())
         .ok_or_else(|| "No folder is open in FigyCode".to_string())?;
-    let out = tools::call(&ToolContext { root }, &name, &args)?;
+    let out = tools::call(&ToolContext::new(root), &name, &args)?;
     Ok(ToolResult {
         approx_tokens: tools::output::approx_tokens(&out.text),
         text: out.text,
@@ -333,6 +342,18 @@ pub async fn agent_send(
         }
     });
 
+    // Cloned as its own type and then widened: `Arc::clone` inside a block
+    // annotated `Arc<dyn Shell>` resolves against the trait object and will
+    // not take a `&Arc<SystemShell>`.
+    let system = {
+        let mut shells = state.shells.lock().map_err(|e| e.to_string())?;
+        Arc::clone(
+            shells
+                .entry(label.clone())
+                .or_insert_with(|| Arc::new(SystemShell::new())),
+        )
+    };
+    let shell: Arc<dyn Shell> = system;
     let ledger = ledger(&app, &state);
     let result = session
         .send(
@@ -341,7 +362,7 @@ pub async fn agent_send(
                 provider: &provider,
                 picker: &OfferEverything,
                 approver: &WindowApprover { state: &state },
-                ctx: &ToolContext { root },
+                ctx: &ToolContext::new(root).with_shell(shell),
                 ledger: ledger.as_deref(),
             },
             events_tx,

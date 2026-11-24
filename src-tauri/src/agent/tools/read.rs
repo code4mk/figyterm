@@ -200,9 +200,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(dir.join("src")).unwrap();
         fs::write(dir.join("src/main.rs"), body).unwrap();
-        ToolContext {
-            root: fs::canonicalize(&dir).unwrap(),
-        }
+        ToolContext::new(fs::canonicalize(&dir).unwrap())
     }
 
     fn lines(n: usize) -> String {

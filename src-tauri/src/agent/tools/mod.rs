@@ -33,12 +33,17 @@
 //! tool when a language server came up would rewrite the cache on the turn it
 //! happened, which is a bill nobody can trace back to the cause.
 
+pub mod bash;
 pub mod edit;
+pub mod fsops;
 pub mod grep;
+pub mod ls;
 pub mod output;
 pub mod read;
+pub mod write;
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -85,19 +90,42 @@ impl ToolSpec {
     }
 }
 
-/// What a tool is given: the folder it may act in, and nothing else.
+/// What a tool is given, and nothing more.
 ///
 /// Deliberately not the window, the app handle or the store. A tool that can
 /// reach the rest of the process is a tool whose blast radius is the rest of
 /// the process, and every one of them would have to be read with that in
-/// mind. Anything a tool genuinely needs is added here, explicitly, once.
+/// mind. Anything a tool genuinely needs is added here, explicitly, once —
+/// which so far is two things.
+///
+/// The shell is optional, and that is how the editor panel gets a narrower
+/// tool set: not by remembering to leave `bash` out of a list, but by having
+/// nowhere to run it. A tool that needs one and has none says so and stops.
 pub struct ToolContext {
     pub root: PathBuf,
+    pub shell: Option<Arc<dyn crate::agent::shell::Shell>>,
 }
 
 impl ToolContext {
+    /// A context that can read and write, and cannot run anything.
+    pub fn new(root: PathBuf) -> Self {
+        Self { root, shell: None }
+    }
+
+    pub fn with_shell(mut self, shell: Arc<dyn crate::agent::shell::Shell>) -> Self {
+        self.shell = Some(shell);
+        self
+    }
+
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    /// The shell, or the sentence a tool returns when there is none.
+    pub fn shell(&self) -> Result<&dyn crate::agent::shell::Shell, ToolError> {
+        self.shell
+            .as_deref()
+            .ok_or_else(|| "Commands cannot be run from here.".to_string())
     }
 }
 
@@ -148,6 +176,13 @@ pub fn registry() -> Vec<Box<dyn Tool>> {
         Box::new(read::Read),
         Box::new(grep::Grep),
         Box::new(edit::Edit),
+        Box::new(write::Write),
+        Box::new(ls::Ls),
+        Box::new(fsops::Move),
+        Box::new(fsops::Delete),
+        Box::new(bash::Bash),
+        Box::new(bash::BashOutput),
+        Box::new(bash::BashKill),
     ]
 }
 
@@ -290,14 +325,18 @@ mod tests {
         // It is part of the cache prefix; a sort would reorder it the day
         // somebody renames a tool.
         let names: Vec<&str> = specs().iter().map(|s| s.name).collect();
-        assert_eq!(names, vec!["read", "grep", "edit"]);
+        assert_eq!(
+            names,
+            vec![
+                "read", "grep", "edit", "write", "ls", "move", "delete", "bash",
+                "bash_output", "bash_kill"
+            ]
+        );
     }
 
     #[test]
     fn an_invented_tool_is_answered_rather_than_thrown() {
-        let ctx = ToolContext {
-            root: PathBuf::from("/tmp"),
-        };
+        let ctx = ToolContext::new(PathBuf::from("/tmp"));
         let err = call(&ctx, "summon", &json!({})).unwrap_err();
         assert!(err.contains("no tool called `summon`"));
         // And it is told what there is, so the next turn is not another guess.

@@ -3,10 +3,11 @@
 The build order from [`TOOLS.md`](./TOOLS.md), as things to tick off. Checked
 means written **and tested**; a task with no test is not done.
 
-**Where it stands (2026-11-24):** sections 1–3 are in, bar the items still
-marked open. `cargo test --lib` is 326 passing, of which 106 are the agent's
-own. A turn runs end to end against any OpenAI-compatible endpoint; nothing
-in the window is wired to it yet, which is section 5.
+**Where it stands (2026-11-24):** sections 1–4 are in, bar the items still
+marked open. `cargo test --lib` is 369 passing, of which 149 are the agent's
+own. Ten tools, and a turn that runs end to end against any
+OpenAI-compatible endpoint. Nothing in the window is wired to it yet, which
+is section 5.
 
 The shape of the thing being built, decided and not re-opened here:
 
@@ -76,12 +77,31 @@ The shape of the thing being built, decided and not re-opened here:
 
 ## 4 · Tool hygiene
 
-- [ ] Every tool capped, every truncation announced
+- [x] Every tool capped, every truncation announced — and `bash` keeps the
+      head *and* the tail, because the first lines say what ran and the last
+      ones say what went wrong
+- [x] `write`, which refuses to overwrite and points at `edit`: an agent
+      rewriting a file to change one line is an agent deleting what it
+      forgot to repeat
+- [x] `ls`, sorted so that the same listing twice is the same bytes
+- [x] `move`, which refuses to land on something — `fs::rename` would
+      destroy it silently
+- [x] `delete`, to the trash, with no flag to go past it
+- [x] `bash`, `bash_output`, `bash_kill` over `agent/shell.rs`: output
+      drained while the process runs so a full pipe cannot deadlock it, a
+      timeout that kills rather than abandons, and background jobs that die
+      with the window that started them
+- [x] The shell is optional in `ToolContext`, so a surface without one
+      cannot run commands by construction rather than by remembering
+- [ ] **Background commands in a real visible terminal tab.** The job runs
+      and its output is readable; what is missing is the frontend creating
+      the tab to show it, which is section 5's work
 - [ ] `$ per completed task` measured either side of this section — the 5×
-      lives here
-- [ ] `write`, `ls`, `move`, `delete` (to the trash, never past it)
-- [ ] `bash`, `bash_output`, `bash_kill`, with background commands in a real
-      visible terminal tab
+      is claimed here and unproven until real sessions are run through the
+      ledger
+- [ ] A narrower registry for the editor panel. The shell seam covers
+      `bash`; `write`, `move`, `delete` and `glob` still need a surface to
+      be filtered by
 
 ## 5 · The window, told the truth
 

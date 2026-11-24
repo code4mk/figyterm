@@ -31,6 +31,8 @@
 //! - [`session`] — the turn loop, and the frozen prefix it depends on.
 //! - [`ledger`] — what every turn cost, written down at the time, because
 //!   cache discipline is invisible when it breaks.
+//! - [`shell`] — running commands, in the foreground and out of it. Behind a
+//!   trait, and absent from a context that should not have one.
 //!
 //! What is not written: compaction, the dirty-buffer handshake before an
 //! edit, and the rest of the tool surface.
@@ -41,5 +43,6 @@ pub mod message;
 pub mod policy;
 pub mod provider;
 pub mod session;
+pub mod shell;
 pub mod tools;
 pub mod workspace;

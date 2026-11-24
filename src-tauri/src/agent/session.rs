@@ -537,9 +537,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("src")).unwrap();
         std::fs::write(dir.join("src/main.rs"), "fn main() {}\n").unwrap();
-        ToolContext {
-            root: std::fs::canonicalize(&dir).unwrap(),
-        }
+        ToolContext::new(std::fs::canonicalize(&dir).unwrap())
+            .with_shell(std::sync::Arc::new(crate::agent::shell::SystemShell::new()))
     }
 
     fn session(mode: Mode) -> Session {
@@ -906,9 +905,7 @@ mod tests {
 
     #[test]
     fn the_context_a_tool_gets_is_only_the_root() {
-        let ctx = ToolContext {
-            root: PathBuf::from("/tmp"),
-        };
+        let ctx = ToolContext::new(PathBuf::from("/tmp"));
         assert_eq!(ctx.root(), PathBuf::from("/tmp"));
     }
 }

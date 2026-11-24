@@ -117,8 +117,8 @@ mistake is unrecoverable without git. Either it goes to the trash
 | Tool | Signature | Backed by | Class |
 |---|---|---|---|
 | `bash` | `(cmd, timeout?, background?)` | `execute_shell_command` | exec |
-| `bash_output` | `(id, since?)` | the pty session store | read |
-| `bash_kill` | `(id)` | `close_terminal_session` | exec |
+| `bash_output` | `(id, from?)` | the job's captured output | read |
+| `bash_kill` | `(id)` | the job registry | exec |
 
 **Background processes are not optional.** A dev server, a watch build and a
 test runner all have to start and keep running while the agent does something

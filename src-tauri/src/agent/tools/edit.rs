@@ -216,7 +216,7 @@ mod tests {
         fs::write(&file, body).unwrap();
         let root = fs::canonicalize(&dir).unwrap();
         let file = fs::canonicalize(&file).unwrap();
-        (ToolContext { root }, file)
+        (ToolContext::new(root), file)
     }
 
     #[test]
