@@ -70,6 +70,13 @@ export type TurnEvent =
       costUsd: number;
       hitRate: number;
     }
+  | {
+      kind: "retrying";
+      attempt: number;
+      total: number;
+      seconds: number;
+      reason: string;
+    }
   | { kind: "finished"; reason: string }
   | { kind: "failed"; error: string };
 

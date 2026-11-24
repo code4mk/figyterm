@@ -233,6 +233,19 @@ export function applyEvent(state: SessionState, event: TurnEvent): SessionState 
     case "needsApproval":
       return { ...state, live: promptFor(event.id, event.name, event.arguments) };
 
+    /*
+      A wait, not a failure.
+
+      It goes in the spinner's label rather than the transcript: a
+      notice per attempt would be four notices for one hiccup, and what
+      the reader needs is "it is still going, here is why it is quiet".
+    */
+    case "retrying":
+      return {
+        ...state,
+        status: `${event.reason.split(":")[0]} — trying again in ${event.seconds}s (${event.attempt} of ${event.total})`,
+      };
+
     case "turn":
       return {
         ...state,
@@ -289,7 +302,10 @@ export function applyEvent(state: SessionState, event: TurnEvent): SessionState 
               ? {
                   tone: "stop",
                   title: "Interrupted by you",
-                  body: "Stopped where it was. What should FigyCode do instead?",
+                  body: "Stopped where it was. The work so far is kept.",
+                  // Picking it back up is one word, and typing that word
+                  // is the thing anybody does next.
+                  actions: [{ label: "Carry on", primary: true }],
                 }
               : { tone: "error", title: "The turn failed", body: event.error },
           },

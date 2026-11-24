@@ -3,9 +3,9 @@
 The build order from [`TOOLS.md`](./TOOLS.md), as things to tick off. Checked
 means written **and tested**; a task with no test is not done.
 
-**Where it stands (2026-11-25):** sections 1–6, 7a and 8 are in, bar the
-items still marked open. `cargo test --lib` is 426 passing (206 the
-agent's own) and `npm test` carries 33 more over the window's reducer and
+**Where it stands (2026-11-25):** sections 1–6, 7a, 8 and 10 are in, bar
+the items still marked open. `cargo test --lib` is 430 passing (210 the
+agent's own) and `npm test` carries 35 more over the window's reducer and
 its diff. Twenty tools, a turn that runs end to end, and nothing scripted
 left in the window. What is left is the panel itself — 7b to 7d.
 
@@ -315,11 +315,25 @@ entirely.
 
 ## 10 · Not falling over
 
-- [ ] **No retry, anywhere.** A 429 or a 503 ends the turn and the user
-      starts again. A harness that dies on a rate limit is not a harness:
-      backoff with a ceiling, and say so in the transcript while it waits
-- [ ] A turn interrupted mid-tool-call leaves the history consistent —
-      this part is done — but nothing offers to pick it back up
+- [x] **Retry with backoff**, four attempts, doubling from two seconds to
+      a thirty-second ceiling, and the server's own `Retry-After` wins
+      when it sends one — it knows, and ignoring it is how a client earns
+      a longer ban
+- [x] Retried only when the service *cannot right now* — 408, 429, 5xx, a
+      connection that never opened. Not 401 or 400: retrying those is a
+      way of getting rate-limited for having the wrong key
+- [x] **Only before the answer has started.** The subtlety that makes it
+      correct: once a token has been streamed it has been shown and
+      counted, so restarting the request would replay the answer and the
+      window would render it twice. A connection that drops mid-answer is
+      reported with what arrived
+- [x] The wait is interruptible. Escape during a thirty-second backoff
+      means Escape, not "wait thirty seconds and then stop"
+- [x] Said out loud in the spinner — "Rate limited — trying again in 8s
+      (2 of 4)" — rather than as four notices for one hiccup. A silent
+      thirty-second pause is indistinguishable from a hang
+- [x] An interrupted turn offers "Carry on", which goes through `send`
+      like any other message rather than being a second path into the loop
 - [ ] Provider failover, which is only worth it once there is a second
       provider configured. Until then, a clear message beats a silent
       switch

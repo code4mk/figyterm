@@ -63,6 +63,75 @@ pub struct Completion {
     pub finish_reason: String,
 }
 
+/* ─── Trying again ───────────────────────────────────────────────────────── */
+
+/// How many times one request is attempted, including the first.
+///
+/// Four, and then it stops. A rate limit that has not cleared in a
+/// minute is not clearing in the next thirty seconds either, and an
+/// agent that retries forever is one nobody can tell from a hang.
+const ATTEMPTS: usize = 4;
+
+/// The first wait. Doubles each time, to [`BACKOFF_CAP`].
+const BACKOFF_BASE: Duration = Duration::from_secs(2);
+const BACKOFF_CAP: Duration = Duration::from_secs(30);
+
+/// Whether trying the same request again could plausibly work.
+///
+/// The distinction is between *the service cannot right now* and *the
+/// request is wrong*. Retrying a 401 is a way of being rate-limited for
+/// having the wrong key; retrying a 429 is the documented thing to do.
+pub fn retryable(status: u16) -> bool {
+    matches!(status, 408 | 409 | 425 | 429 | 500 | 502 | 503 | 504)
+}
+
+/// How long to wait before attempt `attempt` (1-based, so the first
+/// retry is 1).
+///
+/// `Retry-After` wins when the server sent one — it knows, and ignoring
+/// it is how a client earns a longer ban. Otherwise exponential, with a
+/// little jitter so that two windows rate-limited by the same burst do
+/// not come back in lockstep and cause the next one.
+pub fn backoff(attempt: u32, retry_after: Option<u64>) -> Duration {
+    if let Some(seconds) = retry_after {
+        return Duration::from_secs(seconds.min(BACKOFF_CAP.as_secs()));
+    }
+    let doubled = BACKOFF_BASE.saturating_mul(1u32 << attempt.min(5).saturating_sub(1));
+    let capped = doubled.min(BACKOFF_CAP);
+
+    /*
+      Jitter from the clock rather than from a random number generator.
+
+      This needs to be *uneven*, not unpredictable, and a dependency for
+      one number is a poor trade in a binary shipping on three platforms.
+
+      **Microseconds, not nanoseconds.** The first version took
+      `subsec_nanos() % 1000`, which is always zero on a platform whose
+      clock has microsecond resolution — macOS, as it happens — so every
+      client backed off by exactly the same amount and the jitter did
+      nothing at all. A test catches it now.
+    */
+    let spread = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| u64::from(d.subsec_micros()) % 500)
+        .unwrap_or(0);
+    capped + Duration::from_millis(spread)
+}
+
+/// `Retry-After: 30`, in seconds. An HTTP-date form is ignored rather
+/// than parsed: these APIs send the delta form, and a wrong date is a
+/// worse answer than no date.
+fn retry_after(response: &reqwest::Response) -> Option<u64> {
+    response
+        .headers()
+        .get("retry-after")?
+        .to_str()
+        .ok()?
+        .trim()
+        .parse::<u64>()
+        .ok()
+}
+
 /// What the window is told while a turn runs.
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
@@ -73,6 +142,15 @@ pub enum StreamEvent {
     ToolCallStarted { id: String, name: String },
     /// The turn is over.
     Done { finish_reason: String },
+    /// The provider could not take it, and this is the wait before the
+    /// next try. Said out loud, because a silent thirty-second pause is
+    /// indistinguishable from a hang.
+    Retrying {
+        attempt: u32,
+        total: u32,
+        seconds: u64,
+        reason: String,
+    },
 }
 
 pub trait Provider: Send + Sync {
@@ -138,24 +216,73 @@ impl Provider for OpenAiProvider {
         mut cancel: oneshot::Receiver<()>,
     ) -> Result<Completion, String> {
         let url = format!("{}/chat/completions", self.config.base_url.trim_end_matches('/'));
-        let built = self
-            .client
-            .post(&url)
-            .bearer_auth(&self.config.api_key)
-            .timeout(self.config.timeout)
-            .json(&self.body(&request));
+        let body = self.body(&request);
 
-        let mut response = tokio::select! {
-            biased;
-            _ = &mut cancel => return Err(CANCELLED.into()),
-            result = built.send() => result.map_err(|e| format!("Could not reach the model: {e}"))?,
+        /*
+          Retries happen here, and **only before the answer has started.**
+
+          That is the subtlety. Once a token has been streamed it has
+          been shown to the user and counted; starting the request again
+          would replay the answer from the beginning, and the window
+          would render it twice. So a connection that drops mid-answer is
+          reported with what arrived, and only a refusal to begin —
+          429, 503, a connection that never opened — is tried again.
+        */
+        let mut attempt = 1u32;
+        let mut response = loop {
+            let sent = tokio::select! {
+                biased;
+                _ = &mut cancel => return Err(CANCELLED.into()),
+                result = self
+                    .client
+                    .post(&url)
+                    .bearer_auth(&self.config.api_key)
+                    .timeout(self.config.timeout)
+                    .json(&body)
+                    .send() => result,
+            };
+
+            let (wait, why) = match sent {
+                Ok(response) if response.status().is_success() => break response,
+                Ok(response) => {
+                    let status = response.status().as_u16();
+                    if !retryable(status) || attempt >= ATTEMPTS as u32 {
+                        let text = response.text().await.unwrap_or_default();
+                        return Err(explain_failure(status, &text));
+                    }
+                    let after = retry_after(&response);
+                    let text = response.text().await.unwrap_or_default();
+                    (backoff(attempt, after), explain_failure(status, &text))
+                }
+                // A connection that never opened is the other retryable
+                // case, and the commonest one on a laptop lid.
+                Err(error) => {
+                    if attempt >= ATTEMPTS as u32 {
+                        return Err(format!("Could not reach the model: {error}"));
+                    }
+                    (backoff(attempt, None), format!("Could not reach the model: {error}"))
+                }
+            };
+
+            let _ = events.send(StreamEvent::Retrying {
+                attempt,
+                total: ATTEMPTS as u32,
+                seconds: wait.as_secs().max(1),
+                reason: why,
+            });
+
+            // Interruptible: Escape during a thirty-second backoff has to
+            // mean Escape, not "wait thirty seconds and then stop".
+            tokio::select! {
+                biased;
+                _ = &mut cancel => return Err(CANCELLED.into()),
+                _ = tokio::time::sleep(wait) => {}
+            }
+            attempt += 1;
+            if attempt > ATTEMPTS as u32 {
+                return Err("The provider would not take the request.".into());
+            }
         };
-
-        let status = response.status();
-        if !status.is_success() {
-            let body = response.text().await.unwrap_or_default();
-            return Err(explain_failure(status.as_u16(), &body));
-        }
 
         let mut assembler = StreamAssembler::default();
 
@@ -561,6 +688,49 @@ mod tests {
         // `tools: []`.
         assert!(body.get("tools").is_none());
         assert!(body.get("temperature").is_none());
+    }
+
+    #[test]
+    fn a_service_that_cannot_right_now_is_retried_and_a_wrong_request_is_not() {
+        // The distinction the whole policy rests on: retrying a 401 is a
+        // way of getting rate-limited for having the wrong key.
+        for busy in [429, 500, 502, 503, 504, 408] {
+            assert!(retryable(busy), "{busy} should be retried");
+        }
+        for wrong in [400, 401, 403, 404, 422] {
+            assert!(!retryable(wrong), "{wrong} should not be retried");
+        }
+    }
+
+    #[test]
+    fn the_server_s_own_retry_after_wins() {
+        // It knows, and ignoring it is how a client earns a longer ban.
+        assert_eq!(backoff(1, Some(7)).as_secs(), 7);
+        // Within reason: a server asking for an hour is asking for more
+        // than a turn can wait.
+        assert!(backoff(1, Some(9_999)) <= BACKOFF_CAP);
+    }
+
+    #[test]
+    fn the_wait_grows_and_then_stops_growing() {
+        let first = backoff(1, None);
+        let second = backoff(2, None);
+        let fourth = backoff(4, None);
+        assert!(second > first, "it should back off");
+        assert!(fourth > second);
+        // Jitter is added on top of the cap, so this is the cap plus a
+        // little rather than exactly the cap.
+        assert!(backoff(12, None) < BACKOFF_CAP + Duration::from_secs(1));
+    }
+
+    #[test]
+    fn two_clients_rate_limited_together_do_not_come_back_in_lockstep() {
+        // Jitter, which is why the number is not exactly a power of two.
+        let waits: Vec<u128> = (0..6).map(|_| backoff(2, None).as_millis()).collect();
+        assert!(
+            waits.iter().any(|w| *w != waits[0]) || waits[0] % 1000 != 0,
+            "the backoff looks perfectly even: {waits:?}"
+        );
     }
 
     #[test]

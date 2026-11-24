@@ -989,7 +989,16 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
         ) : (
           <div className="figy-transcript">
             {session.blocks.map((block) => (
-              <BlockView key={block.id} block={block} onAction={send} />
+              <BlockView
+                key={block.id}
+                block={block}
+                /*
+                  A notice's chip is a sentence the user is sending, so
+                  it goes through `send` like any other — "Carry on" is
+                  a message, not a special path through the loop.
+                */
+                onAction={send}
+              />
             ))}
           </div>
         )}

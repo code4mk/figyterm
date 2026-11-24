@@ -215,6 +215,32 @@ test("an interruption is quieter than a failure", () => {
   assert.match(broke.notice.body, /429/);
 });
 
+test("a retry is a wait, not a notice per attempt", () => {
+  const state = play(
+    { kind: "text", text: "thinking" },
+    {
+      kind: "retrying",
+      attempt: 2,
+      total: 4,
+      seconds: 8,
+      reason: "Rate limited by the provider (429): slow down",
+    }
+  );
+  assert.match(state.status, /trying again in 8s \(2 of 4\)/);
+  assert.match(state.status, /Rate limited/);
+  // Four attempts must not be four notices for one hiccup.
+  assert.equal(state.blocks.filter((b) => b.kind === "notice").length, 0);
+});
+
+test("an interruption offers to be picked back up", () => {
+  const stopped = play({ kind: "failed", error: "Interrupted" }).blocks[0];
+  if (stopped.kind !== "notice") throw new Error("expected a notice");
+  assert.deepEqual(
+    stopped.notice.actions?.map((a) => a.label),
+    ["Carry on"]
+  );
+});
+
 test("every block gets its own id", () => {
   const state = play(
     { kind: "text", text: "a" },

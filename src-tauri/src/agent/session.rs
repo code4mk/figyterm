@@ -120,6 +120,14 @@ pub enum TurnEvent {
         name: String,
         arguments: Value,
     },
+    /// The provider would not take it, and this is the wait. A silent
+    /// thirty-second pause is indistinguishable from a hang.
+    Retrying {
+        attempt: u32,
+        total: u32,
+        seconds: u64,
+        reason: String,
+    },
     Turn {
         input: u32,
         cached: u32,
@@ -248,6 +256,17 @@ impl Session {
                             Some(TurnEvent::ToolStarted { id, name })
                         }
                         StreamEvent::Done { .. } => None,
+                        StreamEvent::Retrying {
+                            attempt,
+                            total,
+                            seconds,
+                            reason,
+                        } => Some(TurnEvent::Retrying {
+                            attempt,
+                            total,
+                            seconds,
+                            reason,
+                        }),
                     };
                     if let Some(out) = out {
                         let _ = forward.send(out);
