@@ -1,31 +1,36 @@
 /**
- * The settings menu, from the footer.
+ * Settings, as a dialog over the window.
  *
- * Everything in here was already reachable by typing a slash command,
- * which is fine for the second week and useless for the first: nobody
- * discovers `/model` by looking at a window, and the one thing a new
- * window needs is the screen that makes it work at all. So the footer
- * says which model is set — or that none is — and opening it lists what
- * can be changed.
+ * It was a body screen that `/model` swapped the transcript for, and
+ * before that it was nothing — you discovered the command or you did
+ * not. Both were wrong in the same way: changing a setting is a thing
+ * you do *to* the conversation, not instead of it. The transcript
+ * staying visible underneath is the point, and so is closing this and
+ * finding everything exactly as you left it.
  *
- * It is a menu over the commands rather than a second settings
- * implementation. Every row either runs a command the composer could
- * have run or sets the permission mode, and the screens behind them are
- * the same ones `/model` and `/usage` open. A menu that owned its own
- * copy of the fields would be a second place for them to disagree.
+ * One dialog rather than a menu of screens, because the fields are one
+ * form: a provider with no key is not set up, a key with no model is not
+ * set up, and a menu that leads to three places to half-finish that is a
+ * menu that produces windows which look configured and cannot send a
+ * message.
+ *
+ * ## What is in here and what is not
+ *
+ * In: everything that is *stored* — the provider, both keys, the limits,
+ * the prices — and the permission mode, which is stored nowhere but is
+ * the setting people most need to see rather than cycle blind with
+ * shift+tab.
+ *
+ * Not in: the things that are a *view* of this session rather than a
+ * setting. Tokens and spend, the tool list, earlier conversations. They
+ * are one line each at the bottom, as links, because they belong in the
+ * body where there is room to read them.
  */
 
-import { useEffect, useRef } from "react";
-import {
-  Check,
-  Cpu,
-  Globe,
-  History,
-  MessageSquarePlus,
-  Settings2,
-  Wrench,
-} from "lucide-react";
+import { useState } from "react";
+import { Check, X } from "lucide-react";
 import { MODE_LABEL, type PermissionMode } from "../../services/figycode-blocks";
+import type { AgentSettings } from "../../services/figycode-agent";
 
 /** The three modes, in the order shift+tab cycles them. */
 const MODES: PermissionMode[] = ["ask", "acceptEdits", "plan"];
@@ -36,145 +41,272 @@ const MODE_NOTE: Record<PermissionMode, string> = {
   plan: "Reads and thinks, changes nothing",
 };
 
-export function SettingsMenu({
-  model,
-  configured,
+export function SettingsDialog({
+  settings,
+  hasKey,
   hasExaKey,
-  rules,
-  earlier,
+  path,
   mode,
+  earlier,
+  rules,
   onMode,
+  onSave,
   onCommand,
   onClose,
 }: {
-  model: string;
-  configured: boolean;
+  settings: AgentSettings;
+  hasKey: boolean;
   hasExaKey: boolean;
-  /** The project's own rules file, when it has one. */
-  rules: string | null;
+  /** Where the settings and the keys are written. Plain text, so said. */
+  path: string;
+  mode: PermissionMode;
   /** How many conversations this folder has had. */
   earlier: number;
-  mode: PermissionMode;
+  /** The project's own rules file, when it has one. */
+  rules: string | null;
   onMode: (mode: PermissionMode) => void;
+  onSave: (settings: AgentSettings) => void;
   onCommand: (name: string) => void;
   onClose: () => void;
 }) {
-  const menu = useRef<HTMLDivElement | null>(null);
+  const [draft, setDraft] = useState<AgentSettings>(settings);
+  const [key, setKey] = useState("");
+  const [exa, setExa] = useState("");
 
-  /*
-    A click anywhere else closes it.
-
-    `mousedown` rather than `click`, so the menu is gone before whatever
-    was clicked reacts — a menu that closes on the way back up leaves a
-    frame where the thing underneath has already been pressed.
-  */
-  useEffect(() => {
-    const away = (e: MouseEvent) => {
-      if (!menu.current?.contains(e.target as Node)) onClose();
-    };
-    // Next tick: the click that opened it is still on its way up.
-    const timer = window.setTimeout(() => document.addEventListener("mousedown", away), 0);
-    return () => {
-      window.clearTimeout(timer);
-      document.removeEventListener("mousedown", away);
-    };
-  }, [onClose]);
-
-  const run = (command: string) => {
-    onClose();
-    onCommand(command);
+  const ready = !!draft.baseUrl.trim() && !!draft.model.trim();
+  // An empty field means "keep what is stored", on both keys — neither
+  // can be shown, so a save after changing the model must not blank them.
+  const save = () => {
+    if (ready) {
+      onSave({ ...draft, apiKey: key.trim() || undefined, exaKey: exa.trim() || undefined });
+    }
   };
 
+  const field = (
+    label: string,
+    value: string,
+    onChange: (value: string) => void,
+    placeholder: string,
+    hint?: string
+  ) => (
+    <label className="figy-field" key={label}>
+      <span className="figy-field-label">{label}</span>
+      <input
+        className="figy-input"
+        value={value}
+        placeholder={placeholder}
+        spellCheck={false}
+        onChange={(e) => onChange(e.target.value)}
+        onPaste={(e) => e.stopPropagation()}
+        /* Enter saves, because a form with one button and three fields is
+           a form everybody submits from the keyboard. */
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            save();
+          }
+        }}
+      />
+      {hint && <span className="figy-field-hint">{hint}</span>}
+    </label>
+  );
+
+  const price = (label: string, value: number | undefined, set: (n: number) => void) => (
+    <label className="figy-field narrow" key={label}>
+      <span className="figy-field-label">{label}</span>
+      <input
+        className="figy-input"
+        value={value ?? ""}
+        placeholder="0"
+        inputMode="decimal"
+        onChange={(e) => set(Number(e.target.value) || 0)}
+        onPaste={(e) => e.stopPropagation()}
+      />
+    </label>
+  );
+
+  const link = (label: string, command: string, value: string) => (
+    <button
+      type="button"
+      className="figy-settings-link"
+      key={command + label}
+      onClick={() => {
+        onClose();
+        onCommand(command);
+      }}
+    >
+      <span className="figy-settings-link-label">{label}</span>
+      <span className="figy-settings-link-value">{value}</span>
+    </button>
+  );
+
   return (
-    <div className="figy-settings" ref={menu} role="menu" aria-label="Settings">
-      <div className="figy-settings-group">
-        <div className="figy-settings-head">Configuration</div>
+    /*
+      Over the window, not over the app.
 
-        <button type="button" className="figy-settings-row" role="menuitem" onClick={() => run("/model")}>
-          <Cpu size={12} className="figy-settings-icon" />
-          <span className="figy-settings-label">Model and provider</span>
-          <span className={`figy-settings-value ${configured ? "" : "warn"}`}>
-            {configured ? model : "not set up"}
-          </span>
-        </button>
-
-        {/*
-          The same screen, named by what it is for.
-
-          Both keys live in one form, but "where do I put my Exa key" is
-          not a question anybody answers with "the model screen", and a
-          menu that only said "Model" would hide the web tools from the
-          person looking for them.
-        */}
-        <button type="button" className="figy-settings-row" role="menuitem" onClick={() => run("/model")}>
-          <Globe size={12} className="figy-settings-icon" />
-          <span className="figy-settings-label">Web search key</span>
-          <span className={`figy-settings-value ${hasExaKey ? "" : "dim"}`}>
-            {hasExaKey ? "Exa, stored" : "none — no web tools"}
-          </span>
-        </button>
-
-        <button type="button" className="figy-settings-row" role="menuitem" onClick={() => run("/tools")}>
-          <Wrench size={12} className="figy-settings-icon" />
-          <span className="figy-settings-label">Tools and what they cost</span>
-          <span className="figy-settings-value dim">
-            {rules ? `${rules} is read too` : "no FIGY.md"}
-          </span>
-        </button>
-      </div>
-
-      {/*
-        The mode, as three rows rather than a thing you cycle.
-
-        shift+tab stays and is faster once you know it. It is also
-        invisible, and the mode is the one setting where not knowing
-        which one you are in is actively dangerous.
-      */}
-      <div className="figy-settings-group">
-        <div className="figy-settings-head">Permission</div>
-        {MODES.map((one) => (
+      The dialog is a child of the FigyCode window, so it moves with it,
+      resizes with it, and cannot end up covering a terminal somebody is
+      watching. The backdrop dims the transcript rather than hiding it:
+      what you are configuring is that conversation.
+    */
+    <div className="figy-dialog-layer" onMouseDown={onClose}>
+      <div
+        className="figy-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Settings"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <header className="figy-dialog-head">
+          <span className="figy-dialog-title">Settings</span>
           <button
             type="button"
-            key={one}
-            role="menuitemradio"
-            aria-checked={one === mode}
-            className={`figy-settings-row ${one === mode ? "on" : ""}`}
-            onClick={() => {
-              onMode(one);
-              onClose();
-            }}
+            className="figy-iconbtn"
+            onClick={onClose}
+            title="Close"
+            aria-label="Close settings"
           >
-            <span className="figy-settings-icon">
-              {one === mode ? <Check size={12} /> : null}
-            </span>
-            <span className="figy-settings-label">{MODE_LABEL[one]}</span>
-            <span className="figy-settings-value dim">{MODE_NOTE[one]}</span>
+            <X size={12} />
           </button>
-        ))}
-      </div>
+        </header>
 
-      <div className="figy-settings-group">
-        <div className="figy-settings-head">This folder</div>
+        <div className="figy-dialog-body">
+          <div className="figy-dialog-section">
+            <div className="figy-dialog-section-head">Model</div>
+            <div className="figy-dialog-note">
+              Anything that speaks the OpenAI chat API.
+            </div>
+            <div className="figy-form">
+              {field(
+                "Base URL",
+                draft.baseUrl,
+                (baseUrl) => setDraft({ ...draft, baseUrl }),
+                "https://api.openai.com/v1",
+                "The part before /chat/completions"
+              )}
+              {field("Model", draft.model, (model) => setDraft({ ...draft, model }), "gpt-5.6")}
+              {field(
+                "API key",
+                key,
+                setKey,
+                hasKey ? "•••••••• — stored. Type to replace it." : "sk-…",
+                hasKey ? "A key is stored for this machine." : "Required before the first message."
+              )}
+            </div>
+          </div>
 
-        <button type="button" className="figy-settings-row" role="menuitem" onClick={() => run("/resume")}>
-          <History size={12} className="figy-settings-icon" />
-          <span className="figy-settings-label">Earlier conversations</span>
-          <span className="figy-settings-value dim">
-            {earlier > 0 ? `${earlier} kept` : "none yet"}
+          <div className="figy-dialog-section">
+            <div className="figy-dialog-section-head">Web search</div>
+            <div className="figy-form">
+              {field(
+                "Exa API key",
+                exa,
+                setExa,
+                hasExaKey ? "•••••••• — stored. Type to replace it." : "optional",
+                hasExaKey
+                  ? "search_web and fetch_url are available."
+                  : "Without one the agent has no web search. Everything else works."
+              )}
+            </div>
+          </div>
+
+          <div className="figy-dialog-section">
+            <div className="figy-dialog-section-head">Limits</div>
+            <div className="figy-form">
+              <div className="figy-field-row">
+                <div className="figy-field-group">
+                  {price("context window", draft.contextWindow, (n) =>
+                    setDraft({ ...draft, contextWindow: n })
+                  )}
+                  {price("budget, $", draft.budgetUsd, (n) =>
+                    setDraft({ ...draft, budgetUsd: n })
+                  )}
+                </div>
+                <span className="figy-field-hint">
+                  The window in tokens — nothing on the wire reports it, and without it
+                  nothing can say how close a conversation is to its limit. The budget
+                  stops a session that is looping rather than working.
+                </span>
+              </div>
+
+              <div className="figy-field-row">
+                <span className="figy-field-label">Price per million tokens</span>
+                <div className="figy-field-group">
+                  {price("input", draft.inputPrice, (n) => setDraft({ ...draft, inputPrice: n }))}
+                  {price("cached", draft.cachedPrice, (n) =>
+                    setDraft({ ...draft, cachedPrice: n })
+                  )}
+                  {price("output", draft.outputPrice, (n) =>
+                    setDraft({ ...draft, outputPrice: n })
+                  )}
+                </div>
+                <span className="figy-field-hint">
+                  What the status bar will claim a turn cost. Nobody is charged from here.
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/*
+            The mode, as three rows rather than a thing you cycle.
+
+            shift+tab stays and is faster once you know it. It is also
+            invisible, and this is the one setting where not knowing
+            which one you are in is actively dangerous.
+          */}
+          <div className="figy-dialog-section">
+            <div className="figy-dialog-section-head">Permission</div>
+            {MODES.map((one) => (
+              <button
+                type="button"
+                key={one}
+                role="menuitemradio"
+                aria-checked={one === mode}
+                className={`figy-settings-row ${one === mode ? "on" : ""}`}
+                onClick={() => onMode(one)}
+              >
+                <span className="figy-settings-icon">
+                  {one === mode ? <Check size={12} /> : null}
+                </span>
+                <span className="figy-settings-label">{MODE_LABEL[one]}</span>
+                <span className="figy-settings-value dim">{MODE_NOTE[one]}</span>
+              </button>
+            ))}
+          </div>
+
+          {/*
+            A view of the session is not a setting. These open in the
+            body, where there is room to read them.
+          */}
+          <div className="figy-dialog-section">
+            <div className="figy-dialog-section-head">Also</div>
+            {link("Tools and what they cost", "/tools", rules ? `${rules} is read too` : "no FIGY.md")}
+            {link(
+              "Earlier conversations",
+              "/resume",
+              earlier > 0 ? `${earlier} kept in this folder` : "none yet"
+            )}
+            {link("Tokens and spend", "/usage", "this session")}
+            {link("New conversation", "/clear", "keeps the folder and the model")}
+          </div>
+        </div>
+
+        <footer className="figy-dialog-foot">
+          <button type="button" className="figy-button primary" onClick={save} disabled={!ready}>
+            Save
+          </button>
+          <span className="figy-field-hint">
+            {/* Named every time: a secret in a place nobody mentioned is
+                worse than one in a place everybody knows about. */}
+            {path ? (
+              <>
+                Written, in plain text, to <code>{path}</code>
+              </>
+            ) : (
+              "↵ saves."
+            )}
           </span>
-        </button>
-
-        <button type="button" className="figy-settings-row" role="menuitem" onClick={() => run("/clear")}>
-          <MessageSquarePlus size={12} className="figy-settings-icon" />
-          <span className="figy-settings-label">New conversation</span>
-          <span className="figy-settings-value dim">/clear</span>
-        </button>
-
-        <button type="button" className="figy-settings-row" role="menuitem" onClick={() => run("/usage")}>
-          <Settings2 size={12} className="figy-settings-icon" />
-          <span className="figy-settings-label">Tokens and spend</span>
-          <span className="figy-settings-value dim">/usage</span>
-        </button>
+        </footer>
       </div>
     </div>
   );

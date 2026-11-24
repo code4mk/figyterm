@@ -7,7 +7,8 @@
  * answer, here is the keyboard — and the alternative was four cards that
  * drifted apart on padding and numbering within a month.
  *
- * The list is the same one `/model` and `/rewind` use, for the same reason.
+ * The numbered list is the one the settings dialog uses too, for the same
+ * reason: one way to choose between a few things.
  */
 
 import type { Prompt, PromptOption } from "../../services/figycode-blocks";

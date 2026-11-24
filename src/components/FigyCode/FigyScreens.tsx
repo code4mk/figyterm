@@ -1,29 +1,24 @@
 /**
- * The screens that are not the transcript: the start, `/model`,
- * `/resume` and `/usage`.
+ * The screens that are not the transcript: the start, `/resume` and
+ * `/usage`.
  *
- * Both take over the body rather than opening a dialog over it. A modal
- * inside a modal is two Escape keys deep, and the window already has a rule
- * about Escape that the user has just learned; these borrow it instead. The
- * composer stays visible underneath for the same reason — typing is always
- * the way out, including out of a screen opened by mistake.
+ * They take over the body rather than opening over it, and what is left
+ * here after the settings moved out says why. These are *views* — what
+ * this folder has done, what this session has spent — and a view wants
+ * the room. Settings are a thing you do to the conversation while it is
+ * still there, so they went to a dialog (`FigySettings.tsx`) and the
+ * transcript stays visible behind them.
  *
- * There used to be a third, `/rewind`, over an invented list of
+ * There used to be one more, `/rewind`, over an invented list of
  * checkpoints. Rewinding means a snapshot of the working tree per turn and
  * nothing here takes one, so the screen went with the rest of the fiction.
  */
 
-import { useState } from "react";
 import { FolderOpen, FolderSearch, MessageSquare, Trash2 } from "lucide-react";
 import { collapseHome } from "../../services/recent-dirs";
 import { projectLabel, type FigyProject } from "../../services/figycode-projects";
 import { formatCost, formatTokens } from "../../services/figycode-blocks";
-import type {
-  AgentSettings,
-  Conversation,
-  ProjectRules,
-  Totals,
-} from "../../services/figycode-agent";
+import type { Conversation, ProjectRules, Totals } from "../../services/figycode-agent";
 
 /* ─── Start ───────────────────────────────────────────────────────────────── */
 
@@ -205,168 +200,6 @@ export function Welcome({
         <span className="figy-key accent">shift+tab</span> plan mode
         <span className="figy-sub">·</span>
         <span className="figy-key accent">esc</span> interrupt
-      </div>
-    </div>
-  );
-}
-
-/* ─── /model ──────────────────────────────────────────────────────────────── */
-
-/**
- * Where the model is, which one, and what it costs.
- *
- * A form rather than a list of three names, because the provider is a base
- * URL: anything that speaks OpenAI's `/chat/completions` works, and
- * pretending otherwise would mean a hard-coded list that is wrong the week
- * somebody ships a new one.
- *
- * The prices are fields for the same reason, and a sharper one — a price
- * baked into a release is out of date by the release after it. What is in
- * these boxes is what the status bar will claim; it is not what anybody is
- * charged.
- */
-export function ModelScreen({
-  settings,
-  hasKey,
-  hasExaKey,
-  path,
-  onSave,
-}: {
-  settings: AgentSettings;
-  hasKey: boolean;
-  hasExaKey: boolean;
-  /** Where the settings and the keys are written. Named, because it is
-      plain text and a secret in a place nobody mentioned is worse than
-      one in a place everybody knows about. */
-  path: string;
-  onSave: (settings: AgentSettings) => void;
-}) {
-  const [draft, setDraft] = useState<AgentSettings>(settings);
-  const [key, setKey] = useState("");
-  const [exa, setExa] = useState("");
-
-  const ready = !!draft.baseUrl.trim() && !!draft.model.trim();
-  // An empty field means "keep what is stored", on both keys — neither can
-  // be shown, so a save after changing the model must not blank them.
-  const save = () => {
-    if (ready) {
-      onSave({ ...draft, apiKey: key.trim() || undefined, exaKey: exa.trim() || undefined });
-    }
-  };
-
-  const field = (
-    label: string,
-    value: string,
-    onChange: (value: string) => void,
-    placeholder: string,
-    hint?: string
-  ) => (
-    <label className="figy-field" key={label}>
-      <span className="figy-field-label">{label}</span>
-      <input
-        className="figy-input"
-        value={value}
-        placeholder={placeholder}
-        spellCheck={false}
-        onChange={(e) => onChange(e.target.value)}
-        onPaste={(e) => e.stopPropagation()}
-        /* Enter saves, because a form with one button and three fields is
-           a form everybody submits from the keyboard. */
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            save();
-          }
-        }}
-      />
-      {hint && <span className="figy-field-hint">{hint}</span>}
-    </label>
-  );
-
-  const price = (label: string, value: number | undefined, set: (n: number) => void) => (
-    <label className="figy-field narrow" key={label}>
-      <span className="figy-field-label">{label}</span>
-      <input
-        className="figy-input"
-        value={value ?? ""}
-        placeholder="0"
-        inputMode="decimal"
-        onChange={(e) => set(Number(e.target.value) || 0)}
-        onPaste={(e) => e.stopPropagation()}
-      />
-    </label>
-  );
-
-  return (
-    <div className="figy-screen">
-      <div className="figy-screen-title">Model</div>
-      <div className="figy-screen-copy">
-        Anything that speaks the OpenAI chat API. The keys are never shown again once
-        saved{path ? <> — they are written, in plain text, to <code>{path}</code></> : null}.
-      </div>
-
-      <div className="figy-form">
-        {field(
-          "Base URL",
-          draft.baseUrl,
-          (baseUrl) => setDraft({ ...draft, baseUrl }),
-          "https://api.openai.com/v1",
-          "The part before /chat/completions"
-        )}
-        {field("Model", draft.model, (model) => setDraft({ ...draft, model }), "gpt-5.6")}
-        {field(
-          "API key",
-          key,
-          setKey,
-          hasKey ? "•••••••• — stored. Type to replace it." : "sk-…",
-          hasKey ? "A key is stored for this machine." : "Required before the first message."
-        )}
-
-        {field(
-          "Exa API key",
-          exa,
-          setExa,
-          hasExaKey ? "•••••••• — stored. Type to replace it." : "optional",
-          hasExaKey
-            ? "search_web and fetch_url are available."
-            : "Without one the agent has no web search. Everything else works."
-        )}
-
-        <div className="figy-field-row">
-          <span className="figy-field-label">Limits</span>
-          <div className="figy-field-group">
-            {price("context window", draft.contextWindow, (n) =>
-              setDraft({ ...draft, contextWindow: n })
-            )}
-            {price("budget, $", draft.budgetUsd, (n) => setDraft({ ...draft, budgetUsd: n }))}
-          </div>
-          <span className="figy-field-hint">
-            The window in tokens — nothing on the wire reports it, and without it nothing
-            can say how close a conversation is to its limit. The budget stops a session
-            that is looping rather than working.
-          </span>
-        </div>
-
-        <div className="figy-field-row">
-          <span className="figy-field-label">Price per million tokens</span>
-          <div className="figy-field-group">
-            {price("input", draft.inputPrice, (n) => setDraft({ ...draft, inputPrice: n }))}
-            {price("cached", draft.cachedPrice, (n) => setDraft({ ...draft, cachedPrice: n }))}
-            {price("output", draft.outputPrice, (n) => setDraft({ ...draft, outputPrice: n }))}
-          </div>
-          <span className="figy-field-hint">
-            What the status bar will claim a turn cost. Nobody is charged from here.
-          </span>
-        </div>
-      </div>
-
-      <div className="figy-screen-foot">
-        <button type="button" className="figy-button primary" onClick={save} disabled={!ready}>
-          Save
-        </button>
-        <span className="figy-field-hint">
-          {hasKey ? "A key is stored. Saving without typing one keeps it." : "↵ saves."}
-        </span>
       </div>
     </div>
   );

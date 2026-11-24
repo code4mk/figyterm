@@ -110,9 +110,9 @@ import {
   type ComposerHandle,
   type PopupItem,
 } from "./FigyComposer";
-import { ModelScreen, ResumeScreen, UsageScreen, Welcome } from "./FigyScreens";
+import { ResumeScreen, UsageScreen, Welcome } from "./FigyScreens";
 import { FigyProjects } from "./FigyProjects";
-import { SettingsMenu } from "./FigySettings";
+import { SettingsDialog } from "./FigySettings";
 
 export interface FigyCodeModalProps {
   visible: boolean;
@@ -127,7 +127,7 @@ const MAX_SIZE = { w: 2000, h: 1400 };
 const DEFAULT_SIZE = { w: 960, h: 680 };
 
 /** Which of the three things the body can be. */
-type View = "chat" | "model" | "usage" | "resume";
+type View = "chat" | "usage" | "resume";
 
 /**
  * The prompt the agent is given, built once per session.
@@ -234,8 +234,12 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
   const [view, setView] = useState<View>("chat");
   const [fullscreen, setFullscreen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
-  /** The footer's settings menu, which is the way in to all of it. */
-  const [menuOpen, setMenuOpen] = useState(false);
+  /**
+   * Settings, as a dialog over the window rather than a screen instead
+   * of it. Changing a setting is a thing you do *to* a conversation, so
+   * the conversation stays on screen behind it.
+   */
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   /* ─── The project ──────────────────────────────────────────────────────── */
 
@@ -443,8 +447,11 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
   const command = useCallback(
     (name: string) => {
       switch (name) {
+        // `/settings` is unlisted and accepted, because it is what the
+        // dialog is now and half of everybody will try it.
         case "/model":
-          setView("model");
+        case "/settings":
+          setSettingsOpen(true);
           return;
         case "/usage":
           void agentUsage(SURFACE).then((totals) => {
@@ -753,7 +760,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
       void agentConfigure(next)
         .then((saved) => {
           setStatus(saved);
-          setView("chat");
+          setSettingsOpen(false);
           /*
             Said out loud, because the commonest way this goes wrong is
             silent: a write that fails leaves a window that looks
@@ -812,9 +819,9 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
 
       if (e.key === "Escape") {
         stop();
-        // Closest thing first: a menu on screen is what Escape means.
-        if (menuOpen) {
-          setMenuOpen(false);
+        // Closest thing first: a dialog on screen is what Escape means.
+        if (settingsOpen) {
+          setSettingsOpen(false);
           return;
         }
         if ((popup.length || popupEmpty) && (slashing || mention)) {
@@ -1099,16 +1106,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
           setAtBottom(gap < 72);
         }}
       >
-        {view === "model" ? (
-          <ModelScreen
-            key={`${settings.baseUrl}|${settings.model}`}
-            settings={settings}
-            hasKey={status.hasKey}
-            hasExaKey={status.hasExaKey}
-            path={status.path}
-            onSave={saveSettings}
-          />
-        ) : view === "resume" ? (
+        {view === "resume" ? (
           <ResumeScreen conversations={past} onResume={resume} onForget={forgetConversation} />
         ) : view === "usage" ? (
           <UsageScreen totals={totals ?? emptyTotals} />
@@ -1123,7 +1121,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
             earlier={past.length}
             onPick={openProject}
             onBrowse={() => setPickerOpen(true)}
-            onConfigure={() => setView("model")}
+            onConfigure={() => setSettingsOpen(true)}
             onResume={() => command("/resume")}
           />
         ) : (
@@ -1203,7 +1201,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
           onCaret={() => setCaret(inputRef.current?.caret() ?? 0)}
           onInsert={insert}
           onCycleMode={() => setMode(cycleMode)}
-          onPickModel={() => setView("model")}
+          onPickModel={() => setSettingsOpen(true)}
           onSend={() => send(text)}
           onStop={interrupt}
         />
@@ -1250,36 +1248,20 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
           the model — or says there is not one — and opening it lists
           what can be changed.
         */}
-        <div className="figy-settings-anchor shrink-0">
-          <button
-            className={`figy-status-right figy-status-model ${menuOpen ? "on" : ""} ${
-              configured ? "" : "warn"
-            }`}
-            onClick={() => setMenuOpen((open) => !open)}
-            title="Model, keys, permission mode"
-            aria-haspopup="menu"
-            aria-expanded={menuOpen}
-          >
-            <Settings2 size={10} className="shrink-0" />
-            <span className="truncate">
-              {configured ? status.settings.model || settings.model : "set up a model"}
-            </span>
-          </button>
-
-          {menuOpen && (
-            <SettingsMenu
-              model={status.settings.model || settings.model}
-              configured={configured}
-              hasExaKey={status.hasExaKey}
-              rules={rules?.name ?? null}
-              earlier={past.length}
-              mode={mode}
-              onMode={setMode}
-              onCommand={command}
-              onClose={() => setMenuOpen(false)}
-            />
-          )}
-        </div>
+        <button
+          className={`figy-status-right figy-status-model ${settingsOpen ? "on" : ""} ${
+            configured ? "" : "warn"
+          } shrink-0`}
+          onClick={() => setSettingsOpen(true)}
+          title="Model, keys, limits and the permission mode"
+          aria-haspopup="dialog"
+          aria-expanded={settingsOpen}
+        >
+          <Settings2 size={10} className="shrink-0" />
+          <span className="truncate">
+            {configured ? status.settings.model || settings.model : "set up a model"}
+          </span>
+        </button>
 
         {/*
           Spend and cache hit rate, while they are being spent. The advantage
@@ -1309,6 +1291,26 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
           </svg>
         </div>
       </div>
+
+      {settingsOpen && (
+        <SettingsDialog
+          /* Remounted when the stored settings change, so the draft
+             starts from what is actually saved rather than from what
+             was on screen the last time it was opened. */
+          key={`${status.settings.baseUrl}|${status.settings.model}`}
+          settings={settings}
+          hasKey={status.hasKey}
+          hasExaKey={status.hasExaKey}
+          path={status.path}
+          mode={mode}
+          earlier={past.length}
+          rules={rules?.name ?? null}
+          onMode={setMode}
+          onSave={saveSettings}
+          onCommand={command}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
 
       {pickerOpen && (
         <FigyProjects
