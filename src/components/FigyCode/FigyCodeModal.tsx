@@ -165,12 +165,21 @@ const SYSTEM_PROMPT = [
 /** This window is the `window` surface; the editor's panel is the other. */
 const SURFACE = "window" as const;
 
-const DEFAULT_SETTINGS: AgentSettings = {
-  baseUrl: "https://api.openai.com/v1",
+/**
+ * What the window knows before the backend has answered.
+ *
+ * Nothing. There is no local copy of the settings any more — the file is
+ * the backend's and `agent_status` is the only reader — so the empty
+ * state is "not configured" rather than a guess at a default provider
+ * that was wrong for everybody not using OpenAI.
+ */
+const NOTHING_YET: AgentStatus = {
+  hasKey: false,
+  hasExaKey: false,
+  active: null,
   model: "",
-  inputPrice: 0,
-  cachedPrice: 0,
-  outputPrice: 0,
+  models: [],
+  path: "",
 };
 
 /** The conversation's name: the first thing asked of it. */
@@ -202,25 +211,19 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
   /* ─── Session settings ─────────────────────────────────────────────────── */
 
   const [mode, setMode] = useState<PermissionMode>("ask");
-  const [settings, setSettings] = useState<AgentSettings>(DEFAULT_SETTINGS);
   /*
     What the *backend* says it is set up with, not what this side believes.
     The window asks rather than deducing: a guess assembled from a key
     check and a local copy of the settings is a second source of truth for
     "can I send a message", and the one that refuses.
   */
-  const [status, setStatus] = useState<AgentStatus>({
-    hasKey: false,
-    hasExaKey: false,
-    settings: DEFAULT_SETTINGS,
-    path: "",
-  });
+  const [status, setStatus] = useState<AgentStatus>(NOTHING_YET);
   const [totals, setTotals] = useState<Totals | null>(null);
   /** The conversations this folder has had, for `/resume`. */
   const [past, setPast] = useState<Conversation[]>([]);
   /** What this project tells the agent, from its own `FIGY.md`. */
   const [rules, setRules] = useState<ProjectRules | null>(null);
-  const configured = status.hasKey && !!status.settings.model.trim();
+  const configured = status.hasKey && !!status.model.trim();
 
   /* ─── The composer ─────────────────────────────────────────────────────── */
 
@@ -322,13 +325,6 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
     };
   }, []);
 
-  /**
-   * What the window was last pointed at, handed back to the backend.
-   *
-   * The settings live in `localStorage` on this side and in memory on the
-   * other, so a restart would otherwise leave a window that looks
-   * configured talking to an agent that has never been told anything.
-   */
   /*
     Asked, not remembered. The settings live in one file owned by the
     backend; a copy on this side would be a second answer to "which model"
@@ -337,10 +333,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
   useEffect(() => {
     if (!visible) return;
     void agentStatus()
-      .then((current) => {
-        setStatus(current);
-        setSettings(current.settings);
-      })
+      .then(setStatus)
       .catch(() => {});
   }, [visible]);
 
@@ -756,11 +749,28 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
 
   const saveSettings = useCallback(
     (next: AgentSettings) => {
-      setSettings({ ...next, apiKey: undefined });
+      const before = status.active;
       void agentConfigure(next)
         .then((saved) => {
           setStatus(saved);
           setSettingsOpen(false);
+
+          /*
+            Switching model mid-conversation is allowed and is not free.
+
+            The next message re-sends the whole history to a provider
+            that has never seen it, so the first turn after this has no
+            cache behind it at all. Said once, where it happens, rather
+            than left to be noticed on the bill.
+          */
+          if (before && saved.active && saved.active !== before && session.blocks.length > 0) {
+            notice({
+              tone: "info",
+              title: `Now using ${saved.model}`,
+              body: "The next message re-sends this conversation to a provider that has not seen it, so that turn will not be cached. /clear starts fresh.",
+            });
+            return;
+          }
           /*
             Said out loud, because the commonest way this goes wrong is
             silent: a write that fails leaves a window that looks
@@ -770,11 +780,13 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
             saved.hasKey
               ? {
                   tone: "info",
-                  title: `Using ${saved.settings.model}`,
+                  title: `Using ${saved.model}`,
                   // The path, every time. A key kept in plain text in a
                   // place nobody mentioned is worse than one in a place
                   // everybody knows about.
-                  body: `${saved.settings.baseUrl} · settings and key saved in ${saved.path}`,
+                  body: `${saved.models.length} model${
+                    saved.models.length === 1 ? "" : "s"
+                  } · settings and keys saved in ${saved.path}`,
                 }
               : {
                   tone: "warn",
@@ -791,7 +803,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
           })
         );
     },
-    [notice]
+    [notice, session.blocks.length, status.active]
   );
 
   /* ─── Keyboard ─────────────────────────────────────────────────────────── */
@@ -1114,7 +1126,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
           <Welcome
             root={activeRoot}
             index={index}
-            model={status.settings.model || settings.model}
+            model={status.model}
             configured={configured}
             rules={rules}
             others={projects.filter((p) => p.root !== activeRoot).slice(0, 3)}
@@ -1192,7 +1204,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
           running={session.running}
           modeLabel={MODE_LABEL[mode]}
           modeTone={mode === "acceptEdits" ? "accept" : mode}
-          modelLabel={status.settings.model || settings.model || "no model"}
+          modelLabel={status.model || "no model"}
           onChange={(value) => {
             setText(value);
             setCaret(inputRef.current?.caret() ?? value.length);
@@ -1259,7 +1271,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
         >
           <Settings2 size={10} className="shrink-0" />
           <span className="truncate">
-            {configured ? status.settings.model || settings.model : "set up a model"}
+            {configured ? status.model : "set up a model"}
           </span>
         </button>
 
@@ -1294,14 +1306,11 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
 
       {settingsOpen && (
         <SettingsDialog
-          /* Remounted when the stored settings change, so the draft
-             starts from what is actually saved rather than from what
-             was on screen the last time it was opened. */
-          key={`${status.settings.baseUrl}|${status.settings.model}`}
-          settings={settings}
-          hasKey={status.hasKey}
-          hasExaKey={status.hasExaKey}
-          path={status.path}
+          /* Remounted when what is stored changes, so the draft starts
+             from the saved state rather than from whatever was on
+             screen the last time it was opened. */
+          key={`${status.models.length}|${status.active ?? ""}|${status.model}`}
+          status={status}
           mode={mode}
           earlier={past.length}
           rules={rules?.name ?? null}

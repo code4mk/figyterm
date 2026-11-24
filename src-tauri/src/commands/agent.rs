@@ -70,31 +70,136 @@ const SETTINGS_FILE: &str = "figycode-agent.json";
 
 /* ─── State ──────────────────────────────────────────────────────────────── */
 
+/// One model, where to reach it, and what it costs.
+///
+/// A list rather than a single setting, because the single setting was
+/// wrong about how this is actually used: a cheap model for the panel
+/// and an expensive one for a refactor, a local endpoint and a hosted
+/// one, two providers while deciding between them. Switching meant
+/// retyping a base URL and a key, which nobody does twice — they pick
+/// one and stop comparing.
+///
+/// Every field that differs per model is here, prices included.
+/// `CODE-AGENT.md` is firm that prices are data rather than a table in
+/// the binary; a table that also assumed one model at a time would have
+/// been wrong twice.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", default)]
-pub struct AgentSettings {
+pub struct ProviderModel {
+    /// Stable across edits, minted by the window. What `active` points
+    /// at, so renaming a model does not deselect it.
+    pub id: String,
+    /// What to call it here. Empty means the model name does.
+    pub label: String,
     /// The part before `/chat/completions`.
     pub base_url: String,
     pub model: String,
-    /// Stored, but never handed back to the webview: a window that can
-    /// read the key is a window that can leak it into a screenshot, a log
+    /// Stored, and never handed back to the webview: a window that can
+    /// read a key is a window that can leak it into a screenshot, a log
     /// or a bug report.
     pub api_key: Option<String>,
     pub temperature: Option<f32>,
-    /// Dollars per million tokens, as data rather than a table baked into
-    /// the binary — the one certain thing about a price in a release is that
-    /// it is out of date.
+    /// Dollars per million tokens. The one certain thing about a price
+    /// in a release is that it is out of date.
     pub input_price: Option<f64>,
     pub cached_price: Option<f64>,
     pub output_price: Option<f64>,
-    /// The model's context window in tokens. Nothing on the wire says
-    /// it, so it is a setting beside the model name.
+    /// Its context window in tokens. Nothing on the wire reports it, and
+    /// it belongs to the model rather than to the session — which is
+    /// why it moved here when there was more than one model.
     pub context_window: Option<u32>,
-    /// What one conversation may spend before it stops.
+}
+
+impl ProviderModel {
+    fn usable(&self) -> bool {
+        !self.base_url.trim().is_empty() && !self.model.trim().is_empty()
+    }
+
+    /// What the window shows in a list: the name somebody gave it, or
+    /// the model's own.
+    fn name(&self) -> &str {
+        if self.label.trim().is_empty() {
+            &self.model
+        } else {
+            &self.label
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AgentSettings {
+    /// Every model set up here, in the order the window shows them.
+    pub models: Vec<ProviderModel>,
+    /// Which one is used, by `id`. An id that is not in the list falls
+    /// back to the first usable model rather than refusing to send:
+    /// deleting the active model should not break the window.
+    pub active: Option<String>,
+    /// What one conversation may spend before it stops. Per session
+    /// rather than per model — it is a limit on the work, not on the
+    /// thing doing it.
     pub budget_usd: Option<f64>,
     /// Exa, for `search_web` and `fetch_url`. Absent means the agent has
     /// no web tools — which is a configuration, not a failure.
     pub exa_key: Option<String>,
+}
+
+impl AgentSettings {
+    /// The model a turn will use, if there is one.
+    fn chosen(&self) -> Option<&ProviderModel> {
+        self.active
+            .as_deref()
+            .and_then(|id| self.models.iter().find(|m| m.id == id && m.usable()))
+            .or_else(|| self.models.iter().find(|m| m.usable()))
+    }
+}
+
+/// The shape this file had when there was one model.
+///
+/// Read only when the new shape has none, and converted into a single
+/// entry. A settings file that silently loses somebody's endpoint and
+/// key because the struct changed is the worst kind of upgrade, and the
+/// twenty lines to avoid it are worth more than the tidiness of
+/// deleting them.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+struct LegacySettings {
+    base_url: String,
+    model: String,
+    api_key: Option<String>,
+    temperature: Option<f32>,
+    input_price: Option<f64>,
+    cached_price: Option<f64>,
+    output_price: Option<f64>,
+    context_window: Option<u32>,
+    budget_usd: Option<f64>,
+    exa_key: Option<String>,
+}
+
+impl LegacySettings {
+    fn forward(self) -> Option<AgentSettings> {
+        if self.base_url.trim().is_empty() && self.model.trim().is_empty() {
+            return None;
+        }
+        let one = ProviderModel {
+            id: "migrated".into(),
+            label: String::new(),
+            base_url: self.base_url,
+            model: self.model,
+            api_key: self.api_key,
+            temperature: self.temperature,
+            input_price: self.input_price,
+            cached_price: self.cached_price,
+            output_price: self.output_price,
+            context_window: self.context_window,
+        };
+        Some(AgentSettings {
+            active: Some(one.id.clone()),
+            models: vec![one],
+            budget_usd: self.budget_usd,
+            exa_key: self.exa_key,
+        })
+    }
 }
 
 /// What a session is filed under.
@@ -237,38 +342,50 @@ pub fn agent_call_tool(
 
 /* ─── Configuration ──────────────────────────────────────────────────────── */
 
-/// Points the agent at a provider.
-///
 /// Saves the settings, and answers with what actually stuck.
 ///
-/// An empty key means "leave the one you have", so the form can be
-/// reopened to change a model without retyping a token — and so a save
-/// cannot silently blank the key by submitting a field that was never
-/// filled in.
+/// The whole shape, every time, rather than a command per field. There
+/// is one form behind this and one file in front of it, and a handful of
+/// narrower commands would have been three ways for the two to disagree.
+///
+/// **An empty key means "leave the one you have"**, per model and for
+/// Exa. The form cannot show a stored key — it never comes back out — so
+/// without this, saving after renaming a model would blank the token
+/// nobody retyped.
 #[tauri::command]
 pub fn agent_configure(
     app: AppHandle,
     state: State<AgentState>,
     settings: AgentSettings,
 ) -> Result<AgentStatus, String> {
-    let existing = current(&app, &state)?;
+    let old = current(&app, &state)?.unwrap_or_default();
     let mut next = settings;
-    /*
-      An empty key means "keep the one you have", for both of them.
 
-      The form cannot show a stored key — it never comes back out — so a
-      save after changing the model would otherwise blank whichever field
-      the user did not retype.
-    */
     let keep = |typed: Option<String>, stored: Option<String>| -> Option<String> {
         match typed.map(|k| k.trim().to_string()) {
             Some(k) if !k.is_empty() => Some(k),
             _ => stored,
         }
     };
-    let old = existing.unwrap_or_default();
-    next.api_key = keep(next.api_key, old.api_key);
+
+    for model in &mut next.models {
+        let stored = old
+            .models
+            .iter()
+            .find(|m| m.id == model.id)
+            .and_then(|m| m.api_key.clone());
+        model.api_key = keep(model.api_key.take(), stored);
+    }
     next.exa_key = keep(next.exa_key, old.exa_key);
+
+    // A list with nothing chosen, or pointing at a model that has been
+    // deleted, picks the first that could work. The alternative is a
+    // window that refuses to send with a perfectly good model in it.
+    if next.chosen().is_none() {
+        next.active = next.models.iter().find(|m| m.usable()).map(|m| m.id.clone());
+    } else if let Some(chosen) = next.chosen() {
+        next.active = Some(chosen.id.clone());
+    }
 
     write_settings(&app, &next)?;
     *state.settings.lock().map_err(|e| e.to_string())? = Some(next.clone());
@@ -283,13 +400,38 @@ pub fn agent_configure(
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentStatus {
+    /// Whether the chosen model has a key — which, with a base URL and
+    /// a model name, is the whole of "can I send a message".
     pub has_key: bool,
     /// Whether the web tools will work. Shown, never the key itself.
     pub has_exa_key: bool,
-    /// The settings as stored, with the key removed.
-    pub settings: AgentSettings,
+    /// The model a turn would use, by `id`, or none.
+    pub active: Option<String>,
+    /// Its name, for the footer. Empty when nothing is set up.
+    pub model: String,
+    /// Every model, with the keys replaced by whether there is one.
+    pub models: Vec<PublicModel>,
+    pub budget_usd: Option<f64>,
     /// Where they are written, which the window states when it saves.
     pub path: String,
+}
+
+/// A model as the window may see it: everything except the key.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PublicModel {
+    pub id: String,
+    pub label: String,
+    pub base_url: String,
+    pub model: String,
+    /// Not the key. A window that can read one can leak it into a
+    /// screenshot, a log or a bug report.
+    pub has_key: bool,
+    pub temperature: Option<f32>,
+    pub input_price: Option<f64>,
+    pub cached_price: Option<f64>,
+    pub output_price: Option<f64>,
+    pub context_window: Option<u32>,
 }
 
 #[tauri::command]
@@ -299,14 +441,30 @@ pub fn agent_status(app: AppHandle, state: State<AgentState>) -> Result<AgentSta
 }
 
 fn status_of(app: &AppHandle, settings: &AgentSettings) -> AgentStatus {
-    let mut public = settings.clone();
-    public.api_key = None;
-    public.exa_key = None;
     let present = |key: &Option<String>| key.as_ref().map(|k| !k.trim().is_empty()).unwrap_or(false);
+    let chosen = settings.chosen();
     AgentStatus {
-        has_key: present(&settings.api_key),
+        has_key: chosen.map(|m| present(&m.api_key)).unwrap_or(false),
         has_exa_key: present(&settings.exa_key),
-        settings: public,
+        active: chosen.map(|m| m.id.clone()),
+        model: chosen.map(|m| m.name().to_string()).unwrap_or_default(),
+        models: settings
+            .models
+            .iter()
+            .map(|m| PublicModel {
+                id: m.id.clone(),
+                label: m.label.clone(),
+                base_url: m.base_url.clone(),
+                model: m.model.clone(),
+                has_key: present(&m.api_key),
+                temperature: m.temperature,
+                input_price: m.input_price,
+                cached_price: m.cached_price,
+                output_price: m.output_price,
+                context_window: m.context_window,
+            })
+            .collect(),
+        budget_usd: settings.budget_usd,
         path: settings_path(app)
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_default(),
@@ -332,7 +490,17 @@ fn settings_path(app: &AppHandle) -> Option<PathBuf> {
 
 fn read_settings(app: &AppHandle) -> Option<AgentSettings> {
     let raw = std::fs::read_to_string(settings_path(app)?).ok()?;
-    serde_json::from_str(&raw).ok()
+    let settings: AgentSettings = serde_json::from_str(&raw).ok()?;
+    if !settings.models.is_empty() {
+        return Some(settings);
+    }
+    // No models in the new shape: either an empty file, or one written
+    // before there could be more than one. The old shape is tried
+    // before giving up, so an upgrade does not lose somebody's endpoint.
+    serde_json::from_str::<LegacySettings>(&raw)
+        .ok()
+        .and_then(LegacySettings::forward)
+        .or(Some(settings))
 }
 
 fn write_settings(app: &AppHandle, settings: &AgentSettings) -> Result<(), String> {
@@ -616,25 +784,29 @@ pub async fn agent_send(
       has to guess at the backend's state will eventually guess wrong and
       refuse to send a message the agent would have accepted.
     */
-    let setup = (|| -> Result<(PathBuf, AgentSettings, String), String> {
+    let setup = (|| -> Result<(PathBuf, AgentSettings, ProviderModel, String), String> {
         let root = workspace
             .root(&label)
             .ok_or_else(|| "No folder is open in FigyCode.".to_string())?;
-        let settings = current(&app, &state)?
-            .filter(|s| !s.base_url.trim().is_empty())
-            .ok_or_else(|| "No model is set up yet — add one in /model.".to_string())?;
-        if settings.model.trim().is_empty() {
-            return Err("No model name is set — add one in /model.".into());
+        let settings = current(&app, &state)?.unwrap_or_default();
+        if settings.models.is_empty() {
+            return Err("No model is set up yet — add one in /model.".into());
         }
-        let key = settings
+        let chosen = settings
+            .chosen()
+            .cloned()
+            .ok_or_else(|| "The chosen model has no address or no name — see /model.".to_string())?;
+        let key = chosen
             .api_key
             .clone()
             .filter(|k| !k.trim().is_empty())
-            .ok_or_else(|| "No API key is stored — add one in /model.".to_string())?;
-        Ok((root, settings, key))
+            .ok_or_else(|| {
+                format!("No API key is stored for {} — add one in /model.", chosen.name())
+            })?;
+        Ok((root, settings, chosen, key))
     })();
 
-    let (root, settings, key) = match setup {
+    let (root, settings, chosen, key) = match setup {
         Ok(ready) => ready,
         Err(error) => {
             let _ = window.emit(
@@ -648,19 +820,19 @@ pub async fn agent_send(
     };
 
     let price = Price {
-        input: settings.input_price.unwrap_or(0.0),
-        cached_input: settings.cached_price.unwrap_or(0.0),
-        output: settings.output_price.unwrap_or(0.0),
+        input: chosen.input_price.unwrap_or(0.0),
+        cached_input: chosen.cached_price.unwrap_or(0.0),
+        output: chosen.output_price.unwrap_or(0.0),
     };
 
     // Built twice rather than shared: the sub-agent in `task` talks to
     // the same endpoint with the same key, and a client is a config and
     // a connection pool rather than anything worth passing around.
     let settings_for_provider = ProviderConfig {
-        base_url: settings.base_url.clone(),
+        base_url: chosen.base_url.clone(),
         api_key: key,
-        model: settings.model.clone(),
-        temperature: settings.temperature,
+        model: chosen.model.clone(),
+        temperature: chosen.temperature,
         timeout: Duration::from_secs(300),
     };
     let provider = OpenAiProvider::new(ProviderConfig {
@@ -695,10 +867,10 @@ pub async fn agent_send(
                 SessionConfig {
                     session_id: format!("{session_key}:{}", now_ms()),
                     surface,
-                    model: settings.model.clone(),
+                    model: chosen.model.clone(),
                     price,
                     mode,
-                    context_window: settings.context_window,
+                    context_window: chosen.context_window,
                     budget_usd: settings.budget_usd,
                     max_steps: None,
                 },
@@ -706,11 +878,12 @@ pub async fn agent_send(
             )
         });
 
-    // Per message, not per session. The mode lives in the window — a
-    // conversation started in `ask` and switched to `acceptEdits` with
-    // shift+tab was still being run under `ask`, because a session only
-    // ever read the mode it was built with.
+    // Per message, not per session. Both of these live in the window:
+    // a conversation started in `ask` and switched to `acceptEdits`
+    // with shift+tab was still being run under `ask`, and one switched
+    // to another model went on being costed at the old model's prices.
     session.set_mode(mode);
+    session.use_model(chosen.model.clone(), price, chosen.context_window);
 
     let (cancel_tx, cancel_rx) = oneshot::channel();
     state
@@ -831,11 +1004,11 @@ pub async fn agent_send(
             Arc::new(OpenAiProvider::new(settings_for_provider)),
             session.id().to_string(),
             surface,
-            settings.model.clone(),
+            chosen.model.clone(),
             price,
             root.clone(),
         )
-        .with_limits(settings.context_window, settings.budget_usd)
+        .with_limits(chosen.context_window, settings.budget_usd)
         .with_ledger(ledger.clone())
         .with_lsp(Arc::clone(&lsp)),
     );
@@ -1049,6 +1222,7 @@ pub fn agent_resume(
     }
 
     let settings = current(&app, &state)?.unwrap_or_default();
+    let chosen = settings.chosen().cloned().unwrap_or_default();
     let messages = snapshot.history.iter().map(past).collect();
     let resumed = Resumed {
         session_id: snapshot.session_id.clone(),
@@ -1062,16 +1236,16 @@ pub fn agent_resume(
         SessionConfig {
             session_id: snapshot.session_id.clone(),
             surface,
-            model: settings.model.clone(),
+            model: chosen.model.clone(),
             price: Price {
-                input: settings.input_price.unwrap_or(0.0),
-                cached_input: settings.cached_price.unwrap_or(0.0),
-                output: settings.output_price.unwrap_or(0.0),
+                input: chosen.input_price.unwrap_or(0.0),
+                cached_input: chosen.cached_price.unwrap_or(0.0),
+                output: chosen.output_price.unwrap_or(0.0),
             },
             // The window sends the mode with every message now, so this
             // is only what applies if nothing is ever sent.
             mode: Mode::Ask,
-            context_window: settings.context_window,
+            context_window: chosen.context_window,
             budget_usd: settings.budget_usd,
             max_steps: None,
         },
@@ -1189,4 +1363,131 @@ fn now_ms() -> u128 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn model(id: &str, host: &str, name: &str) -> ProviderModel {
+        ProviderModel {
+            id: id.into(),
+            base_url: host.into(),
+            model: name.into(),
+            ..ProviderModel::default()
+        }
+    }
+
+    #[test]
+    fn the_chosen_model_is_the_one_active_points_at() {
+        let settings = AgentSettings {
+            models: vec![model("a", "http://one", "fast"), model("b", "http://two", "big")],
+            active: Some("b".into()),
+            ..AgentSettings::default()
+        };
+        assert_eq!(settings.chosen().unwrap().model, "big");
+    }
+
+    /// Deleting the model you were using should not break the window.
+    #[test]
+    fn an_active_id_that_is_gone_falls_back_rather_than_refusing() {
+        let settings = AgentSettings {
+            models: vec![model("a", "http://one", "fast")],
+            active: Some("deleted".into()),
+            ..AgentSettings::default()
+        };
+        assert_eq!(settings.chosen().unwrap().id, "a");
+    }
+
+    /// A half-filled row is a row somebody is still typing, not a model.
+    #[test]
+    fn a_model_with_no_address_or_no_name_is_not_chosen() {
+        let settings = AgentSettings {
+            models: vec![
+                model("a", "http://one", ""),
+                model("b", "", "big"),
+                model("c", "http://three", "real"),
+            ],
+            active: Some("a".into()),
+            ..AgentSettings::default()
+        };
+        assert_eq!(settings.chosen().unwrap().id, "c");
+
+        let none = AgentSettings {
+            models: vec![model("a", "http://one", "")],
+            active: None,
+            ..AgentSettings::default()
+        };
+        assert!(none.chosen().is_none());
+    }
+
+    #[test]
+    fn a_model_is_named_by_its_label_and_falls_back_to_the_model_itself() {
+        let mut one = model("a", "http://one", "glm-4.6");
+        assert_eq!(one.name(), "glm-4.6");
+        one.label = "GLM, self-hosted".into();
+        assert_eq!(one.name(), "GLM, self-hosted");
+    }
+
+    /// The upgrade that must not lose anybody's endpoint and key.
+    #[test]
+    fn a_settings_file_from_before_the_list_becomes_one_model() {
+        let old = r#"{
+            "baseUrl": "https://example.modal.run/v1",
+            "model": "glm-4.6",
+            "apiKey": "sk-secret",
+            "contextWindow": 200000,
+            "inputPrice": 0.6,
+            "budgetUsd": 5,
+            "exaKey": "exa-secret"
+        }"#;
+        let forwarded = serde_json::from_str::<LegacySettings>(old)
+            .unwrap()
+            .forward()
+            .expect("an endpoint is worth keeping");
+
+        assert_eq!(forwarded.models.len(), 1);
+        let one = &forwarded.models[0];
+        assert_eq!(one.base_url, "https://example.modal.run/v1");
+        assert_eq!(one.api_key.as_deref(), Some("sk-secret"));
+        assert_eq!(one.context_window, Some(200_000));
+        assert_eq!(one.input_price, Some(0.6));
+        assert_eq!(forwarded.active.as_deref(), Some(one.id.as_str()));
+        // The two that are not the model's keep their place.
+        assert_eq!(forwarded.budget_usd, Some(5.0));
+        assert_eq!(forwarded.exa_key.as_deref(), Some("exa-secret"));
+    }
+
+    #[test]
+    fn an_empty_old_file_is_not_forwarded_as_a_blank_model() {
+        let empty = serde_json::from_str::<LegacySettings>("{}").unwrap();
+        assert!(empty.forward().is_none());
+    }
+
+    /// The new shape parses with fields the old one never had, and the
+    /// old one's extra keys do not stop it.
+    #[test]
+    fn the_new_shape_reads_back_what_it_wrote() {
+        let settings = AgentSettings {
+            models: vec![ProviderModel {
+                id: "m1".into(),
+                label: "Fast".into(),
+                base_url: "http://one".into(),
+                model: "mini".into(),
+                api_key: Some("sk".into()),
+                temperature: Some(0.2),
+                input_price: Some(0.25),
+                cached_price: Some(0.03),
+                output_price: Some(2.0),
+                context_window: Some(128_000),
+            }],
+            active: Some("m1".into()),
+            budget_usd: Some(2.5),
+            exa_key: Some("exa".into()),
+        };
+        let json = serde_json::to_string(&settings).unwrap();
+        let back: AgentSettings = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.models[0].cached_price, Some(0.03));
+        assert_eq!(back.chosen().unwrap().id, "m1");
+    }
 }

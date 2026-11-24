@@ -166,6 +166,25 @@ what a destroyed cache prefix looks like.
       lists, command-output cards, the task summary. They come back with
       the `plan` and `todo_write` tools in section 8, out of the history
 - [ ] Background commands in a visible terminal tab (carried from 4)
+- [x] **More than one model.** The settings held a single provider,
+      which was wrong about how this is used: a cheap model for the
+      panel and an expensive one for a refactor, a local endpoint and a
+      hosted one, two providers while deciding between them. Switching
+      meant retyping a base URL and a key, which nobody does twice.
+      Now a list, each with its own prices, window and temperature, and
+      a dot for the one that answers
+- [x] Settings are a tabbed dialog over the window — Models, Web
+      search, Behaviour, Session — rather than a screen instead of the
+      transcript. Changing a setting is something you do *to* a
+      conversation
+- [x] An old settings file is read and forwarded into one model rather
+      than ignored, because an upgrade that silently loses somebody's
+      endpoint and key is the worst kind
+- [x] Switching model mid-conversation re-costs the session. The
+      provider was already rebuilt per turn, so answers came from the
+      new model straight away while the prices stayed at the old
+      model's — the exact failure the ledger exists to catch. The
+      window says what the switch costs in cache, once, where it happens
 - [ ] **The API key is in plain text.** `figycode-agent.json` in the app
       data directory, 0600 where the platform understands it, and the
       window states the path when it saves. Deliberate while the agent is

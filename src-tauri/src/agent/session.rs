@@ -394,6 +394,25 @@ impl Session {
         self.mode.clone()
     }
 
+    /// Which model this conversation is talking to now.
+    ///
+    /// Set per message, like the mode, because the model is a setting
+    /// and the person can change it mid-conversation. The provider was
+    /// already rebuilt from the settings on every turn; what was not,
+    /// and should have been, is **what the turn is costed at** — a
+    /// session that switched from a cheap model to an expensive one
+    /// went on reporting the cheap one's prices for the rest of its
+    /// life, which is the exact failure the ledger exists to prevent.
+    ///
+    /// Switching is not free and nothing here hides it: the next
+    /// request re-sends the whole conversation to a provider that has
+    /// never seen it, so there is no cache behind it.
+    pub fn use_model(&mut self, model: String, price: Price, context_window: Option<u32>) {
+        self.config.model = model;
+        self.config.price = price;
+        self.config.context_window = context_window;
+    }
+
     /// Whether the session has spent what it was allowed.
     ///
     /// Checked before a request rather than after: the point is not to
@@ -1071,6 +1090,42 @@ mod tests {
             std::fs::read_to_string(ctx.root().join("src/main.rs")).unwrap(),
             before
         );
+    }
+
+    /*
+      Switching model mid-conversation changes what a turn costs.
+
+      The provider was always rebuilt from the settings each turn, so
+      the *answers* came from the new model straight away. The prices
+      did not follow, and a session that moved from a cheap model to an
+      expensive one went on reporting the cheap one's numbers — the
+      exact failure the ledger exists to catch.
+    */
+    #[tokio::test]
+    async fn a_session_switched_to_another_model_is_costed_at_the_new_one() {
+        let ctx = scratch("switch");
+        let ledger = Ledger::in_memory().unwrap();
+        let mut session = session(Mode::Ask);
+
+        let cheap = answers(vec![text_turn("one")]);
+        run(&mut session, &cheap, &Yes, &ctx, Some(&ledger)).await.0.unwrap();
+        let after_cheap = session.spent();
+
+        session.use_model(
+            "expensive".into(),
+            Price { input: 300.0, cached_input: 30.0, output: 1500.0 },
+            Some(400_000),
+        );
+        let dear = answers(vec![text_turn("two")]);
+        run(&mut session, &dear, &Yes, &ctx, Some(&ledger)).await.0.unwrap();
+
+        let second = session.spent() - after_cheap;
+        assert!(
+            second > after_cheap * 50.0,
+            "the second turn is costed at the new model's prices, not the old ones"
+        );
+        // And the window it is measured against is the new model's.
+        assert_eq!(session.context_percent(), Some(0));
     }
 
     /*

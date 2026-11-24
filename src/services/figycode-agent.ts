@@ -93,23 +93,46 @@ export type TurnEvent =
   | { kind: "finished"; reason: string }
   | { kind: "failed"; error: string };
 
-export interface AgentSettings {
+/**
+ * One model, where to reach it, and what it costs.
+ *
+ * A list rather than a single setting, because the single setting was
+ * wrong about how this is used: a cheap model for the panel and an
+ * expensive one for a refactor, a local endpoint and a hosted one, two
+ * providers while deciding between them. Switching meant retyping a
+ * base URL and a key, which nobody does twice — they pick one and stop
+ * comparing.
+ */
+export interface ProviderModel {
+  /** Stable across edits, minted here. What `active` points at. */
+  id: string;
+  /** What to call it. Empty means the model name does. */
+  label: string;
   /** The part before `/chat/completions`. */
   baseUrl: string;
   model: string;
   /**
    * Only on the call that sets it, and never handed back: a window that
-   * can read the key is a window that can leak it into a screenshot or a
-   * bug report. Leave it empty to keep the one already stored.
+   * can read a key can leak it into a screenshot or a bug report. Leave
+   * it out to keep the one already stored.
    */
   apiKey?: string;
+  /** Whether one is stored. The key itself never comes back. */
+  hasKey?: boolean;
   temperature?: number;
   /** Dollars per million tokens. Data, because a price in a binary is wrong. */
   inputPrice?: number;
   cachedPrice?: number;
   outputPrice?: number;
-  /** The model's context window in tokens. Nothing on the wire says it. */
+  /** Its context window in tokens. Nothing on the wire reports it. */
   contextWindow?: number;
+}
+
+export interface AgentSettings {
+  /** Every model set up, in the order they are shown. */
+  models: ProviderModel[];
+  /** Which one is used, by id. */
+  active?: string | null;
   /** What one conversation may spend before it stops and says so. */
   budgetUsd?: number;
   /**
@@ -147,11 +170,17 @@ export function agentTools(): Promise<ToolInfo[]> {
  * refusing to send a message the agent would have accepted.
  */
 export interface AgentStatus {
+  /** Whether the chosen model has a key, which is the whole of "can I send". */
   hasKey: boolean;
   /** Whether the web tools will work. The key itself never comes back. */
   hasExaKey: boolean;
-  /** The settings as stored, with the key removed. */
-  settings: AgentSettings;
+  /** The model a turn would use, by id. */
+  active: string | null;
+  /** Its name, for the footer. Empty when nothing is set up. */
+  model: string;
+  /** Every model, with the keys replaced by whether there is one. */
+  models: ProviderModel[];
+  budgetUsd?: number;
   /** Where they are written — stated when saving, because it is plaintext. */
   path: string;
 }
