@@ -14608,6 +14608,84 @@ body > .cm-api-completions .cm-completionDetail {
   font-variant-numeric: tabular-nums;
 }
 
+/* ─── The plan ───────────────────────────────────────────────────────────── */
+
+.figy-todos {
+  margin: 8px 0 10px;
+  padding: 8px 10px 9px;
+  border: 1px solid var(--ft-border-subtle);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.022);
+  font-family: var(--figy-mono);
+  font-size: 12px;
+}
+
+.figy-todos-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+
+.figy-todos-title {
+  color: var(--ft-text-secondary);
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.figy-todos-count {
+  margin-left: auto;
+  color: var(--ft-text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.figy-todo {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0;
+  color: var(--ft-text-secondary);
+}
+
+.figy-todo-mark {
+  flex: none;
+  width: 10px;
+  color: var(--ft-text-muted);
+  text-align: center;
+}
+
+.figy-todo-text {
+  min-width: 0;
+}
+
+/* Done recedes: it is context for what is left, not the thing being
+   read. Struck through as well as dimmed, so the state survives a
+   screenshot and anybody who cannot see the colour difference. */
+.figy-todo.done .figy-todo-text {
+  color: var(--ft-text-muted);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.figy-todo.done .figy-todo-mark {
+  color: var(--ft-success);
+}
+
+/* The one line anybody is actually looking at. */
+.figy-todo.running .figy-todo-text {
+  color: var(--ft-text);
+}
+
+.figy-todo.running .figy-todo-mark {
+  color: var(--ft-accent);
+}
+
+.light .figy-todos {
+  background: rgba(15, 17, 23, 0.025);
+}
+
 /* ─── /resume ────────────────────────────────────────────────────────────── */
 
 .figy-resume-list {

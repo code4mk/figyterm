@@ -357,6 +357,99 @@ test("allowing all edits is a mode change, not a memory", () => {
   assert.equal(answer.remember, undefined);
 });
 
+/* ─── The plan ─────────────────────────────────────────────────────────────── */
+
+/** A `todo_write` round trip, as the backend emits it. */
+function wrote(id: string, items: [string, string][]): TurnEvent[] {
+  return [
+    { kind: "toolStarted", id, name: "todo_write" },
+    {
+      kind: "toolFinished",
+      id,
+      name: "todo_write",
+      text: "x",
+      detail: { items: items.map(([text, status]) => ({ text, status })), done: 0 },
+      tokens: 20,
+    },
+  ];
+}
+
+test("the plan is a block of its own, not a tool row", () => {
+  const state = play(...wrote("t1", [["read the handler", "running"]]));
+  assert.equal(state.blocks.length, 1);
+  assert.equal(state.blocks[0].kind, "todos");
+  assert.deepEqual(
+    state.blocks[0].kind === "todos" ? state.blocks[0].items : [],
+    [{ text: "read the handler", status: "running" }]
+  );
+});
+
+test("a second plan replaces the first rather than stacking up", () => {
+  // Ten copies of a list down the scroll bury the work between them, and
+  // the question it answers is only ever about the latest.
+  const state = play(
+    ...wrote("t1", [["one", "running"], ["two", "pending"]]),
+    { kind: "text", text: "Done with the first." },
+    ...wrote("t2", [["one", "done"], ["two", "running"]])
+  );
+  const todos = state.blocks.filter((block) => block.kind === "todos");
+  assert.equal(todos.length, 1);
+  assert.equal(todos[0].kind === "todos" ? todos[0].items[0].status : "", "done");
+  // And it lands at the end, where somebody scrolled to the bottom sees it.
+  assert.equal(state.blocks[state.blocks.length - 1].kind, "todos");
+});
+
+test("a plan that could not be written keeps its row, in red", () => {
+  // The only way an error here is visible at all: there is no list to
+  // draw, so a silent no-op would be a tool that did nothing and said
+  // nothing.
+  const state = play(
+    { kind: "toolStarted", id: "t1", name: "todo_write" },
+    {
+      kind: "toolFailed",
+      id: "t1",
+      name: "todo_write",
+      error: "todo_write: only one item can be `running`.",
+    }
+  );
+  assert.equal(state.blocks.length, 1);
+  const block = state.blocks[0];
+  assert.equal(block.kind, "tool");
+  assert.equal(block.kind === "tool" ? block.tool.failed : false, true);
+});
+
+test("a plan is read back out of a resumed conversation's own text", () => {
+  // `detail` is not stored, but this tool writes its list into the text
+  // the model reads — so the list survives in the one copy that is kept.
+  const state = resumeSession(
+    [
+      { role: "user", content: "fix the timeout", calls: [], answers: null },
+      {
+        role: "assistant",
+        content: "",
+        calls: [{ id: "a", name: "todo_write", arguments: {} }],
+        answers: null,
+      },
+      { role: "tool", content: "0 of 2 done\n▸ find it\n○ fix it", calls: [], answers: "a" },
+      {
+        role: "assistant",
+        content: "",
+        calls: [{ id: "b", name: "todo_write", arguments: {} }],
+        answers: null,
+      },
+      { role: "tool", content: "1 of 2 done\n✓ find it\n▸ fix it", calls: [], answers: "b" },
+    ],
+    0
+  );
+
+  const todos = state.blocks.filter((block) => block.kind === "todos");
+  assert.equal(todos.length, 1, "the superseded copy is dropped, not drawn empty");
+  assert.deepEqual(todos[0].kind === "todos" ? todos[0].items : [], [
+    { text: "find it", status: "done" },
+    { text: "fix it", status: "running" },
+  ]);
+});
+
 /* ─── A conversation picked back up ────────────────────────────────────────── */
 
 test("a resumed conversation redraws its tool rows with their results", () => {

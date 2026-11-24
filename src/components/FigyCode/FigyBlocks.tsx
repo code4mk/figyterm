@@ -1,11 +1,11 @@
 /**
  * Everything that can appear in the Figy Code transcript, drawn.
  *
- * Four kinds now — a turn from each side, a tool call, and a notice — down
- * from ten. The other six drew a scripted transcript: plans, to-do lists,
- * command output cards, a task summary. They were good and they are in the
- * history; they come back with the `plan` and `todo_write` tools that would
- * produce them. A renderer with nothing on the other end of it is a state
+ * Five kinds — a turn from each side, a tool call, a notice, and the plan —
+ * down from ten. The rest drew a scripted transcript: command output cards,
+ * a task summary, a plan card. They were good and they are in the history;
+ * each comes back with the tool that produces it, as the list just did with
+ * `todo_write`. A renderer with nothing on the other end of it is a state
  * nobody can reason about and the first thing to rot.
  *
  * The transcript is monospaced throughout. Not decoration: almost
@@ -16,7 +16,13 @@
 import { memo, useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { Markdown } from "../Updates/Markdown";
-import type { Block, DiffLine, Notice, ToolRow } from "../../services/figycode-blocks";
+import type {
+  Block,
+  DiffLine,
+  Notice,
+  TodoItem,
+  ToolRow,
+} from "../../services/figycode-blocks";
 
 /* ─── Copying ─────────────────────────────────────────────────────────────── */
 
@@ -236,6 +242,49 @@ export function NoticeBlock({
   );
 }
 
+/* ─── The plan ────────────────────────────────────────────────────────────── */
+
+/**
+ * The to-do list, which is the one block that is a *state* rather than
+ * something that happened.
+ *
+ * So there is only ever one of it, and a new `todo_write` moves it to the
+ * end of the transcript instead of adding a second. Ten copies of a list
+ * down the scroll would bury the work between them, and the question this
+ * answers — *where is it up to* — is only ever about the latest.
+ *
+ * Memoised for the same reason the assistant turn is: it sits above a
+ * streaming answer and has not changed.
+ */
+export const Todos = memo(function Todos({ items }: { items: TodoItem[] }) {
+  const done = items.filter((item) => item.status === "done").length;
+
+  return (
+    <div className="figy-todos">
+      <div className="figy-todos-head">
+        <span className="figy-todos-title">Plan</span>
+        <span className="figy-todos-count">
+          {done} of {items.length} done
+        </span>
+      </div>
+      {items.map((item, i) => (
+        <div className={`figy-todo ${item.status}`} key={`${i}-${item.text}`}>
+          {/*
+            The glyph carries the state, because that is what gets
+            scanned — the colour is a second signal for the one line
+            that matters and not the only one, which keeps the list
+            readable for anybody who cannot tell the two greens apart.
+          */}
+          <span className="figy-todo-mark" aria-hidden>
+            {item.status === "done" ? "✓" : item.status === "running" ? "▸" : "○"}
+          </span>
+          <span className="figy-todo-text">{item.text}</span>
+        </div>
+      ))}
+    </div>
+  );
+});
+
 /* ─── The two plain ones ──────────────────────────────────────────────────── */
 
 export function UserTurn({ text }: { text: string }) {
@@ -304,5 +353,7 @@ export function BlockView({
       return <ToolCall tool={block.tool} />;
     case "notice":
       return <NoticeBlock notice={block.notice} onAction={onAction} />;
+    case "todos":
+      return <Todos items={block.items} />;
   }
 }

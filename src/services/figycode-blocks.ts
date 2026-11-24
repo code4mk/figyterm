@@ -120,6 +120,42 @@ export interface ToolRow {
   refused?: boolean;
 }
 
+/* ─── The plan ────────────────────────────────────────────────────────────── */
+
+export type TodoStatus = "pending" | "running" | "done";
+
+export interface TodoItem {
+  text: string;
+  status: TodoStatus;
+}
+
+/**
+ * Reads a `todo_write` result back out of its own text.
+ *
+ * For a resumed conversation. The structured half of a tool's answer is
+ * not stored — it never entered the conversation — but this tool writes
+ * its list into the result the model reads, so the list can be recovered
+ * from the one copy that *is* kept. The glyphs are the ones
+ * `tools/todo.rs` writes.
+ */
+export function todosFromText(text: string): TodoItem[] {
+  const items: TodoItem[] = [];
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    const status: TodoStatus | null = trimmed.startsWith("✓")
+      ? "done"
+      : trimmed.startsWith("▸")
+        ? "running"
+        : trimmed.startsWith("○")
+          ? "pending"
+          : null;
+    if (!status) continue;
+    const body = trimmed.slice(1).trim();
+    if (body) items.push({ text: body, status });
+  }
+  return items;
+}
+
 export type NoticeTone = "stop" | "warn" | "info" | "error";
 
 export interface NoticeAction {
@@ -178,7 +214,15 @@ export type Block =
   | { id: number; kind: "user"; text: string }
   | { id: number; kind: "assistant"; text: string }
   | { id: number; kind: "tool"; callId: string; tool: ToolRow }
-  | { id: number; kind: "notice"; notice: Notice };
+  | { id: number; kind: "notice"; notice: Notice }
+  /**
+   * The plan, of which there is at most one.
+   *
+   * A new `todo_write` moves it to the end rather than adding a second:
+   * the list is a thing with a current state, not an event that happened,
+   * and ten copies of it down the scroll would bury the work between them.
+   */
+  | { id: number; kind: "todos"; items: TodoItem[] };
 
 /* ─── Small arithmetic the footer and the spinner need ────────────────────── */
 

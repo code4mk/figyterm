@@ -385,10 +385,22 @@ conversation, and the ones most often left out of a first draft.
       every turn. The whole argument for a file over a memory tool is
       that behaviour should be reviewable, which means admitting the
       price of it
-- [ ] `todo_write` — on a twenty-turn task the list is the only thing
+- [x] `todo_write` — on a twenty-turn task the list is the only thing
       keeping the model's own intent in the prefix without restating it
-      in prose every turn. It is also the window's best status display,
-      and the renderer for it is in the history waiting
+      in prose every turn. `agent/tools/todo.rs`
+- [x] No state on this side: each call carries the whole list and the
+      last one wins. A server-side list mutated by `add` and `complete`
+      is a second source of truth that a compaction, a resume or a
+      retried turn can silently desynchronise from the conversation
+- [x] At most one item `running`, refused with the fix in the message.
+      A plan where four things are in progress has stopped being a
+      sequence, and a model allowed to say so will
+- [x] One block in the window, moved to the end when it changes rather
+      than stacked — the list is a state, not an event. The renderer
+      came back out of the history, as planned
+- [x] And it survives a resume: `detail` is not stored, but the tool
+      writes its list into the text the model reads, so the window
+      recovers it from the one copy that is kept
 - [ ] `plan` — ends plan mode with something to approve. The refusal
       half is built (`policy.rs`); the proposal half is not
 - [ ] `ask_user` — a structured question. A model that asks in prose

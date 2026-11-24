@@ -146,6 +146,15 @@ const SYSTEM_PROMPT = [
   "",
   "Tool results are re-sent on every later turn, so ask for what you need and not",
   "more. Do not re-read a range you have already been given.",
+  "",
+  // The list is the only thing that keeps the model's own intent in the
+  // prefix without restating it in prose every turn — but only if it
+  // reaches for it, and a tool description alone is read once and
+  // forgotten by turn nine.
+  "For anything with more than two or three steps, write the plan down with",
+  "`todo_write` before you start, mark one item `running` while you are on it, and",
+  "update the list as you finish each. It is how the person follows what you are",
+  "doing, and how you keep track of what you have not done yet.",
 ].join("\n");
 
 /** This window is the `window` surface; the editor's panel is the other. */

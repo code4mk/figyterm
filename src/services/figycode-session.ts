@@ -13,7 +13,15 @@
  */
 
 import type { PastMessage, TurnEvent } from "./figycode-agent";
-import type { Block, DiffLine, Prompt, ToolKind, ToolRow } from "./figycode-blocks";
+import type {
+  Block,
+  DiffLine,
+  Prompt,
+  TodoItem,
+  ToolKind,
+  ToolRow,
+} from "./figycode-blocks";
+import { todosFromText } from "./figycode-blocks";
 import { addedLines, lineDiff } from "./figycode-diff";
 
 /** A question the run has stopped on, waiting for the user. */
@@ -136,13 +144,43 @@ export function resumeSession(messages: PastMessage[], spentUsd: number): Sessio
     const at = message.answers != null ? rowOf.get(message.answers) : undefined;
     const block = at != null ? blocks[at] : undefined;
     if (!block || block.kind !== "tool") continue;
+
+    /*
+      The plan, recovered from the only copy that was kept.
+
+      `detail` is not stored, but this tool writes its list into the text
+      the model reads — so the list survives in the conversation itself.
+      The row it was going to be becomes the list, and the earlier copy
+      goes, exactly as it would have live.
+    */
+    if (block.tool.name === title("todo_write")) {
+      const items = todosFromText(message.content);
+      if (items.length > 0) {
+        // Earlier copies are emptied here and dropped below, so the one
+        // that survives is the last the model wrote.
+        for (let i = 0; i < at!; i++) {
+          const earlier = blocks[i];
+          if (earlier.kind === "todos") blocks[i] = { ...earlier, items: [] };
+        }
+        blocks[at as number] = { id: block.id, kind: "todos", items };
+        continue;
+      }
+    }
+
     blocks[at as number] = {
       ...block,
       tool: { ...block.tool, meta: summarise(message.content), ...body(message.content, null) },
     };
   }
 
-  return { ...emptySession(), blocks, nextId, spent: spentUsd };
+  return {
+    ...emptySession(),
+    // A plan that was superseded leaves an empty shell behind, which is
+    // not a card anybody wants to look at.
+    blocks: blocks.filter((block) => block.kind !== "todos" || block.items.length > 0),
+    nextId,
+    spent: spentUsd,
+  };
 }
 
 /* ─── Tools ───────────────────────────────────────────────────────────────── */
@@ -261,7 +299,37 @@ export function applyEvent(state: SessionState, event: TurnEvent): SessionState 
         nextId: state.nextId + 1,
       };
 
-    case "toolFinished":
+    /*
+      The plan is a block of its own, not a tool row.
+
+      `todo_write` is the one tool whose result is not a thing that
+      happened but a thing that *is*: the current list. So the row that
+      was drawn when the call started is replaced by the list, any
+      earlier copy of the list is dropped, and the new one lands at the
+      end — where the work is, and where somebody scrolled to the bottom
+      will see it change.
+
+      A failed or refused call keeps its row, which is the only way an
+      error here is visible at all.
+    */
+    case "toolFinished": {
+      if (event.name === "todo_write") {
+        const items = itemsOf(event.detail);
+        if (items.length > 0) {
+          return {
+            ...state,
+            blocks: [
+              ...state.blocks.filter(
+                (block) =>
+                  block.kind !== "todos" &&
+                  !(block.kind === "tool" && block.callId === event.id)
+              ),
+              { id: state.nextId, kind: "todos", items },
+            ],
+            nextId: state.nextId + 1,
+          };
+        }
+      }
       return patchTool(state, event.id, (tool) => ({
         ...tool,
         running: false,
@@ -278,6 +346,7 @@ export function applyEvent(state: SessionState, event: TurnEvent): SessionState 
         ...body(event.text, event.detail),
         ...fromDetail(event.detail),
       }));
+    }
 
     case "toolFailed":
       return patchTool(state, event.id, (tool) => ({
@@ -479,6 +548,22 @@ function body(text: string, detail: unknown): Partial<ToolRow> {
 function summarise(text: string): string {
   const first = text.split("\n").find((line) => line.trim()) ?? "";
   return first.length > 120 ? `${first.slice(0, 119)}…` : first;
+}
+
+/** The plan out of a `todo_write` result's `detail`, or nothing. */
+function itemsOf(detail: unknown): TodoItem[] {
+  if (!detail || typeof detail !== "object") return [];
+  const raw = (detail as { items?: unknown }).items;
+  if (!Array.isArray(raw)) return [];
+  const items: TodoItem[] = [];
+  for (const one of raw) {
+    if (!one || typeof one !== "object") continue;
+    const { text, status } = one as { text?: unknown; status?: unknown };
+    if (typeof text !== "string" || !text.trim()) continue;
+    if (status !== "pending" && status !== "running" && status !== "done") continue;
+    items.push({ text, status });
+  }
+  return items;
 }
 
 /**
