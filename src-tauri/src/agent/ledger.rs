@@ -24,14 +24,14 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use rusqlite::{params, Connection};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::agent::message::Usage;
 
 /// Where a turn happened, because the two surfaces will have very different
 /// shapes and the comparison is how we find out whether the panel is paying
 /// for itself.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Surface {
     Window,

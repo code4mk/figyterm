@@ -51,6 +51,8 @@ use std::sync::Arc;
 use serde::Serialize;
 use serde_json::{json, Value};
 
+use crate::agent::ledger::Surface;
+
 /// What a tool does to the world, which is what a permission prompt is about.
 ///
 /// Not a severity. It decides which question the window asks and what
@@ -207,6 +209,35 @@ pub trait Tool: Send + Sync {
     fn call(&self, ctx: &ToolContext, args: &Value) -> Result<ToolOutput, ToolError>;
 }
 
+/// What the **editor panel** is offered.
+///
+/// `TOOLS.md` argues the panel is a different product from the window, not
+/// a smaller copy of it: it answers "fix *this*, here" in one to five
+/// turns, where the window answers "do this across the repo" in twenty to
+/// sixty. So it gets the tools that serve a file you are looking at, and
+/// none of the ones that serve a repository you are exploring.
+///
+/// What is deliberately missing, and why:
+///
+/// - **`bash`.** A panel that can run the test suite is a panel that waits
+///   two minutes, and a two-minute wait in a sidebar is the window.
+/// - **`git_*` and the network.** Both are repository-wide or outside it
+///   entirely; neither is about the buffer under the cursor.
+/// - **`write`, `move`, `delete`, `ls`.** Rearranging a project from a
+///   sidebar beside one file is how a quick fix becomes a surprise.
+///
+/// The list is here rather than a flag on each tool because this *is* the
+/// argument — it should be readable in one place and checkable against the
+/// table in `TOOLS.md`, which is where it came from.
+const PANEL_TOOLS: &[&str] = &[
+    "read",
+    "grep",
+    "edit",
+    "definition",
+    "references",
+    "diagnostics",
+];
+
 /// Every tool, in a fixed order.
 ///
 /// The order is part of the cache prefix, so it is the declaration order here
@@ -240,9 +271,28 @@ pub fn specs() -> Vec<ToolSpec> {
     registry().iter().map(|tool| tool.spec()).collect()
 }
 
+/// What this surface is offered, in the registry's order.
+///
+/// Decided once, at session start, and then frozen — the tool list is the
+/// *first* thing in the request and caching is a prefix match, so a set
+/// that varied per turn would rewrite the cache on the turn it varied.
+pub fn specs_for(surface: Surface) -> Vec<ToolSpec> {
+    specs()
+        .into_iter()
+        .filter(|spec| match surface {
+            Surface::Window => true,
+            Surface::Panel => PANEL_TOOLS.contains(&spec.name),
+        })
+        .collect()
+}
+
 /// The whole set as the provider wants it.
 pub fn openai_tools() -> Value {
     Value::Array(specs().iter().map(ToolSpec::as_openai).collect())
+}
+
+pub fn openai_tools_for(surface: Surface) -> Value {
+    Value::Array(specs_for(surface).iter().map(ToolSpec::as_openai).collect())
 }
 
 /// Runs the tool the model asked for.
@@ -355,6 +405,41 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn the_panel_gets_the_buffer_in_front_of_it_and_nothing_wider() {
+        let panel: Vec<&str> = specs_for(Surface::Panel).iter().map(|s| s.name).collect();
+        assert_eq!(panel, PANEL_TOOLS);
+
+        // A panel that can run the test suite is a panel that waits two
+        // minutes, and a two-minute wait in a sidebar is the window.
+        for absent in ["bash", "git_commit", "search_web", "write", "delete", "ls"] {
+            assert!(!panel.contains(&absent), "the panel should not have {absent}");
+        }
+    }
+
+    #[test]
+    fn the_window_gets_everything() {
+        assert_eq!(specs_for(Surface::Window).len(), specs().len());
+    }
+
+    #[test]
+    fn every_panel_tool_is_a_tool_that_exists() {
+        // The list is written by hand against the table in TOOLS.md; a
+        // rename elsewhere would otherwise silently shrink the panel.
+        let all: Vec<&str> = specs().iter().map(|s| s.name).collect();
+        for name in PANEL_TOOLS {
+            assert!(all.contains(name), "{name} is in PANEL_TOOLS but not in the registry");
+        }
+    }
+
+    #[test]
+    fn a_surface_sees_the_same_tools_in_the_same_order_every_time() {
+        // It is the first thing in the cache prefix.
+        let first = openai_tools_for(Surface::Panel);
+        let second = openai_tools_for(Surface::Panel);
+        assert_eq!(first, second);
     }
 
     #[test]

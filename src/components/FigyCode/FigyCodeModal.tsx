@@ -141,6 +141,9 @@ const SYSTEM_PROMPT = [
   "more. Do not re-read a range you have already been given.",
 ].join("\n");
 
+/** This window is the `window` surface; the editor's panel is the other. */
+const SURFACE = "window" as const;
+
 const DEFAULT_SETTINGS: AgentSettings = {
   baseUrl: "https://api.openai.com/v1",
   model: "",
@@ -337,8 +340,8 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
   /* ─── Commands ─────────────────────────────────────────────────────────── */
 
   const newConversation = useCallback(() => {
-    void agentCancel();
-    void agentClear();
+    void agentCancel(SURFACE);
+    void agentClear(SURFACE);
     setSession(emptySession());
     setView("chat");
     setText("");
@@ -352,7 +355,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
           setView("model");
           return;
         case "/usage":
-          void agentUsage().then((totals) => {
+          void agentUsage(SURFACE).then((totals) => {
             setTotals(totals);
             setView("usage");
           });
@@ -452,11 +455,11 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
 
       // The promise resolves when the turn is over; everything worth
       // showing has already arrived as events by then.
-      void agentSend(value, mode, SYSTEM_PROMPT)
+      void agentSend(value, mode, SYSTEM_PROMPT, SURFACE)
         .catch(() => {
           /* The `failed` event already said so, in the transcript. */
         })
-        .finally(() => void agentUsage().then(setTotals));
+        .finally(() => void agentUsage(SURFACE).then(setTotals));
     },
     [activeRoot, command, mode, notice, shell]
   );
@@ -477,7 +480,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
   );
 
   const interrupt = useCallback(() => {
-    void agentCancel();
+    void agentCancel(SURFACE);
   }, []);
 
   /* ─── Projects ─────────────────────────────────────────────────────────── */
@@ -1097,7 +1100,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
         */}
         <button
           className="figy-status-right shrink-0"
-          onClick={() => void agentUsage().then((t) => (setTotals(t), setView("usage")))}
+          onClick={() => void agentUsage(SURFACE).then((t) => (setTotals(t), setView("usage")))}
           title="This session's tokens and spend"
         >
           {session.usage ? `cache ${session.usage.hitRate}% · ` : ""}

@@ -17,6 +17,17 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
+/**
+ * Which conversation a call is about.
+ *
+ * The window and the editor panel are two sessions in one Tauri window —
+ * different preamble, different tool set, different cache — so every call
+ * that touches a conversation says which. `agent/ledger.rs` files the
+ * rows under it too, which is how we find out whether the panel is paying
+ * for itself.
+ */
+export type Surface = "window" | "panel";
+
 /** What a tool does to the world, which is what a permission prompt is about. */
 export type ToolClass = "read" | "write" | "exec" | "net";
 
@@ -137,8 +148,13 @@ export function agentStatus(): Promise<AgentStatus> {
  * arrived as events by then — this resolving is the signal that the
  * composer can be re-enabled, not where the answer is.
  */
-export function agentSend(prompt: string, mode: string, system: string): Promise<void> {
-  return invoke("agent_send", { prompt, mode, system });
+export function agentSend(
+  prompt: string,
+  mode: string,
+  system: string,
+  surface: Surface
+): Promise<void> {
+  return invoke("agent_send", { request: { prompt, mode, system, surface } });
 }
 
 /** Answers a permission question. `remember` is per command, never per class. */
@@ -146,13 +162,13 @@ export function agentApprove(id: string, allow: boolean, remember?: string): Pro
   return invoke("agent_approve", { id, allow, remember: remember ?? null });
 }
 
-export function agentCancel(): Promise<void> {
-  return invoke("agent_cancel");
+export function agentCancel(surface: Surface): Promise<void> {
+  return invoke("agent_cancel", { surface });
 }
 
 /** Forgets the conversation. The folder, the key and the model stay. */
-export function agentClear(): Promise<void> {
-  return invoke("agent_clear");
+export function agentClear(surface: Surface): Promise<void> {
+  return invoke("agent_clear", { surface });
 }
 
 export interface ToolResult {
@@ -173,8 +189,8 @@ export function agentCallTool(name: string, args: Record<string, unknown>): Prom
   return invoke<ToolResult>("agent_call_tool", { name, args });
 }
 
-export function agentUsage(): Promise<Totals> {
-  return invoke<Totals>("agent_usage");
+export function agentUsage(surface: Surface): Promise<Totals> {
+  return invoke<Totals>("agent_usage", { surface });
 }
 
 /**

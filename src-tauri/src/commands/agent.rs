@@ -88,12 +88,32 @@ pub struct AgentSettings {
     pub exa_key: Option<String>,
 }
 
+/// What a session is filed under.
+///
+/// The window label alone was enough right up until the panel existed.
+/// The editor is a modal in the *same* Tauri window as FigyCode, so both
+/// surfaces would have been reading and writing one conversation — and
+/// the symptom would have been the window answering a question typed into
+/// the sidebar, which is a confusing thing to debug and an easy thing to
+/// prevent.
+fn key(label: &str, surface: Surface) -> String {
+    format!(
+        "{label}/{}",
+        match surface {
+            Surface::Window => "window",
+            Surface::Panel => "panel",
+        }
+    )
+}
+
 #[derive(Default)]
 pub struct AgentState {
     settings: Mutex<Option<AgentSettings>>,
-    /// Per window: the conversation, so a second window is a second session.
+    /// Per window *and surface* — see `key`. Two windows are two
+    /// conversations, and so are the window and the panel inside one.
     sessions: Mutex<HashMap<String, Session>>,
-    /// The turn in flight, so Escape can reach it.
+    /// The turn in flight, so Escape can reach it. Keyed the same way:
+    /// interrupting the panel must not stop the window's turn.
     running: Mutex<HashMap<String, oneshot::Sender<()>>>,
     /// Permission questions waiting on an answer, by tool-call id.
     pending: Mutex<HashMap<String, oneshot::Sender<bool>>>,
@@ -108,8 +128,13 @@ pub struct AgentState {
 }
 
 pub fn forget_window(state: &AgentState, label: &str) {
+    // Every surface of that window, since the key carries both.
+    let mine = format!("{label}/");
     if let Ok(mut sessions) = state.sessions.lock() {
-        sessions.remove(label);
+        sessions.retain(|k, _| !k.starts_with(&mine));
+    }
+    if let Ok(mut running) = state.running.lock() {
+        running.retain(|k, _| !k.starts_with(&mine));
     }
     // Dropping the shell kills what it was running. A window's `npm run dev`
     // holding port 1420 against the next one, with nothing on screen to
@@ -122,11 +147,6 @@ pub fn forget_window(state: &AgentState, label: &str) {
         if let Some(bridge) = bridges.remove(label) {
             bridge.abandon();
         }
-    }
-    if let Ok(mut running) = state.running.lock() {
-        // Dropping the sender cancels the turn, which is what a closed
-        // window should do to a model it is still paying for.
-        running.remove(label);
     }
 }
 
@@ -408,23 +428,31 @@ pub fn agent_lsp_reply(
 /// last one's forty turns into it is paying for them again on every turn of
 /// the next.
 #[tauri::command]
-pub fn agent_clear(window: Window, state: State<AgentState>) -> Result<(), String> {
+pub fn agent_clear(
+    window: Window,
+    state: State<AgentState>,
+    surface: Surface,
+) -> Result<(), String> {
     state
         .sessions
         .lock()
         .map_err(|e| e.to_string())?
-        .remove(window.label());
+        .remove(&key(window.label(), surface));
     Ok(())
 }
 
 /// Stops the turn this window is running.
 #[tauri::command]
-pub fn agent_cancel(window: Window, state: State<AgentState>) -> Result<(), String> {
+pub fn agent_cancel(
+    window: Window,
+    state: State<AgentState>,
+    surface: Surface,
+) -> Result<(), String> {
     if let Some(sender) = state
         .running
         .lock()
         .map_err(|e| e.to_string())?
-        .remove(window.label())
+        .remove(&key(window.label(), surface))
     {
         let _ = sender.send(());
     }
@@ -438,6 +466,23 @@ pub fn agent_cancel(window: Window, state: State<AgentState>) -> Result<(), Stri
     Ok(())
 }
 
+/// What one message carries, apart from the four things Tauri injects.
+///
+/// Grouped because the four of them are one thing — a turn, as the
+/// surface asking for it describes it — and because `app`, `window` and
+/// two states already use most of the arguments a function should have.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SendRequest {
+    pub prompt: String,
+    pub mode: Mode,
+    /// The preamble, which the surface owns: a different one is a
+    /// different cache prefix, so the window's and the panel's must not
+    /// be shared.
+    pub system: String,
+    pub surface: Surface,
+}
+
 /// One user message, carried to the end of whatever it sets off.
 ///
 /// Returns when the turn is over. Everything worth watching has already
@@ -449,11 +494,16 @@ pub async fn agent_send(
     window: Window,
     state: State<'_, AgentState>,
     workspace: State<'_, Workspace>,
-    prompt: String,
-    mode: Mode,
-    system: String,
+    request: SendRequest,
 ) -> Result<(), String> {
+    let SendRequest {
+        prompt,
+        mode,
+        system,
+        surface,
+    } = request;
     let label = window.label().to_string();
+    let session_key = key(&label, surface);
 
     /*
       Everything that can stop a turn before it starts, reported the same
@@ -517,12 +567,12 @@ pub async fn agent_send(
         .sessions
         .lock()
         .map_err(|e| e.to_string())?
-        .remove(&label)
+        .remove(&session_key)
         .unwrap_or_else(|| {
             Session::new(
                 SessionConfig {
-                    session_id: format!("{label}:{}", now_ms()),
-                    surface: Surface::Window,
+                    session_id: format!("{session_key}:{}", now_ms()),
+                    surface,
                     model: settings.model.clone(),
                     price,
                     mode,
@@ -536,7 +586,7 @@ pub async fn agent_send(
         .running
         .lock()
         .map_err(|e| e.to_string())?
-        .insert(label.clone(), cancel_tx);
+        .insert(session_key.clone(), cancel_tx);
 
     let (events_tx, mut events_rx) = tokio::sync::mpsc::unbounded_channel::<TurnEvent>();
     let emitter = window.clone();
@@ -597,7 +647,7 @@ pub async fn agent_send(
             &prompt,
             Turn {
                 provider: &provider,
-                picker: &OfferEverything,
+                picker: &OfferEverything(surface),
                 approver: &WindowApprover { state: &state },
                 ctx: &{
                     let ctx = ToolContext::new(root).with_shell(shell).with_lsp(lsp);
@@ -622,12 +672,12 @@ pub async fn agent_send(
         .running
         .lock()
         .map_err(|e| e.to_string())?
-        .remove(&label);
+        .remove(&session_key);
     state
         .sessions
         .lock()
         .map_err(|e| e.to_string())?
-        .insert(label, session);
+        .insert(session_key, session);
 
     result
 }
@@ -638,12 +688,13 @@ pub fn agent_usage(
     app: AppHandle,
     window: Window,
     state: State<AgentState>,
+    surface: Surface,
 ) -> Result<Totals, String> {
     let session_id = state
         .sessions
         .lock()
         .map_err(|e| e.to_string())?
-        .get(window.label())
+        .get(&key(window.label(), surface))
         .map(|session| session.id().to_string());
     let (Some(session_id), Some(ledger)) = (session_id, ledger(&app, &state)) else {
         // Nothing has been asked yet, which is zero rather than an error.

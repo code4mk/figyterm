@@ -65,12 +65,17 @@ pub trait Picker: Send + Sync {
     fn tools_for(&self, prompt: &str) -> Value;
 }
 
-/// Every tool, every turn. The cache-stable default.
-pub struct OfferEverything;
+/// Every tool this surface has, every turn. The cache-stable default.
+///
+/// "Every tool" is per surface, not absolute: the panel is offered a
+/// narrower set than the window, decided here once and then unchanging
+/// for the life of the session. See `tools::PANEL_TOOLS` for the argument
+/// about which ones.
+pub struct OfferEverything(pub Surface);
 
 impl Picker for OfferEverything {
     fn tools_for(&self, _prompt: &str) -> Value {
-        tools::openai_tools()
+        tools::openai_tools_for(self.0)
     }
 }
 
@@ -630,7 +635,7 @@ mod tests {
         let result = session
             .send(
                 "do the thing",
-                Turn { provider, picker: &OfferEverything, approver, ctx, ledger },
+                Turn { provider, picker: &OfferEverything(Surface::Window), approver, ctx, ledger },
                 tx,
                 cancel_rx,
             )
@@ -837,7 +842,7 @@ mod tests {
                 "hi",
                 Turn {
                     provider: &Broken,
-                    picker: &OfferEverything,
+                    picker: &OfferEverything(Surface::Window),
                     approver: &Yes,
                     ctx: &ctx,
                     ledger: None,
@@ -907,7 +912,7 @@ mod tests {
                 "hi",
                 Turn {
                     provider: &provider,
-                    picker: &OfferEverything,
+                    picker: &OfferEverything(Surface::Window),
                     approver: &Yes,
                     ctx: &ctx,
                     ledger: None,
@@ -923,10 +928,21 @@ mod tests {
     fn the_default_picker_offers_the_whole_registry_unchanged() {
         // Narrowing per turn would change the first bytes of the request,
         // which is the worst place to change bytes.
-        let first = OfferEverything.tools_for("anything");
-        let second = OfferEverything.tools_for("something else");
+        let picker = OfferEverything(Surface::Window);
+        let first = picker.tools_for("anything");
+        let second = picker.tools_for("something else");
         assert_eq!(first, second);
         assert_eq!(first, tools::openai_tools());
+    }
+
+    #[test]
+    fn a_panel_session_is_offered_the_panel_s_tools() {
+        let offered = OfferEverything(Surface::Panel).tools_for("fix this");
+        assert_eq!(offered, tools::openai_tools_for(Surface::Panel));
+        assert!(
+            offered.as_array().unwrap().len() < tools::specs().len(),
+            "the panel's set is the smaller one"
+        );
     }
 
     #[test]

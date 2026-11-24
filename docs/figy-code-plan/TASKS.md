@@ -3,11 +3,11 @@
 The build order from [`TOOLS.md`](./TOOLS.md), as things to tick off. Checked
 means written **and tested**; a task with no test is not done.
 
-**Where it stands (2026-11-25):** sections 1–6 and 8 are in, bar the items
-still marked open. `cargo test --lib` is 421 passing (201 the agent's own)
-and `npm test` carries 33 more over the window's reducer and its diff.
-Twenty tools, a turn that runs end to end, and nothing scripted left in the
-window. What is left is section 7, the editor panel.
+**Where it stands (2026-11-25):** sections 1–6, 7a and 8 are in, bar the
+items still marked open. `cargo test --lib` is 426 passing (206 the
+agent's own) and `npm test` carries 33 more over the window's reducer and
+its diff. Twenty tools, a turn that runs end to end, and nothing scripted
+left in the window. What is left is the panel itself — 7b to 7d.
 
 The shape of the thing being built, decided and not re-opened here:
 
@@ -171,9 +171,52 @@ The shape of the thing being built, decided and not re-opened here:
 
 ## 7 · The editor panel
 
-- [ ] `selection`, `open_tabs` — context for free
-- [ ] `apply_hunk` into the open buffer
-- [ ] Promotion to the window, one way
+The second front end, and the one `CODE-AGENT.md` warns about twice: its
+whole value is being **short and cheap**, and if it grows compaction, a
+shell and thirty-turn conversations we have built the window twice and
+made the cheap one expensive. Four pieces, in this order.
+
+### 7a · The backend can host two surfaces
+
+- [x] Sessions keyed by window **and surface**. They were keyed by window
+      alone, which is the same thing right up until the panel exists —
+      the editor is a modal in the same Tauri window as FigyCode, so both
+      would have been writing to one conversation
+- [x] A tool set per surface. The panel gets read, grep, edit and the
+      three language-server tools; no shell, no git, no network, no
+      filesystem rearranging. Decided once at session start, because the
+      tool list is the first thing in the cache prefix
+- [x] Its own ledger rows, under `surface = panel`, which is how we find
+      out whether the panel is paying for itself
+
+### 7b · The panel itself
+
+- [ ] A second mode for the column opposite the explorer — {Preview,
+      Agent} — so the editor ends with one symmetric idea: two columns,
+      each with modes, flanking the buffer
+- [ ] The transcript and composer, reusing the window's components
+- [ ] **The selection and the open tabs are seeded into the first user
+      message**, not offered as tools. The cheapest turn an agent can
+      have is the one where the context was free, and a round trip to ask
+      "what am I looking at" is not free
+- [ ] A system prompt of its own. Not the window's: a different preamble
+      is a different cache prefix, and sharing one would pay 1.25× to
+      destroy something that was saving 10×
+
+### 7c · Edits land in the buffer
+
+- [ ] `apply_hunk`, into the open buffer with the change-gutter marks
+      that already exist, accepted or rejected per hunk. No separate
+      review step — this is the panel's whole reason for being in the
+      editor rather than beside it
+- [ ] Which also settles the dirty-buffer handshake open since section 2
+
+### 7d · Promotion
+
+- [ ] "This is getting long. Open in FigyCode →", carrying the
+      conversation across
+- [ ] **One way.** Panel → window works because the window's context
+      policy is a superset. The reverse does not and is not offered
 
 ## 8 · Outside
 
