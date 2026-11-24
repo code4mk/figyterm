@@ -291,22 +291,25 @@ These are in rough order of how soon their absence will be felt.
 This is phase 8 of `CODE-AGENT.md`, and it was missing from this list
 entirely.
 
-- [ ] **The context window is not tracked.** The ledger records input
-      tokens per turn; nothing knows the model's limit, so nothing can
-      say how close a conversation is to it. Everything below depends on
-      this number, and it is a configuration value beside the model name
-- [ ] **A hard per-session budget, and a stop at it.** `CODE-AGENT.md`:
-      "an agent looping on a broken test spends real money fast, and 'a
-      few cents a turn' stops being true at turn 200." The ledger can
-      answer *how much*; nothing acts on it
-- [ ] **Compaction, once, late, at a task boundary.** Summarise turns
-      1..N and continue from the summary. The trap is written down and
-      worth repeating: pruning and compaction both **destroy the cache**,
-      so the arithmetic is often negative — dropping 20K tokens to save
-      2K a turn while forfeiting a cache that was saving 25K. Let it grow
-      with cache behind it; compact once, decisively, and rebuild
-- [ ] Never compact away the system prompt, the repo rules, the original
-      request, the file-state map, or the last two turns
+- [x] **The context window is tracked**, as a setting beside the model
+      name — nothing on the wire reports it. `ctx 34%` rides on every
+      turn event and sits in the status bar
+- [x] **A hard per-session budget**, checked *before* a request rather
+      than reported after one: the point is not to record the overspend
+      but to not make it
+- [x] **Compaction, once, late (85%), at a task boundary** — after a
+      turn that asked for no tools, which is the only moment the model
+      is not holding something half-finished. The summary is its own
+      model call, with no tools offered, because offering them invites
+      the model to go and look things up again
+- [x] The split lands on a user message, so an assistant's tool calls
+      are never separated from their results; the original request stays
+      in front; the last two turns stay verbatim. A summary that comes
+      back empty changes nothing
+- [x] And the cost is admitted rather than hidden: rewriting the middle
+      changes every byte after the system prompt, so the next request
+      writes the whole prefix again. That is why the threshold is 85%
+      and not 50%
 - [ ] **Sessions do not survive a restart.** They are a `HashMap` in
       `AgentState`; closing the app loses the conversation. SQLite is
       already open for the ledger, and `CODE-AGENT.md` says sessions from

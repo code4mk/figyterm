@@ -83,6 +83,11 @@ pub struct AgentSettings {
     pub input_price: Option<f64>,
     pub cached_price: Option<f64>,
     pub output_price: Option<f64>,
+    /// The model's context window in tokens. Nothing on the wire says
+    /// it, so it is a setting beside the model name.
+    pub context_window: Option<u32>,
+    /// What one conversation may spend before it stops.
+    pub budget_usd: Option<f64>,
     /// Exa, for `search_web` and `fetch_url`. Absent means the agent has
     /// no web tools — which is a configuration, not a failure.
     pub exa_key: Option<String>,
@@ -576,6 +581,8 @@ pub async fn agent_send(
                     model: settings.model.clone(),
                     price,
                     mode,
+                    context_window: settings.context_window,
+                    budget_usd: settings.budget_usd,
                 },
                 system,
             )

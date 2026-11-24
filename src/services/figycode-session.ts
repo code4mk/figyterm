@@ -32,7 +32,14 @@ export interface SessionState {
   /** What the spinner says. */
   status: string;
   /** The last turn's accounting, for the status bar. */
-  usage: { input: number; cached: number; output: number; costUsd: number; hitRate: number } | null;
+  usage: {
+    input: number;
+    cached: number;
+    output: number;
+    costUsd: number;
+    hitRate: number;
+    contextPercent: number | null;
+  } | null;
   /** Dollars so far, which is the number worth watching while it climbs. */
   spent: number;
   /**
@@ -255,8 +262,36 @@ export function applyEvent(state: SessionState, event: TurnEvent): SessionState 
           output: event.output,
           costUsd: event.costUsd,
           hitRate: event.hitRate,
+          contextPercent: event.contextPercent,
         },
         spent: state.spent + event.costUsd,
+      };
+
+    /*
+      Summarising is a model call with nothing streaming, so the spinner
+      says what the pause is. The result is one line in the transcript,
+      because a conversation quietly losing its middle is the kind of
+      thing somebody should be able to see happened.
+    */
+    case "compacting":
+      return { ...state, status: "Summarising the conversation so far…" };
+
+    case "compacted":
+      return {
+        ...state,
+        blocks: [
+          ...state.blocks,
+          {
+            id: state.nextId,
+            kind: "notice",
+            notice: {
+              tone: "info",
+              title: "Earlier turns summarised",
+              body: `The conversation was near the model's limit, so what came before was replaced with a summary. ${event.messages} messages remain.`,
+            },
+          },
+        ],
+        nextId: state.nextId + 1,
       };
 
     case "finished": {

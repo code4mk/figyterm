@@ -69,7 +69,11 @@ export type TurnEvent =
       output: number;
       costUsd: number;
       hitRate: number;
+      /** How full the window is, when its size is configured. */
+      contextPercent: number | null;
     }
+  | { kind: "compacting" }
+  | { kind: "compacted"; messages: number }
   | {
       kind: "retrying";
       attempt: number;
@@ -95,6 +99,10 @@ export interface AgentSettings {
   inputPrice?: number;
   cachedPrice?: number;
   outputPrice?: number;
+  /** The model's context window in tokens. Nothing on the wire says it. */
+  contextWindow?: number;
+  /** What one conversation may spend before it stops and says so. */
+  budgetUsd?: number;
   /**
    * Exa, for `search_web` and `fetch_url`. Without it the agent has no web
    * tools at all — which is a configuration rather than a failure, and the

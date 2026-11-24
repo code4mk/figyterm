@@ -45,10 +45,61 @@ use serde_json::Value;
 use tokio::sync::{mpsc::UnboundedSender, oneshot};
 
 use crate::agent::ledger::{Ledger, Price, Surface, TurnRecord};
-use crate::agent::message::{Message, ToolCall};
+use crate::agent::message::{Message, Role, ToolCall};
 use crate::agent::policy::{approval_key, decide, Decision, Mode};
 use crate::agent::provider::{Provider, StreamEvent, TurnRequest, CANCELLED};
 use crate::agent::tools::{self, output::approx_tokens, ToolContext};
+
+/* ─── Compaction ─────────────────────────────────────────────────────────── */
+
+/// How full the window gets before the conversation is summarised.
+///
+/// Late, and once. `CODE-AGENT.md` is blunt about why: **pruning and
+/// compaction both destroy the cache.** Everything after the edited
+/// point has to be written again at 1.25×, so the arithmetic is often
+/// negative — dropping 20K tokens to save 2K a turn while forfeiting a
+/// cache that was saving 25K. Letting it grow with cache behind it and
+/// then compacting hard, once, beats trimming continuously.
+const COMPACT_AT_PERCENT: u8 = 85;
+
+/// User turns kept verbatim at the end. Everything before them, except
+/// the first request, becomes a summary.
+const KEEP_RECENT_TURNS: usize = 2;
+
+/// Where the kept tail of a conversation begins, or `None` when there
+/// is not enough history to be worth summarising.
+///
+/// Three rules, and each one is a thing that goes wrong without it:
+///
+/// - **The split lands on a user message.** Cutting between an
+///   assistant's tool calls and their results leaves an orphaned call,
+///   which every provider rejects outright.
+/// - **The first request is never summarised** — it is what the whole
+///   conversation is for, and a summary of it is a worse version of a
+///   sentence that was already short.
+/// - **The last two turns stay verbatim.** They are what the model is
+///   working on; a summary of the thing in progress is how an agent
+///   loses its place.
+pub fn compaction_split(history: &[Message], keep_turns: usize) -> Option<usize> {
+    let user_turns: Vec<usize> = history
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| m.role == Role::User)
+        .map(|(i, _)| i)
+        .collect();
+
+    // The first, plus the kept tail, plus at least one in between worth
+    // summarising.
+    if user_turns.len() < keep_turns + 2 {
+        return None;
+    }
+    let split = user_turns[user_turns.len() - keep_turns];
+    // Never before the first request, and never the whole history.
+    if split <= user_turns[0] {
+        return None;
+    }
+    Some(split)
+}
 
 /// How many model round trips one user message may take.
 ///
@@ -134,6 +185,14 @@ pub enum TurnEvent {
         output: u32,
         cost_usd: f64,
         hit_rate: u8,
+        /// How full the window is, when its size is known.
+        context_percent: Option<u8>,
+    },
+    /// The conversation is being summarised. Worth saying: it is a
+    /// model call, so there is a pause with nothing streaming.
+    Compacting,
+    Compacted {
+        messages: u32,
     },
     Finished {
         reason: String,
@@ -182,10 +241,30 @@ pub struct SessionConfig {
     pub model: String,
     pub price: Price,
     pub mode: Mode,
+    /// The model's context window, in tokens.
+    ///
+    /// A configuration value beside the model name, because nothing on
+    /// the wire says it: the provider reports how many tokens a request
+    /// used and never how many it was allowed. Without it, nothing can
+    /// know how close a conversation is to its limit — which is the
+    /// number compaction, and the warning before it, are decided on.
+    pub context_window: Option<u32>,
+    /// Dollars this session may spend before it stops and says so.
+    ///
+    /// `CODE-AGENT.md`: "an agent looping on a broken test spends real
+    /// money fast, and 'a few cents a turn' stops being true at turn
+    /// 200." The ledger could always answer *how much*; this is the
+    /// first thing that acts on the answer.
+    pub budget_usd: Option<f64>,
 }
 
 pub struct Session {
     config: SessionConfig,
+    /// What this session has spent, against `budget_usd`.
+    spent: f64,
+    /// The last turn's input count, which is the best estimate of how
+    /// full the window is: the next request re-sends all of it.
+    context_used: u32,
     /// Built once. Nothing in this file writes to it again — see the module
     /// docs on the frozen prefix.
     system: String,
@@ -201,12 +280,109 @@ impl Session {
             config,
             system: system.into(),
             history: Vec::new(),
+            spent: 0.0,
+            context_used: 0,
             turn: 0,
         }
     }
 
+    /// How full the context window is, 0–100, or `None` when the window
+    /// size was never configured.
+    pub fn context_percent(&self) -> Option<u8> {
+        let window = self.config.context_window.filter(|w| *w > 0)?;
+        Some(((self.context_used as f64 / window as f64) * 100.0).round().min(100.0) as u8)
+    }
+
+    pub fn spent(&self) -> f64 {
+        self.spent
+    }
+
+    /// Whether the session has spent what it was allowed.
+    ///
+    /// Checked before a request rather than after: the point is not to
+    /// report the overspend, it is not to make it.
+    fn over_budget(&self) -> bool {
+        self.config
+            .budget_usd
+            .is_some_and(|budget| budget > 0.0 && self.spent >= budget)
+    }
+
     pub fn history(&self) -> &[Message] {
         &self.history
+    }
+
+    /// Whether the conversation is close enough to the window's edge to
+    /// be worth the cost of summarising it.
+    pub fn should_compact(&self) -> bool {
+        self.context_percent()
+            .is_some_and(|percent| percent >= COMPACT_AT_PERCENT)
+    }
+
+    /// Replaces the middle of the conversation with a summary of it.
+    ///
+    /// Asked of the model itself, in a request of its own — this is the
+    /// one place the agent talks to the provider about something other
+    /// than the user's task, and it is deliberately a separate call
+    /// rather than an instruction bolted onto a turn.
+    ///
+    /// Called **at a task boundary**, never mid-edit: the loop does it
+    /// after a turn that asked for no tools, which is the only moment
+    /// the model is not holding something half-finished.
+    pub async fn compact(&mut self, provider: &impl Provider) -> Result<bool, String> {
+        let Some(split) = compaction_split(&self.history, KEEP_RECENT_TURNS) else {
+            return Ok(false);
+        };
+
+        let transcript: Vec<Message> = self.history[..split].to_vec();
+        let (events, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let (_cancel, cancel_rx) = oneshot::channel();
+
+        let mut ask = transcript.clone();
+        ask.push(Message::user(
+            "Summarise everything above for your own use: what was asked, what you              found out about this codebase, what you changed and what is still              outstanding. Keep file paths and symbol names exactly. Leave out              anything you would not need to carry on.",
+        ));
+
+        let summary = provider
+            .complete(
+                TurnRequest {
+                    messages: ask,
+                    // No tools: this is not a turn, and offering them
+                    // invites the model to go and look things up again.
+                    tools: Value::Array(Vec::new()),
+                },
+                events,
+                cancel_rx,
+            )
+            .await?;
+
+        if summary.content.trim().is_empty() {
+            return Ok(false);
+        }
+
+        /*
+          Rebuilt in one go rather than edited in place.
+
+          The first request stays at the front, the summary stands for
+          everything between, and the last turns are untouched. Note
+          what this costs: every byte after the system prompt has
+          changed, so the next request writes the whole prefix again.
+          That is the price, it is paid once, and it is why the
+          threshold is 85% rather than 50%.
+        */
+        let first = self.history[0].clone();
+        let tail = self.history[split..].to_vec();
+        let mut rebuilt = Vec::with_capacity(tail.len() + 2);
+        rebuilt.push(first);
+        rebuilt.push(Message::assistant(format!(
+            "[Earlier turns, summarised]\n{}",
+            summary.content.trim()
+        )));
+        rebuilt.extend(tail);
+        self.history = rebuilt;
+
+        // The old figure described a conversation that no longer exists.
+        self.context_used = 0;
+        Ok(true)
     }
 
     /// What the ledger's rows are keyed by.
@@ -241,6 +417,28 @@ impl Session {
         let tools = picker.tools_for(prompt);
 
         for step in 0..MAX_STEPS {
+            /*
+              The ceiling, checked before the request rather than after.
+
+              The point is not to report the overspend but to not make
+              it — and the place a runaway shows up is the next request,
+              not the last one.
+            */
+            if self.over_budget() {
+                let budget = self.config.budget_usd.unwrap_or(0.0);
+                let note = format!(
+                    "Stopped: this session has spent ${:.2} of its ${budget:.2} budget. \
+                     The work so far is kept — raise the budget or start a new \
+                     conversation.",
+                    self.spent
+                );
+                self.history.push(Message::assistant(note));
+                let _ = events.send(TurnEvent::Finished {
+                    reason: "budget".into(),
+                });
+                return Ok(());
+            }
+
             self.turn += 1;
             let started = Instant::now();
 
@@ -308,6 +506,26 @@ impl Session {
             if completion.tool_calls.is_empty() {
                 self.record(ledger, &completion, model_ms, 0, 0.0, &events);
                 self.history.push(Message::assistant(completion.content));
+
+                /*
+                  A task boundary: the model asked for no tools, so it is
+                  not holding anything half-finished. The only safe
+                  moment to rewrite the conversation underneath it, and
+                  the reason compaction lives here rather than in a
+                  timer.
+                */
+                if self.should_compact() {
+                    let _ = events.send(TurnEvent::Compacting);
+                    // A summary that could not be made is not a failed
+                    // turn: the answer above it is still the answer, and
+                    // the next turn is merely expensive.
+                    if let Ok(true) = self.compact(provider).await {
+                        let _ = events.send(TurnEvent::Compacted {
+                            messages: self.history.len() as u32,
+                        });
+                    }
+                }
+
                 let _ = events.send(TurnEvent::Finished {
                     reason: completion.finish_reason,
                 });
@@ -483,7 +701,7 @@ impl Session {
 
     /// Writes the turn down and tells the window what it cost.
     fn record(
-        &self,
+        &mut self,
         ledger: Option<&Ledger>,
         completion: &crate::agent::provider::Completion,
         wall_ms: u32,
@@ -492,6 +710,9 @@ impl Session {
         events: &UnboundedSender<TurnEvent>,
     ) {
         let usage = completion.usage;
+        // Both before the event, so what the window is told and what the
+        // budget check reads are the same numbers.
+        self.context_used = usage.input + usage.output;
         let cost = ledger
             .and_then(|ledger| {
                 ledger
@@ -512,6 +733,7 @@ impl Session {
                     .ok()
             })
             .unwrap_or_else(|| self.config.price.cost(&usage));
+        self.spent += cost + tool_cost_usd;
 
         let _ = events.send(TurnEvent::Turn {
             input: usage.input,
@@ -519,6 +741,7 @@ impl Session {
             output: usage.output,
             cost_usd: cost,
             hit_rate: usage.hit_rate(),
+            context_percent: self.context_percent(),
         });
     }
 }
@@ -526,7 +749,7 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::message::{Role, Usage};
+    use crate::agent::message::Usage;
     use crate::agent::provider::Completion;
     use serde_json::json;
     use std::path::PathBuf;
@@ -607,6 +830,8 @@ mod tests {
                 model: "test".into(),
                 price: Price { input: 3.0, cached_input: 0.3, output: 15.0 },
                 mode,
+                context_window: Some(200_000),
+                budget_usd: None,
             },
             "You are a coding agent.",
         )
@@ -900,6 +1125,85 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_session_stops_when_it_has_spent_its_budget() {
+        // The ceiling is about not making the overspend, so it is
+        // checked before the request rather than reported after it.
+        let ctx = scratch("budget");
+        let provider = answers(vec![text_turn("one"), text_turn("two")]);
+        let mut session = Session::new(
+            SessionConfig {
+                session_id: "s1".into(),
+                surface: Surface::Window,
+                model: "test".into(),
+                // A price that makes one turn blow a tiny budget.
+                price: Price { input: 1000.0, cached_input: 1000.0, output: 1000.0 },
+                mode: Mode::Ask,
+                context_window: Some(200_000),
+                budget_usd: Some(0.001),
+            },
+            "system",
+        );
+
+        run(&mut session, &provider, &Yes, &ctx, None).await.0.unwrap();
+        let spent_after_one = session.spent();
+        assert!(spent_after_one > 0.001, "the first turn went over");
+
+        let (_, events) = run(&mut session, &provider, &Yes, &ctx, None).await;
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, TurnEvent::Finished { reason } if reason == "budget")),
+            "the second message should have been refused"
+        );
+        assert_eq!(
+            session.spent(),
+            spent_after_one,
+            "nothing more should have been spent"
+        );
+    }
+
+    #[tokio::test]
+    async fn how_full_the_window_is_rides_on_every_turn() {
+        let ctx = scratch("context");
+        // 1200 input + 40 output of a 200,000 window is 1%.
+        let provider = answers(vec![text_turn("done")]);
+        let mut session = session(Mode::Ask);
+        let (_, events) = run(&mut session, &provider, &Yes, &ctx, None).await;
+
+        assert!(events.iter().any(|e| matches!(
+            e,
+            TurnEvent::Turn { context_percent: Some(p), .. } if *p == 1
+        )));
+        assert_eq!(session.context_percent(), Some(1));
+    }
+
+    #[test]
+    fn with_no_window_configured_there_is_no_percentage_to_invent() {
+        let mut config = SessionConfig {
+            session_id: "s".into(),
+            surface: Surface::Window,
+            model: "m".into(),
+            price: Price { input: 0.0, cached_input: 0.0, output: 0.0 },
+            mode: Mode::Ask,
+            context_window: None,
+            budget_usd: None,
+        };
+        assert_eq!(Session::new(config, "s").context_percent(), None);
+
+        config = SessionConfig {
+            session_id: "s".into(),
+            surface: Surface::Window,
+            model: "m".into(),
+            price: Price { input: 0.0, cached_input: 0.0, output: 0.0 },
+            mode: Mode::Ask,
+            // Zero is "not configured" rather than "divide by zero".
+            context_window: Some(0),
+            budget_usd: None,
+        };
+        assert_eq!(Session::new(config, "s").context_percent(), None);
+    }
+
+    #[tokio::test]
     async fn a_model_that_will_not_stop_is_stopped() {
         let ctx = scratch("runaway");
         let forever: Vec<Completion> = (0..MAX_STEPS + 5)
@@ -964,6 +1268,120 @@ mod tests {
         );
     }
 
+    fn conversation(turns: usize) -> Vec<Message> {
+        let mut history = Vec::new();
+        for i in 0..turns {
+            history.push(Message::user(format!("ask {i}")));
+            history.push(Message::assistant_calling(
+                "",
+                vec![ToolCall {
+                    id: format!("c{i}"),
+                    name: "read".into(),
+                    arguments: "{}".into(),
+                }],
+            ));
+            history.push(Message::tool_result(format!("c{i}"), "a result"));
+            history.push(Message::assistant(format!("answer {i}")));
+        }
+        history
+    }
+
+    #[test]
+    fn a_short_conversation_is_not_worth_summarising() {
+        // Nothing in the middle: the first request plus the kept tail is
+        // the whole of it.
+        assert_eq!(compaction_split(&conversation(1), 2), None);
+        assert_eq!(compaction_split(&conversation(3), 2), None);
+        assert_eq!(compaction_split(&[], 2), None);
+    }
+
+    #[test]
+    fn the_split_lands_on_a_user_message() {
+        // Cutting between an assistant's tool calls and their results
+        // leaves an orphaned call, which every provider rejects.
+        let history = conversation(6);
+        let split = compaction_split(&history, 2).expect("six turns is worth compacting");
+        assert_eq!(history[split].role, Role::User);
+    }
+
+    #[test]
+    fn the_last_turns_stay_verbatim() {
+        let history = conversation(6);
+        let split = compaction_split(&history, 2).unwrap();
+        let kept_users = history[split..].iter().filter(|m| m.role == Role::User).count();
+        assert_eq!(kept_users, 2);
+    }
+
+    #[test]
+    fn the_first_request_is_never_inside_the_summarised_part() {
+        // It is what the conversation is for, and a summary of it is a
+        // worse version of a sentence that was already short.
+        let history = conversation(6);
+        let split = compaction_split(&history, 2).unwrap();
+        assert!(split > 0, "the split must leave the original request in front");
+    }
+
+    #[tokio::test]
+    async fn compacting_keeps_the_ends_and_replaces_the_middle() {
+        let provider = answers(vec![Completion {
+            content: "Earlier: looked at the parser, changed two files.".into(),
+            ..Completion::default()
+        }]);
+        let mut session = session(Mode::Ask);
+        session.history = conversation(6);
+        let before = session.history.len();
+
+        assert!(session.compact(&provider).await.unwrap());
+        let after = session.history();
+
+        assert!(after.len() < before);
+        assert_eq!(after[0].content, "ask 0", "the original request survives");
+        assert!(after[1].content.contains("Earlier: looked at the parser"));
+        assert!(
+            after.last().unwrap().content.contains("answer 5"),
+            "the last turn survives verbatim"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_summary_that_comes_back_empty_changes_nothing() {
+        // Better an expensive next turn than a conversation with its
+        // middle replaced by nothing.
+        let provider = answers(vec![Completion::default()]);
+        let mut session = session(Mode::Ask);
+        session.history = conversation(6);
+        let before = session.history.clone();
+
+        assert!(!session.compact(&provider).await.unwrap());
+        assert_eq!(session.history(), before.as_slice());
+    }
+
+    #[tokio::test]
+    async fn the_summary_is_asked_for_without_tools() {
+        // Offering them invites the model to go and look things up
+        // again, which is the opposite of the point.
+        let provider = answers(vec![Completion {
+            content: "a summary".into(),
+            ..Completion::default()
+        }]);
+        let mut session = session(Mode::Ask);
+        session.history = conversation(6);
+        session.compact(&provider).await.unwrap();
+
+        let asked = provider.seen.lock().unwrap();
+        assert_eq!(asked.len(), 1);
+        assert!(asked[0].last().unwrap().content.contains("Summarise everything above"));
+    }
+
+    #[test]
+    fn compaction_waits_until_the_window_is_nearly_full() {
+        let mut session = session(Mode::Ask);
+        session.context_used = 100_000; // half of 200,000
+        assert!(!session.should_compact());
+        session.context_used = 180_000;
+        assert!(session.should_compact());
+    }
+
     #[test]
     fn the_wire_names_are_the_ones_typescript_reads() {
         // The window matches on these strings. A serde default that
@@ -975,11 +1393,13 @@ mod tests {
             output: 2,
             cost_usd: 0.01,
             hit_rate: 50,
+            context_percent: Some(12),
         })
         .unwrap();
         assert_eq!(turn["kind"], "turn");
         assert!(turn.get("costUsd").is_some());
         assert!(turn.get("hitRate").is_some());
+        assert_eq!(turn["contextPercent"], 12);
 
         let finished = serde_json::to_value(TurnEvent::Finished {
             reason: "stop".into(),

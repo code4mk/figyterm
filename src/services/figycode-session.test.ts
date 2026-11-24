@@ -175,8 +175,8 @@ test("the token meter moves while the text is still arriving", () => {
 
 test("spend accumulates across the turns of one message", () => {
   const state = play(
-    { kind: "turn", input: 1000, cached: 800, output: 20, costUsd: 0.001, hitRate: 80 },
-    { kind: "turn", input: 2000, cached: 1800, output: 30, costUsd: 0.002, hitRate: 90 }
+    { kind: "turn", input: 1000, cached: 800, output: 20, costUsd: 0.001, hitRate: 80, contextPercent: 1 },
+    { kind: "turn", input: 2000, cached: 1800, output: 30, costUsd: 0.002, hitRate: 90, contextPercent: 2 }
   );
   assert.ok(Math.abs(state.spent - 0.003) < 1e-9);
   assert.equal(state.usage?.hitRate, 90, "the bar shows the latest turn");
@@ -239,6 +239,32 @@ test("an interruption offers to be picked back up", () => {
     stopped.notice.actions?.map((a) => a.label),
     ["Carry on"]
   );
+});
+
+test("compacting says what the pause is, and leaves a mark", () => {
+  // A conversation quietly losing its middle is the sort of thing
+  // somebody should be able to see happened.
+  let state = play({ kind: "compacting" });
+  assert.match(state.status, /Summarising/);
+
+  state = applyEvent(state, { kind: "compacted", messages: 6 });
+  const notice = state.blocks[0];
+  if (notice.kind !== "notice") throw new Error("expected a notice");
+  assert.match(notice.notice.title, /summarised/i);
+  assert.equal(notice.notice.tone, "info");
+});
+
+test("how full the window is rides along with the cost", () => {
+  const state = play({
+    kind: "turn",
+    input: 1000,
+    cached: 0,
+    output: 50,
+    costUsd: 0.01,
+    hitRate: 0,
+    contextPercent: 42,
+  });
+  assert.equal(state.usage?.contextPercent, 42);
 });
 
 test("every block gets its own id", () => {

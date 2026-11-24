@@ -267,6 +267,21 @@ export function ModelScreen({
         )}
 
         <div className="figy-field-row">
+          <span className="figy-field-label">Limits</span>
+          <div className="figy-field-group">
+            {price("context window", draft.contextWindow, (n) =>
+              setDraft({ ...draft, contextWindow: n })
+            )}
+            {price("budget, $", draft.budgetUsd, (n) => setDraft({ ...draft, budgetUsd: n }))}
+          </div>
+          <span className="figy-field-hint">
+            The window in tokens — nothing on the wire reports it, and without it nothing
+            can say how close a conversation is to its limit. The budget stops a session
+            that is looping rather than working.
+          </span>
+        </div>
+
+        <div className="figy-field-row">
           <span className="figy-field-label">Price per million tokens</span>
           <div className="figy-field-group">
             {price("input", draft.inputPrice, (n) => setDraft({ ...draft, inputPrice: n }))}

@@ -10,13 +10,15 @@ This folder is the detail underneath it, one subject per file.
 | [`TOOLS.md`](./TOOLS.md) | Every tool the agent gets, what backs it, what it may return, and what it is not allowed to do |
 | [`TASKS.md`](./TASKS.md) | The order it is built in, and what is actually done. Sections 1–8 are the agent; 9–11 are what makes it a harness |
 
-**Status (2026-11-25): the agent runs; the harness does not exist yet.**
+**Status (2026-11-25): the agent runs, and it now survives a long task.**
 Sections 1–8 of `TASKS.md` are in — a turn loop in `src-tauri/src/agent/`,
 twenty tools, a permission model, a ledger, and a window with nothing
-scripted left in it. Sections 9–11 are not, and they are the ones that
-keep a *long* task alive: no context-window tracking, no compaction, no
-budget ceiling, no retry on a rate limit, and sessions that a restart
-empties.
+scripted left in it. Section 10 is in: a rate limit no longer ends the
+turn. Section 9 is in but for one thing — the context window is tracked,
+the budget stops a run before it overspends rather than after, and a
+conversation compacts itself once, late, at a task boundary — and the
+thing left is that **sessions are a `HashMap` a restart empties**.
+Section 11, the agent's own mind, has not been started.
 
 The line that used to be here said nothing was built, which stopped being
 true some time ago. A status line nobody updates is worse than none,

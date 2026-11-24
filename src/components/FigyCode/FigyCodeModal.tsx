@@ -1112,6 +1112,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
           onClick={() => void agentUsage(SURFACE).then((t) => (setTotals(t), setView("usage")))}
           title="This session's tokens and spend"
         >
+          {session.usage?.contextPercent != null && `ctx ${session.usage.contextPercent}% · `}
           {session.usage ? `cache ${session.usage.hitRate}% · ` : ""}
           {formatCost(session.spent)}
         </button>
