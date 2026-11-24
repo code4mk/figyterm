@@ -364,6 +364,20 @@ test("allowing all edits is a mode change, not a memory", () => {
   assert.equal(answer.remember, undefined);
 });
 
+test("a turn that ends stops every spinner it left behind", () => {
+  // A row that spins for ever is a window claiming work is still
+  // happening after it has stopped, which is worse than a row with no
+  // result.
+  const state = play(
+    { kind: "toolStarted", id: "t1", name: "bash" },
+    { kind: "failed", error: "Interrupted" }
+  );
+  const row = state.blocks.find((block) => block.kind === "tool");
+  assert.ok(row && row.kind === "tool");
+  assert.equal(row.tool.running, false);
+  assert.equal(state.running, false);
+});
+
 /* ─── A question of the model's own ────────────────────────────────────────── */
 
 test("a question the model asked is drawn as the card a permission uses", () => {

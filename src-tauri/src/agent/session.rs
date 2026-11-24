@@ -67,6 +67,13 @@ const COMPACT_AT_PERCENT: u8 = 85;
 /// the first request, becomes a summary.
 const KEEP_RECENT_TURNS: usize = 2;
 
+/// What a tool call gets as its result when the turn was stopped.
+///
+/// A result rather than nothing: the assistant message above carries
+/// the call, and a call with no result is a conversation every provider
+/// rejects outright.
+const INTERRUPTED: &str = "Interrupted by the user.";
+
 /// Where the kept tail of a conversation begins, or `None` when there
 /// is not enough history to be worth summarising.
 ///
@@ -658,22 +665,67 @@ impl Session {
             // Exa bills per call. Summed here because this is the only
             // place that sees every tool's result in a turn.
             let mut tool_cost = 0f64;
+            /*
+              Escape has to land during a tool, not only between two.
+
+              This used to check `cancel` before each call and then
+              await the call itself with nothing watching, so pressing
+              Escape during `npm test` did nothing for two minutes —
+              the window said it had interrupted and the agent carried
+              on. A `select` on the same receiver makes the wait
+              interruptible.
+
+              What it does **not** do is reach into the tool: an
+              abandoned `bash` keeps running until it finishes or the
+              window closes, because the child belongs to the shell and
+              not to this loop. The turn stops waiting for it, which is
+              the half that was broken.
+            */
+            let mut interrupted = cancel.try_recv().is_ok();
             for call in &completion.tool_calls {
-                if cancel.try_recv().is_ok() {
-                    // Still answered, so the history has no dangling call.
-                    self.history
-                        .push(Message::tool_result(&call.id, "Interrupted by the user."));
-                    self.record(ledger, &completion, model_ms, biggest, tool_cost, &events);
-                    let _ = events.send(TurnEvent::Failed {
-                        error: CANCELLED.into(),
-                    });
-                    return Err(CANCELLED.into());
+                if interrupted {
+                    /*
+                      Every remaining call is answered, not just the one
+                      that was in flight.
+
+                      The assistant message above carries all of them,
+                      and a call with no result is a message every
+                      provider rejects — so interrupting a turn with
+                      three tool calls in it used to leave a
+                      conversation that could not be continued at all.
+                    */
+                    self.history.push(Message::tool_result(&call.id, INTERRUPTED));
+                    continue;
                 }
 
-                let (text, charged) = self.run(call, approver, ctx, &events).await;
+                let (text, charged) = tokio::select! {
+                    biased;
+                    _ = &mut cancel => {
+                        interrupted = true;
+                        (INTERRUPTED.to_string(), 0.0)
+                    }
+                    out = self.run(call, approver, ctx, &events) => out,
+                };
+                if interrupted {
+                    // The row is still spinning in the window: say what
+                    // became of it rather than leaving it there.
+                    let _ = events.send(TurnEvent::ToolRefused {
+                        id: call.id.clone(),
+                        name: call.name.clone(),
+                        reason: "Interrupted by you".into(),
+                    });
+                }
                 tool_cost += charged;
                 biggest = biggest.max(approx_tokens(&text) as u32);
                 self.history.push(Message::tool_result(&call.id, text));
+            }
+
+            if interrupted {
+                self.record(ledger, &completion, model_ms, biggest, tool_cost, &events);
+                let _ = events.send(TurnEvent::Failed {
+                    error: CANCELLED.into(),
+                });
+                return Err(CANCELLED.into());
             }
 
             /*
@@ -1486,6 +1538,73 @@ mod tests {
             )
             .await;
         assert_eq!(result.unwrap_err(), CANCELLED);
+    }
+
+    /*
+      Interrupting a turn with several tool calls in it.
+
+      Two things used to go wrong here, and the second is the worse
+      one. The cancel was only checked *between* calls, so Escape
+      during a two-minute `bash` did nothing until it finished — the
+      window said "interrupted" and the agent carried on. And the
+      remaining calls were never answered, which leaves an assistant
+      message carrying three calls and two results: a conversation
+      every provider rejects outright, so the interrupted session could
+      not be continued at all.
+    */
+    #[tokio::test(flavor = "multi_thread")]
+    async fn interrupting_a_turn_answers_every_call_it_had_started() {
+        let ctx = scratch("cancel-tools");
+        // The first one takes three seconds; Escape arrives after a
+        // tenth of one. The gap between those is the whole test — the
+        // runtime still waits for the abandoned command on the way
+        // out, which is why it is three and not thirty.
+        let provider = answers(vec![tool_turn(vec![
+            call("bash", json!({ "cmd": "sleep 3" })),
+            call("ls", json!({})),
+        ])]);
+        let mut session = session(Mode::Ask);
+
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let (cancel_tx, cancel_rx) = oneshot::channel();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            let _ = cancel_tx.send(());
+        });
+
+        let started = Instant::now();
+        let result = session
+            .send(
+                "run the tests",
+                Turn {
+                    provider: &provider,
+                    picker: &OfferEverything(Surface::Window),
+                    approver: &Yes,
+                    ctx: &ctx,
+                    ledger: None,
+                },
+                tx,
+                cancel_rx,
+            )
+            .await;
+
+        assert_eq!(result.unwrap_err(), CANCELLED);
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(1),
+            "Escape lands during the tool, not after it"
+        );
+
+        let calls: usize = session.history().iter().map(|m| m.tool_calls.len()).sum();
+        let results = session
+            .history()
+            .iter()
+            .filter(|m| m.role == Role::Tool)
+            .count();
+        assert_eq!(calls, 2);
+        assert_eq!(
+            results, calls,
+            "an interrupted turn still leaves a conversation that can be sent"
+        );
     }
 
     #[test]

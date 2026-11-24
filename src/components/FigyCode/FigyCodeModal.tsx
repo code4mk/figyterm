@@ -36,7 +36,7 @@ import {
   X,
 } from "lucide-react";
 import { OverlayPortal } from "../Overlay/OverlayPortal";
-import { claimFront, releaseFront } from "../../services/overlay-stack";
+import { claimFront, isFront, releaseFront } from "../../services/overlay-stack";
 import { useOverlayRect } from "../../hooks/useOverlayRect";
 import { useOverlayZSync } from "../../hooks/useOverlayZSync";
 import { fullscreenRect, useDraggableModal } from "../../hooks/useDraggableModal";
@@ -817,6 +817,53 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
 
   /* ─── Keyboard ─────────────────────────────────────────────────────────── */
 
+  /**
+   * What Escape means, in order: the closest thing first.
+   *
+   * One function because there are two ways in. The window's own
+   * handler fires when focus is inside it, and a document listener
+   * covers when it is not — which is most of the time while a turn is
+   * running, since nobody holds the caret in the box for two minutes
+   * while they watch. Escape not stopping the agent because the last
+   * thing clicked was a tool row is the bug this exists for.
+   */
+  const escape = useCallback(() => {
+    if (dialog) {
+      setDialog(null);
+      return;
+    }
+    if ((popup.length || popupEmpty) && (slashing || mention)) {
+      setText((t) => `${t} `);
+      return;
+    }
+    if (session.live) {
+      answer(session.live.prompt.denyIndex);
+      return;
+    }
+    if (shell) {
+      setShell(false);
+      setText("");
+      return;
+    }
+    if (session.running) {
+      interrupt();
+      return;
+    }
+    onClose();
+  }, [
+    answer,
+    dialog,
+    interrupt,
+    mention,
+    onClose,
+    popup.length,
+    popupEmpty,
+    session.live,
+    session.running,
+    shell,
+    slashing,
+  ]);
+
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       const stop = () => {
@@ -840,29 +887,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
 
       if (e.key === "Escape") {
         stop();
-        // Closest thing first: a dialog on screen is what Escape means.
-        if (dialog) {
-          setDialog(null);
-          return;
-        }
-        if ((popup.length || popupEmpty) && (slashing || mention)) {
-          setText((t) => `${t} `);
-          return;
-        }
-        if (session.live) {
-          answer(session.live.prompt.denyIndex);
-          return;
-        }
-        if (shell) {
-          setShell(false);
-          setText("");
-          return;
-        }
-        if (session.running) {
-          interrupt();
-          return;
-        }
-        onClose();
+        escape();
         return;
       }
 
@@ -956,6 +981,35 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
   const raise = useCallback(() => setFrontZ(claimFront("figy-code")), []);
   useOverlayZSync("figy-code", setFrontZ);
   useOverlayRect("figy-code", modalRef, visible);
+
+  /*
+    Escape, from wherever the focus happens to be.
+
+    The window's own handler is a React `onKeyDown` on the modal, so it
+    only fires while something inside it has focus. Clicking a tool row
+    to read it, or the transcript to scroll, puts focus on the document
+    — and then the key that stops the agent silently does nothing,
+    which is exactly when somebody is reaching for it.
+
+    Only when this window is the front overlay, and only for events
+    that did not come from inside it: anything in the modal is the
+    handler above's, and handling it twice would close a dialog *and*
+    interrupt the turn behind it.
+  */
+  useEffect(() => {
+    if (!visible) return;
+    const onEscape = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (modalRef.current?.contains(e.target as Node)) return;
+      // Not ours if something else is on top: the rank alone does not
+      // say, because every open overlay has one.
+      if (!isFront("figy-code")) return;
+      e.preventDefault();
+      escape();
+    };
+    document.addEventListener("keydown", onEscape);
+    return () => document.removeEventListener("keydown", onEscape);
+  }, [visible, escape]);
 
   useEffect(() => {
     if (visible) {

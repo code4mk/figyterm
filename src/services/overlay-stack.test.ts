@@ -15,6 +15,7 @@ import {
   APP_DIALOG_Z,
   claimFront,
   isCovered,
+  isFront,
   overlayZ,
   OVERLAY_Z_MAX,
   releaseFront,
@@ -133,6 +134,28 @@ test("an overlay with no rectangle covers everything", () => {
 
   assert.equal(isCovered("browser", RECT), true);
   reset("browser", "claude");
+});
+
+/* ─── Which one a key belongs to ───────────────────────────────────────────── */
+
+test("the front overlay is the one that owns a key pressed outside them all", () => {
+  // Not the same question as the z-index. Every open overlay has a
+  // rank, so "do I have one" answers yes for all of them — and an
+  // Escape handled by three windows at once closes three windows.
+  assert.equal(isFront("figy-code"), false, "nothing is open");
+
+  claimFront("figy-code");
+  assert.equal(isFront("figy-code"), true);
+
+  claimFront("claude");
+  assert.equal(isFront("figy-code"), false, "something else is on top");
+  assert.equal(isFront("claude"), true);
+
+  claimFront("figy-code");
+  assert.equal(isFront("figy-code"), true, "clicking it brings it back");
+
+  reset("figy-code", "claude");
+  assert.equal(isFront("figy-code"), false, "closed is not in front");
 });
 
 process.exit(failures === 0 ? 0 : 1);

@@ -469,7 +469,7 @@ export function applyEvent(state: SessionState, event: TurnEvent): SessionState 
       };
 
     case "finished": {
-      const base = { ...state, running: false, live: null };
+      const base = { ...state, running: false, live: null, blocks: settle(state.blocks) };
       if (event.reason !== "step_limit") return base;
       return {
         ...base,
@@ -503,7 +503,7 @@ export function applyEvent(state: SessionState, event: TurnEvent): SessionState 
         running: false,
         live: null,
         blocks: [
-          ...state.blocks,
+          ...settle(state.blocks),
           {
             id: state.nextId,
             kind: "notice",
@@ -578,6 +578,25 @@ export function questionFrom(
       denyIndex: offered.length,
     },
   };
+}
+
+/**
+ * Stops any spinner left running when a turn ends.
+ *
+ * A tool that was in flight when the turn was interrupted usually
+ * reports what became of it, and then this changes nothing. The case
+ * it is here for is the one where nothing reports: a provider that
+ * dropped, a window that missed an event. A row that spins for ever is
+ * a window claiming work is still happening after it has stopped,
+ * which is worse than a row with no result.
+ */
+function settle(blocks: Block[]): Block[] {
+  if (!blocks.some((block) => block.kind === "tool" && block.tool.running)) return blocks;
+  return blocks.map((block) =>
+    block.kind === "tool" && block.tool.running
+      ? { ...block, tool: { ...block.tool, running: false } }
+      : block
+  );
 }
 
 /** Updates the row belonging to a call, by the id the backend gave it. */
