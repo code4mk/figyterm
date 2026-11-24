@@ -7,11 +7,13 @@ pub mod menu;
 pub mod secrets;
 pub mod spawn;
 pub mod state;
+pub mod agent;
 pub mod store;
 pub mod sync;
 pub mod terminal;
 pub mod updater;
 
+use agent::workspace::Workspace;
 use commands::browser::BrowserState;
 use commands::figy_files::FigyState;
 use commands::fs::FsState;
@@ -56,6 +58,7 @@ pub fn run() {
         .manage(BrowserState::default())
         .manage(FsState::default())
         .manage(FigyState::default())
+        .manage(Workspace::default())
         .manage(WatchState::default())
         .manage(LspState::default())
         .manage(ApiState::default())
@@ -97,6 +100,7 @@ pub fn run() {
             commands::terminal::close_sessions_of_window(app, label);
             commands::fs::forget_window(&app.state::<FsState>(), label);
             commands::figy_files::forget_window(&app.state::<FigyState>(), label);
+            app.state::<Workspace>().forget(label);
             commands::fs_watch::forget_window(&app.state::<WatchState>(), label);
             commands::lsp::forget_window(app, label);
         })
@@ -114,6 +118,8 @@ pub fn run() {
             commands::claude::claude_session_exists,
             commands::figy_files::figy_open_project,
             commands::figy_files::figy_find_files,
+            commands::agent::agent_tools,
+            commands::agent::agent_call_tool,
             commands::autocomplete::list_path_completions,
             commands::autocomplete::get_home_dir,
             commands::autocomplete::read_project_file,

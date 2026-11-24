@@ -34,17 +34,14 @@ use serde::Serialize;
 use tauri::{State, Window};
 
 /*
-  The editor's path helpers, renamed on the way in.
+  The root is the agent's, not this module's.
 
-  `canonicalize` there is not `std`'s — it carries the Windows
-  verbatim-prefix retry that long paths need — and a second copy of that
-  reasoning living here is exactly the kind of duplication that goes stale.
-  Aliased so nothing in this file reads as the standard-library call.
+  It had one of its own, which meant two answers to "what folder is FigyCode
+  open on" that agreed only by accident. `agent/workspace.rs` owns it now and
+  this module asks: the `@` index and the tools are looking at the same tree
+  by construction rather than by convention.
 */
-use crate::commands::fs::{
-    canonicalize as canonicalize_path, expand_home as expand_home_path,
-    to_string as path_to_string,
-};
+use crate::agent::workspace::Workspace;
 
 /// Where the index stops.
 ///
@@ -343,20 +340,17 @@ fn rank(index: &Index, query: &str, limit: usize) -> Vec<FileHit> {
 pub fn figy_open_project(
     window: Window,
     state: State<FigyState>,
+    workspace: State<Workspace>,
     path: String,
 ) -> Result<ProjectInfo, String> {
-    let requested = expand_home_path(path.trim());
-    if requested.as_os_str().is_empty() {
-        return Err("No folder given".into());
-    }
-    let root = canonicalize_path(&requested)?;
-    if !root.is_dir() {
-        return Err(format!("{} is not a folder", root.display()));
-    }
+    // The workspace does the validating and the remembering; this command is
+    // only the index on top of it. One answer to "which folder", shared with
+    // every tool the agent has.
+    let root = workspace.open(window.label(), &path)?;
 
     let index = build_index(&root);
     let info = ProjectInfo {
-        root: path_to_string(&root),
+        root: root.to_string_lossy().to_string(),
         files: index.files,
         folders: index.folders,
         truncated: index.truncated,

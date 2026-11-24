@@ -349,6 +349,10 @@ tokens instead of 800.
 
 ### The tool surface
 
+The short version. The full catalogue — every tool, what backs it, its
+permission class, and the ones deliberately left out — is in
+[`figy-code-plan/TOOLS.md`](./figy-code-plan/TOOLS.md).
+
 | Tool | Backed by | Window | Panel |
 |---|---|---|---|
 | `read(path, offset, limit)` | `fs_read_text` + ranging | ✓ | ✓ |

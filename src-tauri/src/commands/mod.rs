@@ -1,3 +1,5 @@
+/// The agent's IPC surface. The agent itself is in `src/agent/`.
+pub mod agent;
 pub mod api;
 pub mod autocomplete;
 pub mod browser;
