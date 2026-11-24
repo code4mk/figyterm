@@ -308,7 +308,10 @@ export function UsageScreen({ totals }: { totals: Totals }) {
     ["input", `${formatTokens(totals.input)} tokens`],
     ["from cache", `${formatTokens(totals.cached)} tokens · ${totals.hitRate}%`],
     ["output", `${formatTokens(totals.output)} tokens`],
-    ["spent", formatCost(totals.costUsd)],
+    ["spent on the model", formatCost(totals.costUsd)],
+    // Kept apart from the model's own cost: folding them together makes a
+    // search-heavy session look like an expensive model.
+    ["spent on tools", formatCost(totals.toolCostUsd)],
     ["largest tool result", `${formatTokens(totals.largestToolResult)} tokens`],
   ];
 

@@ -91,6 +91,8 @@ export interface Totals {
   cached: number;
   output: number;
   costUsd: number;
+  /** Spent by the tools rather than the model — Exa, so far. */
+  toolCostUsd: number;
   /** 0–100. Below ~70 over a long session is a bug, not a tuning opportunity. */
   hitRate: number;
   largestToolResult: number;

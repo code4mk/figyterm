@@ -56,6 +56,9 @@ pub struct TurnRecord {
     pub model: String,
     pub usage: Usage,
     pub tool_calls: u32,
+    /// What the tools themselves cost: Exa reports a price per call, and
+    /// without this it is the one bill nobody can see.
+    pub tool_cost_usd: f64,
     /// The biggest single tool result, in tokens. The early warning: a spike
     /// here is a tool misbehaving, and it shows up one turn after it starts
     /// rather than twenty.
@@ -100,6 +103,8 @@ pub struct Totals {
     pub cached: u64,
     pub output: u64,
     pub cost_usd: f64,
+    /// Spent by the tools rather than by the model — Exa, so far.
+    pub tool_cost_usd: f64,
     /// 0–100. The honest health check on the whole caching strategy.
     pub hit_rate: u8,
     pub largest_tool_result: u32,
@@ -136,6 +141,7 @@ impl Ledger {
                    output_tokens       INTEGER NOT NULL,
                    cost_usd            REAL    NOT NULL,
                    tool_calls          INTEGER NOT NULL,
+                   tool_cost_usd       REAL    NOT NULL DEFAULT 0,
                    largest_tool_result INTEGER NOT NULL,
                    wall_ms             INTEGER NOT NULL,
                    at                  INTEGER NOT NULL
@@ -143,6 +149,20 @@ impl Ledger {
                  CREATE INDEX IF NOT EXISTS turns_by_session ON turns(session_id);",
             )
             .map_err(|e| format!("The agent ledger would not open: {e}"))?;
+
+        /*
+          The column was added after the table existed.
+
+          A migration rather than a schema bump because there is exactly
+          one of them and the file is a local record, not something two
+          machines have to agree about. The error when it is already there
+          is the expected case and is dropped.
+        */
+        let _ = connection.execute(
+            "ALTER TABLE turns ADD COLUMN tool_cost_usd REAL NOT NULL DEFAULT 0",
+            [],
+        );
+
         Ok(Self {
             connection: Mutex::new(connection),
         })
@@ -155,8 +175,8 @@ impl Ledger {
             .execute(
                 "INSERT INTO turns (session_id, surface, turn, model, input_tokens,
                                     cached_tokens, output_tokens, cost_usd, tool_calls,
-                                    largest_tool_result, wall_ms, at)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
+                                    largest_tool_result, wall_ms, at, tool_cost_usd)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
                 params![
                     record.session_id,
                     record.surface.as_str(),
@@ -170,6 +190,7 @@ impl Ledger {
                     record.largest_tool_result,
                     record.wall_ms,
                     now_ms(),
+                    record.tool_cost_usd,
                 ],
             )
             .map_err(|e| format!("The agent ledger would not write: {e}"))?;
@@ -182,7 +203,7 @@ impl Ledger {
             .query_row(
                 "SELECT COUNT(*), COALESCE(SUM(input_tokens),0), COALESCE(SUM(cached_tokens),0),
                         COALESCE(SUM(output_tokens),0), COALESCE(SUM(cost_usd),0),
-                        COALESCE(MAX(largest_tool_result),0)
+                        COALESCE(MAX(largest_tool_result),0), COALESCE(SUM(tool_cost_usd),0)
                  FROM turns WHERE session_id = ?1",
                 params![session_id],
                 |row| {
@@ -192,6 +213,7 @@ impl Ledger {
                         cached: row.get(2)?,
                         output: row.get(3)?,
                         cost_usd: row.get(4)?,
+                        tool_cost_usd: row.get(6)?,
                         hit_rate: 0,
                         largest_tool_result: row.get(5)?,
                     })
@@ -233,6 +255,7 @@ mod tests {
             model: "figy-pro".into(),
             usage,
             tool_calls: 2,
+            tool_cost_usd: 0.0,
             largest_tool_result: 1200,
             wall_ms: 900,
         }
@@ -297,6 +320,20 @@ mod tests {
 
         assert_eq!(ledger.totals("s1").unwrap().input, 1000);
         assert_eq!(ledger.totals("s2").unwrap().input, 9999);
+    }
+
+    #[test]
+    fn what_the_tools_spent_is_counted_apart_from_the_model() {
+        // Exa bills per call. Folding it into the model's cost would make
+        // a search-heavy session look like an expensive model.
+        let ledger = Ledger::in_memory().unwrap();
+        let mut turn = record(1, Usage { input: 100, output: 10, cached: 0 });
+        turn.tool_cost_usd = 0.012;
+        ledger.record(&turn, SONNET).unwrap();
+
+        let totals = ledger.totals("s1").unwrap();
+        assert!((totals.tool_cost_usd - 0.012).abs() < 1e-9);
+        assert!(totals.cost_usd < 0.01, "the model's own cost is unchanged");
     }
 
     #[test]

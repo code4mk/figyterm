@@ -1182,6 +1182,7 @@ const emptyTotals: Totals = {
   cached: 0,
   output: 0,
   costUsd: 0,
+  toolCostUsd: 0,
   hitRate: 0,
   largestToolResult: 0,
 };

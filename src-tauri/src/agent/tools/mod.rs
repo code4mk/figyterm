@@ -36,6 +36,7 @@
 pub mod bash;
 pub mod edit;
 pub mod fsops;
+pub mod git;
 pub mod grep;
 pub mod ls;
 pub mod lsp;
@@ -227,6 +228,11 @@ pub fn registry() -> Vec<Box<dyn Tool>> {
         Box::new(lsp::Diagnostics),
         Box::new(web::SearchWeb),
         Box::new(web::FetchUrl),
+        Box::new(git::Status),
+        Box::new(git::Diff),
+        Box::new(git::Log),
+        Box::new(git::Blame),
+        Box::new(git::Commit),
     ]
 }
 
@@ -332,10 +338,15 @@ mod tests {
                 spec.name
             );
             assert_eq!(spec.parameters["type"], "object");
-            // Every property is described: an undescribed parameter is one
-            // the model guesses at.
+            /*
+              Every property is described: an undescribed parameter is one
+              the model guesses at.
+
+              No properties at all is fine — `git_status` asks nothing —
+              and this used to insist on at least one, which is a rule
+              about the tools we happened to have rather than about tools.
+            */
             let props = spec.parameters["properties"].as_object().unwrap();
-            assert!(!props.is_empty(), "{} has no parameters", spec.name);
             for (key, schema) in props {
                 assert!(
                     schema.get("description").is_some(),
@@ -374,7 +385,8 @@ mod tests {
             vec![
                 "read", "grep", "edit", "write", "ls", "move", "delete", "bash",
                 "bash_output", "bash_kill", "definition", "references", "diagnostics",
-                "search_web", "fetch_url"
+                "search_web", "fetch_url", "git_status", "git_diff", "git_log",
+                "git_blame", "git_commit"
             ]
         );
     }

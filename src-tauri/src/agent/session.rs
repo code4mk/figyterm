@@ -282,7 +282,7 @@ impl Session {
             let model_ms = started.elapsed().as_millis() as u32;
 
             if completion.tool_calls.is_empty() {
-                self.record(ledger, &completion, model_ms, 0, &events);
+                self.record(ledger, &completion, model_ms, 0, 0.0, &events);
                 self.history.push(Message::assistant(completion.content));
                 let _ = events.send(TurnEvent::Finished {
                     reason: completion.finish_reason,
@@ -296,19 +296,23 @@ impl Session {
             ));
 
             let mut biggest = 0u32;
+            // Exa bills per call. Summed here because this is the only
+            // place that sees every tool's result in a turn.
+            let mut tool_cost = 0f64;
             for call in &completion.tool_calls {
                 if cancel.try_recv().is_ok() {
                     // Still answered, so the history has no dangling call.
                     self.history
                         .push(Message::tool_result(&call.id, "Interrupted by the user."));
-                    self.record(ledger, &completion, model_ms, biggest, &events);
+                    self.record(ledger, &completion, model_ms, biggest, tool_cost, &events);
                     let _ = events.send(TurnEvent::Failed {
                         error: CANCELLED.into(),
                     });
                     return Err(CANCELLED.into());
                 }
 
-                let text = self.run(call, approver, ctx, &events).await;
+                let (text, charged) = self.run(call, approver, ctx, &events).await;
+                tool_cost += charged;
                 biggest = biggest.max(approx_tokens(&text) as u32);
                 self.history.push(Message::tool_result(&call.id, text));
             }
@@ -319,7 +323,7 @@ impl Session {
               tool misbehaving, and it is only knowable after the tools have
               run.
             */
-            self.record(ledger, &completion, model_ms, biggest, &events);
+            self.record(ledger, &completion, model_ms, biggest, tool_cost, &events);
 
             if step + 1 == MAX_STEPS {
                 let note = format!(
@@ -348,7 +352,7 @@ impl Session {
         approver: &impl Approver,
         ctx: &ToolContext,
         events: &UnboundedSender<TurnEvent>,
-    ) -> String {
+    ) -> (String, f64) {
         let arguments = match call.parsed() {
             Ok(value) => value,
             Err(error) => {
@@ -357,7 +361,7 @@ impl Session {
                     name: call.name.clone(),
                     error: error.clone(),
                 });
-                return error;
+                return (error, 0.0);
             }
         };
 
@@ -368,7 +372,7 @@ impl Session {
                 name: call.name.clone(),
                 error: error.clone(),
             });
-            return error;
+            return (error, 0.0);
         };
 
         let command = arguments.get("cmd").and_then(Value::as_str);
@@ -381,7 +385,7 @@ impl Session {
                     name: call.name.clone(),
                     reason: why.clone(),
                 });
-                return why;
+                return (why, 0.0);
             }
             Decision::Ask => {
                 let _ = events.send(TurnEvent::NeedsApproval {
@@ -398,7 +402,7 @@ impl Session {
                         name: call.name.clone(),
                         reason: refused.clone(),
                     });
-                    return refused;
+                    return (refused, 0.0);
                 }
             }
         }
@@ -433,7 +437,14 @@ impl Session {
                     detail: out.detail.clone(),
                     tokens: approx_tokens(&out.text),
                 });
-                out.text
+                /* What the tool itself charged, if it charges. */
+                let charged = out
+                    .detail
+                    .as_ref()
+                    .and_then(|d| d.get("costUsd"))
+                    .and_then(Value::as_f64)
+                    .unwrap_or(0.0);
+                (out.text, charged)
             }
             Err(error) => {
                 let _ = events.send(TurnEvent::ToolFailed {
@@ -441,7 +452,7 @@ impl Session {
                     name: call.name.clone(),
                     error: error.clone(),
                 });
-                error
+                (error, 0.0)
             }
         }
     }
@@ -453,6 +464,7 @@ impl Session {
         completion: &crate::agent::provider::Completion,
         wall_ms: u32,
         largest_tool_result: u32,
+        tool_cost_usd: f64,
         events: &UnboundedSender<TurnEvent>,
     ) {
         let usage = completion.usage;
@@ -467,6 +479,7 @@ impl Session {
                             model: self.config.model.clone(),
                             usage,
                             tool_calls: completion.tool_calls.len() as u32,
+                            tool_cost_usd,
                             largest_tool_result,
                             wall_ms,
                         },

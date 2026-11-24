@@ -3,11 +3,11 @@
 The build order from [`TOOLS.md`](./TOOLS.md), as things to tick off. Checked
 means written **and tested**; a task with no test is not done.
 
-**Where it stands (2026-11-25):** sections 1–6 are in and 8 is half in, bar
-the items still marked open. `cargo test --lib` is 406 passing (186 the
-agent's own) and `npm test` carries 33 more over the window's reducer and
-its diff. Fifteen tools, a turn that runs end to end, and nothing scripted
-left in the window.
+**Where it stands (2026-11-25):** sections 1–6 and 8 are in, bar the items
+still marked open. `cargo test --lib` is 421 passing (201 the agent's own)
+and `npm test` carries 33 more over the window's reducer and its diff.
+Twenty tools, a turn that runs end to end, and nothing scripted left in the
+window. What is left is section 7, the editor panel.
 
 The shape of the thing being built, decided and not re-opened here:
 
@@ -188,12 +188,20 @@ The shape of the thing being built, decided and not re-opened here:
       query or the URL on the card. `acceptEdits` means edits
 - [x] No Exa key means no web tools at all, rather than tools that attempt
       a request with an empty header and report a 401
-- [ ] git tools: `git_status`, `git_diff`, `git_log`, `git_blame`,
-      `git_commit`. Nothing that pushes
-- [ ] The Exa cost comes back on every call (`costDollars.total`) and is
-      put in the tool's detail for the window. It is not in the ledger,
-      which only counts the model — one bill is visible and the other is
-      not
+- [x] git tools: `git_status`, `git_diff`, `git_log`, `git_blame`,
+      `git_commit`. **Nothing pushes** — no push, no pull, no branch
+      switching, no stash. The agent proposes and a human presses the
+      button, and there is a test that fails if a `push` tool is ever
+      added. `git_commit` stages and commits in one call, because as two
+      tools an interrupted turn leaves a half-staged tree the model cannot
+      see
+- [x] They call `git::operations` directly rather than the `git_*`
+      commands, which resolve through the *editor's* roots — the same
+      fence that made the LSP tools go round the houses
+- [x] Exa's per-call cost reaches the ledger. It is a column of its own
+      rather than added to the model's: folding them together makes a
+      search-heavy session look like an expensive model, and the two are
+      bought from different people
 - [ ] Locations in a `definition` or `references` result, and URLs in a
       search result, are text. Clicking a `path:line` to open the editor
       there, and a URL to open the browser window, is the obvious next
