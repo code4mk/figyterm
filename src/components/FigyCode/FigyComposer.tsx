@@ -14,7 +14,7 @@
  * and splitting them produced two versions of "is a run in progress".
  */
 
-import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, type ReactNode } from "react";
 import { ArrowUp, AtSign, Slash, Square, Terminal } from "lucide-react";
 
 /* ─── The running line ────────────────────────────────────────────────────── */
@@ -137,12 +137,21 @@ interface ComposerProps {
   running: boolean;
   modeLabel: string;
   modeTone: "ask" | "accept" | "plan";
-  modelLabel: string;
+  /**
+   * The model picker, which lives beside the send button rather than in
+   * the status bar.
+   *
+   * Passed in rather than built here: it needs the model list and the
+   * command that saves a choice, and threading four more props through
+   * the composer to assemble it internally would make this component
+   * know about settings. It is a control the composer places, not one
+   * it owns.
+   */
+  modelPicker: ReactNode;
   onChange: (value: string) => void;
   onCaret: () => void;
   onInsert: (token: "@" | "/" | "!") => void;
   onCycleMode: () => void;
-  onPickModel: () => void;
   onSend: () => void;
   onStop: () => void;
 }
@@ -158,12 +167,11 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     running,
     modeLabel,
     modeTone,
-    modelLabel,
+    modelPicker,
     onChange,
     onCaret,
     onInsert,
     onCycleMode,
-    onPickModel,
     onSend,
     onStop,
   },
@@ -255,9 +263,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           <span className={`figy-mode-dot ${modeTone}`} />
           {modeLabel}
         </button>
-        <button type="button" className="figy-pill" onClick={onPickModel} title="Switch model (/model)">
-          {modelLabel}
-        </button>
+        {modelPicker}
 
         {running ? (
           <button type="button" className="figy-send stop" onClick={onStop} title="Interrupt (esc)">

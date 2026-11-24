@@ -14091,45 +14091,6 @@ body > .cm-api-completions .cm-completionDetail {
 
 /* ─── /rewind and /model ─────────────────────────────────────────────────── */
 
-.figy-screen {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  padding-bottom: 6px;
-}
-
-.figy-screen-title {
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--ft-text);
-}
-
-.figy-screen-copy {
-  margin: 5px 0 14px;
-  max-width: 520px;
-  color: var(--ft-text-secondary);
-  font-size: 12.5px;
-  line-height: 1.55;
-}
-
-/* A path in a sentence. It is long and it is meant to be copied, so it
-   wraps anywhere rather than pushing the card wide. */
-.figy-screen-copy code {
-  color: var(--ft-text);
-  font-family: var(--figy-mono);
-  font-size: 11.5px;
-  word-break: break-all;
-}
-
-/* Pushed to the bottom of the screen, where the decision is made. */
-.figy-screen-foot {
-  display: flex;
-  gap: 8px;
-  margin-top: auto;
-  padding-top: 14px;
-}
-
 .figy-button {
   height: 28px;
   padding: 0 12px;
@@ -14968,6 +14929,14 @@ body > .cm-api-completions .cm-completionDetail {
   word-break: break-all;
 }
 
+/* A path in a sentence: long, meant to be copied, and not allowed to
+   push the card wide. */
+.figy-dialog-note code,
+.figy-dialog-foot code {
+  font-family: var(--figy-mono);
+  font-size: 11.5px;
+}
+
 /* A view of the session rather than a setting: one line, and it opens in
    the body where there is room to read it. */
 .figy-settings-link {
@@ -15073,15 +15042,168 @@ body > .cm-api-completions .cm-completionDetail {
   color: var(--ft-warning, #d29922);
 }
 
-/* A model name can be anything from `gpt-5.6` to a self-hosted path.
-   It is a label on a button, not the thing being read, so it is given a
-   width and ends in an ellipsis rather than pushing the spend off the
-   bar. */
-.figy-status-model {
+/* Named, not just a gear. An icon alone is a guess, and the one thing
+   a window nobody has configured needs is the way to configure it. */
+.figy-status-settings {
   display: flex;
   align-items: center;
   gap: 5px;
+}
+
+/* ─── The model picker ───────────────────────────────────────────────────── */
+
+.figy-picker {
+  position: relative;
+  flex: none;
+}
+
+/* A pill, like the mode beside it: these two are one row of controls
+   on the composer and the model is not the odd one out. A model name
+   can be anything from `gpt-5.6` to a self-hosted path, so it is given
+   a width and an ellipsis rather than pushing the send button around. */
+.figy-picker-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
   max-width: 190px;
+  padding: 0 8px 0 9px;
+  border: 1px solid var(--ft-border-subtle);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ft-text-secondary);
+  font-family: var(--figy-mono);
+  font-size: 10.5px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+
+.figy-picker-button:hover {
+  color: var(--ft-text);
+  border-color: var(--ft-text-muted);
+}
+
+.figy-picker-button.on {
+  color: var(--ft-text);
+  border-color: var(--ft-accent);
+}
+
+.figy-picker-button.warn {
+  color: var(--ft-warning);
+}
+
+.figy-picker-caret {
+  color: var(--ft-text-muted);
+}
+
+/* Opens upwards, right-aligned: it is a control on a bar at the bottom
+   of the window, and a list that dropped would be off the screen. */
+.figy-picker-list {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 0;
+  z-index: 15;
+  min-width: 280px;
+  max-width: min(380px, 80vw);
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--ft-border);
+  border-radius: 9px;
+  background: var(--ft-surface);
+  box-shadow: 0 14px 30px -12px rgba(0, 0, 0, 0.6);
+}
+
+.figy-picker-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  width: 100%;
+  padding: 6px 7px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ft-text-secondary);
+  font-family: var(--figy-mono);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Hover and the arrow keys share one notion of "the current row",
+   rather than lighting two. */
+.figy-picker-row.at {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--ft-text);
+}
+
+.figy-picker-tick {
+  flex: none;
+  width: 12px;
+  padding-top: 1px;
+  color: var(--ft-accent);
+}
+
+.figy-picker-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.figy-picker-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ft-text);
+}
+
+/* The host and the price. The price is why anybody switches: an agent
+   about to read forty files has a right answer and it is not the
+   expensive model. */
+.figy-picker-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ft-text-muted);
+  font-size: 10.5px;
+}
+
+.figy-picker-flag {
+  flex: none;
+  padding-top: 1px;
+  color: var(--ft-warning);
+  font-size: 10px;
+}
+
+.figy-picker-manage {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  margin-top: 3px;
+  padding: 6px 7px;
+  border: none;
+  border-top: 1px solid var(--ft-border-subtle);
+  border-radius: 0 0 6px 6px;
+  background: transparent;
+  color: var(--ft-text-muted);
+  font-family: var(--figy-mono);
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.figy-picker-manage:hover {
+  color: var(--ft-text);
+}
+
+.light .figy-picker-button:hover,
+.light .figy-picker-button.on,
+.light .figy-picker-row.at {
+  background: rgba(15, 17, 23, 0.06);
 }
 
 .figy-status-right.on {
@@ -15186,7 +15308,6 @@ body > .cm-api-completions .cm-completionDetail {
 .figy-resume-list {
   display: flex;
   flex-direction: column;
-  max-width: 640px;
 }
 
 /* The row is the button plus the one thing that is not it. Laid out
@@ -15250,13 +15371,6 @@ body > .cm-api-completions .cm-completionDetail {
 .figy-resume-row:hover .figy-iconbtn,
 .figy-resume-row .figy-iconbtn:focus-visible {
   opacity: 1;
-}
-
-.figy-resume-empty {
-  max-width: 640px;
-  padding: 14px 0;
-  color: var(--ft-text-muted);
-  font-size: 12px;
 }
 
 .light .figy-resume-row:hover {

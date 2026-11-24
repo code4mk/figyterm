@@ -110,9 +110,10 @@ import {
   type ComposerHandle,
   type PopupItem,
 } from "./FigyComposer";
-import { ResumeScreen, UsageScreen, Welcome } from "./FigyScreens";
+import { ResumeDialog, UsageDialog, Welcome } from "./FigyScreens";
 import { FigyProjects } from "./FigyProjects";
 import { SettingsDialog } from "./FigySettings";
+import { ModelPicker } from "./FigyModelPicker";
 
 export interface FigyCodeModalProps {
   visible: boolean;
@@ -126,8 +127,14 @@ const MIN_SIZE = { w: 700, h: 480 };
 const MAX_SIZE = { w: 2000, h: 1400 };
 const DEFAULT_SIZE = { w: 960, h: 680 };
 
-/** Which of the three things the body can be. */
-type View = "chat" | "usage" | "resume";
+/**
+ * Which dialog is over the transcript, if any.
+ *
+ * One at a time, by construction. They were a mixture of a dialog and
+ * two body screens, which meant two different ways to be somewhere
+ * else and two different ways back.
+ */
+type Dialog = "settings" | "resume" | "usage" | null;
 
 /**
  * The prompt the agent is given, built once per session.
@@ -234,15 +241,10 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
 
   /* ─── Window state ─────────────────────────────────────────────────────── */
 
-  const [view, setView] = useState<View>("chat");
+  const [dialog, setDialog] = useState<Dialog>(null);
   const [fullscreen, setFullscreen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
-  /**
-   * Settings, as a dialog over the window rather than a screen instead
-   * of it. Changing a setting is a thing you do *to* a conversation, so
-   * the conversation stays on screen behind it.
-   */
-  const [settingsOpen, setSettingsOpen] = useState(false);
+
 
   /* ─── The project ──────────────────────────────────────────────────────── */
 
@@ -396,7 +398,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
     void agentCancel(SURFACE);
     void agentClear(SURFACE);
     setSession(emptySession());
-    setView("chat");
+    setDialog(null);
     setText("");
     setShell(false);
   }, []);
@@ -415,7 +417,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
       void agentResume(SURFACE, sessionId)
         .then((conversation) => {
           setSession(resumeSession(conversation.messages, conversation.spentUsd));
-          setView("chat");
+          setDialog(null);
           setText("");
           setShell(false);
         })
@@ -425,7 +427,6 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
             title: "That conversation could not be opened",
             body: String(error),
           });
-          setView("chat");
         });
     },
     [notice]
@@ -444,18 +445,18 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
         // dialog is now and half of everybody will try it.
         case "/model":
         case "/settings":
-          setSettingsOpen(true);
+          setDialog("settings");
           return;
         case "/usage":
           void agentUsage(SURFACE).then((totals) => {
             setTotals(totals);
-            setView("usage");
+            setDialog("usage");
           });
           return;
         case "/resume":
           void agentConversations(SURFACE).then((conversations) => {
             setPast(conversations);
-            setView("resume");
+            setDialog("resume");
           });
           return;
         case "/clear":
@@ -748,12 +749,12 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
   /* ─── Settings ─────────────────────────────────────────────────────────── */
 
   const saveSettings = useCallback(
-    (next: AgentSettings) => {
+    (next: AgentSettings, quiet?: boolean) => {
       const before = status.active;
       void agentConfigure(next)
         .then((saved) => {
           setStatus(saved);
-          setSettingsOpen(false);
+          setDialog(null);
 
           /*
             Switching model mid-conversation is allowed and is not free.
@@ -771,6 +772,14 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
             });
             return;
           }
+
+          /*
+            Switching model from the footer, with nothing said yet,
+            needs no announcement: the picker already shows the new
+            name, and a notice in an empty transcript is the first
+            thing in a conversation being about the window.
+          */
+          if (quiet) return;
           /*
             Said out loud, because the commonest way this goes wrong is
             silent: a write that fails leaves a window that looks
@@ -832,8 +841,8 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
       if (e.key === "Escape") {
         stop();
         // Closest thing first: a dialog on screen is what Escape means.
-        if (settingsOpen) {
-          setSettingsOpen(false);
+        if (dialog) {
+          setDialog(null);
           return;
         }
         if ((popup.length || popupEmpty) && (slashing || mention)) {
@@ -842,10 +851,6 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
         }
         if (session.live) {
           answer(session.live.prompt.denyIndex);
-          return;
-        }
-        if (view !== "chat") {
-          setView("chat");
           return;
         }
         if (shell) {
@@ -934,7 +939,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
       shell,
       slashing,
       text,
-      view,
+      dialog,
     ]
   );
 
@@ -1118,11 +1123,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
           setAtBottom(gap < 72);
         }}
       >
-        {view === "resume" ? (
-          <ResumeScreen conversations={past} onResume={resume} onForget={forgetConversation} />
-        ) : view === "usage" ? (
-          <UsageScreen totals={totals ?? emptyTotals} />
-        ) : session.blocks.length === 0 ? (
+        {session.blocks.length === 0 ? (
           <Welcome
             root={activeRoot}
             index={index}
@@ -1133,7 +1134,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
             earlier={past.length}
             onPick={openProject}
             onBrowse={() => setPickerOpen(true)}
-            onConfigure={() => setSettingsOpen(true)}
+            onConfigure={() => setDialog("settings")}
             onResume={() => command("/resume")}
           />
         ) : (
@@ -1204,7 +1205,28 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
           running={session.running}
           modeLabel={MODE_LABEL[mode]}
           modeTone={mode === "acceptEdits" ? "accept" : mode}
-          modelLabel={status.model || "no model"}
+          /*
+            Which model answers, beside the send button.
+
+            It belongs here rather than in the status bar: it is part
+            of composing a message — which model is about to read this
+            — and the bar is where the window reports on itself.
+            Setting a model *up* is still the dialog's job; this is for
+            choosing between ones that are.
+          */
+          modelPicker={
+            <ModelPicker
+              models={status.models}
+              active={status.active}
+              onPick={(id) =>
+                saveSettings(
+                  { models: status.models, active: id, budgetUsd: status.budgetUsd },
+                  true
+                )
+              }
+              onManage={() => setDialog("settings")}
+            />
+          }
           onChange={(value) => {
             setText(value);
             setCaret(inputRef.current?.caret() ?? value.length);
@@ -1213,7 +1235,6 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
           onCaret={() => setCaret(inputRef.current?.caret() ?? 0)}
           onInsert={insert}
           onCycleMode={() => setMode(cycleMode)}
-          onPickModel={() => setSettingsOpen(true)}
           onSend={() => send(text)}
           onStop={interrupt}
         />
@@ -1252,30 +1273,6 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
         <div className="flex-1" />
 
         {/*
-          The way in to everything that is configured.
-
-          All of it was reachable by typing a slash command, which is
-          fine for the second week and useless for the first: nobody
-          discovers `/model` by looking at a window. So the footer names
-          the model — or says there is not one — and opening it lists
-          what can be changed.
-        */}
-        <button
-          className={`figy-status-right figy-status-model ${settingsOpen ? "on" : ""} ${
-            configured ? "" : "warn"
-          } shrink-0`}
-          onClick={() => setSettingsOpen(true)}
-          title="Model, keys, limits and the permission mode"
-          aria-haspopup="dialog"
-          aria-expanded={settingsOpen}
-        >
-          <Settings2 size={10} className="shrink-0" />
-          <span className="truncate">
-            {configured ? status.model : "set up a model"}
-          </span>
-        </button>
-
-        {/*
           Spend and cache hit rate, while they are being spent. The advantage
           of a window over a CLI, and the reason `agent/ledger.rs` exists:
           a hit rate reading zero across a long conversation is a bug you can
@@ -1283,12 +1280,30 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
         */}
         <button
           className="figy-status-right shrink-0"
-          onClick={() => void agentUsage(SURFACE).then((t) => (setTotals(t), setView("usage")))}
+          onClick={() => void agentUsage(SURFACE).then((t) => (setTotals(t), setDialog("usage")))}
           title="This session's tokens and spend"
         >
           {session.usage?.contextPercent != null && `ctx ${session.usage.contextPercent}% · `}
           {session.usage ? `cache ${session.usage.hitRate}% · ` : ""}
           {formatCost(session.spent)}
+        </button>
+
+        {/*
+          And the way in to everything else that is configured. Named,
+          not just an icon: the gear alone is a guess, and the one
+          thing a new window needs is the screen that makes it work.
+        */}
+        <button
+          className={`figy-status-right figy-status-settings ${
+            dialog === "settings" ? "on" : ""
+          } shrink-0`}
+          onClick={() => setDialog("settings")}
+          title="Models, keys, limits and the permission mode"
+          aria-haspopup="dialog"
+          aria-expanded={dialog === "settings"}
+        >
+          <Settings2 size={11} className="shrink-0" />
+          <span>Settings</span>
         </button>
 
         <div
@@ -1304,7 +1319,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
         </div>
       </div>
 
-      {settingsOpen && (
+      {dialog === "settings" && (
         <SettingsDialog
           /* Remounted when what is stored changes, so the draft starts
              from the saved state rather than from whatever was on
@@ -1317,8 +1332,21 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
           onMode={setMode}
           onSave={saveSettings}
           onCommand={command}
-          onClose={() => setSettingsOpen(false)}
+          onClose={() => setDialog(null)}
         />
+      )}
+
+      {dialog === "resume" && (
+        <ResumeDialog
+          conversations={past}
+          onResume={resume}
+          onForget={forgetConversation}
+          onClose={() => setDialog(null)}
+        />
+      )}
+
+      {dialog === "usage" && (
+        <UsageDialog totals={totals ?? emptyTotals} onClose={() => setDialog(null)} />
       )}
 
       {pickerOpen && (

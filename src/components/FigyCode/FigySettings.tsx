@@ -32,7 +32,8 @@
  */
 
 import { useState } from "react";
-import { Check, Cpu, Globe, History, Plus, Sliders, Trash2, X } from "lucide-react";
+import { Check, Cpu, Globe, History, Plus, Sliders, Trash2 } from "lucide-react";
+import { Dialog } from "./FigyDialog";
 import { MODE_LABEL, formatCost, type PermissionMode } from "../../services/figycode-blocks";
 import type { AgentSettings, AgentStatus, ProviderModel } from "../../services/figycode-agent";
 
@@ -450,64 +451,12 @@ export function SettingsDialog({
   );
 
   return (
-    /*
-      Over the window, not over the app.
-
-      The dialog is a child of the FigyCode window, so it moves with it,
-      resizes with it, and cannot end up covering a terminal somebody is
-      watching. The backdrop dims the transcript rather than hiding it:
-      what you are configuring is that conversation.
-    */
-    <div className="figy-dialog-layer" onMouseDown={onClose}>
-      <div
-        className="figy-dialog wide"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Settings"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <header className="figy-dialog-head">
-          <span className="figy-dialog-title">Settings</span>
-          <button
-            type="button"
-            className="figy-iconbtn"
-            onClick={onClose}
-            title="Close"
-            aria-label="Close settings"
-          >
-            <X size={12} />
-          </button>
-        </header>
-
-        <div className="figy-dialog-split">
-          <nav className="figy-tabs" role="tablist" aria-label="Settings sections">
-            {TABS.map(({ id, label, icon: Icon }) => (
-              <button
-                type="button"
-                key={id}
-                role="tab"
-                aria-selected={tab === id}
-                className={`figy-tab ${tab === id ? "on" : ""}`}
-                onClick={() => setTab(id)}
-              >
-                <Icon size={12} className="figy-tab-icon" />
-                <span>{label}</span>
-                {id === "models" && models.length > 0 && (
-                  <span className="figy-tab-count">{models.length}</span>
-                )}
-              </button>
-            ))}
-          </nav>
-
-          <div className="figy-dialog-body" role="tabpanel">
-            {tab === "models" && modelsPanel}
-            {tab === "web" && webPanel}
-            {tab === "behaviour" && behaviourPanel}
-            {tab === "session" && sessionPanel}
-          </div>
-        </div>
-
-        <footer className="figy-dialog-foot">
+    <Dialog
+      title="Settings"
+      wide
+      onClose={onClose}
+      footer={
+        <>
           <button type="button" className="figy-button primary" onClick={save}>
             Save
           </button>
@@ -522,8 +471,36 @@ export function SettingsDialog({
               "↵ saves."
             )}
           </span>
-        </footer>
+        </>
+      }
+    >
+      <div className="figy-dialog-split">
+        <nav className="figy-tabs" role="tablist" aria-label="Settings sections">
+          {TABS.map(({ id, label, icon: Icon }) => (
+            <button
+              type="button"
+              key={id}
+              role="tab"
+              aria-selected={tab === id}
+              className={`figy-tab ${tab === id ? "on" : ""}`}
+              onClick={() => setTab(id)}
+            >
+              <Icon size={12} className="figy-tab-icon" />
+              <span>{label}</span>
+              {id === "models" && models.length > 0 && (
+                <span className="figy-tab-count">{models.length}</span>
+              )}
+            </button>
+          ))}
+        </nav>
+
+        <div className="figy-dialog-body" role="tabpanel">
+          {tab === "models" && modelsPanel}
+          {tab === "web" && webPanel}
+          {tab === "behaviour" && behaviourPanel}
+          {tab === "session" && sessionPanel}
+        </div>
       </div>
-    </div>
+    </Dialog>
   );
 }

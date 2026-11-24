@@ -1,13 +1,14 @@
 /**
- * The screens that are not the transcript: the start, `/resume` and
- * `/usage`.
+ * The welcome screen, and the two dialogs that are views rather than
+ * settings: what this folder has worked on, and what this session has
+ * spent.
  *
- * They take over the body rather than opening over it, and what is left
- * here after the settings moved out says why. These are *views* — what
- * this folder has done, what this session has spent — and a view wants
- * the room. Settings are a thing you do to the conversation while it is
- * still there, so they went to a dialog (`FigySettings.tsx`) and the
- * transcript stays visible behind them.
+ * Both used to take over the body, which was the same mistake the
+ * settings screen made. Looking at what a session cost is not leaving
+ * the conversation — it is looking at something *about* the
+ * conversation — and coming back from it should not be an action. They
+ * are dialogs now, over a transcript that stays where it was, and they
+ * share the frame in `FigyDialog.tsx` with the settings.
  *
  * There used to be one more, `/rewind`, over an invented list of
  * checkpoints. Rewinding means a snapshot of the working tree per turn and
@@ -16,6 +17,7 @@
 
 import { FolderOpen, FolderSearch, MessageSquare, Trash2 } from "lucide-react";
 import { collapseHome } from "../../services/recent-dirs";
+import { Dialog } from "./FigyDialog";
 import { projectLabel, type FigyProject } from "../../services/figycode-projects";
 import { formatCost, formatTokens } from "../../services/figycode-blocks";
 import type { Conversation, ProjectRules, Totals } from "../../services/figycode-agent";
@@ -229,59 +231,62 @@ function when(ms: number): string {
  * repository would be forty turns of confident, wrong context, and is
  * refused rather than listed.
  */
-export function ResumeScreen({
+export function ResumeDialog({
   conversations,
   onResume,
   onForget,
+  onClose,
 }: {
   conversations: Conversation[];
   onResume: (sessionId: string) => void;
   onForget: (sessionId: string) => void;
+  onClose: () => void;
 }) {
   return (
-    <div className="figy-screen">
-      <div className="figy-screen-title">Earlier in this folder</div>
-      <div className="figy-screen-copy">
-        Carrying one on re-sends the whole conversation on the next message — the
-        provider&rsquo;s cache does not survive the gap. The shorter the conversation, the
-        cheaper it is to come back to.
-      </div>
+    <Dialog title="Earlier in this folder" onClose={onClose}>
+      <div className="figy-dialog-body">
+        <div className="figy-dialog-note">
+          Carrying one on re-sends the whole conversation on the next message — the
+          provider&rsquo;s cache does not survive the gap. The shorter the conversation,
+          the cheaper it is to come back to.
+        </div>
 
-      {conversations.length === 0 ? (
-        <div className="figy-resume-empty">
-          Nothing yet. A conversation is written down after its first answer.
-        </div>
-      ) : (
-        <div className="figy-resume-list">
-          {conversations.map((conversation) => (
-            <div className="figy-resume-row" key={conversation.sessionId}>
-              <button
-                type="button"
-                className="figy-resume-open"
-                onClick={() => onResume(conversation.sessionId)}
-                title={conversation.title}
-              >
-                <MessageSquare size={12} className="figy-resume-icon" />
-                <span className="figy-resume-title truncate">{conversation.title}</span>
-                <span className="figy-resume-meta">
-                  {conversation.turns} {conversation.turns === 1 ? "message" : "messages"} ·{" "}
-                  {formatCost(conversation.spentUsd)} · {when(conversation.updatedAt)}
-                </span>
-              </button>
-              <button
-                type="button"
-                className="figy-iconbtn"
-                onClick={() => onForget(conversation.sessionId)}
-                title="Forget this conversation"
-                aria-label={`Forget ${conversation.title}`}
-              >
-                <Trash2 size={11} />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
+        {conversations.length === 0 ? (
+          <div className="figy-empty">
+            Nothing yet. A conversation is written down after its first answer.
+          </div>
+        ) : (
+          <div className="figy-resume-list">
+            {conversations.map((conversation) => (
+              <div className="figy-resume-row" key={conversation.sessionId}>
+                <button
+                  type="button"
+                  className="figy-resume-open"
+                  onClick={() => onResume(conversation.sessionId)}
+                  title={conversation.title}
+                >
+                  <MessageSquare size={12} className="figy-resume-icon" />
+                  <span className="figy-resume-title truncate">{conversation.title}</span>
+                  <span className="figy-resume-meta">
+                    {conversation.turns} {conversation.turns === 1 ? "message" : "messages"} ·{" "}
+                    {formatCost(conversation.spentUsd)} · {when(conversation.updatedAt)}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="figy-iconbtn"
+                  onClick={() => onForget(conversation.sessionId)}
+                  title="Forget this conversation"
+                  aria-label={`Forget ${conversation.title}`}
+                >
+                  <Trash2 size={11} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </Dialog>
   );
 }
 
@@ -295,7 +300,7 @@ export function ResumeScreen({
  * figure to tune — so it is given a sentence rather than left as a
  * percentage nobody knows how to read.
  */
-export function UsageScreen({ totals }: { totals: Totals }) {
+export function UsageDialog({ totals, onClose }: { totals: Totals; onClose: () => void }) {
   const healthy = totals.hitRate >= 70;
   const rows: [string, string][] = [
     ["turns", String(totals.turns)],
@@ -310,37 +315,38 @@ export function UsageScreen({ totals }: { totals: Totals }) {
   ];
 
   return (
-    <div className="figy-screen">
-      <div className="figy-screen-title">This session</div>
-      <div className="figy-screen-copy">
-        Every turn re-sends the whole conversation, so input is nearly all of the cost and
-        the cache is nearly all of the saving.
-      </div>
-
-      <div className="figy-usage">
-        {rows.map(([label, value]) => (
-          <div className="figy-usage-row" key={label}>
-            <span className="figy-usage-label">{label}</span>
-            <span className="figy-usage-value">{value}</span>
-          </div>
-        ))}
-      </div>
-
-      {totals.turns > 2 && (
-        <div className={`figy-card figy-notice ${healthy ? "info" : "warn"}`}>
-          <div className="figy-notice-main">
-            <div className="figy-notice-title">
-              <span className="figy-notice-glyph">{healthy ? "◔" : "!"}</span>
-              {healthy ? "The cache is working" : "The cache is not being hit"}
-            </div>
-            <div className="figy-notice-body">
-              {healthy
-                ? "Most of each turn's input is being read from cache rather than re-sent."
-                : "Below about 70% over a long conversation means something is changing the start of the request between turns."}
-            </div>
-          </div>
+    <Dialog title="Tokens and spend" onClose={onClose}>
+      <div className="figy-dialog-body">
+        <div className="figy-dialog-note">
+          Every turn re-sends the whole conversation, so input is nearly all of the cost
+          and the cache is nearly all of the saving.
         </div>
-      )}
-    </div>
+
+        <div className="figy-usage">
+          {rows.map(([label, value]) => (
+            <div className="figy-usage-row" key={label}>
+              <span className="figy-usage-label">{label}</span>
+              <span className="figy-usage-value">{value}</span>
+            </div>
+          ))}
+        </div>
+
+        {totals.turns > 2 && (
+          <div className={`figy-card figy-notice ${healthy ? "info" : "warn"}`}>
+            <div className="figy-notice-main">
+              <div className="figy-notice-title">
+                <span className="figy-notice-glyph">{healthy ? "◔" : "!"}</span>
+                {healthy ? "The cache is working" : "The cache is not being hit"}
+              </div>
+              <div className="figy-notice-body">
+                {healthy
+                  ? "Most of each turn's input is being read from cache rather than re-sent."
+                  : "Below about 70% over a long conversation means something is changing the start of the request between turns."}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </Dialog>
   );
 }
