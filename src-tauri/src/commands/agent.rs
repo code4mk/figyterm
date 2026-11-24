@@ -35,7 +35,7 @@ use crate::agent::rules;
 use crate::agent::shell::{Shell, SystemShell};
 use crate::agent::web::{Exa, Web};
 use crate::agent::session::{
-    Approver, OfferEverything, Session, SessionConfig, Turn, TurnEvent,
+    Approver, Breakdown, OfferEverything, Session, SessionConfig, Turn, TurnEvent,
 };
 use crate::agent::store::{Conversation, Store};
 use crate::agent::tools::{self, ToolContext};
@@ -1112,6 +1112,30 @@ pub fn agent_rules(
         path: rules.path,
         truncated: rules.truncated,
     }))
+}
+
+/* ─── Where the window is going ──────────────────────────────────────────── */
+
+/// What is in this conversation's context, and what it is made of.
+///
+/// Answered from the live session, so it is what the *next* request
+/// will carry — not what the last one did. A conversation that has
+/// just been compacted reads as small here and reads as large in the
+/// ledger, and both are true.
+#[tauri::command]
+pub fn agent_context(
+    window: Window,
+    state: State<AgentState>,
+    surface: Surface,
+) -> Result<Option<Breakdown>, String> {
+    let tools = tools::openai_tools_for(surface);
+    let tool_tokens = tools::output::approx_tokens(&tools.to_string());
+    Ok(state
+        .sessions
+        .lock()
+        .map_err(|e| e.to_string())?
+        .get(&key(window.label(), surface))
+        .map(|session| session.breakdown(tool_tokens)))
 }
 
 /* ─── Conversations, between runs ────────────────────────────────────────── */

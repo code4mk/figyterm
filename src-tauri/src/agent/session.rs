@@ -38,6 +38,7 @@
 //! the cache saving it is competing with is larger than the routing saving
 //! it is buying. Measure it with the ledger before believing otherwise.
 
+use std::collections::HashMap;
 use std::time::Instant;
 
 use serde::Serialize;
@@ -255,6 +256,35 @@ pub struct Turn<'a, P: Provider, K: Picker, A: Approver> {
     pub ledger: Option<&'a Ledger>,
 }
 
+/// Where the context window is going, as `/context` draws it.
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Breakdown {
+    pub model: String,
+    /// The window, when it is configured. Nothing on the wire says it.
+    pub window: Option<u32>,
+    /// The provider's own count for the last turn. The exact one.
+    pub measured: u32,
+    /// Everything below is `approx_tokens` — characters over four.
+    pub system: usize,
+    pub tools: usize,
+    pub user: usize,
+    pub assistant: usize,
+    pub tool_results: usize,
+    pub messages: u32,
+    pub turns: u32,
+    /// The five largest tool results, which is where a window usually
+    /// goes. Each one is re-sent on every later turn of the session.
+    pub heaviest: Vec<ToolWeight>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolWeight {
+    pub name: String,
+    pub tokens: usize,
+}
+
 /// What a session needs to know that is not the conversation.
 pub struct SessionConfig {
     pub session_id: String,
@@ -432,6 +462,89 @@ impl Session {
 
     pub fn history(&self) -> &[Message] {
         &self.history
+    }
+
+    /// Where the context window is going.
+    ///
+    /// Two kinds of number, and the difference is the whole reason
+    /// this is worth drawing. `measured` is the provider's own count
+    /// from the last turn and is exact; every other figure here is
+    /// `approx_tokens`, which is characters over four. They will not
+    /// add up, and saying so is better than scaling the parts until
+    /// they do — the parts are what tells you *what* is filling the
+    /// window, and the total is what tells you how full it is.
+    ///
+    /// `tools` is passed in because the set belongs to the surface
+    /// rather than to the session, and because it is the one piece
+    /// that is paid for on every turn before anybody has said
+    /// anything.
+    pub fn breakdown(&self, tool_tokens: usize) -> Breakdown {
+        /*
+          Which tool produced which result.
+
+          A tool result is a permanent subscription — it is re-sent on
+          every later turn until the session ends — so the useful
+          question is not "how much is in tool results" but "which
+          call is costing me this". The id is on the assistant message
+          that asked for it, and the text is on the message after.
+        */
+        let mut names: HashMap<&str, &str> = HashMap::new();
+        for message in &self.history {
+            for call in &message.tool_calls {
+                names.insert(call.id.as_str(), call.name.as_str());
+            }
+        }
+
+        let mut out = Breakdown {
+            model: self.config.model.clone(),
+            window: self.config.context_window,
+            measured: self.context_used,
+            system: approx_tokens(&self.system),
+            tools: tool_tokens,
+            messages: self.history.len() as u32,
+            ..Breakdown::default()
+        };
+
+        let mut results: Vec<ToolWeight> = Vec::new();
+        for message in &self.history {
+            let tokens = approx_tokens(&message.content);
+            match message.role {
+                Role::User => {
+                    out.user += tokens;
+                    out.turns += 1;
+                }
+                Role::Assistant => {
+                    out.assistant += tokens;
+                    // The arguments travel with the call and are
+                    // re-sent with it, so they are not free either.
+                    out.assistant += message
+                        .tool_calls
+                        .iter()
+                        .map(|call| approx_tokens(&call.arguments) + approx_tokens(&call.name))
+                        .sum::<usize>();
+                }
+                Role::Tool => {
+                    out.tool_results += tokens;
+                    results.push(ToolWeight {
+                        name: message
+                            .tool_call_id
+                            .as_deref()
+                            .and_then(|id| names.get(id).copied())
+                            .unwrap_or("tool")
+                            .to_string(),
+                        tokens,
+                    });
+                }
+                Role::System => out.system += tokens,
+            }
+        }
+
+        // Biggest first: the one worth knowing about is the one that
+        // will be re-sent for the rest of the session.
+        results.sort_by_key(|weight| std::cmp::Reverse(weight.tokens));
+        results.truncate(5);
+        out.heaviest = results;
+        out
     }
 
     /// Whether the conversation is close enough to the window's edge to
@@ -1605,6 +1718,59 @@ mod tests {
             results, calls,
             "an interrupted turn still leaves a conversation that can be sent"
         );
+    }
+
+    /*
+      What `/context` draws.
+
+      The useful half is `heaviest`: a tool result is re-sent on every
+      later turn until the session ends, so "which call is costing me
+      this" is the question somebody opens that dialog to answer, and
+      it cannot be answered from the totals.
+    */
+    #[tokio::test]
+    async fn the_breakdown_says_what_is_filling_the_window() {
+        let ctx = scratch("breakdown");
+        std::fs::write(ctx.root().join("big.txt"), "x".repeat(8000)).unwrap();
+        let provider = answers(vec![
+            tool_turn(vec![
+                call("read", json!({ "path": "big.txt" })),
+                call("ls", json!({})),
+            ]),
+            text_turn("That file is mostly x."),
+        ]);
+        let mut session = session(Mode::Ask);
+        run(&mut session, &provider, &Yes, &ctx, None).await.0.unwrap();
+
+        let out = session.breakdown(1234);
+        assert_eq!(out.tools, 1234, "the set is paid for before anybody speaks");
+        assert!(out.system > 0);
+        assert_eq!(out.turns, 1);
+        assert!(out.user > 0 && out.assistant > 0);
+
+        // The `read` dwarfs the `ls`, and that is the point of the list.
+        assert_eq!(out.heaviest.len(), 2);
+        assert_eq!(out.heaviest[0].name, "read");
+        assert!(out.heaviest[0].tokens > out.heaviest[1].tokens);
+        assert_eq!(
+            out.tool_results,
+            out.heaviest.iter().map(|w| w.tokens).sum::<usize>(),
+            "every result is in the list while there are fewer than five"
+        );
+        assert_eq!(out.window, Some(200_000));
+    }
+
+    #[test]
+    fn a_conversation_with_nothing_in_it_still_costs_its_prefix() {
+        // The tools and the preamble are in every request from the
+        // first, which is the number people are surprised by.
+        let session = session(Mode::Ask);
+        let out = session.breakdown(2000);
+        assert_eq!(out.tools, 2000);
+        assert!(out.system > 0);
+        assert_eq!(out.messages, 0);
+        assert_eq!(out.measured, 0, "nothing has been sent, so nothing is measured");
+        assert!(out.heaviest.is_empty());
     }
 
     #[test]

@@ -25,6 +25,7 @@ export interface Command {
 export const COMMANDS: Command[] = [
   { name: "/model", summary: "model, keys, limits and prices" },
   { name: "/tools", summary: "what the agent can do, and what it costs to offer" },
+  { name: "/context", summary: "what is filling the context window" },
   { name: "/usage", summary: "tokens, cache hit rate and spend this session" },
   { name: "/resume", summary: "pick up a conversation from this folder" },
   { name: "/clear", summary: "start a new conversation in this folder" },

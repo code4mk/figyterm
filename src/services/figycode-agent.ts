@@ -309,6 +309,39 @@ export function agentRules(): Promise<ProjectRules | null> {
   return invoke<ProjectRules | null>("agent_rules");
 }
 
+/* ─── Where the window is going ───────────────────────────────────────────── */
+
+/**
+ * What the next request will carry, and what it is made of.
+ *
+ * Two kinds of number in here, and the difference is the point.
+ * `measured` is the provider's own count for the last turn and is
+ * exact. Everything else is characters over four. They do not add up,
+ * and the dialog says so rather than scaling the parts until they do:
+ * the parts answer *what* is filling the window, the total answers how
+ * full it is.
+ */
+export interface ContextBreakdown {
+  model: string;
+  /** The window, when it is configured. Nothing on the wire reports it. */
+  window: number | null;
+  measured: number;
+  system: number;
+  tools: number;
+  user: number;
+  assistant: number;
+  toolResults: number;
+  messages: number;
+  turns: number;
+  /** The five largest tool results — where a window usually goes. */
+  heaviest: { name: string; tokens: number }[];
+}
+
+/** `null` when this folder has no conversation yet. */
+export function agentContext(surface: Surface): Promise<ContextBreakdown | null> {
+  return invoke<ContextBreakdown | null>("agent_context", { surface });
+}
+
 /* ─── Conversations, between runs ─────────────────────────────────────────── */
 
 /** One line in the resume list. */

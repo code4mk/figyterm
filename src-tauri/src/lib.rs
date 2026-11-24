@@ -133,6 +133,7 @@ pub fn run() {
             commands::agent::agent_clear,
             commands::agent::agent_usage,
             commands::agent::agent_rules,
+            commands::agent::agent_context,
             commands::agent::agent_conversations,
             commands::agent::agent_resume,
             commands::agent::agent_forget_conversation,

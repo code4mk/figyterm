@@ -77,6 +77,7 @@ import {
   agentCancel,
   agentClear,
   agentConfigure,
+  agentContext,
   agentConversations,
   agentForgetConversation,
   agentResume,
@@ -88,6 +89,7 @@ import {
   onAgentEvent,
   type AgentSettings,
   type AgentStatus,
+  type ContextBreakdown,
   type Conversation,
   type ProjectRules,
   type Totals,
@@ -114,6 +116,7 @@ import { ResumeDialog, UsageDialog, Welcome } from "./FigyScreens";
 import { FigyProjects } from "./FigyProjects";
 import { SettingsDialog } from "./FigySettings";
 import { ModelPicker } from "./FigyModelPicker";
+import { ContextDialog } from "./FigyContext";
 
 export interface FigyCodeModalProps {
   visible: boolean;
@@ -134,7 +137,7 @@ const DEFAULT_SIZE = { w: 960, h: 680 };
  * two body screens, which meant two different ways to be somewhere
  * else and two different ways back.
  */
-type Dialog = "settings" | "resume" | "usage" | null;
+type Dialog = "settings" | "resume" | "usage" | "context" | null;
 
 /**
  * The prompt the agent is given, built once per session.
@@ -226,6 +229,8 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
   */
   const [status, setStatus] = useState<AgentStatus>(NOTHING_YET);
   const [totals, setTotals] = useState<Totals | null>(null);
+  /** What `/context` last read. Fetched when it opens, not kept live. */
+  const [context, setContext] = useState<ContextBreakdown | null>(null);
   /** The conversations this folder has had, for `/resume`. */
   const [past, setPast] = useState<Conversation[]>([]);
   /** What this project tells the agent, from its own `FIGY.md`. */
@@ -447,6 +452,12 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
         case "/settings":
           setDialog("settings");
           return;
+        case "/context":
+          void agentContext(SURFACE).then((breakdown) => {
+            setContext(breakdown);
+            setDialog("context");
+          });
+          return;
         case "/usage":
           void agentUsage(SURFACE).then((totals) => {
             setTotals(totals);
@@ -482,7 +493,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
           notice({
             tone: "info",
             title: `No command ${name}`,
-            body: "Try /model, /usage, /tools, /resume or /clear.",
+            body: "Try /model, /context, /usage, /tools, /resume or /clear.",
           });
       }
     },
@@ -1332,12 +1343,33 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
           a hit rate reading zero across a long conversation is a bug you can
           see rather than one you find on the bill.
         */}
+        {/*
+          Two buttons, because they answer two questions. How full the
+          window is leads to *what is filling it*; what the session has
+          spent leads to the ledger. They used to be one button that
+          went to the second, so the number people clicked and the
+          thing they got were about different subjects.
+        */}
+        {session.usage?.contextPercent != null && (
+          <button
+            className="figy-status-right shrink-0"
+            onClick={() =>
+              void agentContext(SURFACE).then((breakdown) => {
+                setContext(breakdown);
+                setDialog("context");
+              })
+            }
+            title="What is filling the context window"
+          >
+            ctx {session.usage.contextPercent}%
+          </button>
+        )}
+
         <button
           className="figy-status-right shrink-0"
           onClick={() => void agentUsage(SURFACE).then((t) => (setTotals(t), setDialog("usage")))}
           title="This session's tokens and spend"
         >
-          {session.usage?.contextPercent != null && `ctx ${session.usage.contextPercent}% · `}
           {session.usage ? `cache ${session.usage.hitRate}% · ` : ""}
           {formatCost(session.spent)}
         </button>
@@ -1401,6 +1433,10 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
 
       {dialog === "usage" && (
         <UsageDialog totals={totals ?? emptyTotals} onClose={() => setDialog(null)} />
+      )}
+
+      {dialog === "context" && (
+        <ContextDialog context={context} onClose={() => setDialog(null)} />
       )}
 
       {pickerOpen && (

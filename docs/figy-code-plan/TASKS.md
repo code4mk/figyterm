@@ -77,6 +77,16 @@ The shape of the thing being built, decided and not re-opened here:
 - [ ] Explicit cache breakpoints for endpoints that take them (Anthropic's
       `cache_control`). Prefix stability is done; breakpoints are an
       Anthropic-shaped extra
+- [x] `/context` — not how full the window is, which the status bar
+      has said for a while, but *what with*. A session at 34% because
+      the tool definitions are large stays at 34%; one at 34% because a
+      single `read` returned 8k buys the whole window back by not doing
+      that again. The dialog is built around the five heaviest tool
+      results, by name, because that is the part anybody can act on
+- [x] And it admits its arithmetic: the parts are characters over four,
+      the provider's count for the last request is exact, and they do
+      not agree. Scaling the parts until they summed to the measured
+      total would make one number honest and every other one a lie
 - [ ] Hit rate and `$ this session` on screen — the ledger has both, nothing
       draws them yet
 

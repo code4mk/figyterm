@@ -14766,6 +14766,140 @@ body > .cm-api-completions .cm-completionDetail {
   font-size: 11.5px;
 }
 
+/* ─── /context ───────────────────────────────────────────────────────────── */
+
+.figy-context-head {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  margin-bottom: 9px;
+  font-family: var(--figy-mono);
+}
+
+.figy-context-total {
+  color: var(--ft-text);
+  font-size: 19px;
+  font-variant-numeric: tabular-nums;
+}
+
+.figy-context-of,
+.figy-context-percent {
+  color: var(--ft-text-muted);
+  font-size: 12px;
+}
+
+.figy-context-percent {
+  margin-left: auto;
+}
+
+/* One bar in wire order rather than a pie: these are parts of a
+   sequence — tools, then the prompt, then the conversation — and the
+   order is what decides which of them a cache keeps. */
+.figy-context-bar {
+  display: flex;
+  gap: 2px;
+  height: 10px;
+  margin-bottom: 14px;
+}
+
+.figy-context-slice {
+  min-width: 2px;
+  border-radius: 2px;
+}
+
+/* Five parts, told apart by hue and by the key beside each row — the
+   colour is a second signal rather than the only one, so the list
+   reads the same for anybody who cannot separate two of them. */
+.figy-context-slice.tools,
+.figy-context-key.tools {
+  background: #7c5cff;
+}
+
+.figy-context-slice.system,
+.figy-context-key.system {
+  background: #3f8cff;
+}
+
+.figy-context-slice.user,
+.figy-context-key.user {
+  background: #27c2a0;
+}
+
+.figy-context-slice.assistant,
+.figy-context-key.assistant {
+  background: #e0a33a;
+}
+
+.figy-context-slice.toolResults,
+.figy-context-key.toolResults {
+  background: #e06c9a;
+}
+
+.figy-context-slice.free,
+.figy-context-key.free {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.figy-context-parts {
+  display: flex;
+  flex-direction: column;
+}
+
+.figy-context-row {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--ft-border-subtle);
+  font-family: var(--figy-mono);
+  font-size: 12px;
+}
+
+.figy-context-key {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  transform: translateY(-1px);
+}
+
+.figy-context-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+  color: var(--ft-text-secondary);
+}
+
+.figy-context-note {
+  color: var(--ft-text-muted);
+  font-size: 10.5px;
+}
+
+.figy-context-tokens {
+  flex: none;
+  color: var(--ft-text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The measured number against the estimate. They will not agree, and
+   the footer is where that is admitted rather than smoothed over. */
+.figy-context-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 12px;
+  color: var(--ft-text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.light .figy-context-slice.free,
+.light .figy-context-key.free {
+  background: rgba(15, 17, 23, 0.1);
+}
+
 /* ─── The model list ─────────────────────────────────────────────────────── */
 
 .figy-empty {

@@ -477,6 +477,7 @@ export function SettingsDialog({
         Not settings — views of what this window has done. They open behind this dialog,
         where there is room to read them.
       </div>
+      {link("What is filling the context", "/context", "this conversation")}
       {link("Tools and what they cost", "/tools", rules ? `${rules} is read too` : "no FIGY.md")}
       {link(
         "Earlier conversations",
