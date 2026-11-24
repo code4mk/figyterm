@@ -38,6 +38,8 @@
 //! - [`web`] — Exa, for the questions whose answer is not in the project.
 //! - [`store`] — the conversation on disk, so a restart is an
 //!   interruption rather than an ending.
+//! - [`rules`] — the project's own instructions, read into the prefix at
+//!   session start from a file the user can review in a diff.
 //!
 //! What is not written: the dirty-buffer handshake before an edit, the
 //! agent's own rules file, and the rest of the tool surface.
@@ -48,6 +50,7 @@ pub mod ledger;
 pub mod message;
 pub mod policy;
 pub mod provider;
+pub mod rules;
 pub mod session;
 pub mod shell;
 pub mod store;

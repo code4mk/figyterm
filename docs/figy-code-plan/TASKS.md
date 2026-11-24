@@ -367,10 +367,24 @@ entirely.
 `TOOLS.md` group E. These are the tools with no side effect outside the
 conversation, and the ones most often left out of a first draft.
 
-- [ ] **`FIGY.md` is written by nothing and read by nothing.** Rules
-      belong in the prefix at session start — a file the user can edit
-      and review in a diff, rather than behaviour that lives in a
-      hidden note the agent wrote itself
+- [x] **`FIGY.md` is read into the prefix at session start**, from the
+      top of the project, with `AGENTS.md` as a second name because a
+      repository that has one has already written down what we would
+      otherwise ask for twice. `agent/rules.rs`
+- [x] Appended *under* the surface's preamble, and said to win where
+      they disagree: a model handed two sets of instructions with no
+      order between them picks one at random
+- [x] Read **once**, like everything else in the prefix. An edit applies
+      to the next conversation; a file the user can touch to invalidate
+      the cache of a session thirty turns deep is a worse surprise than
+      the one it fixes, and `/clear` is the way to pick a change up
+- [x] Capped at 12K characters, cut on a character boundary, and the cut
+      announced in the prompt itself — an agent silently given half a
+      rule is worse than one given none
+- [x] The first screen names the file and says what carrying it costs on
+      every turn. The whole argument for a file over a memory tool is
+      that behaviour should be reviewable, which means admitting the
+      price of it
 - [ ] `todo_write` — on a twenty-turn task the list is the only thing
       keeping the model's own intent in the prefix without restating it
       in prose every turn. It is also the window's best status display,

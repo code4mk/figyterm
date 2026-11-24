@@ -18,7 +18,12 @@ import { FolderOpen, FolderSearch, MessageSquare, Trash2 } from "lucide-react";
 import { collapseHome } from "../../services/recent-dirs";
 import { projectLabel, type FigyProject } from "../../services/figycode-projects";
 import { formatCost, formatTokens } from "../../services/figycode-blocks";
-import type { AgentSettings, Conversation, Totals } from "../../services/figycode-agent";
+import type {
+  AgentSettings,
+  Conversation,
+  ProjectRules,
+  Totals,
+} from "../../services/figycode-agent";
 
 /* ─── Start ───────────────────────────────────────────────────────────────── */
 
@@ -36,6 +41,7 @@ export function Welcome({
   index,
   model,
   configured,
+  rules,
   others,
   earlier,
   onPick,
@@ -47,6 +53,8 @@ export function Welcome({
   index: { files: number; folders: number; truncated: boolean } | null;
   model: string;
   configured: boolean;
+  /** What this project tells the agent, and what it costs to tell it. */
+  rules: ProjectRules | null;
   others: FigyProject[];
   /** How many conversations this folder has had, for the one line about them. */
   earlier: number;
@@ -110,6 +118,35 @@ export function Welcome({
                 <button type="button" className="figy-link" onClick={onConfigure}>
                   not set up yet — add a provider
                 </button>
+              )}
+            </span>
+          </div>
+
+          {/*
+            Rules the project wrote down, said out loud.
+
+            The whole argument for reading them from a file rather than
+            letting the agent keep notes to itself is that behaviour
+            should be reviewable — which means the window has to admit
+            when there are some, name the file, and say what carrying
+            them costs on every turn.
+          */}
+          <div className="figy-welcome-check">
+            <span className="figy-welcome-check-label">rules</span>
+            <span className="figy-welcome-check-detail">
+              {rules ? (
+                <>
+                  {rules.name}
+                  <span className="figy-sub">
+                    {" "}
+                    · ~{formatTokens(rules.tokens)} tokens on every turn
+                    {rules.truncated && " · cut at the limit"}
+                  </span>
+                </>
+              ) : (
+                <span className="dim">
+                  none — add a FIGY.md and it is read into every conversation
+                </span>
               )}
             </span>
           </div>

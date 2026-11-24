@@ -208,6 +208,33 @@ export function agentUsage(surface: Surface): Promise<Totals> {
   return invoke<Totals>("agent_usage", { surface });
 }
 
+/* ─── The project's own instructions ──────────────────────────────────────── */
+
+/**
+ * `FIGY.md`, as the window reports it.
+ *
+ * The token count is the point of showing this at all: the rules sit in
+ * the cached prefix of every request for the whole session, and a window
+ * that hides the cost is a window that invites a thousand-line file.
+ */
+export interface ProjectRules {
+  name: string;
+  path: string;
+  tokens: number;
+  /** Past the cap, and the prompt says so to the model as well. */
+  truncated: boolean;
+}
+
+/**
+ * What the *next* conversation in this folder will be given.
+ *
+ * A running session keeps the copy it started with: the prefix is frozen,
+ * so an edit to `FIGY.md` applies after `/clear` rather than immediately.
+ */
+export function agentRules(): Promise<ProjectRules | null> {
+  return invoke<ProjectRules | null>("agent_rules");
+}
+
 /* ─── Conversations, between runs ─────────────────────────────────────────── */
 
 /** One line in the resume list. */

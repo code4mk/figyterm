@@ -77,6 +77,7 @@ import {
   agentConversations,
   agentForgetConversation,
   agentResume,
+  agentRules,
   agentSend,
   agentStatus,
   agentTools,
@@ -85,6 +86,7 @@ import {
   type AgentSettings,
   type AgentStatus,
   type Conversation,
+  type ProjectRules,
   type Totals,
 } from "../../services/figycode-agent";
 import {
@@ -202,6 +204,8 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
   const [totals, setTotals] = useState<Totals | null>(null);
   /** The conversations this folder has had, for `/resume`. */
   const [past, setPast] = useState<Conversation[]>([]);
+  /** What this project tells the agent, from its own `FIGY.md`. */
+  const [rules, setRules] = useState<ProjectRules | null>(null);
   const configured = status.hasKey && !!status.settings.model.trim();
 
   /* ─── The composer ─────────────────────────────────────────────────────── */
@@ -334,6 +338,14 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
     agentConversations(SURFACE)
       .then((conversations) => {
         if (alive) setPast(conversations);
+      })
+      .catch(() => {});
+    // Read live rather than from the session: this says what the *next*
+    // conversation will be given, and a running one keeps what it
+    // started with.
+    agentRules()
+      .then((found) => {
+        if (alive) setRules(found);
       })
       .catch(() => {});
     return () => {
@@ -1053,6 +1065,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
             index={index}
             model={status.settings.model || settings.model}
             configured={configured}
+            rules={rules}
             others={projects.filter((p) => p.root !== activeRoot).slice(0, 3)}
             earlier={past.length}
             onPick={openProject}

@@ -29,6 +29,7 @@ use crate::agent::ledger::{Ledger, Price, Surface, Totals};
 use crate::agent::message::ToolCall;
 use crate::agent::policy::Mode;
 use crate::agent::provider::{OpenAiProvider, ProviderConfig};
+use crate::agent::rules;
 use crate::agent::shell::{Shell, SystemShell};
 use crate::agent::web::{Exa, Web};
 use crate::agent::session::{
@@ -572,12 +573,23 @@ pub async fn agent_send(
     // The session is taken out of the map for the turn and put back after,
     // so the lock is never held across an await — a turn is minutes long,
     // and holding it would freeze every other command on this state.
+    /*
+      The project's own instructions, read once, here.
+
+      Once because this is the prefix: `tools → system → messages`, and
+      a file the user can touch to invalidate the cache of a session
+      thirty turns deep is a worse surprise than the one it fixes. An
+      edit to `FIGY.md` applies to the next conversation. The read costs
+      nothing when the session already exists, because the closure below
+      only runs when one is being made.
+    */
     let mut session = state
         .sessions
         .lock()
         .map_err(|e| e.to_string())?
         .remove(&session_key)
         .unwrap_or_else(|| {
+            let system = rules::attach(&system, rules::read(&root).as_ref());
             Session::new(
                 SessionConfig {
                     session_id: format!("{session_key}:{}", now_ms()),
@@ -715,6 +727,44 @@ pub async fn agent_send(
         .insert(session_key, session);
 
     result
+}
+
+/* ─── The project's own instructions ─────────────────────────────────────── */
+
+/// What this project tells the agent, and what it costs to tell it.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectRules {
+    pub name: String,
+    pub path: String,
+    /// Roughly, for the one line the window shows. These sit in the
+    /// cached prefix of every request for the whole session, so the
+    /// number is the point: rules are not free, and a window that hides
+    /// the cost is a window that invites a thousand-line one.
+    pub tokens: usize,
+    pub truncated: bool,
+}
+
+/// Whether this folder has written any rules down.
+///
+/// Read live rather than from the session, so the first screen can say
+/// what the *next* conversation will be given. A running session keeps
+/// the copy it started with — the prefix is frozen, and `/clear` is how
+/// an edit is picked up.
+#[tauri::command]
+pub fn agent_rules(
+    window: Window,
+    workspace: State<Workspace>,
+) -> Result<Option<ProjectRules>, String> {
+    let Some(root) = workspace.root(window.label()) else {
+        return Ok(None);
+    };
+    Ok(rules::read(&root).map(|rules| ProjectRules {
+        tokens: tools::output::approx_tokens(&rules.text),
+        name: rules.name,
+        path: rules.path,
+        truncated: rules.truncated,
+    }))
 }
 
 /* ─── Conversations, between runs ────────────────────────────────────────── */
