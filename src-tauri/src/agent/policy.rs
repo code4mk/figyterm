@@ -26,6 +26,40 @@ pub enum Mode {
     Plan,
 }
 
+/// The mode, held somewhere a running turn and the window can both
+/// reach.
+///
+/// It was a plain field, read once when the session was made, which made
+/// shift+tab decorative. Reading it per message fixed that and left one
+/// thing it could not: a decision taken *during* a turn. "Yes, allow all
+/// edits this session" and an approved plan are both answers that change
+/// what the rest of the turn may do, and the rest of the turn is already
+/// running by the time they are given.
+///
+/// So: one cell, cloned into the session and into the command that
+/// answers the card. Cheap, and small enough to reason about — the only
+/// writers are a person pressing a key.
+#[derive(Debug, Clone)]
+pub struct ModeCell(std::sync::Arc<std::sync::Mutex<Mode>>);
+
+impl ModeCell {
+    pub fn new(mode: Mode) -> Self {
+        Self(std::sync::Arc::new(std::sync::Mutex::new(mode)))
+    }
+
+    /// A poisoned lock answers `Ask`, which is the mode that asks about
+    /// everything — the safe reading of "we do not know".
+    pub fn get(&self) -> Mode {
+        self.0.lock().map(|mode| *mode).unwrap_or(Mode::Ask)
+    }
+
+    pub fn set(&self, mode: Mode) {
+        if let Ok(mut held) = self.0.lock() {
+            *held = mode;
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase", tag = "kind", content = "detail")]
 pub enum Decision {
@@ -50,12 +84,15 @@ pub fn decide(mode: Mode, class: Class, remembered: bool) -> Decision {
         (_, Class::Read) => Decision::Allow,
 
         (Mode::Plan, Class::Write) => Decision::Refuse(
-            "Plan mode: nothing is changed. Say what you would change and the user can \
-             leave plan mode to let you do it."
+            "Plan mode: nothing is changed. When you know what to do, put it to the \
+             person with `plan` — approving it lifts plan mode and you carry it out \
+             in this same turn."
                 .into(),
         ),
         (Mode::Plan, Class::Exec) => Decision::Refuse(
-            "Plan mode: no commands are run. Describe the command you would run.".into(),
+            "Plan mode: no commands are run. Name the command in a step of your `plan` \
+             instead."
+                .into(),
         ),
         (Mode::Plan, Class::Net) => {
             Decision::Refuse("Plan mode: no network requests are made.".into())

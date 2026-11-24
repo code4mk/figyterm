@@ -13795,6 +13795,32 @@ body > .cm-api-completions .cm-completionDetail {
   font-size: 11px;
 }
 
+/* The plan, numbered — the order is the content, and what gets checked
+   before approving one is whether step three can follow step two. */
+.figy-prompt-steps {
+  margin: 8px 0 2px;
+  padding: 0;
+  list-style: none;
+}
+
+.figy-prompt-step {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  padding: 3px 0;
+  color: var(--ft-text-secondary);
+  font-size: 12px;
+}
+
+.figy-prompt-step-no {
+  flex: none;
+  width: 16px;
+  color: var(--ft-text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
 /* ─── The decision ──────────────────────────────────────────────────────────
 
    Short, and the same shape whatever is above it. It keeps its own card so

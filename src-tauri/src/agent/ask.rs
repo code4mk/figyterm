@@ -46,6 +46,14 @@ pub struct Question {
     /// What they can pick. The window numbers them and adds its own way
     /// out, so this is only what the model offered.
     pub options: Vec<String>,
+    /// For a plan: the steps being proposed, drawn above the options.
+    ///
+    /// Empty for an ordinary question. The window draws a proposal card
+    /// when there are any — the same two-card shape an edit gets, where
+    /// the thing being approved is one card and the decision is the
+    /// other.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub steps: Vec<String>,
 }
 
 /// What the tool calls. A trait so it can be tested without a webview.
@@ -153,6 +161,7 @@ mod tests {
             id: String::new(),
             question: "Which one?".into(),
             options: vec!["this".into(), "that".into()],
+            steps: Vec::new(),
         }
     }
 

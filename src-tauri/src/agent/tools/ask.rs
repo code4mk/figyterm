@@ -79,6 +79,7 @@ impl Tool for AskUser {
             id: String::new(),
             question: question.clone(),
             options: options.clone(),
+            steps: Vec::new(),
         })?;
 
         /*

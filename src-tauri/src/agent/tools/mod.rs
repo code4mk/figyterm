@@ -41,6 +41,7 @@ pub mod grep;
 pub mod ls;
 pub mod lsp;
 pub mod output;
+pub mod plan;
 pub mod ask;
 pub mod read;
 pub mod todo;
@@ -291,6 +292,7 @@ pub fn registry() -> Vec<Box<dyn Tool>> {
         Box::new(git::Commit),
         Box::new(todo::TodoWrite),
         Box::new(ask::AskUser),
+        Box::new(plan::Plan),
     ]
 }
 
@@ -498,7 +500,7 @@ mod tests {
                 "read", "grep", "edit", "write", "ls", "move", "delete", "bash",
                 "bash_output", "bash_kill", "definition", "references", "diagnostics",
                 "search_web", "fetch_url", "git_status", "git_diff", "git_log",
-                "git_blame", "git_commit", "todo_write", "ask_user"
+                "git_blame", "git_commit", "todo_write", "ask_user", "plan"
             ]
         );
     }

@@ -398,7 +398,10 @@ export function applyEvent(state: SessionState, event: TurnEvent): SessionState 
       differs, what you do about it does not.
     */
     case "askingUser":
-      return { ...state, live: questionFrom(event.id, event.question, event.options) };
+      return {
+        ...state,
+        live: questionFrom(event.id, event.question, event.options, event.steps),
+      };
 
     /*
       A wait, not a failure.
@@ -517,8 +520,40 @@ export function applyEvent(state: SessionState, event: TurnEvent): SessionState 
  * The model's options, then the way out. No "don't ask again": there is
  * nothing to remember — the next question will be a different question.
  */
-export function questionFrom(id: string, question: string, options: string[]): LivePrompt {
+export function questionFrom(
+  id: string,
+  question: string,
+  options: string[],
+  steps: string[] = []
+): LivePrompt {
   const offered = options.filter((option) => option.trim());
+
+  /*
+    A plan already has its own way out — the third option the tool
+    offers is "no" — so it does not get the escape hatch an ordinary
+    question gets. Adding one would mean two kinds of no, and the tool
+    can only act on the one it wrote.
+  */
+  if (steps.length > 0) {
+    return {
+      kind: "question",
+      id,
+      rememberKey: null,
+      prompt: {
+        variant: "plan",
+        title: "The plan",
+        steps,
+        question,
+        options: offered.map((label, i) => ({
+          label,
+          chord: i === offered.length - 1 ? "esc" : undefined,
+        })),
+        footer: "↑↓ select · ↵ confirm · esc to say no",
+        denyIndex: offered.length - 1,
+      },
+    };
+  }
+
   return {
     kind: "question",
     id,

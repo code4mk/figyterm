@@ -401,8 +401,21 @@ conversation, and the ones most often left out of a first draft.
 - [x] And it survives a resume: `detail` is not stored, but the tool
       writes its list into the text the model reads, so the window
       recovers it from the one copy that is kept
-- [ ] `plan` — ends plan mode with something to approve. The refusal
-      half is built (`policy.rs`); the proposal half is not
+- [x] `plan` — ends plan mode with something to approve. The refusal
+      half was built on the first day; this is the other one. Steps, a
+      card, three answers, and approving it **lifts plan mode in the
+      turn that proposed it** rather than in the next message
+- [x] Which needed the mode to be reachable while a turn runs:
+      `policy.rs` grows a `ModeCell`, shared between the session and the
+      command that answers the card. It also makes "Yes, allow all edits
+      this session" keep its promise, which it did not before — granted
+      mid-turn, it applied from the next message
+- [x] The three answers are the tool's, not the model's. It has to know
+      what the answer *meant*, and comparing against labels it wrote
+      itself is the only version of that a rephrasing cannot break
+- [x] The plan goes into the tool result as well as the card: the steps
+      went out in an event the conversation never sees, and a model
+      re-reading its own history needs to find what it agreed to do
 - [x] `ask_user` — a structured question, asked *inside* the turn.
       `agent/ask.rs` is `code.rs` with a person on the other end: the
       question goes out on the turn's own event channel, the tool blocks

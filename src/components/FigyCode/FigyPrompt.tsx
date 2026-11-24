@@ -76,7 +76,7 @@ export function PromptCard({
   onSelect: (index: number) => void;
   onChoose: (index: number) => void;
 }) {
-  const hasProposal = !!(prompt.command || prompt.diff || prompt.facts);
+  const hasProposal = !!(prompt.command || prompt.diff || prompt.facts || prompt.steps?.length);
 
   return (
     <>
@@ -116,6 +116,25 @@ export function PromptCard({
             </div>
           )}
           {prompt.facts && <div className="figy-prompt-facts">{prompt.facts}</div>}
+
+          {/*
+            The plan, numbered.
+
+            Numbered rather than bulleted because the order is the
+            content: a plan is a sequence, and what gets checked before
+            approving it is whether step three can happen after step
+            two.
+          */}
+          {prompt.steps && prompt.steps.length > 0 && (
+            <ol className="figy-prompt-steps">
+              {prompt.steps.map((step, i) => (
+                <li className="figy-prompt-step" key={`${i}-${step}`}>
+                  <span className="figy-prompt-step-no">{i + 1}</span>
+                  <span>{step}</span>
+                </li>
+              ))}
+            </ol>
+          )}
           {prompt.diff && (
             <div className="figy-proposal-diff">
               <Diff lines={prompt.diff} />

@@ -122,6 +122,27 @@ export interface ToolRow {
 
 /* ─── The plan ────────────────────────────────────────────────────────────── */
 
+/**
+ * The three answers to a plan, spelled as `agent/tools/plan.rs` spells
+ * them.
+ *
+ * The strings go back to the tool, which compares them against the
+ * labels it offered — it is the only way the backend can know what the
+ * answer *meant*. They are here so the window can map the same strings
+ * to the mode each one leaves behind, and a change on one side without
+ * the other makes an approved plan read as a refused one.
+ */
+export const PLAN_GO_AHEAD = "Go ahead with this plan";
+export const PLAN_GO_AHEAD_NO_ASKING = "Go ahead, and don't ask about edits";
+export const PLAN_NOT_YET = "No — I'll say what to change";
+
+/** Which mode an answer to a plan leaves the session in, if it changes it. */
+export function modeAfterPlan(answer: string): PermissionMode | null {
+  if (answer === PLAN_GO_AHEAD) return "ask";
+  if (answer === PLAN_GO_AHEAD_NO_ASKING) return "acceptEdits";
+  return null;
+}
+
 export type TodoStatus = "pending" | "running" | "done";
 
 export interface TodoItem {
@@ -193,6 +214,8 @@ export interface PromptOption {
  */
 export interface Prompt {
   variant: "edit" | "bash" | "question" | "plan";
+  /** For `plan`: the steps being proposed, drawn above the decision. */
+  steps?: string[];
   /** The proposal's heading: `Edit Dockerfile`, `Bash command`. */
   title: string;
   /** The decision, as a sentence: `Make this edit to Dockerfile?` */

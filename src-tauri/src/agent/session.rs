@@ -47,7 +47,7 @@ use tokio::sync::{mpsc::UnboundedSender, oneshot};
 use crate::agent::ledger::{Ledger, Price, Surface, TurnRecord};
 use crate::agent::message::{Message, Role, ToolCall};
 use crate::agent::store::Snapshot;
-use crate::agent::policy::{approval_key, decide, Decision, Mode};
+use crate::agent::policy::{approval_key, decide, Decision, Mode, ModeCell};
 use crate::agent::provider::{Provider, StreamEvent, TurnRequest, CANCELLED};
 use crate::agent::tools::{self, output::approx_tokens, ToolContext};
 
@@ -182,6 +182,8 @@ pub enum TurnEvent {
         id: String,
         question: String,
         options: Vec<String>,
+        /// A plan's steps, when that is what is being asked about.
+        steps: Vec<String>,
     },
     /// The provider would not take it, and this is the wait. A silent
     /// thirty-second pause is indistinguishable from a hang.
@@ -272,6 +274,10 @@ pub struct SessionConfig {
 
 pub struct Session {
     config: SessionConfig,
+    /// Shared with whoever answers the cards: an approved plan and
+    /// "allow all edits this session" both change what the rest of
+    /// *this* turn may do.
+    mode: ModeCell,
     /// What this session has spent, against `budget_usd`.
     spent: f64,
     /// The last turn's input count, which is the best estimate of how
@@ -289,6 +295,7 @@ impl Session {
     /// open file — belong in the first user message instead.
     pub fn new(config: SessionConfig, system: impl Into<String>) -> Self {
         Self {
+            mode: ModeCell::new(config.mode),
             config,
             system: system.into(),
             history: Vec::new(),
@@ -333,6 +340,7 @@ impl Session {
         config.session_id = snapshot.session_id;
         config.surface = snapshot.surface;
         Self {
+            mode: ModeCell::new(config.mode),
             config,
             system: snapshot.system,
             history: snapshot.history,
@@ -365,6 +373,13 @@ impl Session {
     /// run nobody can reason about afterwards.
     pub fn set_mode(&mut self, mode: Mode) {
         self.config.mode = mode;
+        self.mode.set(mode);
+    }
+
+    /// The cell the window writes to when an answer changes what is
+    /// allowed. Held for the length of a turn and dropped after it.
+    pub fn mode_cell(&self) -> ModeCell {
+        self.mode.clone()
     }
 
     /// Whether the session has spent what it was allowed.
@@ -689,7 +704,7 @@ impl Session {
 
         let command = arguments.get("cmd").and_then(Value::as_str);
         let key = approval_key(spec.name, command);
-        match decide(self.config.mode, spec.class, approver.remembered(&key)) {
+        match decide(self.mode.get(), spec.class, approver.remembered(&key)) {
             Decision::Allow => {}
             Decision::Refuse(why) => {
                 let _ = events.send(TurnEvent::ToolRefused {

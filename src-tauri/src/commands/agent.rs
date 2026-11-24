@@ -28,7 +28,7 @@ use crate::agent::ask::{Asker, Desk, Question};
 use crate::agent::code::{Ask, Bridge, Lsp};
 use crate::agent::ledger::{Ledger, Price, Surface, Totals};
 use crate::agent::message::ToolCall;
-use crate::agent::policy::Mode;
+use crate::agent::policy::{Mode, ModeCell};
 use crate::agent::provider::{OpenAiProvider, ProviderConfig};
 use crate::agent::rules;
 use crate::agent::shell::{Shell, SystemShell};
@@ -125,6 +125,13 @@ pub struct AgentState {
     running: Mutex<HashMap<String, oneshot::Sender<()>>>,
     /// Permission questions waiting on an answer, by tool-call id.
     pending: Mutex<HashMap<String, oneshot::Sender<bool>>>,
+    /// The mode of each turn in flight, reachable while it runs.
+    ///
+    /// Two answers change what the rest of a turn may do — "allow all
+    /// edits this session" and an approved plan — and both are given
+    /// after the turn has started. Without this they applied to the
+    /// next message instead, which is a promise the card does not make.
+    modes: Mutex<HashMap<String, ModeCell>>,
     /// Commands the user said not to ask about again, this session.
     remembered: Mutex<Vec<String>>,
     /// Opened once, on disk, and shared: two windows write to one file.
@@ -149,6 +156,9 @@ pub fn forget_window(state: &AgentState, label: &str) {
     }
     if let Ok(mut running) = state.running.lock() {
         running.retain(|k, _| !k.starts_with(&mine));
+    }
+    if let Ok(mut modes) = state.modes.lock() {
+        modes.retain(|k, _| !k.starts_with(&mine));
     }
     // Dropping the shell kills what it was running. A window's `npm run dev`
     // holding port 1420 against the next one, with nothing on screen to
@@ -378,13 +388,24 @@ impl Approver for WindowApprover<'_> {
 
 /// Answers a permission question. `remember` adds the command to the
 /// session's allow list — per command, never per class.
+///
+/// `mode` is how "Yes, allow all edits this session" keeps its promise.
+/// It used to set the window's own mode and reach the agent on the
+/// *next* message, so the rest of the turn it was granted in carried on
+/// asking — which reads as the button not having worked.
 #[tauri::command]
 pub fn agent_approve(
+    window: Window,
     state: State<AgentState>,
     id: String,
     allow: bool,
     remember: Option<String>,
+    mode: Option<Mode>,
+    surface: Option<Surface>,
 ) -> Result<(), String> {
+    if let Some(mode) = mode {
+        set_mode(&state, &key(window.label(), surface.unwrap_or(Surface::Window)), mode);
+    }
     if allow {
         if let Some(key) = remember.filter(|k| !k.is_empty()) {
             if let Ok(mut list) = state.remembered.lock() {
@@ -514,7 +535,13 @@ pub fn agent_answer(
     state: State<AgentState>,
     id: String,
     answer: String,
+    // An approved plan lifts plan mode, in the turn that proposed it.
+    mode: Option<Mode>,
+    surface: Option<Surface>,
 ) -> Result<(), String> {
+    if let Some(mode) = mode {
+        set_mode(&state, &key(window.label(), surface.unwrap_or(Surface::Window)), mode);
+    }
     let desk = state
         .desks
         .lock()
@@ -525,6 +552,18 @@ pub fn agent_answer(
         desk.answer(&id, answer);
     }
     Ok(())
+}
+
+/// Changes the mode of a turn that is already running.
+///
+/// Silent when there is no turn: the commonest cause is an answer
+/// arriving just after Escape, and there is nothing left to change.
+fn set_mode(state: &AgentState, session_key: &str, mode: Mode) {
+    if let Ok(modes) = state.modes.lock() {
+        if let Some(cell) = modes.get(session_key) {
+            cell.set(mode);
+        }
+    }
 }
 
 /// What one message carries, apart from the four things Tauri injects.
@@ -667,6 +706,13 @@ pub async fn agent_send(
         .lock()
         .map_err(|e| e.to_string())?
         .insert(session_key.clone(), cancel_tx);
+    // Reachable for the length of the turn, so an answer given during it
+    // changes what the rest of it may do.
+    state
+        .modes
+        .lock()
+        .map_err(|e| e.to_string())?
+        .insert(session_key.clone(), session.mode_cell());
 
     let (events_tx, mut events_rx) = tokio::sync::mpsc::unbounded_channel::<TurnEvent>();
     let emitter = window.clone();
@@ -730,6 +776,7 @@ pub async fn agent_send(
                             id: question.id.clone(),
                             question: question.question.clone(),
                             options: question.options.clone(),
+                            steps: question.steps.clone(),
                         },
                     )
                     .map_err(|e| format!("the window could not be reached: {e}"))
@@ -785,6 +832,11 @@ pub async fn agent_send(
 
     state
         .running
+        .lock()
+        .map_err(|e| e.to_string())?
+        .remove(&session_key);
+    state
+        .modes
         .lock()
         .map_err(|e| e.to_string())?
         .remove(&session_key);

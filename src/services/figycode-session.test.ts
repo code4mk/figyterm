@@ -11,6 +11,12 @@
 import assert from "node:assert/strict";
 import type { TurnEvent } from "./figycode-agent";
 import {
+  modeAfterPlan,
+  PLAN_GO_AHEAD,
+  PLAN_GO_AHEAD_NO_ASKING,
+  PLAN_NOT_YET,
+} from "./figycode-blocks";
+import {
   answerOf,
   applyEvent,
   emptySession,
@@ -400,6 +406,33 @@ test("an empty option is dropped rather than drawn as a blank row", () => {
     state.live!.prompt.options.map((option) => option.label),
     ["this", "that", NONE_OF_THESE]
   );
+});
+
+test("a plan is drawn as a proposal with its steps above the decision", () => {
+  const state = play({
+    kind: "askingUser",
+    id: "ask_1",
+    question: "Go ahead with this plan?",
+    options: [PLAN_GO_AHEAD, PLAN_GO_AHEAD_NO_ASKING, PLAN_NOT_YET],
+    steps: ["add the field to Config", "read it in agent_send"],
+  });
+  const prompt = state.live!.prompt;
+  assert.equal(prompt.variant, "plan");
+  assert.deepEqual(prompt.steps, ["add the field to Config", "read it in agent_send"]);
+  // A plan already has its own "no" — a second one would be two kinds
+  // of no, and the tool can only act on the one it wrote.
+  assert.equal(prompt.options.length, 3);
+  assert.equal(prompt.denyIndex, 2);
+  assert.equal(prompt.options[2].label, PLAN_NOT_YET);
+});
+
+test("approving a plan is what lifts plan mode, and only approving it", () => {
+  // The strings are the contract with `agent/tools/plan.rs`: it compares
+  // the answer against the labels it offered.
+  assert.equal(modeAfterPlan(PLAN_GO_AHEAD), "ask");
+  assert.equal(modeAfterPlan(PLAN_GO_AHEAD_NO_ASKING), "acceptEdits");
+  assert.equal(modeAfterPlan(PLAN_NOT_YET), null);
+  assert.equal(modeAfterPlan(NONE_OF_THESE), null);
 });
 
 /* ─── The plan ─────────────────────────────────────────────────────────────── */

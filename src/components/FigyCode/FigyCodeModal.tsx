@@ -59,6 +59,7 @@ import {
 import {
   MODE_LABEL,
   cycleMode,
+  modeAfterPlan,
   filterCommands,
   formatCost,
   formatElapsed,
@@ -573,11 +574,29 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
       */
       if (live.kind === "question") {
         const picked = live.prompt.options[optionIndex]?.label ?? NONE_OF_THESE;
-        void agentAnswer(live.id, picked);
+        /*
+          An approved plan lifts plan mode in the turn that proposed it.
+
+          Both sides are told: the backend so the next tool in this turn
+          is not refused, and this side so the footer agrees with what
+          is actually happening.
+        */
+        const next = modeAfterPlan(picked);
+        if (next) setMode(next);
+        void agentAnswer(live.id, picked, SURFACE, next ?? undefined);
       } else {
         const { allow, remember, acceptEdits } = answerOf(live, optionIndex);
         if (acceptEdits) setMode("acceptEdits");
-        void agentApprove(live.id, allow, remember);
+        // The mode goes with the answer rather than with the next
+        // message: "allow all edits this session" that still asks two
+        // tool calls later reads as a button that did not work.
+        void agentApprove(
+          live.id,
+          allow,
+          SURFACE,
+          remember,
+          acceptEdits ? "acceptEdits" : undefined
+        );
       }
       setSession((state) => ({ ...state, live: null }));
       setChoice(0);

@@ -63,7 +63,14 @@ export type TurnEvent =
   | { kind: "toolRefused"; id: string; name: string; reason: string }
   | { kind: "needsApproval"; id: string; name: string; arguments: Record<string, unknown> }
   /** A question of the model's own, from `ask_user`. */
-  | { kind: "askingUser"; id: string; question: string; options: string[] }
+  | {
+      kind: "askingUser";
+      id: string;
+      question: string;
+      options: string[];
+      /** A plan's steps, when that is what is being asked about. */
+      steps: string[];
+    }
   | {
       kind: "turn";
       input: number;
@@ -181,13 +188,38 @@ export function agentSend(
  * the conversation verbatim, so this is what the model reads as the
  * person's own words.
  */
-export function agentAnswer(id: string, answer: string): Promise<void> {
-  return invoke("agent_answer", { id, answer });
+export function agentAnswer(
+  id: string,
+  answer: string,
+  surface: Surface,
+  /** An approved plan lifts plan mode, in the turn that proposed it. */
+  mode?: string
+): Promise<void> {
+  return invoke("agent_answer", { id, answer, surface, mode: mode ?? null });
 }
 
-/** Answers a permission question. `remember` is per command, never per class. */
-export function agentApprove(id: string, allow: boolean, remember?: string): Promise<void> {
-  return invoke("agent_approve", { id, allow, remember: remember ?? null });
+/**
+ * Answers a permission question. `remember` is per command, never per class.
+ *
+ * `mode` is how "allow all edits this session" keeps its promise: it
+ * changes the mode of the turn that is running, rather than the one after
+ * it. Granting it and then being asked again two tool calls later reads
+ * as the button not having worked.
+ */
+export function agentApprove(
+  id: string,
+  allow: boolean,
+  surface: Surface,
+  remember?: string,
+  mode?: string
+): Promise<void> {
+  return invoke("agent_approve", {
+    id,
+    allow,
+    surface,
+    remember: remember ?? null,
+    mode: mode ?? null,
+  });
 }
 
 export function agentCancel(surface: Surface): Promise<void> {
