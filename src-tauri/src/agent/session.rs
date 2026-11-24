@@ -263,6 +263,14 @@ pub struct SessionConfig {
     /// know how close a conversation is to its limit — which is the
     /// number compaction, and the warning before it, are decided on.
     pub context_window: Option<u32>,
+    /// How many model round trips one message may take, when the
+    /// default is wrong for this session.
+    ///
+    /// A sub-agent's. Forty is right for a person's task and far too
+    /// many for one the model set itself: nothing can interrupt a
+    /// sub-agent, so the step limit is the only ceiling on how long one
+    /// can hold the turn it is running inside.
+    pub max_steps: Option<usize>,
     /// Dollars this session may spend before it stops and says so.
     ///
     /// `CODE-AGENT.md`: "an agent looping on a broken test spends real
@@ -359,6 +367,10 @@ impl Session {
 
     pub fn spent(&self) -> f64 {
         self.spent
+    }
+
+    fn max_steps(&self) -> usize {
+        self.config.max_steps.unwrap_or(MAX_STEPS)
     }
 
     /// The permission mode, for the turn about to start.
@@ -501,7 +513,8 @@ impl Session {
         self.history.push(Message::user(prompt));
         let tools = picker.tools_for(prompt);
 
-        for step in 0..MAX_STEPS {
+        let max_steps = self.max_steps();
+        for step in 0..max_steps {
             /*
               The ceiling, checked before the request rather than after.
 
@@ -652,9 +665,9 @@ impl Session {
             */
             self.record(ledger, &completion, model_ms, biggest, tool_cost, &events);
 
-            if step + 1 == MAX_STEPS {
+            if step + 1 == max_steps {
                 let note = format!(
-                    "Stopped after {MAX_STEPS} steps without finishing. The work so far is \
+                    "Stopped after {max_steps} steps without finishing. The work so far is \
                      kept — say what to do next."
                 );
                 self.history.push(Message::assistant(note.clone()));
@@ -917,6 +930,7 @@ mod tests {
                 mode,
                 context_window: Some(200_000),
                 budget_usd: None,
+                max_steps: None,
             },
             "You are a coding agent.",
         )
@@ -1096,6 +1110,7 @@ mod tests {
                 mode: Mode::Ask,
                 context_window: Some(200_000),
                 budget_usd: Some(10.0),
+                max_steps: None,
             },
             snapshot.clone(),
         );
@@ -1308,6 +1323,7 @@ mod tests {
                 mode: Mode::Ask,
                 context_window: Some(200_000),
                 budget_usd: Some(0.001),
+                max_steps: None,
             },
             "system",
         );
@@ -1355,6 +1371,7 @@ mod tests {
             mode: Mode::Ask,
             context_window: None,
             budget_usd: None,
+            max_steps: None,
         };
         assert_eq!(Session::new(config, "s").context_percent(), None);
 
@@ -1367,6 +1384,7 @@ mod tests {
             // Zero is "not configured" rather than "divide by zero".
             context_window: Some(0),
             budget_usd: None,
+            max_steps: None,
         };
         assert_eq!(Session::new(config, "s").context_percent(), None);
     }

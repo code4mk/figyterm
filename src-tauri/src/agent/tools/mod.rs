@@ -44,6 +44,7 @@ pub mod output;
 pub mod plan;
 pub mod ask;
 pub mod read;
+pub mod task;
 pub mod todo;
 pub mod web;
 pub mod write;
@@ -118,6 +119,7 @@ pub struct ToolContext {
     pub lsp: Option<Arc<dyn crate::agent::code::Lsp>>,
     pub web: Option<Arc<dyn crate::agent::web::Web>>,
     pub asker: Option<Arc<dyn crate::agent::ask::Asker>>,
+    pub delegate: Option<Arc<dyn crate::agent::delegate::Delegate>>,
 }
 
 impl ToolContext {
@@ -129,6 +131,7 @@ impl ToolContext {
             lsp: None,
             web: None,
             asker: None,
+            delegate: None,
         }
     }
 
@@ -149,6 +152,11 @@ impl ToolContext {
 
     pub fn with_asker(mut self, asker: Arc<dyn crate::agent::ask::Asker>) -> Self {
         self.asker = Some(asker);
+        self
+    }
+
+    pub fn with_delegate(mut self, delegate: Arc<dyn crate::agent::delegate::Delegate>) -> Self {
+        self.delegate = Some(delegate);
         self
     }
 
@@ -178,6 +186,16 @@ impl ToolContext {
         self.web
             .as_deref()
             .ok_or_else(|| "no Exa key is set, so the web is unreachable from here".to_string())
+    }
+
+    /// The sub-agent, or why there is not one.
+    ///
+    /// Absent inside a sub-agent, which is the point: a tree of them has
+    /// no bottom and the bill has no ceiling.
+    pub fn delegate(&self) -> Result<&dyn crate::agent::delegate::Delegate, ToolError> {
+        self.delegate.as_deref().ok_or_else(|| {
+            "no sub-agent is available here — read the project yourself".to_string()
+        })
     }
 
     /// The person, or the reason they cannot be reached.
@@ -264,6 +282,22 @@ const PANEL_TOOLS: &[&str] = &[
     "ask_user",
 ];
 
+/// What a sub-agent may use.
+///
+/// Read, and nothing else. `delegate.rs` has the argument in full; the
+/// short version is that a sub-agent's conversation is thrown away, so
+/// anything it changed would reach the parent as a sentence claiming a
+/// change — no diff, no path, no row to open. It also has nobody to ask
+/// and must not be able to spawn another of itself.
+pub const SUB_TOOLS: &[&str] = &[
+    "read",
+    "grep",
+    "ls",
+    "definition",
+    "references",
+    "diagnostics",
+];
+
 /// Every tool, in a fixed order.
 ///
 /// The order is part of the cache prefix, so it is the declaration order here
@@ -293,6 +327,7 @@ pub fn registry() -> Vec<Box<dyn Tool>> {
         Box::new(todo::TodoWrite),
         Box::new(ask::AskUser),
         Box::new(plan::Plan),
+        Box::new(task::Task),
     ]
 }
 
@@ -318,6 +353,21 @@ pub fn specs_for(surface: Surface) -> Vec<ToolSpec> {
 /// The whole set as the provider wants it.
 pub fn openai_tools() -> Value {
     Value::Array(specs().iter().map(ToolSpec::as_openai).collect())
+}
+
+/// A named subset, in the registry's order.
+///
+/// For the sub-agent, which is not a surface: it is a different
+/// conversation with a different prefix, and the order still has to be
+/// the registry's so two sub-agents in one session share a cache.
+pub fn openai_tools_named(names: &[&str]) -> Value {
+    Value::Array(
+        specs()
+            .iter()
+            .filter(|spec| names.contains(&spec.name))
+            .map(ToolSpec::as_openai)
+            .collect(),
+    )
 }
 
 pub fn openai_tools_for(surface: Surface) -> Value {
@@ -500,7 +550,7 @@ mod tests {
                 "read", "grep", "edit", "write", "ls", "move", "delete", "bash",
                 "bash_output", "bash_kill", "definition", "references", "diagnostics",
                 "search_web", "fetch_url", "git_status", "git_diff", "git_log",
-                "git_blame", "git_commit", "todo_write", "ask_user", "plan"
+                "git_blame", "git_commit", "todo_write", "ask_user", "plan", "task"
             ]
         );
     }

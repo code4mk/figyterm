@@ -431,7 +431,21 @@ conversation, and the ones most often left out of a first draft.
 - [x] Offered in the panel too. It is the one tool on that list which is
       not about the buffer, and the reason is that a panel which cannot
       ask has to guess — the same wrong guess, made faster
-- [ ] `task` — a sub-agent with its own context, returning a few hundred
-      tokens instead of the forty files it read. The cost lever hiding in
-      this group, and the only safe place for a cheaper model: it is off
-      the main thread, so it forfeits no cache
+- [x] `task` — a sub-agent with its own context, returning a few hundred
+      tokens instead of the forty files it read. `agent/delegate.rs`
+- [x] Read-only, and the reason is not caution: its conversation is
+      thrown away, so an edit it made would reach the parent as a
+      sentence claiming an edit — no diff, no path, no row to open. It
+      also has nobody to ask, and cannot spawn another of itself
+- [x] Its turns land in the same ledger under the parent's session id,
+      and its total comes back as `costUsd` — the hook the loop already
+      reads for Exa — so the parent's budget covers it rather than
+      stopping at the one call that can spend the most
+- [x] Twelve steps, not forty, because **nothing can interrupt it**:
+      Escape cancels the parent's turn and the sub-agent keeps going
+      underneath it. The step limit is the whole of the protection
+- [ ] A cheaper model for it. `CODE-AGENT.md`'s lever 4, and this is the
+      only safe place for one — off the main thread, forfeiting no cache
+      — but it needs a second provider in the settings first
+- [ ] Interruptible sub-agents: a cancel channel that reaches into the
+      tool call, which the synchronous `Tool` trait has nowhere to put

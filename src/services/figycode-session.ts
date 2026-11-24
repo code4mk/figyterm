@@ -215,7 +215,14 @@ function kindOf(tool: string): ToolKind {
     case "ls":
       return "read";
     case "grep":
+    // A sub-agent is a search with a model in it: it reads, it reports,
+    // and it changes nothing.
+    case "task":
       return "search";
+    case "ask_user":
+    case "plan":
+    case "todo_write":
+      return "read";
     case "edit":
     case "move":
     case "delete":
@@ -259,6 +266,10 @@ export function subjectOf(tool: string, args: Record<string, unknown>): string {
       return `${first("from") ?? ""} → ${first("to") ?? ""}`;
     case "search_web":
       return first("query") ?? "";
+    case "task":
+      return first("prompt") ?? "";
+    case "ask_user":
+      return first("question") ?? "";
     case "fetch_url":
       return first("url") ?? "";
     default:

@@ -26,6 +26,7 @@ use tokio::sync::oneshot;
 
 use crate::agent::ask::{Asker, Desk, Question};
 use crate::agent::code::{Ask, Bridge, Lsp};
+use crate::agent::delegate::{Delegate, SubAgent};
 use crate::agent::ledger::{Ledger, Price, Surface, Totals};
 use crate::agent::message::ToolCall;
 use crate::agent::policy::{Mode, ModeCell};
@@ -652,12 +653,22 @@ pub async fn agent_send(
         output: settings.output_price.unwrap_or(0.0),
     };
 
-    let provider = OpenAiProvider::new(ProviderConfig {
+    // Built twice rather than shared: the sub-agent in `task` talks to
+    // the same endpoint with the same key, and a client is a config and
+    // a connection pool rather than anything worth passing around.
+    let settings_for_provider = ProviderConfig {
         base_url: settings.base_url.clone(),
         api_key: key,
         model: settings.model.clone(),
         temperature: settings.temperature,
         timeout: Duration::from_secs(300),
+    };
+    let provider = OpenAiProvider::new(ProviderConfig {
+        base_url: settings_for_provider.base_url.clone(),
+        api_key: settings_for_provider.api_key.clone(),
+        model: settings_for_provider.model.clone(),
+        temperature: settings_for_provider.temperature,
+        timeout: settings_for_provider.timeout,
     });
 
     // The session is taken out of the map for the turn and put back after,
@@ -689,6 +700,7 @@ pub async fn agent_send(
                     mode,
                     context_window: settings.context_window,
                     budget_usd: settings.budget_usd,
+                    max_steps: None,
                 },
                 system,
             )
@@ -801,6 +813,32 @@ pub async fn agent_send(
     // Kept, because `root` itself goes into the tool context below and the
     // snapshot after the turn needs to say where all this happened.
     let where_it_happened = root.to_string_lossy().to_string();
+
+    /*
+      The sub-agent `task` hands questions to.
+
+      Same provider, same ledger rows, same budget ceiling — a different
+      conversation. What makes it worth having is that its context is
+      thrown away: the twenty files it read to answer one question never
+      enter this session's prefix, so they are never paid for again.
+
+      It gets the language server and the project, and neither the shell
+      nor the person. `agent/delegate.rs` has the argument.
+    */
+    let delegate: Arc<dyn Delegate> = Arc::new(
+        SubAgent::new(
+            tokio::runtime::Handle::current(),
+            Arc::new(OpenAiProvider::new(settings_for_provider)),
+            session.id().to_string(),
+            surface,
+            settings.model.clone(),
+            price,
+            root.clone(),
+        )
+        .with_limits(settings.context_window, settings.budget_usd)
+        .with_ledger(ledger.clone())
+        .with_lsp(Arc::clone(&lsp)),
+    );
     let result = session
         .send(
             &prompt,
@@ -812,7 +850,8 @@ pub async fn agent_send(
                     let ctx = ToolContext::new(root)
                         .with_shell(shell)
                         .with_lsp(lsp)
-                        .with_asker(asker);
+                        .with_asker(asker)
+                        .with_delegate(delegate);
                     match web {
                         Some(web) => ctx.with_web(web),
                         None => ctx,
@@ -1034,6 +1073,7 @@ pub fn agent_resume(
             mode: Mode::Ask,
             context_window: settings.context_window,
             budget_usd: settings.budget_usd,
+            max_steps: None,
         },
         snapshot,
     );
