@@ -12,8 +12,8 @@ This folder is the detail underneath it, one subject per file.
 
 **Status (2026-11-25): the agent runs, and it now survives a long task.**
 Sections 1–8 of `TASKS.md` are in — a turn loop in `src-tauri/src/agent/`,
-twenty tools, a permission model, a ledger, and a window with nothing
-scripted left in it. Sections 9 and 10 are in: the context window is
+twenty-four tools, a permission model, a ledger, and a window with
+nothing scripted left in it. Sections 9 and 10 are in: the context window is
 tracked, the budget stops a run before it overspends rather than after,
 a conversation compacts itself once, late, at a task boundary, a rate
 limit no longer ends the turn, and a conversation is written down after
