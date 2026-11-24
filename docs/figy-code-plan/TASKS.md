@@ -3,9 +3,10 @@
 The build order from [`TOOLS.md`](./TOOLS.md), as things to tick off. Checked
 means written **and tested**; a task with no test is not done.
 
-**Where it stands (2026-11-24):** sections 1 and 2 are in, bar the two items
-still open at the end of 2. `cargo test --lib` is 271 passing, of which 51 are
-the agent's own. Nothing calls a model yet.
+**Where it stands (2026-11-24):** sections 1–3 are in, bar the items still
+marked open. `cargo test --lib` is 326 passing, of which 106 are the agent's
+own. A turn runs end to end against any OpenAI-compatible endpoint; nothing
+in the window is wired to it yet, which is section 5.
 
 The shape of the thing being built, decided and not re-opened here:
 
@@ -48,14 +49,30 @@ The shape of the thing being built, decided and not re-opened here:
 
 ## 3 · The loop
 
-- [ ] `agent/provider.rs` — an OpenAI-compatible client behind a trait, key
-      from the keychain, cancellable through `tokio::select!`
-- [ ] typesafe.ai as the tool picker, behind the same trait
-- [ ] `agent/loop.rs` — turn loop, tool-call round trips, streaming events to
-      the window
-- [ ] `agent/ledger.rs` — per-turn tokens, cache reads and writes, cost, into
-      SQLite. **Before the features, not after**
-- [ ] Cache breakpoints and a frozen prefix; hit rate on screen
+- [x] `agent/message.rs` — the conversation, and its OpenAI form. Tool
+      arguments kept as the bytes the model wrote, because those bytes are
+      the cache prefix of every later turn
+- [x] `agent/policy.rs` — which classes run in which mode, and what
+      "don't ask again" remembers (a command, never a class)
+- [x] `agent/provider.rs` — an OpenAI-compatible streaming client behind a
+      trait, key from the keychain, cancellable through `tokio::select!`
+- [x] `agent/session.rs` — the turn loop: tool round trips, the permission
+      handshake, a step limit, and a frozen prefix with tests that fail if
+      the system message or any earlier message ever moves
+- [x] `agent/ledger.rs` — per-turn tokens, cached reads, cost and the
+      largest tool result, into SQLite
+- [x] `commands/agent.rs` — configure, send, approve, cancel, usage, with
+      the turn narrated over one `agent://event` stream
+- [ ] **typesafe.ai as the tool picker.** The `Picker` seam is in and the
+      default offers the whole registry; the router implementation needs its
+      API. Note the tension first: narrowing the tool list per turn changes
+      the first bytes of the request, which is the worst place to change
+      them. Measure it against the cache saving before believing it wins
+- [ ] Explicit cache breakpoints for endpoints that take them (Anthropic's
+      `cache_control`). Prefix stability is done; breakpoints are an
+      Anthropic-shaped extra
+- [ ] Hit rate and `$ this session` on screen — the ledger has both, nothing
+      draws them yet
 
 ## 4 · Tool hygiene
 

@@ -24,11 +24,22 @@
 //!   keeps every tool inside it.
 //! - [`tools`] — the registry, the schema the model is offered, and the three
 //!   tools that make an agent: `read`, `grep`, `edit`.
+//! - [`message`] — the conversation, and the OpenAI form it is sent in.
+//! - [`policy`] — which classes of tool may run in which permission mode.
+//! - [`provider`] — one trait, and a client for any OpenAI-compatible
+//!   endpoint, streaming and cancellable.
+//! - [`session`] — the turn loop, and the frozen prefix it depends on.
+//! - [`ledger`] — what every turn cost, written down at the time, because
+//!   cache discipline is invisible when it breaks.
 //!
-//! The loop, the provider client and the ledger are not written.
-//! `docs/figy-code-plan/TASKS.md` is the order they arrive in, and the ledger
-//! is deliberately early in it: without per-turn token accounting from the
-//! start, a five-fold cost regression is invisible until the bill arrives.
+//! What is not written: compaction, the dirty-buffer handshake before an
+//! edit, and the rest of the tool surface.
+//! `docs/figy-code-plan/TASKS.md` is the order they arrive in.
 
+pub mod ledger;
+pub mod message;
+pub mod policy;
+pub mod provider;
+pub mod session;
 pub mod tools;
 pub mod workspace;

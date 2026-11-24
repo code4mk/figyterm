@@ -14,6 +14,7 @@ pub mod terminal;
 pub mod updater;
 
 use agent::workspace::Workspace;
+use commands::agent::AgentState;
 use commands::browser::BrowserState;
 use commands::figy_files::FigyState;
 use commands::fs::FsState;
@@ -59,6 +60,7 @@ pub fn run() {
         .manage(FsState::default())
         .manage(FigyState::default())
         .manage(Workspace::default())
+        .manage(AgentState::default())
         .manage(WatchState::default())
         .manage(LspState::default())
         .manage(ApiState::default())
@@ -101,6 +103,7 @@ pub fn run() {
             commands::fs::forget_window(&app.state::<FsState>(), label);
             commands::figy_files::forget_window(&app.state::<FigyState>(), label);
             app.state::<Workspace>().forget(label);
+            commands::agent::forget_window(&app.state::<AgentState>(), label);
             commands::fs_watch::forget_window(&app.state::<WatchState>(), label);
             commands::lsp::forget_window(app, label);
         })
@@ -120,6 +123,12 @@ pub fn run() {
             commands::figy_files::figy_find_files,
             commands::agent::agent_tools,
             commands::agent::agent_call_tool,
+            commands::agent::agent_configure,
+            commands::agent::agent_has_key,
+            commands::agent::agent_send,
+            commands::agent::agent_approve,
+            commands::agent::agent_cancel,
+            commands::agent::agent_usage,
             commands::autocomplete::list_path_completions,
             commands::autocomplete::get_home_dir,
             commands::autocomplete::read_project_file,
