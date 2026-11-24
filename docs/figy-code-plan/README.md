@@ -8,12 +8,20 @@ This folder is the detail underneath it, one subject per file.
 | File | What it settles |
 |---|---|
 | [`TOOLS.md`](./TOOLS.md) | Every tool the agent gets, what backs it, what it may return, and what it is not allowed to do |
+| [`TASKS.md`](./TASKS.md) | The order it is built in, and what is actually done. Sections 1–8 are the agent; 9–11 are what makes it a harness |
 
-**Status: nothing here is built.** The window in `src/components/FigyCode/` is
-a design prototype over a scripted transcript — it has no agent behind it, and
-the only thing in it that touches the disk is the `@` file index
-(`src-tauri/src/commands/figy_files.rs`). These notes describe what would have
-to exist for that window to be telling the truth.
+**Status (2026-11-25): the agent runs; the harness does not exist yet.**
+Sections 1–8 of `TASKS.md` are in — a turn loop in `src-tauri/src/agent/`,
+twenty tools, a permission model, a ledger, and a window with nothing
+scripted left in it. Sections 9–11 are not, and they are the ones that
+keep a *long* task alive: no context-window tracking, no compaction, no
+budget ceiling, no retry on a rate limit, and sessions that a restart
+empties.
+
+The line that used to be here said nothing was built, which stopped being
+true some time ago. A status line nobody updates is worse than none,
+so: if this one disagrees with `TASKS.md`, `TASKS.md` is the document
+that gets maintained.
 
 ## How to read a document in here
 

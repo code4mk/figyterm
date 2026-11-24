@@ -452,7 +452,33 @@ test spends real money fast, and "a few cents a turn" stops being true at turn
 
 ---
 
-## On Rig, specifically
+## On Rig, specifically — **settled: we are not using it**
+
+> **Decided 2026-11-25.** The provider is ~500 lines of `reqwest` in
+> `src-tauri/src/agent/provider.rs`, behind a trait with one
+> implementation. The section below is kept because its reasoning is why,
+> and because the trait is the insurance policy: a `RigProvider` is a
+> second implementation the day one is wanted, and nothing above it moves.
+>
+> **What made the difference** was not the dependency count. It was that
+> OpenRouter already *is* the multi-provider layer this decision was
+> about — it speaks the OpenAI wire format and fronts Anthropic, Gemini,
+> DeepSeek and the rest — so Rig's headline feature is largely bought
+> already. Against that, the things it would have abstracted are exactly
+> the ones this document says decide whether the product is viable:
+> `stream_options.include_usage`, `prompt_tokens_details.cached_tokens`,
+> where `cache_control` goes, and what cancellation means. Rig reported
+> **no usage at all** on streaming responses until recently, and at least
+> one of its provider crates hard-codes `cached_input_tokens` to zero. An
+> abstraction that reports `0` cached tokens is worse than none, because
+> a hit rate of zero is precisely how a broken prefix announces itself:
+> we would not be able to tell the two apart.
+>
+> **Revisit when** a provider is wanted that is not OpenAI-compatible and
+> not reachable through OpenRouter, or when OpenRouter's `cache_control`
+> passthrough turns out not to carry Anthropic's 1-hour TTL.
+
+
 
 Rig's value is the provider abstraction — **30 provider modules in 0.47.0,
 `openrouter` among them** — plus message and tool types we would otherwise
@@ -495,7 +521,7 @@ the `cache_control` placement we need, drop it without regret.
 | Promotion? | **Panel → window only** |
 | Where does the panel live? | The **column opposite the explorer**, with a mode switcher |
 | Our own loop or `rig-agent`? | **Ours.** The cost levers live in the loop |
-| `rig-core` or raw HTTP? | **`rig-core`, `default-features = false`** — revisit in week one |
+| `rig-core` or raw HTTP? | **Raw HTTP. Decided 2026-11-25, see below** |
 | OpenRouter or direct? | **OpenRouter**, behind a trait |
 | Explicit or automatic caching? | **Explicit** in the window; automatic is fine in the panel |
 | Prune continuously? | **No.** Grow with cache behind; compact once, hard, late |

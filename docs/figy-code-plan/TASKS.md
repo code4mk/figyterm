@@ -16,6 +16,11 @@ The shape of the thing being built, decided and not re-opened here:
 - **The wire format is OpenAI-compatible** — `/v1/chat/completions` with
   `tools: [{ type: "function", function: { name, description, parameters } }]`
   — so the provider is a base URL and a key, not a rewrite.
+- **No Rig.** Settled 2026-11-25; the reasoning is in `CODE-AGENT.md`.
+  The provider is ~500 lines of `reqwest` behind a trait, and the trait
+  is the insurance: a second implementation is a day's work the moment a
+  wire format appears that we do not speak. See 3b for the two
+  conditions that would make it one.
 - **Tool picking goes through typesafe.ai.** The registry below emits the
   schema it needs and dispatches whatever comes back by name; the picker is
   behind a trait so the model choosing directly and a router choosing for it
@@ -74,6 +79,26 @@ The shape of the thing being built, decided and not re-opened here:
       Anthropic-shaped extra
 - [ ] Hit rate and `$ this session` on screen — the ledger has both, nothing
       draws them yet
+
+### 3b · When a second provider implementation becomes worth it
+
+Not a to-do. Two conditions, written down so the decision is not taken
+again from scratch:
+
+- A provider is wanted that is **not OpenAI-compatible and not reachable
+  through OpenRouter**. Everything we have pointed at so far — the Modal
+  endpoint, OpenAI, OpenRouter, vLLM, llama.cpp, Ollama — speaks the one
+  wire format.
+- **OpenRouter's `cache_control` passthrough will not carry Anthropic's
+  1-hour TTL.** That TTL is the cost argument this whole plan rests on,
+  and going direct to Anthropic is the only other way to get it. Worth
+  testing before it is needed rather than after.
+
+Whichever arrives first, the work is a second `impl Provider` beside
+`OpenAiProvider` and nothing above it moves. What it must prove before
+anything depends on it: that **`Usage.cached` survives it**. A layer that
+reports zero cached tokens is worse than no layer, because zero is also
+what a destroyed cache prefix looks like.
 
 ## 4 · Tool hygiene
 
@@ -249,3 +274,75 @@ made the cheap one expensive. Four pieces, in this order.
       search result, are text. Clicking a `path:line` to open the editor
       there, and a URL to open the browser window, is the obvious next
       thing the transcript should do
+
+---
+
+# The part that makes it a harness
+
+Sections 1–8 build an agent that can take a turn: a loop, twenty tools, a
+permission model, a ledger and two surfaces. That is not yet a harness.
+A harness is what keeps a *long* task alive — across a context window,
+across a rate limit, across a restart — and none of it is built.
+
+These are in rough order of how soon their absence will be felt.
+
+## 9 · Surviving a long task
+
+This is phase 8 of `CODE-AGENT.md`, and it was missing from this list
+entirely.
+
+- [ ] **The context window is not tracked.** The ledger records input
+      tokens per turn; nothing knows the model's limit, so nothing can
+      say how close a conversation is to it. Everything below depends on
+      this number, and it is a configuration value beside the model name
+- [ ] **A hard per-session budget, and a stop at it.** `CODE-AGENT.md`:
+      "an agent looping on a broken test spends real money fast, and 'a
+      few cents a turn' stops being true at turn 200." The ledger can
+      answer *how much*; nothing acts on it
+- [ ] **Compaction, once, late, at a task boundary.** Summarise turns
+      1..N and continue from the summary. The trap is written down and
+      worth repeating: pruning and compaction both **destroy the cache**,
+      so the arithmetic is often negative — dropping 20K tokens to save
+      2K a turn while forfeiting a cache that was saving 25K. Let it grow
+      with cache behind it; compact once, decisively, and rebuild
+- [ ] Never compact away the system prompt, the repo rules, the original
+      request, the file-state map, or the last two turns
+- [ ] **Sessions do not survive a restart.** They are a `HashMap` in
+      `AgentState`; closing the app loses the conversation. SQLite is
+      already open for the ledger, and `CODE-AGENT.md` says sessions from
+      day one
+- [ ] Resume: pick a past conversation back up, with its file-state map
+
+## 10 · Not falling over
+
+- [ ] **No retry, anywhere.** A 429 or a 503 ends the turn and the user
+      starts again. A harness that dies on a rate limit is not a harness:
+      backoff with a ceiling, and say so in the transcript while it waits
+- [ ] A turn interrupted mid-tool-call leaves the history consistent —
+      this part is done — but nothing offers to pick it back up
+- [ ] Provider failover, which is only worth it once there is a second
+      provider configured. Until then, a clear message beats a silent
+      switch
+
+## 11 · The agent's own mind
+
+`TOOLS.md` group E. These are the tools with no side effect outside the
+conversation, and the ones most often left out of a first draft.
+
+- [ ] **`FIGY.md` is written by nothing and read by nothing.** Rules
+      belong in the prefix at session start — a file the user can edit
+      and review in a diff, rather than behaviour that lives in a
+      hidden note the agent wrote itself
+- [ ] `todo_write` — on a twenty-turn task the list is the only thing
+      keeping the model's own intent in the prefix without restating it
+      in prose every turn. It is also the window's best status display,
+      and the renderer for it is in the history waiting
+- [ ] `plan` — ends plan mode with something to approve. The refusal
+      half is built (`policy.rs`); the proposal half is not
+- [ ] `ask_user` — a structured question. A model that asks in prose
+      gets answered in prose, which is a turn; one that asks with three
+      options gets answered with a number
+- [ ] `task` — a sub-agent with its own context, returning a few hundred
+      tokens instead of the forty files it read. The cost lever hiding in
+      this group, and the only safe place for a cheaper model: it is off
+      the main thread, so it forfeits no cache
