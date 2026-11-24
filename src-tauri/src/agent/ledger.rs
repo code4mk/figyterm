@@ -39,10 +39,22 @@ pub enum Surface {
 }
 
 impl Surface {
-    fn as_str(self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Surface::Window => "window",
             Surface::Panel => "panel",
+        }
+    }
+
+    /// The other direction, for a row read back off disk.
+    ///
+    /// Anything unrecognised is the window, because a conversation that
+    /// cannot be placed is better offered in the big surface than
+    /// dropped — the column has no room to explain itself.
+    pub fn parse(text: &str) -> Self {
+        match text {
+            "panel" => Surface::Panel,
+            _ => Surface::Window,
         }
     }
 }

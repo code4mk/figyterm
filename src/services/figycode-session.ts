@@ -12,7 +12,7 @@
  * built the prototype first.
  */
 
-import type { TurnEvent } from "./figycode-agent";
+import type { PastMessage, TurnEvent } from "./figycode-agent";
 import type { Block, DiffLine, Prompt, ToolKind, ToolRow } from "./figycode-blocks";
 import { addedLines, lineDiff } from "./figycode-diff";
 
@@ -79,6 +79,70 @@ export function pushUser(state: SessionState, text: string): SessionState {
     streamed: 0,
     live: null,
   };
+}
+
+/* ─── A conversation picked back up ───────────────────────────────────────── */
+
+/**
+ * The transcript, rebuilt from the messages rather than from the events.
+ *
+ * Everything else in this file is `(state, event) => state`, and a resumed
+ * conversation is the one case with no events to replay: what was stored is
+ * the conversation, because the conversation is the thing that survives.
+ *
+ * So some of the screen does not come back, and it is worth being plain
+ * about which. A tool's `detail` — the structured half that never entered
+ * the conversation and only ever existed so the window could draw a diff —
+ * is not stored, so a resumed edit shows the result it reported rather
+ * than the tinted before-and-after. Storing `detail` would mean keeping a
+ * second copy of every file the agent touched, for a view of work that is
+ * already done.
+ */
+export function resumeSession(messages: PastMessage[], spentUsd: number): SessionState {
+  const blocks: Block[] = [];
+  let nextId = 1;
+  /** Where each call's row landed, so its result can find it. */
+  const rowOf = new Map<string, number>();
+
+  for (const message of messages) {
+    if (message.role === "system") continue;
+
+    if (message.role === "user") {
+      blocks.push({ id: nextId++, kind: "user", text: message.content });
+      continue;
+    }
+
+    if (message.role === "assistant") {
+      if (message.content.trim()) {
+        blocks.push({ id: nextId++, kind: "assistant", text: message.content });
+      }
+      for (const call of message.calls) {
+        rowOf.set(call.id, blocks.length);
+        blocks.push({
+          id: nextId++,
+          kind: "tool",
+          callId: call.id,
+          tool: {
+            kind: kindOf(call.name),
+            name: title(call.name),
+            target: subjectOf(call.name, call.arguments),
+          },
+        });
+      }
+      continue;
+    }
+
+    // A tool result, which belongs to a row that is already there.
+    const at = message.answers != null ? rowOf.get(message.answers) : undefined;
+    const block = at != null ? blocks[at] : undefined;
+    if (!block || block.kind !== "tool") continue;
+    blocks[at as number] = {
+      ...block,
+      tool: { ...block.tool, meta: summarise(message.content), ...body(message.content, null) },
+    };
+  }
+
+  return { ...emptySession(), blocks, nextId, spent: spentUsd };
 }
 
 /* ─── Tools ───────────────────────────────────────────────────────────────── */

@@ -14608,6 +14608,88 @@ body > .cm-api-completions .cm-completionDetail {
   font-variant-numeric: tabular-nums;
 }
 
+/* ─── /resume ────────────────────────────────────────────────────────────── */
+
+.figy-resume-list {
+  display: flex;
+  flex-direction: column;
+  max-width: 640px;
+}
+
+/* The row is the button plus the one thing that is not it. Laid out
+   here rather than inside the button, so "forget" is never something
+   you hit while reaching for "open". */
+.figy-resume-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-bottom: 1px solid var(--ft-border-subtle);
+}
+
+.figy-resume-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.figy-resume-open {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  flex: 1;
+  min-width: 0;
+  padding: 8px 6px;
+  border: none;
+  background: transparent;
+  color: var(--ft-text-secondary);
+  font-family: var(--figy-mono);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.figy-resume-open:hover {
+  color: var(--ft-text);
+}
+
+.figy-resume-icon {
+  flex: none;
+  /* Baseline-aligned text beside an icon puts the icon too high. */
+  transform: translateY(2px);
+  color: var(--ft-text-muted);
+}
+
+.figy-resume-title {
+  min-width: 0;
+  flex: 1;
+}
+
+.figy-resume-meta {
+  flex: none;
+  color: var(--ft-text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.figy-resume-row .figy-iconbtn {
+  flex: none;
+  opacity: 0;
+}
+
+.figy-resume-row:hover .figy-iconbtn,
+.figy-resume-row .figy-iconbtn:focus-visible {
+  opacity: 1;
+}
+
+.figy-resume-empty {
+  max-width: 640px;
+  padding: 14px 0;
+  color: var(--ft-text-muted);
+  font-size: 12px;
+}
+
+.light .figy-resume-row:hover {
+  background: rgba(15, 17, 23, 0.05);
+}
+
 /* ─── Status bar ─────────────────────────────────────────────────────────── */
 
 .figy-statusbar {

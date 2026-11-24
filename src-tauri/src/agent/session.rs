@@ -46,6 +46,7 @@ use tokio::sync::{mpsc::UnboundedSender, oneshot};
 
 use crate::agent::ledger::{Ledger, Price, Surface, TurnRecord};
 use crate::agent::message::{Message, Role, ToolCall};
+use crate::agent::store::Snapshot;
 use crate::agent::policy::{approval_key, decide, Decision, Mode};
 use crate::agent::provider::{Provider, StreamEvent, TurnRequest, CANCELLED};
 use crate::agent::tools::{self, output::approx_tokens, ToolContext};
@@ -283,6 +284,50 @@ impl Session {
             spent: 0.0,
             context_used: 0,
             turn: 0,
+        }
+    }
+
+    /// The conversation as something that can be written to disk.
+    ///
+    /// The root is passed in rather than held: a session knows what was
+    /// said and the workspace knows where, and duplicating the second
+    /// into the first would be two answers to one question.
+    pub fn snapshot(&self, root: impl Into<String>) -> Snapshot {
+        Snapshot {
+            session_id: self.config.session_id.clone(),
+            surface: self.config.surface,
+            root: root.into(),
+            model: self.config.model.clone(),
+            system: self.system.clone(),
+            history: self.history.clone(),
+            turn: self.turn,
+            spent: self.spent,
+            context_used: self.context_used,
+        }
+    }
+
+    /// A conversation picked back up.
+    ///
+    /// The id, the surface and the **system prompt** come from the row;
+    /// everything else — the model, the prices, the mode, the window
+    /// size, the budget — comes from the settings as they are now. That
+    /// split is deliberate. The prompt is part of the cached prefix and
+    /// of what the model was told it was doing, so changing it on the
+    /// way back in would be rewriting history; a price that has changed
+    /// since yesterday is just a price that has changed.
+    ///
+    /// `spent` comes back with it, so a budget is a budget for the
+    /// conversation rather than for each sitting at it.
+    pub fn resume(mut config: SessionConfig, snapshot: Snapshot) -> Self {
+        config.session_id = snapshot.session_id;
+        config.surface = snapshot.surface;
+        Self {
+            config,
+            system: snapshot.system,
+            history: snapshot.history,
+            spent: snapshot.spent,
+            context_used: snapshot.context_used,
+            turn: snapshot.turn,
         }
     }
 
@@ -985,6 +1030,57 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(ctx.root().join("src/main.rs")).unwrap(),
             before
+        );
+    }
+
+    /*
+      A conversation survives the process it was had in.
+
+      The snapshot is what goes to disk and the resume is what comes
+      back; what this asserts is the join between them. The system
+      prompt comes from the row rather than from the caller, because it
+      is both part of the cached prefix and part of what the model was
+      told it was doing — rewriting it on the way back in would be
+      editing history.
+    */
+    #[tokio::test]
+    async fn a_resumed_session_carries_its_history_its_prompt_and_its_spend() {
+        let ctx = scratch("resume");
+        let provider = answers(vec![
+            tool_turn(vec![call("read", json!({ "path": "src/main.rs" }))]),
+            text_turn("It prints nothing."),
+        ]);
+        let mut session = session(Mode::AcceptEdits);
+        let ledger = Ledger::in_memory().unwrap();
+        let (result, _) = run(&mut session, &provider, &Yes, &ctx, Some(&ledger)).await;
+        result.unwrap();
+
+        let snapshot = session.snapshot("/repo");
+        assert!(snapshot.spent > 0.0, "the turn cost something");
+        assert_eq!(snapshot.root, "/repo");
+
+        // A different prompt and a different price, as a later launch
+        // would have: the row's prompt must win, the new price must.
+        let resumed = Session::resume(
+            SessionConfig {
+                session_id: "ignored".into(),
+                surface: Surface::Panel,
+                model: "test".into(),
+                price: Price { input: 1.0, cached_input: 0.1, output: 5.0 },
+                mode: Mode::Ask,
+                context_window: Some(200_000),
+                budget_usd: Some(10.0),
+            },
+            snapshot.clone(),
+        );
+
+        assert_eq!(resumed.history(), session.history());
+        assert_eq!(resumed.spent(), session.spent());
+        assert_eq!(resumed.id(), "s1", "the row's id, not the caller's");
+        assert_eq!(
+            resumed.messages()[0],
+            Message::system("You are a coding agent."),
+            "the prompt the conversation actually ran under"
         );
     }
 

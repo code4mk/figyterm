@@ -36,9 +36,11 @@
 //! - [`code`] — the bridge to the language server the app is already
 //!   running, which is the one thing a CLI agent cannot have.
 //! - [`web`] — Exa, for the questions whose answer is not in the project.
+//! - [`store`] — the conversation on disk, so a restart is an
+//!   interruption rather than an ending.
 //!
-//! What is not written: compaction, the dirty-buffer handshake before an
-//! edit, and the rest of the tool surface.
+//! What is not written: the dirty-buffer handshake before an edit, the
+//! agent's own rules file, and the rest of the tool surface.
 //! `docs/figy-code-plan/TASKS.md` is the order they arrive in.
 
 pub mod code;
@@ -48,6 +50,7 @@ pub mod policy;
 pub mod provider;
 pub mod session;
 pub mod shell;
+pub mod store;
 pub mod tools;
 pub mod web;
 pub mod workspace;

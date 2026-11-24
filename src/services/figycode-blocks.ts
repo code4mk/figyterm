@@ -26,6 +26,7 @@ export const COMMANDS: Command[] = [
   { name: "/model", summary: "which model, and where to reach it" },
   { name: "/tools", summary: "what the agent can do, and what it costs to offer" },
   { name: "/usage", summary: "tokens, cache hit rate and spend this session" },
+  { name: "/resume", summary: "pick up a conversation from this folder" },
   { name: "/clear", summary: "start a new conversation in this folder" },
 ];
 

@@ -13,12 +13,13 @@ This folder is the detail underneath it, one subject per file.
 **Status (2026-11-25): the agent runs, and it now survives a long task.**
 Sections 1–8 of `TASKS.md` are in — a turn loop in `src-tauri/src/agent/`,
 twenty tools, a permission model, a ledger, and a window with nothing
-scripted left in it. Section 10 is in: a rate limit no longer ends the
-turn. Section 9 is in but for one thing — the context window is tracked,
-the budget stops a run before it overspends rather than after, and a
-conversation compacts itself once, late, at a task boundary — and the
-thing left is that **sessions are a `HashMap` a restart empties**.
-Section 11, the agent's own mind, has not been started.
+scripted left in it. Sections 9 and 10 are in: the context window is
+tracked, the budget stops a run before it overspends rather than after,
+a conversation compacts itself once, late, at a task boundary, a rate
+limit no longer ends the turn, and a conversation is written down after
+every turn so `/resume` can pick it back up. Section 11, the agent's own
+mind — `FIGY.md`, a to-do list, a plan it can offer, a sub-agent — has
+not been started, and neither has the editor panel in section 7.
 
 The line that used to be here said nothing was built, which stopped being
 true some time ago. A status line nobody updates is worse than none,

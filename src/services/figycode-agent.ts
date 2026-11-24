@@ -208,6 +208,68 @@ export function agentUsage(surface: Surface): Promise<Totals> {
   return invoke<Totals>("agent_usage", { surface });
 }
 
+/* ─── Conversations, between runs ─────────────────────────────────────────── */
+
+/** One line in the resume list. */
+export interface Conversation {
+  sessionId: string;
+  /** The first thing that was asked, as one line. */
+  title: string;
+  model: string;
+  /** User messages — what "turns" means to a reader. */
+  turns: number;
+  /** Everything in the history, which is what it costs to send again. */
+  messages: number;
+  spentUsd: number;
+  /** Milliseconds since the epoch, formatted here rather than in Rust. */
+  updatedAt: number;
+}
+
+/** A call, as a resumed transcript shows it. */
+export interface PastCall {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+}
+
+export interface PastMessage {
+  role: "system" | "user" | "assistant" | "tool";
+  content: string;
+  calls: PastCall[];
+  /** Tool results only: the id of the call this answers. */
+  answers: string | null;
+}
+
+export interface Resumed {
+  sessionId: string;
+  title: string;
+  model: string;
+  spentUsd: number;
+  messages: PastMessage[];
+}
+
+/** What was being worked on in this folder before, newest first. */
+export function agentConversations(surface: Surface): Promise<Conversation[]> {
+  return invoke<Conversation[]>("agent_conversations", { surface });
+}
+
+/**
+ * Picks a past conversation back up.
+ *
+ * **Not free.** The provider's cache is keyed on a prefix it saw minutes
+ * ago, not days, so the first message after this pays for the whole
+ * conversation again — which is why it is a thing you choose rather than
+ * something that happens on launch.
+ */
+export function agentResume(surface: Surface, sessionId: string): Promise<Resumed> {
+  return invoke<Resumed>("agent_resume", { surface, sessionId });
+}
+
+/** Removes a stored conversation. What is on screen stays on screen. */
+export function agentForgetConversation(sessionId: string): Promise<void> {
+  return invoke("agent_forget_conversation", { sessionId });
+}
+
 /**
  * Subscribes to the turn.
  *

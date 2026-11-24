@@ -16,6 +16,7 @@ import {
   emptySession,
   promptFor,
   pushUser,
+  resumeSession,
   subjectOf,
   type SessionState,
 } from "./figycode-session";
@@ -354,6 +355,83 @@ test("allowing all edits is a mode change, not a memory", () => {
   const answer = answerOf(edit, 1);
   assert.equal(answer.acceptEdits, true);
   assert.equal(answer.remember, undefined);
+});
+
+/* ─── A conversation picked back up ────────────────────────────────────────── */
+
+test("a resumed conversation redraws its tool rows with their results", () => {
+  const state = resumeSession(
+    [
+      { role: "system", content: "You are a coding agent.", calls: [], answers: null },
+      { role: "user", content: "what does main do?", calls: [], answers: null },
+      {
+        role: "assistant",
+        content: "",
+        calls: [{ id: "call_1", name: "read", arguments: { path: "src/main.rs" } }],
+        answers: null,
+      },
+      {
+        role: "tool",
+        content: "src/main.rs · 1 line\nfn main() {}",
+        calls: [],
+        answers: "call_1",
+      },
+      { role: "assistant", content: "Nothing yet.", calls: [], answers: null },
+    ],
+    0.42
+  );
+
+  // The system prompt is not a block: it is not something anybody said.
+  assert.equal(state.blocks.length, 3);
+  assert.equal(state.blocks[0].kind, "user");
+  const tool = state.blocks[1];
+  assert.equal(tool.kind, "tool");
+  if (tool.kind === "tool") {
+    assert.equal(tool.tool.name, "Read");
+    assert.equal(tool.tool.target, "src/main.rs", "the path, from the stored arguments");
+    assert.equal(tool.tool.meta, "src/main.rs · 1 line", "the result found its row");
+    assert.deepEqual(tool.tool.output, ["fn main() {}"]);
+    assert.equal(tool.tool.running, undefined, "nothing is running in a conversation from disk");
+  }
+  assert.equal(state.blocks[2].kind, "assistant");
+  assert.equal(state.running, false);
+  assert.equal(state.spent, 0.42, "the spend comes back, so a budget is per conversation");
+});
+
+test("a resumed transcript keeps its block ids unique", () => {
+  // They are React keys. Two blocks sharing one is a row that updates the
+  // wrong neighbour, which is the kind of bug nobody finds by reading.
+  const state = resumeSession(
+    [
+      { role: "user", content: "one", calls: [], answers: null },
+      {
+        role: "assistant",
+        content: "Looking.",
+        calls: [
+          { id: "a", name: "read", arguments: { path: "a.rs" } },
+          { id: "b", name: "grep", arguments: { pattern: "fn main" } },
+        ],
+        answers: null,
+      },
+    ],
+    0
+  );
+  const ids = state.blocks.map((block) => block.id);
+  assert.equal(new Set(ids).size, ids.length);
+  assert.ok(state.nextId > Math.max(...ids), "the next event cannot reuse one");
+});
+
+test("a result with no row to land on is dropped rather than throwing", () => {
+  // A history cut mid-turn, or a call whose row was never written. The
+  // transcript is missing a line; the window is not missing.
+  const state = resumeSession(
+    [
+      { role: "user", content: "one", calls: [], answers: null },
+      { role: "tool", content: "orphan", calls: [], answers: "nobody" },
+    ],
+    0
+  );
+  assert.equal(state.blocks.length, 1);
 });
 
 /* ─── Row subjects ─────────────────────────────────────────────────────────── */

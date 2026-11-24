@@ -1,5 +1,6 @@
 /**
- * The two screens that are not the transcript: the start, and `/model`.
+ * The screens that are not the transcript: the start, `/model`,
+ * `/resume` and `/usage`.
  *
  * Both take over the body rather than opening a dialog over it. A modal
  * inside a modal is two Escape keys deep, and the window already has a rule
@@ -13,11 +14,11 @@
  */
 
 import { useState } from "react";
-import { FolderOpen, FolderSearch } from "lucide-react";
+import { FolderOpen, FolderSearch, MessageSquare, Trash2 } from "lucide-react";
 import { collapseHome } from "../../services/recent-dirs";
 import { projectLabel, type FigyProject } from "../../services/figycode-projects";
 import { formatCost, formatTokens } from "../../services/figycode-blocks";
-import type { AgentSettings, Totals } from "../../services/figycode-agent";
+import type { AgentSettings, Conversation, Totals } from "../../services/figycode-agent";
 
 /* ─── Start ───────────────────────────────────────────────────────────────── */
 
@@ -36,18 +37,23 @@ export function Welcome({
   model,
   configured,
   others,
+  earlier,
   onPick,
   onBrowse,
   onConfigure,
+  onResume,
 }: {
   root: string | null;
   index: { files: number; folders: number; truncated: boolean } | null;
   model: string;
   configured: boolean;
   others: FigyProject[];
+  /** How many conversations this folder has had, for the one line about them. */
+  earlier: number;
   onPick: (root: string) => void;
   onBrowse: () => void;
   onConfigure: () => void;
+  onResume: () => void;
 }) {
   return (
     <div className="figy-welcome">
@@ -107,6 +113,24 @@ export function Welcome({
               )}
             </span>
           </div>
+
+          {/*
+            A restart used to end a conversation, so there was nothing to
+            say here. Now there is, and it is said on the screen somebody
+            is already looking at rather than left behind a slash command.
+          */}
+          {earlier > 0 && (
+            <>
+              <div className="figy-welcome-resume-head">earlier here</div>
+              <button type="button" className="figy-welcome-resume" onClick={onResume}>
+                <MessageSquare size={11} className="figy-welcome-resume-icon" />
+                <span className="figy-welcome-resume-title">
+                  {earlier} {earlier === 1 ? "conversation" : "conversations"}
+                </span>
+                <span className="figy-welcome-resume-when">carry one on…</span>
+              </button>
+            </>
+          )}
 
           {others.length > 0 && (
             <>
@@ -302,6 +326,86 @@ export function ModelScreen({
           {hasKey ? "A key is stored. Saving without typing one keeps it." : "↵ saves."}
         </span>
       </div>
+    </div>
+  );
+}
+
+/* ─── /resume ─────────────────────────────────────────────────────────────── */
+
+/** `just now`, `14m ago`, `yesterday`, then the date. */
+function when(ms: number): string {
+  const seconds = Math.max(0, (Date.now() - ms) / 1000);
+  if (seconds < 90) return "just now";
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m ago`;
+  if (seconds < 18 * 3600) return `${Math.round(seconds / 3600)}h ago`;
+  if (seconds < 42 * 3600) return "yesterday";
+  return new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+/**
+ * The conversations this folder has had, to pick one back up.
+ *
+ * Two things each line has to say, because they are the two things the
+ * choice turns on: what it was about, and how big it is. The second is not
+ * trivia — resuming re-sends the whole conversation at full price, since
+ * the provider's cache is keyed on a prefix it saw days ago.
+ *
+ * Filtered to this folder by the backend. A conversation about another
+ * repository would be forty turns of confident, wrong context, and is
+ * refused rather than listed.
+ */
+export function ResumeScreen({
+  conversations,
+  onResume,
+  onForget,
+}: {
+  conversations: Conversation[];
+  onResume: (sessionId: string) => void;
+  onForget: (sessionId: string) => void;
+}) {
+  return (
+    <div className="figy-screen">
+      <div className="figy-screen-title">Earlier in this folder</div>
+      <div className="figy-screen-copy">
+        Carrying one on re-sends the whole conversation on the next message — the
+        provider&rsquo;s cache does not survive the gap. The shorter the conversation, the
+        cheaper it is to come back to.
+      </div>
+
+      {conversations.length === 0 ? (
+        <div className="figy-resume-empty">
+          Nothing yet. A conversation is written down after its first answer.
+        </div>
+      ) : (
+        <div className="figy-resume-list">
+          {conversations.map((conversation) => (
+            <div className="figy-resume-row" key={conversation.sessionId}>
+              <button
+                type="button"
+                className="figy-resume-open"
+                onClick={() => onResume(conversation.sessionId)}
+                title={conversation.title}
+              >
+                <MessageSquare size={12} className="figy-resume-icon" />
+                <span className="figy-resume-title truncate">{conversation.title}</span>
+                <span className="figy-resume-meta">
+                  {conversation.turns} {conversation.turns === 1 ? "message" : "messages"} ·{" "}
+                  {formatCost(conversation.spentUsd)} · {when(conversation.updatedAt)}
+                </span>
+              </button>
+              <button
+                type="button"
+                className="figy-iconbtn"
+                onClick={() => onForget(conversation.sessionId)}
+                title="Forget this conversation"
+                aria-label={`Forget ${conversation.title}`}
+              >
+                <Trash2 size={11} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

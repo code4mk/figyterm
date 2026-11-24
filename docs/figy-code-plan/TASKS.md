@@ -310,11 +310,32 @@ entirely.
       changes every byte after the system prompt, so the next request
       writes the whole prefix again. That is why the threshold is 85%
       and not 50%
-- [ ] **Sessions do not survive a restart.** They are a `HashMap` in
-      `AgentState`; closing the app loses the conversation. SQLite is
-      already open for the ledger, and `CODE-AGENT.md` says sessions from
-      day one
-- [ ] Resume: pick a past conversation back up, with its file-state map
+- [x] **Sessions survive a restart.** `agent/store.rs`, one row per
+      conversation, rewritten after every turn — not at shutdown, because
+      the case this exists for is the one where there is no shutdown. The
+      same SQLite file as the ledger, a different table: the ledger is an
+      append-only record of what things cost and is never edited, this is
+      a snapshot of right now
+- [x] Resume: `/resume` lists what this folder was working on, newest
+      first, and the first screen says how many there are rather than
+      leaving it behind a command nobody types. The row's **system
+      prompt** comes back with it — it is part of the cached prefix and
+      part of what the model was told it was doing — while the price, the
+      window and the budget come from the settings as they are now
+- [x] The folder has to match. Every path in a conversation means
+      something only in the repository it happened in, so one from
+      elsewhere is refused rather than opened
+- [x] And it is not free: the provider's cache is keyed on a prefix it
+      saw minutes ago, not days, so the first message after a resume
+      writes the whole conversation again at full price. Which is why
+      resuming is chosen from a list rather than done on launch
+- [ ] The file-state map goes with it, once there is one (section 2).
+      Until then a resumed agent re-reads what it needs, which is correct
+      and merely costs a turn
+- [ ] A resumed edit row shows the result it reported rather than its
+      diff. `detail` is the half of a tool's answer that never entered the
+      conversation, and storing it would mean keeping a copy of every file
+      the agent has touched
 
 ## 10 · Not falling over
 

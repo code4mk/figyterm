@@ -74,6 +74,9 @@ import {
   agentCancel,
   agentClear,
   agentConfigure,
+  agentConversations,
+  agentForgetConversation,
+  agentResume,
   agentSend,
   agentStatus,
   agentTools,
@@ -81,6 +84,7 @@ import {
   onAgentEvent,
   type AgentSettings,
   type AgentStatus,
+  type Conversation,
   type Totals,
 } from "../../services/figycode-agent";
 import {
@@ -88,6 +92,7 @@ import {
   applyEvent,
   emptySession,
   pushUser,
+  resumeSession,
   type SessionState,
 } from "../../services/figycode-session";
 import { BlockView } from "./FigyBlocks";
@@ -99,7 +104,7 @@ import {
   type ComposerHandle,
   type PopupItem,
 } from "./FigyComposer";
-import { ModelScreen, UsageScreen, Welcome } from "./FigyScreens";
+import { ModelScreen, ResumeScreen, UsageScreen, Welcome } from "./FigyScreens";
 import { FigyProjects } from "./FigyProjects";
 
 export interface FigyCodeModalProps {
@@ -115,7 +120,7 @@ const MAX_SIZE = { w: 2000, h: 1400 };
 const DEFAULT_SIZE = { w: 960, h: 680 };
 
 /** Which of the three things the body can be. */
-type View = "chat" | "model" | "usage";
+type View = "chat" | "model" | "usage" | "resume";
 
 /**
  * The prompt the agent is given, built once per session.
@@ -195,6 +200,8 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
     path: "",
   });
   const [totals, setTotals] = useState<Totals | null>(null);
+  /** The conversations this folder has had, for `/resume`. */
+  const [past, setPast] = useState<Conversation[]>([]);
   const configured = status.hasKey && !!status.settings.model.trim();
 
   /* ─── The composer ─────────────────────────────────────────────────────── */
@@ -314,6 +321,27 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
   }, [visible]);
 
   /*
+    What this folder was working on before.
+
+    Loaded when the window opens on a project rather than when `/resume`
+    is typed, because the count is wanted on the first screen: a command
+    nobody knows about is a feature nobody has. The list itself is
+    refreshed by `/resume`, so opening the screen never shows a stale one.
+  */
+  useEffect(() => {
+    if (!visible || !activeRoot) return;
+    let alive = true;
+    agentConversations(SURFACE)
+      .then((conversations) => {
+        if (alive) setPast(conversations);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [visible, activeRoot]);
+
+  /*
     A new question starts on its first option.
 
     The cursor is window state and the question is the backend's, so
@@ -348,6 +376,42 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
     setShell(false);
   }, []);
 
+  /**
+   * Picks a past conversation back up.
+   *
+   * The backend puts the session back under this window's key and hands
+   * back the transcript; this side redraws it. What does not come back is
+   * the diff on an edit row — the structured half of a tool's answer never
+   * entered the conversation and is not stored, so a resumed edit shows
+   * what it reported rather than the tinted before-and-after.
+   */
+  const resume = useCallback(
+    (sessionId: string) => {
+      void agentResume(SURFACE, sessionId)
+        .then((conversation) => {
+          setSession(resumeSession(conversation.messages, conversation.spentUsd));
+          setView("chat");
+          setText("");
+          setShell(false);
+        })
+        .catch((error: unknown) => {
+          notice({
+            tone: "error",
+            title: "That conversation could not be opened",
+            body: String(error),
+          });
+          setView("chat");
+        });
+    },
+    [notice]
+  );
+
+  const forgetConversation = useCallback((sessionId: string) => {
+    void agentForgetConversation(sessionId).then(() => {
+      setPast((list) => list.filter((one) => one.sessionId !== sessionId));
+    });
+  }, []);
+
   const command = useCallback(
     (name: string) => {
       switch (name) {
@@ -358,6 +422,12 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
           void agentUsage(SURFACE).then((totals) => {
             setTotals(totals);
             setView("usage");
+          });
+          return;
+        case "/resume":
+          void agentConversations(SURFACE).then((conversations) => {
+            setPast(conversations);
+            setView("resume");
           });
           return;
         case "/clear":
@@ -383,7 +453,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
           notice({
             tone: "info",
             title: `No command ${name}`,
-            body: "Try /model, /usage, /tools or /clear.",
+            body: "Try /model, /usage, /tools, /resume or /clear.",
           });
       }
     },
@@ -973,6 +1043,8 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
             hasExaKey={status.hasExaKey}
             onSave={saveSettings}
           />
+        ) : view === "resume" ? (
+          <ResumeScreen conversations={past} onResume={resume} onForget={forgetConversation} />
         ) : view === "usage" ? (
           <UsageScreen totals={totals ?? emptyTotals} />
         ) : session.blocks.length === 0 ? (
@@ -982,9 +1054,11 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
             model={status.settings.model || settings.model}
             configured={configured}
             others={projects.filter((p) => p.root !== activeRoot).slice(0, 3)}
+            earlier={past.length}
             onPick={openProject}
             onBrowse={() => setPickerOpen(true)}
             onConfigure={() => setView("model")}
+            onResume={() => command("/resume")}
           />
         ) : (
           <div className="figy-transcript">

@@ -34,6 +34,7 @@ use crate::agent::web::{Exa, Web};
 use crate::agent::session::{
     Approver, OfferEverything, Session, SessionConfig, Turn, TurnEvent,
 };
+use crate::agent::store::{Conversation, Store};
 use crate::agent::tools::{self, ToolContext};
 use crate::agent::workspace::Workspace;
 
@@ -126,6 +127,9 @@ pub struct AgentState {
     remembered: Mutex<Vec<String>>,
     /// Opened once, on disk, and shared: two windows write to one file.
     ledger: Mutex<Option<Arc<Ledger>>>,
+    /// The conversations, so a restart is an interruption rather than an
+    /// ending. Same file as the ledger, different table.
+    store: Mutex<Option<Arc<Store>>>,
     /// One shell per window, so its background commands die with it.
     shells: Mutex<HashMap<String, Arc<SystemShell>>>,
     /// One bridge per window, holding the questions it has outstanding.
@@ -655,6 +659,9 @@ pub async fn agent_send(
         .filter(|k| !k.trim().is_empty())
         .map(|key| Arc::new(Exa::new(key, tokio::runtime::Handle::current())) as Arc<dyn Web>);
     let ledger = ledger(&app, &state);
+    // Kept, because `root` itself goes into the tool context below and the
+    // snapshot after the turn needs to say where all this happened.
+    let where_it_happened = root.to_string_lossy().to_string();
     let result = session
         .send(
             &prompt,
@@ -686,6 +693,21 @@ pub async fn agent_send(
         .lock()
         .map_err(|e| e.to_string())?
         .remove(&session_key);
+
+    /*
+      Written down after every turn, not at shutdown.
+
+      The case this exists for is the one where there is no shutdown: a
+      crash, a force quit, a machine that slept and did not come back. A
+      failed write is not allowed to fail the turn — the answer is on
+      screen and the conversation is in memory, and telling somebody
+      their finished turn errored because a database was busy would be
+      a lie about what happened.
+    */
+    if let Some(store) = store(&app, &state) {
+        let _ = store.save(&session.snapshot(where_it_happened));
+    }
+
     state
         .sessions
         .lock()
@@ -693,6 +715,189 @@ pub async fn agent_send(
         .insert(session_key, session);
 
     result
+}
+
+/* ─── Conversations, between runs ────────────────────────────────────────── */
+
+/// How many past conversations the list offers.
+///
+/// A number rather than all of them: the list is for picking up what you
+/// were doing, and a conversation from six weeks ago is better found by
+/// starting a new one.
+const RESUME_LIST: usize = 30;
+
+/// What was being worked on in this folder before.
+#[tauri::command]
+pub fn agent_conversations(
+    app: AppHandle,
+    window: Window,
+    state: State<AgentState>,
+    workspace: State<Workspace>,
+    surface: Surface,
+) -> Result<Vec<Conversation>, String> {
+    let (Some(root), Some(store)) = (workspace.root(window.label()), store(&app, &state)) else {
+        // No folder open, or no store yet. Nothing to offer is not an
+        // error: it is a window that has not been used.
+        return Ok(Vec::new());
+    };
+    store.list(&root.to_string_lossy(), surface, RESUME_LIST)
+}
+
+/// One message of a conversation being put back on screen.
+///
+/// Not `Message`: the window draws tool *rows*, so it needs the calls
+/// parsed and the result matched to the call it answers. The raw
+/// argument bytes stay in the store, where the cache depends on them —
+/// this shape is for drawing, and nothing built from it goes back to
+/// the provider.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PastMessage {
+    /// `user`, `assistant` or `tool`.
+    pub role: String,
+    pub content: String,
+    pub calls: Vec<PastCall>,
+    /// Tool results only: the call this answers.
+    pub answers: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PastCall {
+    pub id: String,
+    pub name: String,
+    /// Parsed, because the window wants the path out of it. Malformed
+    /// arguments become an empty object rather than a failed resume.
+    pub arguments: Value,
+}
+
+/// A conversation handed back to the window.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Resumed {
+    pub session_id: String,
+    pub title: String,
+    pub model: String,
+    pub spent_usd: f64,
+    pub messages: Vec<PastMessage>,
+}
+
+/// Picks a past conversation back up.
+///
+/// The session goes back into the map under this window's key, so the
+/// next message continues it. What comes back is the transcript, for
+/// the window to draw.
+///
+/// **It is not free.** The provider's cache is keyed on a prefix it saw
+/// minutes ago, not days, so the first turn after this writes the whole
+/// conversation again at full price. That is why resuming is something
+/// you choose from a list rather than something that happens on launch.
+#[tauri::command]
+pub fn agent_resume(
+    app: AppHandle,
+    window: Window,
+    state: State<AgentState>,
+    workspace: State<Workspace>,
+    surface: Surface,
+    session_id: String,
+) -> Result<Resumed, String> {
+    let store = store(&app, &state).ok_or_else(|| "No conversations are stored.".to_string())?;
+    let snapshot = store
+        .load(&session_id)?
+        .ok_or_else(|| "That conversation is no longer stored.".to_string())?;
+
+    /*
+      The folder has to match.
+
+      A conversation is about a codebase: every path in it, every tool
+      result, every "I changed src/main.rs" means something only in the
+      folder it happened in. Resuming one into a different project would
+      hand the model forty turns of confident, wrong context.
+    */
+    let root = workspace
+        .root(window.label())
+        .ok_or_else(|| "No folder is open in FigyCode.".to_string())?;
+    if root.to_string_lossy() != snapshot.root {
+        return Err(format!(
+            "That conversation belongs to {} — open that folder to carry it on.",
+            snapshot.root
+        ));
+    }
+
+    let settings = current(&app, &state)?.unwrap_or_default();
+    let messages = snapshot.history.iter().map(past).collect();
+    let resumed = Resumed {
+        session_id: snapshot.session_id.clone(),
+        title: snapshot.title(),
+        model: snapshot.model.clone(),
+        spent_usd: snapshot.spent,
+        messages,
+    };
+
+    let session = Session::resume(
+        SessionConfig {
+            session_id: snapshot.session_id.clone(),
+            surface,
+            model: settings.model.clone(),
+            price: Price {
+                input: settings.input_price.unwrap_or(0.0),
+                cached_input: settings.cached_price.unwrap_or(0.0),
+                output: settings.output_price.unwrap_or(0.0),
+            },
+            // The window sends the mode with every message now, so this
+            // is only what applies if nothing is ever sent.
+            mode: Mode::Ask,
+            context_window: settings.context_window,
+            budget_usd: settings.budget_usd,
+        },
+        snapshot,
+    );
+    state
+        .sessions
+        .lock()
+        .map_err(|e| e.to_string())?
+        .insert(key(window.label(), surface), session);
+
+    Ok(resumed)
+}
+
+/// Removes a stored conversation. The live one, if it is this one, stays
+/// — forgetting what was written down is not the same as clearing the
+/// screen, and `/clear` is the one that does that.
+#[tauri::command]
+pub fn agent_forget_conversation(
+    app: AppHandle,
+    state: State<AgentState>,
+    session_id: String,
+) -> Result<(), String> {
+    match store(&app, &state) {
+        Some(store) => store.forget(&session_id),
+        None => Ok(()),
+    }
+}
+
+fn past(message: &crate::agent::message::Message) -> PastMessage {
+    use crate::agent::message::Role;
+    PastMessage {
+        role: match message.role {
+            Role::System => "system",
+            Role::User => "user",
+            Role::Assistant => "assistant",
+            Role::Tool => "tool",
+        }
+        .into(),
+        content: message.content.clone(),
+        calls: message
+            .tool_calls
+            .iter()
+            .map(|call| PastCall {
+                id: call.id.clone(),
+                name: call.name.clone(),
+                arguments: call.parsed().unwrap_or_else(|_| Value::Object(Default::default())),
+            })
+            .collect(),
+        answers: message.tool_call_id.clone(),
+    }
 }
 
 /// What this window's session has spent.
@@ -728,11 +933,30 @@ pub fn agent_usage(
 fn ledger(app: &AppHandle, state: &AgentState) -> Option<Arc<Ledger>> {
     let mut guard = state.ledger.lock().ok()?;
     if guard.is_none() {
-        let dir = app.path().app_data_dir().ok()?;
-        std::fs::create_dir_all(&dir).ok()?;
-        *guard = Ledger::open(&dir.join("figy-agent.db")).ok().map(Arc::new);
+        *guard = Ledger::open(&database(app)?).ok().map(Arc::new);
     }
     guard.clone()
+}
+
+/// The conversation store, opened once and shared.
+///
+/// The same file as the ledger, a second connection to it. Two tables
+/// with two meanings — the ledger is an append-only record of what
+/// things cost and is never edited, this is a snapshot of right now and
+/// is rewritten every turn — and one file to delete when somebody wants
+/// none of it kept.
+fn store(app: &AppHandle, state: &AgentState) -> Option<Arc<Store>> {
+    let mut guard = state.store.lock().ok()?;
+    if guard.is_none() {
+        *guard = Store::open(&database(app)?).ok().map(Arc::new);
+    }
+    guard.clone()
+}
+
+fn database(app: &AppHandle) -> Option<PathBuf> {
+    let dir = app.path().app_data_dir().ok()?;
+    std::fs::create_dir_all(&dir).ok()?;
+    Some(dir.join("figy-agent.db"))
 }
 
 fn now_ms() -> u128 {
