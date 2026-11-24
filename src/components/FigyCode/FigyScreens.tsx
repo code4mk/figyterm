@@ -32,7 +32,7 @@ import type {
  * once: which folder this is, and whether there is a model behind the box.
  *
  * Both are facts it can stand behind — the folder was chosen through the OS
- * dialog, and the key either exists in the keychain or does not. Nothing
+ * dialog, and the backend either has a key or does not. Nothing
  * here is decorative, which is a change: it used to greet the user by an
  * invented name and list conversations that had never happened.
  */
@@ -229,11 +229,16 @@ export function ModelScreen({
   settings,
   hasKey,
   hasExaKey,
+  path,
   onSave,
 }: {
   settings: AgentSettings;
   hasKey: boolean;
   hasExaKey: boolean;
+  /** Where the settings and the keys are written. Named, because it is
+      plain text and a secret in a place nobody mentioned is worse than
+      one in a place everybody knows about. */
+  path: string;
   onSave: (settings: AgentSettings) => void;
 }) {
   const [draft, setDraft] = useState<AgentSettings>(settings);
@@ -296,8 +301,8 @@ export function ModelScreen({
     <div className="figy-screen">
       <div className="figy-screen-title">Model</div>
       <div className="figy-screen-copy">
-        Anything that speaks the OpenAI chat API. The key goes to this machine&rsquo;s
-        keychain and is never shown again.
+        Anything that speaks the OpenAI chat API. The keys are never shown again once
+        saved{path ? <> — they are written, in plain text, to <code>{path}</code></> : null}.
       </div>
 
       <div className="figy-form">

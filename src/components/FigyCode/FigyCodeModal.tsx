@@ -32,6 +32,7 @@ import {
   Maximize2,
   Minimize2,
   Minus,
+  Settings2,
   X,
 } from "lucide-react";
 import { OverlayPortal } from "../Overlay/OverlayPortal";
@@ -111,6 +112,7 @@ import {
 } from "./FigyComposer";
 import { ModelScreen, ResumeScreen, UsageScreen, Welcome } from "./FigyScreens";
 import { FigyProjects } from "./FigyProjects";
+import { SettingsMenu } from "./FigySettings";
 
 export interface FigyCodeModalProps {
   visible: boolean;
@@ -232,6 +234,8 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
   const [view, setView] = useState<View>("chat");
   const [fullscreen, setFullscreen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  /** The footer's settings menu, which is the way in to all of it. */
+  const [menuOpen, setMenuOpen] = useState(false);
 
   /* ─── The project ──────────────────────────────────────────────────────── */
 
@@ -752,8 +756,8 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
           setView("chat");
           /*
             Said out loud, because the commonest way this goes wrong is
-            silent: a keychain that refuses the write leaves a window that
-            looks configured and a backend that has no key.
+            silent: a write that fails leaves a window that looks
+            configured and a backend with no key.
           */
           notice(
             saved.hasKey
@@ -808,6 +812,11 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
 
       if (e.key === "Escape") {
         stop();
+        // Closest thing first: a menu on screen is what Escape means.
+        if (menuOpen) {
+          setMenuOpen(false);
+          return;
+        }
         if ((popup.length || popupEmpty) && (slashing || mention)) {
           setText((t) => `${t} `);
           return;
@@ -1096,6 +1105,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
             settings={settings}
             hasKey={status.hasKey}
             hasExaKey={status.hasExaKey}
+            path={status.path}
             onSave={saveSettings}
           />
         ) : view === "resume" ? (
@@ -1230,6 +1240,46 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
         )}
 
         <div className="flex-1" />
+
+        {/*
+          The way in to everything that is configured.
+
+          All of it was reachable by typing a slash command, which is
+          fine for the second week and useless for the first: nobody
+          discovers `/model` by looking at a window. So the footer names
+          the model — or says there is not one — and opening it lists
+          what can be changed.
+        */}
+        <div className="figy-settings-anchor shrink-0">
+          <button
+            className={`figy-status-right figy-status-model ${menuOpen ? "on" : ""} ${
+              configured ? "" : "warn"
+            }`}
+            onClick={() => setMenuOpen((open) => !open)}
+            title="Model, keys, permission mode"
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+          >
+            <Settings2 size={10} className="shrink-0" />
+            <span className="truncate">
+              {configured ? status.settings.model || settings.model : "set up a model"}
+            </span>
+          </button>
+
+          {menuOpen && (
+            <SettingsMenu
+              model={status.settings.model || settings.model}
+              configured={configured}
+              hasExaKey={status.hasExaKey}
+              rules={rules?.name ?? null}
+              earlier={past.length}
+              mode={mode}
+              onMode={setMode}
+              onCommand={command}
+              onClose={() => setMenuOpen(false)}
+            />
+          )}
+        </div>
 
         {/*
           Spend and cache hit rate, while they are being spent. The advantage

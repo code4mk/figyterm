@@ -14113,6 +14113,15 @@ body > .cm-api-completions .cm-completionDetail {
   line-height: 1.55;
 }
 
+/* A path in a sentence. It is long and it is meant to be copied, so it
+   wraps anywhere rather than pushing the card wide. */
+.figy-screen-copy code {
+  color: var(--ft-text);
+  font-family: var(--figy-mono);
+  font-size: 11.5px;
+  word-break: break-all;
+}
+
 /* Pushed to the bottom of the screen, where the decision is made. */
 .figy-screen-foot {
   display: flex;
@@ -14632,6 +14641,133 @@ body > .cm-api-completions .cm-completionDetail {
 .figy-usage-value {
   color: var(--ft-text);
   font-variant-numeric: tabular-nums;
+}
+
+/* ─── The settings menu ──────────────────────────────────────────────────── */
+
+.figy-settings-anchor {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+/* Opens upwards from the footer, right-aligned to its button: it is the
+   last thing on a bar at the bottom of the window, and a menu that
+   dropped would be off the screen. */
+.figy-settings {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 0;
+  z-index: 5;
+  min-width: 320px;
+  max-width: min(420px, 90vw);
+  padding: 5px;
+  border: 1px solid var(--ft-border);
+  border-radius: 9px;
+  background: var(--ft-surface);
+  box-shadow: 0 12px 28px -10px rgba(0, 0, 0, 0.55);
+  font-family: var(--figy-mono);
+}
+
+.figy-settings-group + .figy-settings-group {
+  margin-top: 3px;
+  padding-top: 4px;
+  border-top: 1px solid var(--ft-border-subtle);
+}
+
+.figy-settings-head {
+  padding: 4px 8px 3px;
+  color: var(--ft-text-muted);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.figy-settings-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ft-text-secondary);
+  font-family: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.figy-settings-row:hover,
+.figy-settings-row:focus-visible {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ft-text);
+  outline: none;
+}
+
+.figy-settings-row.on {
+  color: var(--ft-text);
+}
+
+.figy-settings-icon {
+  flex: none;
+  width: 13px;
+  color: var(--ft-text-muted);
+  /* Icons sit on the cap line, not the baseline the text uses. */
+  transform: translateY(2px);
+}
+
+.figy-settings-row.on .figy-settings-icon {
+  color: var(--ft-accent);
+}
+
+.figy-settings-label {
+  flex: none;
+}
+
+/* The current value, right-aligned and quiet: the row says what the
+   setting is, this says where it stands. */
+.figy-settings-value {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ft-text-secondary);
+  font-size: 11px;
+}
+
+.figy-settings-value.dim {
+  color: var(--ft-text-muted);
+}
+
+/* The one state worth a colour: nothing can be sent without a model. */
+.figy-settings-value.warn,
+.figy-status-right.warn {
+  color: var(--ft-warning, #d29922);
+}
+
+/* A model name can be anything from `gpt-5.6` to a self-hosted path.
+   It is a label on a button, not the thing being read, so it is given a
+   width and ends in an ellipsis rather than pushing the spend off the
+   bar. */
+.figy-status-model {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 190px;
+}
+
+.figy-status-right.on {
+  color: var(--ft-text);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.light .figy-settings-row:hover,
+.light .figy-settings-row:focus-visible,
+.light .figy-status-right.on {
+  background: rgba(15, 17, 23, 0.06);
 }
 
 /* ─── The plan ───────────────────────────────────────────────────────────── */
