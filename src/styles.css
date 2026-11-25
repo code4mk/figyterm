@@ -13513,6 +13513,24 @@ body > .cm-api-completions .cm-completionDetail {
   font-style: italic;
 }
 
+/* How long and how far, while it is still going. It sits where the
+   result's summary will be, so a row does not jump when it lands. */
+.figy-tool-ticking {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-left: auto;
+  flex: none;
+  color: var(--ft-text-muted);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.figy-tool-seconds {
+  color: var(--ft-text-secondary);
+}
+
 /* A file being written reads as code rather than as log output. */
 .figy-tool-live.code {
   max-height: 200px;

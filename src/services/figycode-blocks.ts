@@ -145,6 +145,15 @@ export interface ToolRow {
   output?: string[];
   /** Still going: the row is drawn with a spinner rather than a glyph. */
   running?: boolean;
+  /**
+   * When it started, so a row can say how long it has been going.
+   *
+   * On the row rather than on the turn, because the turn's clock
+   * answers a different question. Four tool calls into a long task,
+   * "the turn has been running two minutes" says nothing about
+   * whether *this* one is stuck.
+   */
+  startedAt?: number;
   failed?: boolean;
   /** Declined by the mode or by the user. Not a failure, and not red. */
   refused?: boolean;

@@ -603,6 +603,18 @@ test("a file appears as it is written, not when it lands on disk", () => {
   assert.equal(row.tool.writing, "export default function Page() {");
 });
 
+test("a running row knows when it started", () => {
+  // The turn's clock answers a different question: four calls into
+  // a long task, "the turn has been going two minutes" says nothing
+  // about whether *this* one is stuck.
+  const before = Date.now();
+  const state = play({ kind: "toolStarted", id: "t1", name: "write" });
+  const row = state.blocks[0];
+  assert.ok(row.kind === "tool");
+  assert.ok(row.tool.startedAt !== undefined);
+  assert.ok(row.tool.startedAt >= before);
+});
+
 test("what was streaming is dropped when the real result lands", () => {
   const state = play(
     { kind: "toolStarted", id: "t1", name: "write" },

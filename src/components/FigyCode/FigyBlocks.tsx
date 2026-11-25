@@ -13,15 +13,16 @@
  * prose line per turn reads perfectly well in the same face.
  */
 
-import { memo, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { Markdown } from "../Updates/Markdown";
-import type {
-  Block,
-  DiffLine,
-  Notice,
-  TodoItem,
-  ToolRow,
+import {
+  formatElapsed,
+  type Block,
+  type DiffLine,
+  type Notice,
+  type TodoItem,
+  type ToolRow,
 } from "../../services/figycode-blocks";
 
 /**
@@ -32,6 +33,27 @@ import type {
  * below is not an expansion, it is losing your place.
  */
 const CAPPED_LINES = 18;
+
+/**
+ * A clock that only runs while the row does.
+ *
+ * On the row rather than passed down from the turn, because a turn
+ * that has been going two minutes says nothing about whether *this*
+ * call is stuck — which is the question somebody has when a row has
+ * been spinning and nothing else has happened.
+ *
+ * A second is the right resolution: this is read, not raced.
+ */
+function useElapsed(since: number | undefined, running: boolean | undefined): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!running || !since) return;
+    setNow(Date.now());
+    const tick = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(tick);
+  }, [running, since]);
+  return since && running ? Math.max(0, Math.round((now - since) / 1000)) : 0;
+}
 
 /** The last `n` lines, which are the ones still moving. */
 function tail(text: string, n: number): string {
@@ -158,7 +180,22 @@ export function ToolCall({ tool }: { tool: ToolRow }) {
     somebody wants the whole thing.
   */
   const [whole, setWhole] = useState(false);
+  const seconds = useElapsed(tool.startedAt, tool.running);
   const body = tool.diff ?? tool.output;
+
+  /*
+    How far it has got, while it is getting there.
+
+    A spinner says a thing is happening. It does not say whether it
+    is happening *to* anything, which is the question after the
+    first ten seconds — and with a file being written or a build
+    running, the answer is a number that goes up.
+  */
+  const progress = tool.writing
+    ? `${tool.writing.split("\n").length} lines`
+    : tool.live
+      ? `${tool.live.length} lines`
+      : "";
   const expandable = !!body && body.length > 0;
   const open = toggled ?? !!tool.diff;
 
@@ -217,6 +254,17 @@ export function ToolCall({ tool }: { tool: ToolRow }) {
             {tool.meta}
           </span>
         )}
+        {/*
+          While it runs, how long and how far — in the place the
+          result's summary will take when there is one.
+        */}
+        {tool.running && (seconds > 0 || progress) && (
+          <span className="figy-tool-ticking">
+            {progress && <span>{progress}</span>}
+            {seconds > 0 && <span className="figy-tool-seconds">{formatElapsed(seconds * 1000)}</span>}
+          </span>
+        )}
+
         {expandable && (
           <span className="figy-tool-size">
             {size}
