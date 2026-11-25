@@ -95,10 +95,50 @@ impl ToolSpec {
             "function": {
                 "name": self.name,
                 "description": self.description,
-                "parameters": self.parameters,
+                "parameters": with_why(self.parameters.clone()),
             }
         })
     }
+}
+
+/// Every tool takes a `why`, added here rather than written out
+/// twenty-four times.
+///
+/// A transcript of `Read`, `Grep`, `Read`, `Bash` says what happened
+/// and not what for, and the row the person is looking at the
+/// longest — a two-minute build — is the one that says least. So the
+/// model names its own reason, in four or five words, and the window
+/// shows that where it would have shown a path.
+///
+/// **It is not free**, and the measurement is why the sentence below
+/// is as short as it is. Written out properly — what to put in it,
+/// with examples — it cost 1,631 tokens of prefix across twenty-four
+/// schemas, which is a 43% increase in the block that is re-sent on
+/// every request of the session. Said tersely here and explained
+/// once in the system prompt: 659.
+///
+/// That is the whole principle for anything that goes in a schema: a
+/// line here is paid per tool, a line in the preamble is paid once,
+/// and the two read identically to the model.
+///
+/// Optional, always. A tool call that arrives without one still runs;
+/// the row falls back to the path or the command, which is what it
+/// showed before this existed.
+fn with_why(mut parameters: Value) -> Value {
+    let Some(object) = parameters.as_object_mut() else {
+        return parameters;
+    };
+    let Some(properties) = object.get_mut("properties").and_then(Value::as_object_mut) else {
+        return parameters;
+    };
+    properties.insert(
+        "why".to_string(),
+        json!({
+            "type": "string",
+            "description": "Four or five words on what this call is for, for the person watching."
+        }),
+    );
+    parameters
 }
 
 /// What a tool is given, and nothing more.

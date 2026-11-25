@@ -13363,7 +13363,10 @@ body > .cm-api-completions .cm-completionDetail {
 }
 
 .figy-tool-target {
+  /* Gives way before the reason does, and never takes more than its
+     share of a row it is sharing. */
   flex: 0 1 auto;
+  max-width: 45%;
   min-width: 0;
   color: var(--ft-text-secondary);
   overflow: hidden;
@@ -13374,15 +13377,17 @@ body > .cm-api-completions .cm-completionDetail {
   text-align: left;
 }
 
-/* The reason a tool is running, in the model's own words. Set apart
-   from the target it replaces: that was a path and this is prose. */
+/* The reason, in the model's own words, beside the thing it acted
+   on. Prose where that was a path, so it is set in italic and it is
+   the one that keeps its room: a path is recognisable from its tail
+   and a sentence cut in half is one nobody can finish. */
 .figy-tool-why {
-  flex: 0 1 auto;
-  min-width: 0;
+  flex: 1 1 auto;
+  min-width: 3ch;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--ft-text-secondary);
+  color: var(--ft-text-muted);
   font-style: italic;
 }
 

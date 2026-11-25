@@ -451,6 +451,33 @@ test("approving a plan is what lifts plan mode, and only approving it", () => {
 
 /* ─── A tool that takes two minutes ────────────────────────────────────────── */
 
+test("every tool carries a reason, not only the slow ones", () => {
+  // A transcript of Read, Grep, Read, Bash says what happened and
+  // nothing about what any of it was for.
+  const state = play(
+    { kind: "toolStarted", id: "t1", name: "read" },
+    { kind: "toolRunning", id: "t1", target: "src/net/api.rs", why: "checking the retry path" }
+  );
+  const row = state.blocks[0];
+  assert.ok(row.kind === "tool");
+  // Both: the path is what it acted on, the reason is what for.
+  assert.equal(row.tool.target, "src/net/api.rs");
+  assert.equal(row.tool.why, "checking the retry path");
+});
+
+test("a call with no reason still runs and still reads", () => {
+  // `why` is optional on every schema. A model that leaves it out
+  // gets the row it would have had before any of this existed.
+  const state = play(
+    { kind: "toolStarted", id: "t1", name: "ls" },
+    { kind: "toolRunning", id: "t1", target: ".", why: "" }
+  );
+  const row = state.blocks[0];
+  assert.ok(row.kind === "tool");
+  assert.equal(row.tool.target, ".");
+  assert.equal(row.tool.why, undefined);
+});
+
 test("a row fills in when the arguments land, not when the tool is named", () => {
   // `toolStarted` comes off the stream the moment the model says
   // "bash", before it has said what to run — so the row is a verb and

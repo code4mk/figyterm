@@ -67,14 +67,6 @@ impl Tool for Bash {
                         "description":
                             "Start it and return immediately with an id. Use for anything \
                              that does not exit on its own."
-                    },
-                    "why": {
-                        "type": "string",
-                        "description":
-                            "What you are doing, in four or five words — \"building to \
-                             check it compiles\", \"running the failing test\". The person \
-                             sees this instead of the command while it runs, and a \
-                             two-minute build is two minutes of them reading it."
                     }
                 },
                 "required": ["cmd"],

@@ -164,22 +164,17 @@ export function ToolCall({ tool }: { tool: ToolRow }) {
         )}
         <span className="figy-tool-name">{tool.name}</span>
         {/*
-          The reason where there is one, the thing itself where there
-          is not.
+          Both, because they answer different questions.
 
-          `Bash npm run build` is a fact; "building to check it
-          compiles" is why anybody is looking. Over two minutes of
-          watching, the reason is what is wanted — and the command is
-          still a keystroke away, on the row's own title and in the
-          output when it opens.
+          The target is what it acted on and the reason is what for —
+          `Bash pnpm build` is a fact and "building to see if it
+          compiles" is why anybody is looking. Neither replaces the
+          other, so the row carries both and the target gives way
+          first: a path is recognisable from its tail, and a reason
+          cut in half is a sentence nobody can finish.
         */}
-        {tool.why ? (
-          <span className="figy-tool-why" title={tool.target}>
-            {tool.why}
-          </span>
-        ) : (
-          tool.target && <span className="figy-tool-target">{tool.target}</span>
-        )}
+        {tool.target && <span className="figy-tool-target">{tool.target}</span>}
+        {tool.why && <span className="figy-tool-why">{tool.why}</span>}
         {tool.added !== undefined && <span className="figy-add">+{tool.added}</span>}
         {tool.removed !== undefined && <span className="figy-del">-{tool.removed}</span>}
         {tool.meta && (
