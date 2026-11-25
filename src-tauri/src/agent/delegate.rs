@@ -49,7 +49,7 @@ use crate::agent::ledger::{Ledger, Price, Surface};
 use crate::agent::message::ToolCall;
 use crate::agent::policy::Mode;
 use crate::agent::provider::Provider;
-use crate::agent::session::{Approver, Pick, Picker, Session, SessionConfig, Turn};
+use crate::agent::session::{BoxFuture, Approver, Pick, Picker, Session, SessionConfig, Turn};
 use crate::agent::tools::{self, ToolContext};
 
 /// Short, because nothing can interrupt it.
@@ -93,8 +93,10 @@ you looked.";
 struct ReadOnly;
 
 impl Picker for ReadOnly {
-    fn tools_for(&self, _prompt: &str) -> Pick {
-        Pick::free(tools::SUB_TOOLS.iter().map(|name| name.to_string()).collect())
+    fn tools_for<'a>(&'a self, _prompt: &'a str) -> BoxFuture<'a, Pick> {
+        Box::pin(async {
+            Pick::free(tools::SUB_TOOLS.iter().map(|name| name.to_string()).collect())
+        })
     }
 }
 

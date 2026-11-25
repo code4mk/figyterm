@@ -41,6 +41,7 @@
 
 use std::collections::{BTreeSet, HashMap};
 use std::mem::take;
+use std::pin::Pin;
 use std::time::Instant;
 
 use serde::Serialize;
@@ -144,14 +145,29 @@ impl Pick {
 
 /// Decides which tools the model is offered.
 ///
-/// Blocking, because the only implementation that is not a constant is
-/// an HTTP call, and a turn is dispatched on a blocking thread anyway.
+/// **Async, and boxed.** Both halves of that were learned the hard way.
+///
+/// Async because the only implementation that is not a constant is an
+/// HTTP call, and this is called from inside the turn — which is async
+/// code on a runtime worker. A synchronous version that reached for
+/// `Handle::block_on` panicked with "cannot start a runtime from
+/// within a runtime", took the whole turn's task with it, and left a
+/// window waiting for an event that was never coming. Tools get away
+/// with blocking clients because they are dispatched through
+/// `spawn_blocking`; the picker is not.
+///
+/// Boxed because the choice between implementations is a *setting*, so
+/// the caller holds `&dyn Picker`, and `async fn` in a trait is not
+/// object safe. One allocation per message, against a round trip.
 pub trait Picker: Send + Sync {
     /// See the warning in the module docs about narrowing this per
     /// turn, and [`Session::offer`] for what the session does with an
     /// answer that changes.
-    fn tools_for(&self, prompt: &str) -> Pick;
+    fn tools_for<'a>(&'a self, prompt: &'a str) -> BoxFuture<'a, Pick>;
 }
+
+/// What a `Picker` answers with, before it has answered.
+pub type BoxFuture<'a, T> = Pin<Box<dyn std::future::Future<Output = T> + Send + 'a>>;
 
 /// Every tool this surface has, every turn. The cache-stable default.
 ///
@@ -162,13 +178,12 @@ pub trait Picker: Send + Sync {
 pub struct OfferEverything(pub Surface);
 
 impl Picker for OfferEverything {
-    fn tools_for(&self, _prompt: &str) -> Pick {
-        Pick::free(
-            tools::specs_for(self.0)
-                .into_iter()
-                .map(|spec| spec.name.to_string())
-                .collect(),
-        )
+    fn tools_for<'a>(&'a self, _prompt: &'a str) -> BoxFuture<'a, Pick> {
+        let names = tools::specs_for(self.0)
+            .into_iter()
+            .map(|spec| spec.name.to_string())
+            .collect();
+        Box::pin(async move { Pick::free(names) })
     }
 }
 
@@ -676,6 +691,39 @@ impl Session {
         Ok(true)
     }
 
+    /// Answers any tool call left hanging, so the conversation can
+    /// still be sent.
+    ///
+    /// For the one case the loop's own exits do not cover: something
+    /// went wrong between a model asking for tools and the results
+    /// being written. Every planned exit already pairs them — an
+    /// interrupt answers every remaining call for exactly this reason
+    /// — and this is the net under a panic, which is unplanned by
+    /// definition.
+    ///
+    /// Returns how many it had to answer, which is zero on every path
+    /// that did not go wrong.
+    pub fn seal(&mut self) -> usize {
+        let answered: std::collections::HashSet<String> = self
+            .history
+            .iter()
+            .filter_map(|message| message.tool_call_id.clone())
+            .collect();
+        let dangling: Vec<String> = self
+            .history
+            .iter()
+            .flat_map(|message| message.tool_calls.iter())
+            .map(|call| call.id.clone())
+            .filter(|id| !answered.contains(id))
+            .collect();
+
+        for id in &dangling {
+            self.history
+                .push(Message::tool_result(id, "This did not finish."));
+        }
+        dangling.len()
+    }
+
     /// What the ledger's rows are keyed by.
     pub fn id(&self) -> &str {
         &self.config.session_id
@@ -766,7 +814,7 @@ impl Session {
     ) -> Result<(), String> {
         let Turn { provider, picker, approver, ctx, ledger } = turn;
         self.history.push(Message::user(prompt));
-        let pick = picker.tools_for(prompt);
+        let pick = picker.tools_for(prompt).await;
         let mut picker_cost = pick.cost_usd;
         let tools = self.offer(pick.names);
 
@@ -1882,6 +1930,42 @@ mod tests {
         assert_eq!(out.window, Some(200_000));
     }
 
+    /*
+      The net under a panic.
+
+      Every planned exit pairs calls with results already. This is for
+      the unplanned one, and what it protects is not the turn that
+      failed — that turn is lost either way — but the *next* message:
+      an assistant message carrying a call with no result is a
+      conversation every provider rejects outright.
+    */
+    #[test]
+    fn sealing_answers_a_call_that_never_finished() {
+        let mut session = session(Mode::Ask);
+        session.history = vec![
+            Message::user("do two things"),
+            Message::assistant_calling(
+                String::new(),
+                vec![
+                    ToolCall { id: "a".into(), name: "read".into(), arguments: "{}".into() },
+                    ToolCall { id: "b".into(), name: "ls".into(), arguments: "{}".into() },
+                ],
+            ),
+            Message::tool_result("a", "the file"),
+        ];
+
+        assert_eq!(session.seal(), 1);
+        assert_eq!(session.seal(), 0, "a sealed conversation is already sealed");
+
+        let calls: usize = session.history().iter().map(|m| m.tool_calls.len()).sum();
+        let results = session
+            .history()
+            .iter()
+            .filter(|m| m.role == Role::Tool)
+            .count();
+        assert_eq!(calls, results);
+    }
+
     #[test]
     fn a_conversation_with_nothing_in_it_still_costs_its_prefix() {
         // The tools and the preamble are in every request from the
@@ -1960,21 +2044,21 @@ mod tests {
             .collect()
     }
 
-    #[test]
-    fn the_default_picker_offers_the_whole_registry_unchanged() {
+    #[tokio::test]
+    async fn the_default_picker_offers_the_whole_registry_unchanged() {
         // Narrowing per turn would change the first bytes of the request,
         // which is the worst place to change bytes.
         let picker = OfferEverything(Surface::Window);
-        let first = picker.tools_for("anything");
-        let second = picker.tools_for("something else");
+        let first = picker.tools_for("anything").await;
+        let second = picker.tools_for("something else").await;
         assert_eq!(first, second);
         assert_eq!(first.names.len(), tools::specs().len());
         assert_eq!(first.cost_usd, 0.0, "the default picker is a constant");
     }
 
-    #[test]
-    fn a_panel_session_is_offered_the_panel_s_tools() {
-        let offered = OfferEverything(Surface::Panel).tools_for("fix this");
+    #[tokio::test]
+    async fn a_panel_session_is_offered_the_panel_s_tools() {
+        let offered = OfferEverything(Surface::Panel).tools_for("fix this").await;
         assert_eq!(offered.names, tools::PANEL_TOOLS);
         assert!(
             offered.names.len() < tools::specs().len(),

@@ -28,6 +28,10 @@ sysinfo = "0.35"
 # `multipart` is what makes a form upload sendable: it builds the body and the
 # boundary, which is not something to hand-roll.
 reqwest = { version = "0.12", features = ["json", "multipart"] }
+# Already in the tree under reqwest; named here for `catch_unwind` on a
+# future, which is what keeps a panic inside an agent turn from reading
+# as the window having quietly stopped working.
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 semver = "1"
 
 # The API client's send path. `tokio` is already in the build several times over

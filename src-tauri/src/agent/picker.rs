@@ -44,7 +44,7 @@ use std::time::Duration;
 use serde_json::{json, Value};
 
 use crate::agent::ledger::Surface;
-use crate::agent::session::{Pick, Picker};
+use crate::agent::session::{BoxFuture, Pick, Picker};
 use crate::agent::tools;
 
 pub const DEFAULT_URL: &str = "https://api.typesafe.ai/v1/systemone";
@@ -73,7 +73,6 @@ const THRESHOLD: f64 = 0.15;
 
 pub struct Jev {
     client: reqwest::Client,
-    handle: tokio::runtime::Handle,
     key: String,
     url: String,
     model: String,
@@ -82,10 +81,9 @@ pub struct Jev {
 }
 
 impl Jev {
-    pub fn new(key: String, handle: tokio::runtime::Handle, surface: Surface) -> Self {
+    pub fn new(key: String, surface: Surface) -> Self {
         Self {
             client: reqwest::Client::new(),
-            handle,
             key,
             url: DEFAULT_URL.to_string(),
             model: DEFAULT_MODEL.to_string(),
@@ -114,7 +112,17 @@ impl Jev {
         self
     }
 
-    fn ask(&self, prompt: &str) -> Result<String, String> {
+    /// Awaited, never blocked on.
+    ///
+    /// This is called from inside the turn, which is async code on a
+    /// runtime worker. The first version used `Handle::block_on` here
+    /// and panicked with "cannot start a runtime from within a
+    /// runtime" on the first message anybody sent with the router
+    /// switched on — taking the turn's task with it, so the window sat
+    /// waiting for an event that was never coming. Tools get away with
+    /// blocking clients because they go through `spawn_blocking`. This
+    /// does not.
+    async fn ask(&self, prompt: &str) -> Result<String, String> {
         let body = json!({
             "model": self.model,
             "state": prompt,
@@ -131,27 +139,22 @@ impl Jev {
             }
         });
 
-        let client = self.client.clone();
-        let key = self.key.clone();
-        let url = self.url.clone();
+        let response = self
+            .client
+            .post(&self.url)
+            .bearer_auth(&self.key)
+            .timeout(TIMEOUT)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| format!("could not reach the tool picker: {e}"))?;
 
-        self.handle.block_on(async move {
-            let response = client
-                .post(&url)
-                .bearer_auth(key)
-                .timeout(TIMEOUT)
-                .json(&body)
-                .send()
-                .await
-                .map_err(|e| format!("could not reach the tool picker: {e}"))?;
-
-            let status = response.status().as_u16();
-            let text = response.text().await.unwrap_or_default();
-            if !(200..300).contains(&status) {
-                return Err(format!("the tool picker answered {status}: {}", first_line(&text)));
-            }
-            Ok(text)
-        })
+        let status = response.status().as_u16();
+        let text = response.text().await.unwrap_or_default();
+        if !(200..300).contains(&status) {
+            return Err(format!("the tool picker answered {status}: {}", first_line(&text)));
+        }
+        Ok(text)
     }
 }
 
@@ -223,7 +226,13 @@ pub fn parse(body: &str, threshold: f64) -> Option<(Vec<String>, u64)> {
 }
 
 impl Picker for Jev {
-    fn tools_for(&self, prompt: &str) -> Pick {
+    fn tools_for<'a>(&'a self, prompt: &'a str) -> BoxFuture<'a, Pick> {
+        Box::pin(async move { self.pick(prompt).await })
+    }
+}
+
+impl Jev {
+    async fn pick(&self, prompt: &str) -> Pick {
         let everything = || {
             Pick::free(
                 tools::specs_for(self.surface)
@@ -243,7 +252,7 @@ impl Picker for Jev {
           a window where a third-party outage looks like the agent
           forgetting how to edit files.
         */
-        let Ok(body) = self.ask(prompt) else {
+        let Ok(body) = self.ask(prompt).await else {
             return everything();
         };
         let Some((names, input_tokens)) = parse(&body, THRESHOLD) else {
@@ -271,6 +280,31 @@ mod tests {
             "usage": { "input_tokens": input, "output_tokens": 0 }
         })
         .to_string()
+    }
+
+    /*
+      The bug this file shipped with, as a test.
+
+      With the router switched on, the first message sent — "hi" —
+      produced nothing at all. No answer, no error, no event, and a
+      composer that stayed disabled. `Handle::block_on` inside the
+      turn's own async task panics with "cannot start a runtime from
+      within a runtime", which took the task down before a single
+      event had been emitted.
+
+      Two things are asserted. It does not panic, and an endpoint that
+      cannot be reached answers with every tool rather than none — the
+      fallback that means a router is never the reason a turn fails.
+    */
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_router_that_cannot_be_reached_offers_everything_and_does_not_panic() {
+        let jev = Jev::new("nope".into(), Surface::Window)
+            // Nothing listens here, so `send` fails rather than hangs.
+            .with_url("http://127.0.0.1:1/v1/systemone".into());
+
+        let pick = jev.tools_for("hi").await;
+        assert_eq!(pick.names.len(), tools::specs().len(), "every tool, not none");
+        assert_eq!(pick.cost_usd, 0.0, "a call that did not happen is not billed");
     }
 
     #[test]

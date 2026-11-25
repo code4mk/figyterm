@@ -15,6 +15,9 @@
 //! that?" without a model in the way.
 
 use std::collections::HashMap;
+use std::panic::AssertUnwindSafe;
+
+use futures_util::future::FutureExt;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -1020,7 +1023,7 @@ pub async fn agent_send(
         .flatten()
         .filter(|key| !key.trim().is_empty())
         .map(|key| {
-            Jev::new(key, tokio::runtime::Handle::current(), surface)
+            Jev::new(key, surface)
                 .with_model(settings.router_model.clone())
                 .with_price(settings.router_price)
         });
@@ -1060,8 +1063,22 @@ pub async fn agent_send(
         Some(jev) => jev,
         None => &everything,
     };
-    let result = session
-        .send(
+    /*
+      A panic in a turn must not read as nothing happening.
+
+      This is the second half of a bug worth remembering: the tool
+      picker called `block_on` inside the turn's own async task, which
+      panics on a runtime worker. The task died before emitting a
+      single event, the command never returned, and the window sat
+      with a disabled composer waiting for an answer that was never
+      coming. From the outside, sending "hi" did nothing at all.
+
+      The cause is fixed. The net stays, because the next panic will
+      be somewhere else: it becomes a failed turn with the message in
+      it, the history is sealed so the *next* message still has a
+      conversation it can send, and the composer comes back.
+    */
+    let result = AssertUnwindSafe(session.send(
             &prompt,
             Turn {
                 provider: &provider,
@@ -1082,8 +1099,27 @@ pub async fn agent_send(
             },
             events_tx,
             cancel_rx,
-        )
-        .await;
+        ))
+    .catch_unwind()
+    .await
+    .unwrap_or_else(|panic| {
+        let what = panic
+            .downcast_ref::<&str>()
+            .map(|s| (*s).to_string())
+            .or_else(|| panic.downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "something went wrong inside the turn".to_string());
+        let dangling = session.seal();
+        let error = format!(
+            "The turn stopped unexpectedly: {what}{}",
+            if dangling > 0 {
+                format!(" ({dangling} tool call(s) left unfinished)")
+            } else {
+                String::new()
+            }
+        );
+        let _ = window.emit(AGENT_EVENT, &TurnEvent::Failed { error: error.clone() });
+        Err(error)
+    });
 
     // Dropped so the pump sees the channel close and finishes emitting
     // before the command returns; otherwise the last event can arrive after
