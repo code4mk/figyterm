@@ -450,6 +450,7 @@ pub fn registry() -> Vec<Box<dyn Tool>> {
         Box::new(git::Diff),
         Box::new(git::Log),
         Box::new(git::Blame),
+        Box::new(git::Show),
         Box::new(git::Commit),
         Box::new(todo::TodoWrite),
         Box::new(ask::AskUser),
@@ -677,7 +678,7 @@ mod tests {
                 "read", "grep", "edit", "write", "ls", "move", "delete", "bash",
                 "bash_output", "bash_kill", "definition", "references", "diagnostics",
                 "search_web", "fetch_url", "git_status", "git_diff", "git_log",
-                "git_blame", "git_commit", "todo_write", "ask_user", "plan", "task"
+                "git_blame", "git_show", "git_commit", "todo_write", "ask_user", "plan", "task"
             ]
         );
     }

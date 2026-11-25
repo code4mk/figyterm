@@ -386,6 +386,83 @@ fn leap(year: i64) -> bool {
     (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
 }
 
+pub struct Show;
+
+impl Tool for Show {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec {
+            name: "git_show",
+            description: "One commit in full: its message, including the body, and the \
+                files it touched with their line counts. Read a few before writing a \
+                commit message, since `git_log` shows only subjects — the style of a \
+                repository is mostly in the part it does not show.",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "sha": {
+                        "type": "string",
+                        "description": "A commit, as `git_log` or `git_blame` reported it."
+                    }
+                },
+                "required": ["sha"],
+                "additionalProperties": false
+            }),
+            class: Class::Read,
+        }
+    }
+
+    fn call(&self, ctx: &ToolContext, args: &Value) -> Result<ToolOutput, ToolError> {
+        let root = repo(ctx, "git_show")?;
+        let sha = arg_str(args, "sha", "git_show")?;
+        let found =
+            operations::commit_detail(&root, &sha).map_err(|e| format!("git_show: {e}"))?;
+
+        let mut text = format!(
+            "{} {}\n{} · {}\n\n{}\n",
+            found.commit.short, found.commit.subject, found.commit.author, found.commit.date,
+            found.commit.subject
+        );
+        if !found.body.trim().is_empty() {
+            text.push('\n');
+            text.push_str(found.body.trim_end());
+            text.push('\n');
+        }
+
+        /*
+          The files, not the diff.
+
+          A commit's diff is `git_diff`'s job and can be thousands of
+          lines; what this answers is "what is this commit, and what
+          did it touch", which is the question before that one. The
+          names and the counts are enough to decide whether to go and
+          read it.
+        */
+        text.push_str(&format!("\n{} file(s):\n", found.files.len()));
+        let (kept, note) = cap_lines(
+            found
+                .files
+                .iter()
+                .map(|file| format!("{}  +{} -{}", file.relative, file.added, file.removed))
+                .collect(),
+            60,
+            "use git_diff for the change itself",
+        );
+        text.push_str(&kept.join("\n"));
+        text.push('\n');
+        if let Some(note) = note {
+            text.push_str(&note);
+            text.push('\n');
+        }
+
+        Ok(ToolOutput::text(text).with_detail(json!({
+            "sha": found.commit.short,
+            "subject": found.commit.subject,
+            "hasBody": !found.body.trim().is_empty(),
+            "files": found.files.len(),
+        })))
+    }
+}
+
 pub struct Commit;
 
 impl Tool for Commit {
@@ -393,15 +470,26 @@ impl Tool for Commit {
         ToolSpec {
             name: "git_commit",
             description: "Stage the given files and commit them. Without `paths` it \
-                commits everything that has changed. Write the message in the style of \
-                this repository's own history — run `git_log` first if you have not. \
-                This does not push.",
+                commits everything that has changed. Write it in the style of this \
+                repository's own history — run `git_log` first if you have not. This \
+                does not push.",
             parameters: json!({
                 "type": "object",
                 "properties": {
-                    "message": {
+                    "subject": {
                         "type": "string",
-                        "description": "The commit message. A subject line, and a body if it needs one."
+                        "description":
+                            "The first line. What the commit does, in the imperative, \
+                             under about 72 characters and with no full stop."
+                    },
+                    "body": {
+                        "type": "string",
+                        "description":
+                            "Why, in prose, wrapped at about 72 columns. Expected for \
+                             anything but a trivial change: the subject says what the \
+                             commit does and the diff says how, so this is the only \
+                             place the reason survives. Omit it for a typo fix, not \
+                             because the change was obvious while you were making it."
                     },
                     "paths": {
                         "type": "array",
@@ -420,7 +508,7 @@ impl Tool for Commit {
 
     fn call(&self, ctx: &ToolContext, args: &Value) -> Result<ToolOutput, ToolError> {
         let root = repo(ctx, "git_commit")?;
-        let message = arg_str(args, "message", "git_commit")?;
+        let message = message_from(args)?;
 
         let relatives: Vec<String> = match args.get("paths").and_then(Value::as_array) {
             Some(items) => {
@@ -454,13 +542,77 @@ impl Tool for Commit {
         operations::stage(&root, &relatives).map_err(|e| format!("git_commit: {e}"))?;
         let result = operations::commit(&root, &message).map_err(|e| format!("git_commit: {e}"))?;
 
+        let lines = message.lines().count();
         Ok(ToolOutput::text(format!(
-            "{result}\n{} file{} committed. Nothing was pushed.",
+            "{result}\n{} file{} committed, {} message. Nothing was pushed.",
             relatives.len(),
-            if relatives.len() == 1 { "" } else { "s" }
+            if relatives.len() == 1 { "" } else { "s" },
+            if lines > 1 {
+                format!("{lines}-line")
+            } else {
+                "one-line".to_string()
+            }
         ))
         .with_detail(json!({ "files": relatives, "message": message })))
     }
+}
+
+/// A subject line, and the body under it.
+///
+/// Two fields rather than one, and the reason is what came out when
+/// it was one: every commit this agent wrote was a single line. The
+/// schema said "a subject line, and a body if it needs one" in a
+/// sentence at the end of a description, which is a thing a model
+/// reads and does not do. A field it has to decide about is a field
+/// it fills in.
+///
+/// They are joined here, because the format is git's and not the
+/// model's: subject, blank line, body. Getting that wrong produces a
+/// commit whose whole message is a subject six hundred characters
+/// long, and `git log --oneline` is unreadable for ever after.
+///
+/// `message` is still accepted. A model that has seen a thousand
+/// commit tools will reach for it, and refusing would cost a turn to
+/// teach it something this can simply understand.
+fn message_from(args: &Value) -> Result<String, ToolError> {
+    if let Ok(whole) = arg_str(args, "message", "git_commit") {
+        if !whole.trim().is_empty() {
+            return Ok(whole.trim().to_string());
+        }
+    }
+
+    let subject = arg_str(args, "subject", "git_commit")?;
+    let subject = subject.trim();
+    if subject.is_empty() {
+        return Err("git_commit: the subject is empty".into());
+    }
+    /*
+      A subject is one line, and this is where that is enforced.
+
+      A model handed a `subject` field will occasionally put the
+      whole message in it. Splitting rather than refusing: the text
+      is right, the shape is wrong, and a turn spent saying so is a
+      turn spent on punctuation.
+    */
+    let (subject, spilled) = match subject.split_once('\n') {
+        Some((first, rest)) => (first.trim(), rest.trim().to_string()),
+        None => (subject, String::new()),
+    };
+
+    let body = arg_str(args, "body", "git_commit").unwrap_or_default();
+    let body = match (spilled.is_empty(), body.trim().is_empty()) {
+        (true, true) => String::new(),
+        (false, true) => spilled,
+        (true, false) => body.trim().to_string(),
+        // Both: the spill came first in the model's own ordering.
+        (false, false) => format!("{spilled}\n\n{}", body.trim()),
+    };
+
+    Ok(if body.is_empty() {
+        subject.to_string()
+    } else {
+        format!("{subject}\n\n{body}")
+    })
 }
 
 #[cfg(test)]
@@ -574,20 +726,126 @@ mod tests {
         std::fs::write(ctx.root().join("src/new.rs"), "// new\n").unwrap();
 
         let out = Commit
-            .call(&ctx, &json!({ "message": "Add a file" }))
+            .call(
+                &ctx,
+                &json!({
+                    "subject": "Add a file",
+                    "body": "Because the test needed one to commit."
+                }),
+            )
             .unwrap();
         assert!(out.text.contains("Nothing was pushed."));
+        assert!(out.text.contains("3-line message"), "got: {}", out.text);
+
+        // The body is in the commit, under a blank line, which is
+        // the shape `git log --oneline` depends on.
+        let message = String::from_utf8(
+            Command::new("git")
+                .args(["log", "-1", "--format=%B"])
+                .current_dir(ctx.root())
+                .output()
+                .unwrap()
+                .stdout,
+        )
+        .unwrap();
+        assert!(
+            message.starts_with("Add a file\n\nBecause the test needed one"),
+            "got: {message:?}"
+        );
 
         // And the tree is clean afterwards, which is the actual assertion.
         let after = Status.call(&ctx, &json!({})).unwrap();
         assert!(after.text.contains("Nothing changed."), "got: {}", after.text);
     }
 
+    /*
+      The shape of the message, which is the thing that was wrong.
+
+      One `message` field with "and a body if it needs one" at the
+      end of its description produced single-line commits, every
+      time — a sentence a model reads and does not act on. Two
+      fields produce two fields.
+    */
+    #[test]
+    fn a_commit_can_be_read_back_with_its_body() {
+        /*
+          Why this exists at all.
+
+          `git_commit` says "write it in the style of this
+          repository's own history" and `git_log` shows subjects.
+          The style of a repository is mostly in the part `git_log`
+          does not print, so the instruction was asking the model to
+          match something it had never been shown — and what it
+          produced was subjects.
+        */
+        let Some(ctx) = repo_at("show") else { return };
+        std::fs::write(ctx.root().join("src/new.rs"), "// new\n").unwrap();
+        Commit
+            .call(
+                &ctx,
+                &json!({ "subject": "Add a file", "body": "Because the test needed one." }),
+            )
+            .unwrap();
+
+        let log = Log.call(&ctx, &json!({ "limit": 1 })).unwrap();
+        let sha = log
+            .text
+            .lines()
+            .find(|line| line.contains("Add a file"))
+            .and_then(|line| line.split_whitespace().next())
+            .expect("a sha in the log")
+            .to_string();
+
+        let out = Show.call(&ctx, &json!({ "sha": sha })).unwrap();
+        assert!(out.text.contains("Add a file"));
+        assert!(out.text.contains("Because the test needed one."), "got: {}", out.text);
+        assert!(out.text.contains("src/new.rs"));
+        assert_eq!(out.detail.unwrap()["hasBody"], true);
+    }
+
+    #[test]
+    fn a_subject_and_a_body_become_one_message_in_git_s_own_shape() {
+        assert_eq!(
+            message_from(&json!({ "subject": "Fix the retry", "body": "It never slept." })).unwrap(),
+            "Fix the retry\n\nIt never slept."
+        );
+        // A subject on its own is a whole message. Not every commit
+        // needs prose, and demanding it produces padding.
+        assert_eq!(
+            message_from(&json!({ "subject": "Fix a typo" })).unwrap(),
+            "Fix a typo"
+        );
+    }
+
+    #[test]
+    fn a_whole_message_in_the_subject_is_split_rather_than_refused() {
+        // A model handed a `subject` field will sometimes put the
+        // lot in it. The text is right and the shape is wrong, and a
+        // turn spent saying so is a turn spent on punctuation.
+        assert_eq!(
+            message_from(&json!({ "subject": "Fix the retry\n\nIt never slept." })).unwrap(),
+            "Fix the retry\n\nIt never slept."
+        );
+    }
+
+    #[test]
+    fn the_old_single_field_still_works() {
+        // A model that has seen a thousand commit tools reaches for
+        // `message`, and refusing costs a turn to teach it something
+        // this can simply understand.
+        assert_eq!(
+            message_from(&json!({ "message": "Subject\n\nBody." })).unwrap(),
+            "Subject\n\nBody."
+        );
+        assert!(message_from(&json!({ "message": "   " })).is_err());
+        assert!(message_from(&json!({})).is_err());
+    }
+
     #[test]
     fn committing_nothing_is_refused_rather_than_an_empty_commit() {
         let Some(ctx) = repo_at("empty") else { return };
         let err = Commit
-            .call(&ctx, &json!({ "message": "nothing" }))
+            .call(&ctx, &json!({ "subject": "nothing" }))
             .unwrap_err();
         assert!(err.contains("nothing to commit"));
     }
