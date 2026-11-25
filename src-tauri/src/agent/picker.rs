@@ -62,14 +62,25 @@ pub const DEFAULT_PRICE: f64 = 0.042;
 /// perfectly good turn.
 const TIMEOUT: Duration = Duration::from_secs(6);
 
-/// How likely a tool has to be to make the cut.
+/// How much of the probability mass to keep.
 ///
-/// Deliberately low. The cost of including a tool that is not needed is
-/// a hundred tokens in the prefix; the cost of leaving out one that is
-/// needed is a turn where the model cannot do the thing it was asked.
-/// Those are not the same size of mistake, so the threshold is set
-/// where it errs toward offering.
-const THRESHOLD: f64 = 0.15;
+/// **Not a threshold**, and the difference cost a real answer. Jev's
+/// `probabilities` are a distribution over *one* choice — they sum to
+/// one — so a fixed cut-off means something different depending on how
+/// many tools are plausible. Asked to "add a timeout and run the
+/// tests" it answered `bash 0.37, grep 0.22, read 0.21, edit 0.13`,
+/// and a 0.15 cut-off dropped `edit` from a task whose whole point was
+/// editing a file. Spread the same confidence over ten plausible tools
+/// and a fixed cut-off drops all of them.
+///
+/// So: take them in order until this much of the mass is accounted
+/// for. It adapts to how sure the answer is, which is what a
+/// distribution is for.
+///
+/// Set high, because the two mistakes are not the same size. An extra
+/// tool costs a hundred tokens in the prefix. A missing one costs a
+/// turn where the model cannot do what it was asked.
+const KEEP_MASS: f64 = 0.9;
 
 pub struct Jev {
     client: reqwest::Client,
@@ -192,23 +203,37 @@ fn first_line(text: &str) -> String {
 
 /// The names worth offering, out of one answer.
 ///
-/// Everything above the threshold, the single `choice` whatever its
-/// probability — a router that names one tool and scores it 0.1 still
-/// means that one — and the floor, always.
+/// The likeliest tools until `keep_mass` of the probability is
+/// accounted for, the single `choice` whatever its probability — a
+/// router that names one tool and scores it 0.1 still means that one —
+/// and the floor, always.
 ///
 /// A malformed answer is `None`, which the caller reads as "offer
 /// everything". Nothing here guesses: a router that returns a shape we
 /// do not recognise has not answered.
-pub fn parse(body: &str, threshold: f64) -> Option<(Vec<String>, u64)> {
+pub fn parse(body: &str, keep_mass: f64) -> Option<(Vec<String>, u64)> {
     let value: Value = serde_json::from_str(body).ok()?;
     let answer = value.get("answers")?.get("tools")?;
     let probabilities = answer.get("probabilities")?.as_object()?;
 
+    // Likeliest first, and ties broken by name so the same answer
+    // always produces the same set — which is what lets an unchanged
+    // pick leave the prefix untouched.
+    let mut ranked: Vec<(&String, f64)> = probabilities
+        .iter()
+        .map(|(name, score)| (name, score.as_f64().unwrap_or(0.0)))
+        .filter(|(_, score)| *score > 0.0)
+        .collect();
+    ranked.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+
     let mut names: BTreeSet<String> = BTreeSet::new();
-    for (name, score) in probabilities {
-        if score.as_f64().unwrap_or(0.0) >= threshold {
-            names.insert(name.clone());
+    let mut mass = 0.0;
+    for (name, score) in ranked {
+        if mass >= keep_mass {
+            break;
         }
+        names.insert(name.clone());
+        mass += score;
     }
     if let Some(choice) = answer.get("choice").and_then(Value::as_str) {
         names.insert(choice.to_string());
@@ -255,7 +280,7 @@ impl Jev {
         let Ok(body) = self.ask(prompt).await else {
             return everything();
         };
-        let Some((names, input_tokens)) = parse(&body, THRESHOLD) else {
+        let Some((names, input_tokens)) = parse(&body, KEEP_MASS) else {
             return everything();
         };
         if names.is_empty() {
@@ -310,20 +335,66 @@ mod tests {
     #[test]
     fn the_likely_tools_come_back_and_so_does_what_it_cost() {
         let (names, input) = parse(
-            &answer(json!({ "read": 0.9, "edit": 0.6, "git_commit": 0.01 }), 1500),
-            THRESHOLD,
+            &answer(json!({ "read": 0.55, "edit": 0.4, "git_commit": 0.05 }), 1500),
+            KEEP_MASS,
         )
         .unwrap();
         assert!(names.contains(&"read".to_string()));
         assert!(names.contains(&"edit".to_string()));
-        assert!(!names.contains(&"git_commit".to_string()), "0.01 is a no");
+        assert!(
+            !names.contains(&"git_commit".to_string()),
+            "the tail past the mass is dropped"
+        );
         assert_eq!(input, 1500);
+    }
+
+    /*
+      The answer the real endpoint gave, and the reason this is a
+      nucleus rather than a threshold.
+
+      "Add a timeout to the retry and run the tests" came back as
+      `bash 0.37, grep 0.22, read 0.21, edit 0.13` — a distribution
+      over one choice, summing to one. A flat 0.15 cut-off dropped
+      `edit` from a task whose whole point was editing a file, which
+      is the exact failure a tool picker is not allowed to have.
+    */
+    #[test]
+    fn a_spread_answer_keeps_the_tool_the_task_actually_needs() {
+        let real = json!({
+            "ask_user": 0.0, "bash": 0.37, "bash_kill": 0.0, "bash_output": 0.0,
+            "definition": 0.02, "delete": 0.0, "diagnostics": 0.0, "edit": 0.13,
+            "fetch_url": 0.0, "git_blame": 0.0, "git_commit": 0.0, "git_diff": 0.0,
+            "git_log": 0.0, "git_status": 0.0, "grep": 0.22, "ls": 0.03, "move": 0.0,
+            "plan": 0.0, "read": 0.21, "references": 0.01, "search_web": 0.0,
+            "task": 0.0, "todo_write": 0.01, "write": 0.0
+        });
+        let (names, _) = parse(&answer(real, 974), KEEP_MASS).unwrap();
+
+        assert!(names.contains(&"edit".to_string()), "it was asked to edit a file");
+        assert!(names.contains(&"bash".to_string()), "and to run the tests");
+        assert!(names.contains(&"grep".to_string()));
+        assert!(names.contains(&"read".to_string()));
+        // And it is still a narrowing, not a surrender.
+        assert!(names.len() < tools::specs().len() / 2, "{names:?}");
+        assert!(!names.contains(&"git_commit".to_string()));
+    }
+
+    /// Spread thin enough and everything plausible survives, which is
+    /// the behaviour a fixed cut-off got exactly backwards.
+    #[test]
+    fn an_answer_with_no_opinion_keeps_most_of_what_it_listed() {
+        let flat = json!({
+            "read": 0.1, "edit": 0.1, "grep": 0.1, "bash": 0.1, "ls": 0.1,
+            "write": 0.1, "move": 0.1, "delete": 0.1, "git_log": 0.1, "task": 0.1
+        });
+        let (names, _) = parse(&answer(flat, 0), KEEP_MASS).unwrap();
+        assert!(names.len() >= 9, "nine tenths of the mass is nine tools: {names:?}");
     }
 
     /// A router sees one message; a session is longer than one message.
     #[test]
     fn the_floor_is_in_every_answer_however_narrow() {
-        let (names, _) = parse(&answer(json!({ "edit": 0.9 }), 0), THRESHOLD).unwrap();
+        let (names, _) = parse(&answer(json!({ "edit": 0.9 }), 0), KEEP_MASS).unwrap();
         for always in tools::FLOOR {
             assert!(
                 names.contains(&always.to_string()),
@@ -341,7 +412,7 @@ mod tests {
             }
         })
         .to_string();
-        let (names, _) = parse(&body, THRESHOLD).unwrap();
+        let (names, _) = parse(&body, KEEP_MASS).unwrap();
         assert!(names.contains(&"bash".to_string()));
     }
 
@@ -349,15 +420,15 @@ mod tests {
     fn a_shape_we_do_not_recognise_is_not_an_answer() {
         // Which the caller reads as "offer everything" rather than as
         // "offer nothing", because those differ by a broken turn.
-        assert!(parse("not json", THRESHOLD).is_none());
-        assert!(parse(r#"{"answers":{}}"#, THRESHOLD).is_none());
-        assert!(parse(r#"{"answers":{"tools":{"type":"choice"}}}"#, THRESHOLD).is_none());
+        assert!(parse("not json", KEEP_MASS).is_none());
+        assert!(parse(r#"{"answers":{}}"#, KEEP_MASS).is_none());
+        assert!(parse(r#"{"answers":{"tools":{"type":"choice"}}}"#, KEEP_MASS).is_none());
     }
 
     #[test]
     fn usage_that_is_missing_is_zero_rather_than_a_guess() {
         let body = r#"{"answers":{"tools":{"type":"choice","probabilities":{"read":0.9}}}}"#;
-        let (_, input) = parse(body, THRESHOLD).unwrap();
+        let (_, input) = parse(body, KEEP_MASS).unwrap();
         assert_eq!(input, 0);
     }
 
@@ -376,6 +447,43 @@ mod tests {
             read.len() < 200,
             "a criterion is a sentence, not a manual: {read}"
         );
+    }
+
+    /*
+      Against the real endpoint, by hand.
+
+      `#[ignore]`, because a test that needs a key and a network is not
+      a test anybody should have to have. It is here because every
+      other test in this file checks our *parsing* of a shape taken
+      from the documentation, and the documentation is not the API.
+      One real call settles whether the request we build is accepted,
+      whether the answer is the shape we read, and — the question that
+      prompted it — whether anything reaches the dashboard at all.
+
+          TYPESAFE_API_KEY=… cargo test --lib real_api -- --ignored --nocapture
+    */
+    #[tokio::test]
+    #[ignore = "needs a key and a network"]
+    async fn against_the_real_api() {
+        let Ok(key) = std::env::var("TYPESAFE_API_KEY") else {
+            panic!("set TYPESAFE_API_KEY");
+        };
+        let jev = Jev::new(key, Surface::Window);
+
+        let raw = jev
+            .ask("add a timeout to the retry in the http client and run the tests")
+            .await;
+        match &raw {
+            Ok(body) => println!("\n--- raw answer ---\n{body}\n"),
+            Err(error) => println!("\n--- refused ---\n{error}\n"),
+        }
+
+        let body = raw.expect("the endpoint answered");
+        let parsed = parse(&body, KEEP_MASS);
+        println!("--- parsed ---\n{parsed:?}\n");
+        let (names, input) = parsed.expect("the answer is the shape we read");
+        println!("picked {} of {}: {names:?}", names.len(), tools::specs().len());
+        println!("billed {input} input tokens");
     }
 
     #[test]
