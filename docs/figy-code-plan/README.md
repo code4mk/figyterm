@@ -10,18 +10,25 @@ This folder is the detail underneath it, one subject per file.
 | [`TOOLS.md`](./TOOLS.md) | Every tool the agent gets, what backs it, what it may return, and what it is not allowed to do |
 | [`TASKS.md`](./TASKS.md) | The order it is built in, and what is actually done. Sections 1–8 are the agent; 9–11 are what makes it a harness |
 
-**Status (2026-11-25): the agent runs, and it now survives a long task.**
-Sections 1–8 of `TASKS.md` are in — a turn loop in `src-tauri/src/agent/`,
-twenty-four tools, a permission model, a ledger, and a window with
-nothing scripted left in it. Sections 9 and 10 are in: the context window is
-tracked, the budget stops a run before it overspends rather than after,
-a conversation compacts itself once, late, at a task boundary, a rate
-limit no longer ends the turn, and a conversation is written down after
-every turn so `/resume` can pick it back up. Section 11 is in too: the agent
-has `FIGY.md` for the project's rules, a to-do list, a plan it can put
-up for approval, a question it can ask with an answer shape, and a
-sub-agent whose context is thrown away. What is left is the editor panel
-in section 7, and the open items under each section above.
+**Status (2026-11-25): the agent works, and the panel does not exist.**
+Sections 1–6 and 8–11 of `TASKS.md` are in: a turn loop in
+`src-tauri/src/agent/`, twenty-five tools, a permission model, a ledger,
+compaction, retry, conversations that survive a restart, `FIGY.md`, a
+to-do list, a plan it can offer, a question it can ask, a sub-agent,
+images on a message, and an optional tool router that is off by default
+and argued against in its own file.
+
+**Section 7 — the editor panel — is the one that has not been started**,
+and it is the one `CODE-AGENT.md` says the product exists for: a
+file-focused agent answering in one to five turns is a different and
+cheaper thing from the window, and it is what justifies an editor over
+a terminal. Everything under it is open except the plumbing.
+
+The other open items worth naming: the **dirty-buffer handshake** (an
+edit to a file with unsaved changes in the editor), **keys in plain
+text** — three of them now — and **`$ per completed task`, never
+measured**, which is the number every cost decision in this project
+rests on.
 
 The line that used to be here said nothing was built, which stopped being
 true some time ago. A status line nobody updates is worse than none,

@@ -152,8 +152,10 @@ The shape of the thing being built, decided and not re-opened here:
       the provider's count for the last request is exact, and they do
       not agree. Scaling the parts until they summed to the measured
       total would make one number honest and every other one a lie
-- [ ] Hit rate and `$ this session` on screen — the ledger has both, nothing
-      draws them yet
+- [x] Hit rate and `$ this session` on screen. The status bar carries
+      `cache 73% · $0.04`, and `/usage` opens the whole ledger: spend
+      a turn, the split between cached and fresh, and the largest
+      tool result — which is the early warning the row exists for
 
 ### 3b · When a second provider implementation becomes worth it
 
@@ -199,9 +201,10 @@ what a destroyed cache prefix looks like.
 - [ ] `$ per completed task` measured either side of this section — the 5×
       is claimed here and unproven until real sessions are run through the
       ledger
-- [ ] A narrower registry for the editor panel. The shell seam covers
-      `bash`; `write`, `move`, `delete` and `glob` still need a surface to
-      be filtered by
+- [x] A narrower registry for the editor panel: `tools::PANEL_TOOLS`,
+      filtered by surface rather than by each tool remembering to
+      check. Six tools against the window's twenty-five, which is
+      1,523 tokens of prefix against 4,768
 
 ## 5 · The window, told the truth
 
@@ -237,9 +240,18 @@ what a destroyed cache prefix looks like.
       so saying yes does not change what you were looking at
 - [x] The token meter moves while the answer streams. The provider's own
       count arrives at the end of the turn and replaces the estimate
-- [ ] Six block renderers were deleted with the scripts — plans, to-do
-      lists, command-output cards, the task summary. They come back with
-      the `plan` and `todo_write` tools in section 8, out of the history
+- [x] The deleted block renderers came back with the tools that
+      produce them: the to-do list with `todo_write`, the plan card
+      with `plan`. The command-output card and the task summary did
+      not, and should not — a tool row that opens is the same thing
+      with less furniture
+- [x] A tool row says what it is *for*, not only what it is. Every
+      tool takes a `why` and the row carries it beside the target,
+      which is the difference between a transcript and a log
+- [x] A long call is watchable: `bash` streams its output while it
+      runs, `write` and `edit` show the file arriving out of
+      arguments that are not valid JSON yet, and a running row ticks
+      with how long and how far
 - [ ] Background commands in a visible terminal tab (carried from 4)
 - [x] **More than one model.** The settings held a single provider,
       which was wrong about how this is used: a cheap model for the
@@ -455,6 +467,29 @@ entirely.
 - [ ] Provider failover, which is only worth it once there is a second
       provider configured. Until then, a clear message beats a silent
       switch
+
+## 11c · What the window does while it waits
+
+Added after the fact, because none of it was in the plan and all of
+it turned out to be the difference between a window somebody trusts
+and one they watch suspiciously.
+
+- [x] Escape stops the agent from wherever the focus happens to be,
+      lands *during* a tool rather than between two, and leaves a
+      conversation that can still be sent
+- [x] A panic in a turn is a failed turn with the message in it,
+      rather than a window that waits for ever
+- [x] One card for a permission question, not a row and two cards
+      saying the same thing three times
+- [x] `/project`, `/context`, `/resume` and the settings are dialogs
+      over the conversation rather than screens instead of it
+- [x] A `styles.test.ts` that fails when a class has no rule, after a
+      careless block replacement silently deleted the model picker,
+      the permission rows and the whole to-do renderer
+- [x] Two schema tests over the registry, after a renamed field left
+      `required` pointing at nothing and a strict endpoint refused
+      **every** turn with an error naming neither the tool nor the
+      field
 
 ## 11b · Pictures
 
