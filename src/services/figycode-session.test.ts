@@ -449,6 +449,63 @@ test("approving a plan is what lifts plan mode, and only approving it", () => {
   assert.equal(modeAfterPlan(NONE_OF_THESE), null);
 });
 
+/* ─── A tool that takes two minutes ────────────────────────────────────────── */
+
+test("a row fills in when the arguments land, not when the tool is named", () => {
+  // `toolStarted` comes off the stream the moment the model says
+  // "bash", before it has said what to run — so the row is a verb and
+  // nothing else until this.
+  const state = play(
+    { kind: "toolStarted", id: "t1", name: "bash" },
+    { kind: "toolRunning", id: "t1", target: "npm run build", why: "checking it compiles" }
+  );
+  const row = state.blocks[0];
+  assert.ok(row.kind === "tool");
+  assert.equal(row.tool.target, "npm run build");
+  assert.equal(row.tool.why, "checking it compiles");
+  assert.equal(row.tool.running, true);
+});
+
+test("output from a running command shows the tail, not the whole log", () => {
+  // What somebody watching a build wants is the line it is on. The
+  // forty before it are scrollback they can read when it finishes.
+  const lines = Array.from({ length: 30 }, (_, i) => `step ${i}`);
+  const state = play(
+    { kind: "toolStarted", id: "t1", name: "bash" },
+    ...lines.map((line) => ({ kind: "toolProgress" as const, id: "t1", line }))
+  );
+  const row = state.blocks[0];
+  assert.ok(row.kind === "tool");
+  assert.ok(row.tool.live);
+  assert.ok(row.tool.live.length <= 10, `kept ${row.tool.live.length}`);
+  assert.equal(row.tool.live.at(-1), "step 29", "the newest line survives");
+});
+
+test("the finished output supersedes what was streaming", () => {
+  // Two copies of a build log in one row is one too many, and the
+  // finished one is trimmed and complete.
+  const state = play(
+    { kind: "toolStarted", id: "t1", name: "bash" },
+    { kind: "toolProgress", id: "t1", line: "compiling…" },
+    {
+      kind: "toolFinished",
+      id: "t1",
+      name: "bash",
+      text: "$ npm run build\nexit 0 in 94000ms\nbuilt in 94s",
+      detail: { cmd: "npm run build", why: "checking it compiles", status: 0 },
+      tokens: 20,
+    }
+  );
+  const row = state.blocks[0];
+  assert.ok(row.kind === "tool");
+  assert.equal(row.tool.live, undefined);
+  assert.equal(row.tool.running, false);
+  // The first line is the row's own summary; the rest is the body.
+  assert.deepEqual(row.tool.output, ["exit 0 in 94000ms", "built in 94s"]);
+  assert.equal(row.tool.meta, "$ npm run build");
+  assert.equal(row.tool.why, "checking it compiles", "the reason outlives the run");
+});
+
 /* ─── The plan ─────────────────────────────────────────────────────────────── */
 
 /** A `todo_write` round trip, as the backend emits it. */

@@ -114,6 +114,21 @@ impl ToolSpec {
 /// nowhere to run it. A tool that needs one and has none says so and stops.
 /// The bridge to the language server is the same arrangement, for a
 /// different reason: it needs a live window on the other end.
+/// Somewhere to put a line while a tool is still running.
+///
+/// A build takes two minutes and used to show nothing at all until it
+/// was over — a spinner, and then two hundred lines at once. The
+/// output existed the whole time; the window simply had no way to be
+/// handed it, because a tool answers once and answers at the end.
+///
+/// So tools that produce output as they go take this and use it. It
+/// is not the result: nothing sent here reaches the model, which
+/// still gets the whole thing in one piece when the tool returns.
+/// This is for the person watching.
+pub trait Progress: Send + Sync {
+    fn line(&self, text: &str);
+}
+
 #[derive(Clone)]
 pub struct ToolContext {
     pub root: PathBuf,
@@ -126,6 +141,9 @@ pub struct ToolContext {
     pub web: Option<Arc<dyn crate::agent::web::Web>>,
     pub asker: Option<Arc<dyn crate::agent::ask::Asker>>,
     pub delegate: Option<Arc<dyn crate::agent::delegate::Delegate>>,
+    /// Where a long tool puts its output while it is still going.
+    /// Bound per call by the loop, because it carries the call's id.
+    pub progress: Option<Arc<dyn Progress>>,
 }
 
 impl ToolContext {
@@ -139,6 +157,7 @@ impl ToolContext {
             web: None,
             asker: None,
             delegate: None,
+            progress: None,
         }
     }
 
@@ -170,6 +189,19 @@ impl ToolContext {
     pub fn with_delegate(mut self, delegate: Arc<dyn crate::agent::delegate::Delegate>) -> Self {
         self.delegate = Some(delegate);
         self
+    }
+
+    pub fn with_progress(mut self, progress: Arc<dyn Progress>) -> Self {
+        self.progress = Some(progress);
+        self
+    }
+
+    /// Reports a line, if anybody is listening. Tools call this
+    /// freely: with no listener it costs a branch.
+    pub fn progress(&self, line: &str) {
+        if let Some(progress) = &self.progress {
+            progress.line(line);
+        }
     }
 
     pub fn root(&self) -> &Path {

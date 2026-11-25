@@ -59,6 +59,22 @@ export type TurnEvent =
       /** What this result costs on every remaining turn of the session. */
       tokens: number;
     }
+  /**
+   * The arguments are in and the tool is about to run.
+   *
+   * `toolStarted` comes off the stream the moment the model names a
+   * tool, before it has said what to do with it — so the row appears
+   * with a verb and nothing else, and this is what fills it in.
+   */
+  | { kind: "toolRunning"; id: string; target: string; why: string }
+  /**
+   * A line from a tool that is still running.
+   *
+   * Only `bash` sends these. None of it reaches the model, which
+   * gets the whole output once, at the end — this is for the person
+   * watching a two-minute build.
+   */
+  | { kind: "toolProgress"; id: string; line: string }
   | { kind: "toolFailed"; id: string; name: string; error: string }
   | { kind: "toolRefused"; id: string; name: string; reason: string }
   | { kind: "needsApproval"; id: string; name: string; arguments: Record<string, unknown> }

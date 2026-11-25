@@ -67,6 +67,14 @@ impl Tool for Bash {
                         "description":
                             "Start it and return immediately with an id. Use for anything \
                              that does not exit on its own."
+                    },
+                    "why": {
+                        "type": "string",
+                        "description":
+                            "What you are doing, in four or five words — \"building to \
+                             check it compiles\", \"running the failing test\". The person \
+                             sees this instead of the command while it runs, and a \
+                             two-minute build is two minutes of them reading it."
                     }
                 },
                 "required": ["cmd"],
@@ -78,6 +86,7 @@ impl Tool for Bash {
 
     fn call(&self, ctx: &ToolContext, args: &serde_json::Value) -> Result<ToolOutput, ToolError> {
         let command = arg_str(args, "cmd", "bash")?;
+        let why = arg_str(args, "why", "bash").unwrap_or_default();
         let shell = ctx.shell()?;
 
         if arg_bool(args, "background") {
@@ -88,12 +97,37 @@ impl Tool for Bash {
                 "Started `{command}` in the background as {id}. Poll it with \
                  bash_output(id: \"{id}\"), stop it with bash_kill."
             ))
-            .with_detail(json!({ "id": id, "cmd": command, "background": true })));
+            .with_detail(json!({
+                "id": id,
+                "cmd": command,
+                "why": why,
+                "background": true
+            })));
         }
 
         let seconds = arg_usize(args, "timeout", DEFAULT_TIMEOUT, MAX_TIMEOUT);
+
+        /*
+          Watched rather than run.
+
+          The only difference is that each line is handed to the
+          window as it arrives. A two-minute build used to be a
+          spinner and then two hundred lines at once — the output
+          existed the whole time and there was no way to be given it.
+
+          What the *model* gets is unchanged: the whole thing, once,
+          trimmed, when the command exits. Streaming a build into the
+          conversation would be two hundred lines in the prefix of
+          every turn after it, which is the opposite of what the
+          trimming below is for.
+        */
         let done = shell
-            .run(&command, ctx.root(), Duration::from_secs(seconds as u64))
+            .watch(
+                &command,
+                ctx.root(),
+                Duration::from_secs(seconds as u64),
+                &|line| ctx.progress(line),
+            )
             .map_err(|e| format!("bash: {e}"))?;
 
         let total = done.output.len();
@@ -122,6 +156,7 @@ impl Tool for Bash {
 
         Ok(ToolOutput::text(text).with_detail(json!({
             "cmd": command,
+            "why": why,
             "status": done.status,
             "timedOut": done.timed_out,
             "ms": done.ms,

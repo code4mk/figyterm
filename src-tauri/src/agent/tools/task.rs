@@ -42,6 +42,13 @@ impl Tool for Task {
                              conversation, so say what the project is, what you are \
                              doing and what you already know — and say what shape of \
                              answer you want back."
+                    },
+                    "why": {
+                        "type": "string",
+                        "description":
+                            "What you are finding out, in four or five words. The person \
+                             sees this while the sub-agent works, and it is the only \
+                             thing they see — the sub-agent's own reading is not shown."
                     }
                 },
                 "required": ["prompt"],
@@ -78,6 +85,7 @@ impl Tool for Task {
         Ok(
             ToolOutput::text(format!("{}\n", outcome.answer.trim())).with_detail(json!({
                 "costUsd": outcome.cost_usd,
+                "why": arg_str(args, "why", "task").unwrap_or_default(),
             })),
         )
     }

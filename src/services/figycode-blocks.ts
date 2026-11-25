@@ -109,6 +109,23 @@ export interface ToolRow {
   name: string;
   /** The path, pattern or command it applies to. Empty while it streams. */
   target: string;
+  /**
+   * What the model said it was doing, in its own words.
+   *
+   * `bash` and `task` ask for it, because those are the two whose
+   * row says least: `Bash npm run build` is a fact and "checking the
+   * change compiles" is the reason, and over two minutes of watching
+   * it is the reason somebody wants.
+   */
+  why?: string;
+  /**
+   * Output arriving while the tool is still running.
+   *
+   * Kept apart from `output`, which is the finished result. These are
+   * the last few lines of a build, shown live and replaced by the
+   * real thing when it lands.
+   */
+  live?: string[];
   /** The first line of the result, or the error. */
   meta?: string;
   added?: number;

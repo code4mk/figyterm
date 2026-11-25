@@ -13374,6 +13374,36 @@ body > .cm-api-completions .cm-completionDetail {
   text-align: left;
 }
 
+/* The reason a tool is running, in the model's own words. Set apart
+   from the target it replaces: that was a path and this is prose. */
+.figy-tool-why {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ft-text-secondary);
+  font-style: italic;
+}
+
+/* The tail of a command that is still going. Short, dim and
+   monospaced — a window onto the work rather than the record of it.
+   The record arrives when the row can be opened. */
+.figy-tool-live {
+  margin: 2px 0 6px 21px;
+  max-height: 132px;
+  overflow: hidden;
+  color: var(--ft-text-muted);
+  font-family: var(--figy-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  /* The newest line is the one being read, so the oldest fades out
+     rather than being cut off square. */
+  mask-image: linear-gradient(to bottom, transparent, #000 18px);
+}
+
 .figy-tool-meta {
   color: var(--ft-text-muted);
   overflow: hidden;

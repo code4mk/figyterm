@@ -41,6 +41,7 @@
 
 use std::collections::{BTreeSet, HashMap};
 use std::mem::take;
+use std::sync::Arc;
 use std::pin::Pin;
 use std::time::Instant;
 
@@ -120,6 +121,45 @@ pub fn compaction_split(history: &[Message], keep_turns: usize) -> Option<usize>
 /// true at turn two hundred. Hit it and the user is told, with the work so
 /// far intact.
 const MAX_STEPS: usize = 40;
+
+/// The one argument worth putting on a row beside the verb.
+///
+/// The window works this out too, from the same arguments, and
+/// having it here as well is deliberate rather than an oversight:
+/// this is what the row shows *before* anything has happened, and
+/// the window's copy is what it shows afterwards from the tool's own
+/// `detail`. They agree because they are reading the same fields.
+fn subject_of(arguments: &Value) -> String {
+    for key in ["cmd", "path", "pattern", "url", "query", "prompt", "from", "id"] {
+        if let Some(found) = arguments.get(key).and_then(Value::as_str) {
+            let flat = found.split_whitespace().collect::<Vec<_>>().join(" ");
+            if !flat.is_empty() {
+                return flat;
+            }
+        }
+    }
+    String::new()
+}
+
+/// Forwards a running tool's output to the window, as the call it
+/// belongs to.
+///
+/// The channel is unbounded and the send is fire-and-forget: a window
+/// that has gone away is not a reason to stop a build, and a dropped
+/// receiver fails the send rather than blocking the shell's wait loop.
+struct Reporter {
+    id: String,
+    events: UnboundedSender<TurnEvent>,
+}
+
+impl tools::Progress for Reporter {
+    fn line(&self, text: &str) {
+        let _ = self.events.send(TurnEvent::ToolProgress {
+            id: self.id.clone(),
+            line: text.to_string(),
+        });
+    }
+}
 
 /// What a picker answers with.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -220,6 +260,30 @@ pub enum TurnEvent {
         /// What this result will cost on every remaining turn of the
         /// session, which is the number that makes a bad tool obvious.
         tokens: usize,
+    },
+    /// The arguments are in, and the tool is about to run.
+    ///
+    /// Separate from `ToolStarted` because that one comes off the
+    /// stream the moment the model names a tool — before it has
+    /// finished saying what to do with it. So the row appears
+    /// immediately with a verb and nothing else, and this is what
+    /// fills it in: what it is acting on, and, where the tool asks
+    /// for one, why.
+    ToolRunning {
+        id: String,
+        target: String,
+        why: String,
+    },
+    /// A line from a tool that is still running.
+    ///
+    /// Only `bash` sends these, and only because a two-minute build
+    /// used to show a spinner and then two hundred lines at once. The
+    /// output existed the whole time and the window had no way to be
+    /// handed it. None of this reaches the model, which still gets
+    /// the whole thing once, at the end.
+    ToolProgress {
+        id: String,
+        line: String,
     },
     ToolFailed {
         id: String,
@@ -1131,8 +1195,37 @@ impl Session {
           including the command that delivers the answer it is waiting for,
           which deadlocks rather than merely stalling.
         */
+        /*
+          What it is about to do, now that the arguments have arrived.
+
+          The row has been on screen since the model said "bash",
+          with a verb and nothing beside it. For a command that runs
+          for two minutes that is two minutes of a spinner that could
+          have been saying what it is building and why.
+        */
+        let _ = events.send(TurnEvent::ToolRunning {
+            id: call.id.clone(),
+            target: subject_of(&arguments),
+            why: arguments
+                .get("why")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .trim()
+                .to_string(),
+        });
+
         let dispatch = {
-            let ctx = ctx.clone();
+            /*
+              The context, plus somewhere to put output as it appears.
+
+              Bound per call because it carries the call's id: the
+              window has to know which row a line belongs to, and the
+              tool knows nothing about rows.
+            */
+            let ctx = ctx.clone().with_progress(Arc::new(Reporter {
+                id: call.id.clone(),
+                events: events.clone(),
+            }));
             let name = call.name.clone();
             let arguments = arguments.clone();
             tokio::task::spawn_blocking(move || tools::call(&ctx, &name, &arguments)).await

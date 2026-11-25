@@ -363,6 +363,8 @@ export function applyEvent(state: SessionState, event: TurnEvent): SessionState 
       return patchTool(state, event.id, (tool) => ({
         ...tool,
         running: false,
+        // The finished output supersedes the tail that was streaming.
+        live: undefined,
         meta: summarise(event.text),
         /*
           The body, so every row can be opened.
@@ -377,6 +379,37 @@ export function applyEvent(state: SessionState, event: TurnEvent): SessionState 
         ...fromDetail(event.detail),
       }));
     }
+
+    /*
+      What it is about to do, now the arguments have arrived.
+
+      The row has been on screen since the model said "bash", with a
+      verb and nothing beside it. This is the half that makes it
+      worth looking at: what it is acting on, and — for the two
+      tools whose row says least — why.
+    */
+    case "toolRunning":
+      return patchTool(state, event.id, (tool) => ({
+        ...tool,
+        target: event.target || tool.target,
+        why: event.why || tool.why,
+      }));
+
+    /*
+      A line from a build that is still going.
+
+      Kept in `live` rather than appended to `output`: `output` is
+      the finished result, and these are replaced wholesale by it.
+      Capped at the tail, because the point is what is happening now
+      — the first forty lines of a webpack build are not the ones
+      anybody is waiting to read, and a row that grows without limit
+      pushes the composer off the screen.
+    */
+    case "toolProgress":
+      return patchTool(state, event.id, (tool) => ({
+        ...tool,
+        live: [...(tool.live ?? []), event.line].slice(-LIVE_LINES),
+      }));
 
     case "toolFailed":
       return patchTool(state, event.id, (tool) => ({
@@ -619,6 +652,15 @@ function patchTool(
 const MAX_BODY_LINES = 400;
 
 /**
+ * How many lines of a *running* tool are shown.
+ *
+ * The tail, and a short one. What somebody watching a build wants is
+ * the line it is on, and the forty before it are scrollback they can
+ * read in full the moment it finishes.
+ */
+const LIVE_LINES = 8;
+
+/**
  * What a row shows when it is opened: a diff where there is one, the
  * result's own text otherwise.
  *
@@ -694,6 +736,7 @@ function fromDetail(detail: unknown): Partial<ToolRow> {
   const out: Partial<ToolRow> = {};
   if (typeof d.path === "string") out.target = d.path;
   if (typeof d.cmd === "string") out.target = d.cmd;
+  if (typeof d.why === "string" && d.why.trim()) out.why = d.why.trim();
   if (typeof d.pattern === "string") out.target = d.pattern;
   if (typeof d.added === "number") out.added = d.added;
   if (typeof d.removed === "number") out.removed = d.removed;

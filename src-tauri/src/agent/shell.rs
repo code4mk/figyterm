@@ -55,6 +55,24 @@ pub struct Running {
 pub trait Shell: Send + Sync {
     /// Runs to completion, or to the timeout, whichever comes first.
     fn run(&self, command: &str, cwd: &Path, timeout: Duration) -> Result<Finished, String>;
+
+    /// The same, reporting each line as it arrives.
+    ///
+    /// A default that calls [`Shell::run`] and says nothing until the
+    /// end, so a shell that cannot stream — a test's, mostly — is
+    /// still a shell. The real one overrides it: the wait loop is
+    /// already polling every fifteen milliseconds, and the lines are
+    /// already accumulating in a shared buffer, so watching them is a
+    /// cursor and not a second mechanism.
+    fn watch(
+        &self,
+        command: &str,
+        cwd: &Path,
+        timeout: Duration,
+        _on_line: &(dyn Fn(&str) + Sync),
+    ) -> Result<Finished, String> {
+        self.run(command, cwd, timeout)
+    }
     /// Starts something that keeps going, and returns its id.
     fn start(&self, command: &str, cwd: &Path) -> Result<String, String>;
     /// Lines from `from` onwards.
@@ -154,9 +172,30 @@ enum Readable {
 
 impl Shell for SystemShell {
     fn run(&self, command: &str, cwd: &Path, timeout: Duration) -> Result<Finished, String> {
+        self.watch(command, cwd, timeout, &|_| {})
+    }
+
+    fn watch(
+        &self,
+        command: &str,
+        cwd: &Path,
+        timeout: Duration,
+        on_line: &(dyn Fn(&str) + Sync),
+    ) -> Result<Finished, String> {
         let started = Instant::now();
         let mut child = Self::spawn(command, cwd)?;
         let lines = Self::drain(&mut child);
+
+        // How much of the buffer has been reported. The readers append
+        // and never remove, so a cursor is the whole of the bookkeeping.
+        let mut reported = 0usize;
+        let flush = |lines: &Mutex<Vec<String>>, reported: &mut usize| {
+            let Ok(held) = lines.lock() else { return };
+            while *reported < held.len() {
+                on_line(&held[*reported]);
+                *reported += 1;
+            }
+        };
 
         let mut timed_out = false;
         let status = loop {
@@ -165,6 +204,7 @@ impl Shell for SystemShell {
                 Ok(None) => {}
                 Err(e) => return Err(format!("`{command}` could not be waited for: {e}")),
             }
+            flush(&lines, &mut reported);
             if started.elapsed() >= timeout {
                 // Killed, not merely abandoned: a command left running after
                 // its timeout is how an agent ends the afternoon with eleven
@@ -179,6 +219,7 @@ impl Shell for SystemShell {
 
         // The readers may still be a line behind the exit.
         std::thread::sleep(Duration::from_millis(20));
+        flush(&lines, &mut reported);
         let output = lines.lock().map_err(|e| e.to_string())?.clone();
 
         Ok(Finished {

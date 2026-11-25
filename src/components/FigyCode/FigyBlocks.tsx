@@ -163,7 +163,23 @@ export function ToolCall({ tool }: { tool: ToolRow }) {
           <span className={`figy-tool-glyph ${tool.kind}`}>{GLYPH[tool.kind]}</span>
         )}
         <span className="figy-tool-name">{tool.name}</span>
-        {tool.target && <span className="figy-tool-target">{tool.target}</span>}
+        {/*
+          The reason where there is one, the thing itself where there
+          is not.
+
+          `Bash npm run build` is a fact; "building to check it
+          compiles" is why anybody is looking. Over two minutes of
+          watching, the reason is what is wanted — and the command is
+          still a keystroke away, on the row's own title and in the
+          output when it opens.
+        */}
+        {tool.why ? (
+          <span className="figy-tool-why" title={tool.target}>
+            {tool.why}
+          </span>
+        ) : (
+          tool.target && <span className="figy-tool-target">{tool.target}</span>
+        )}
         {tool.added !== undefined && <span className="figy-add">+{tool.added}</span>}
         {tool.removed !== undefined && <span className="figy-del">-{tool.removed}</span>}
         {tool.meta && (
@@ -182,6 +198,19 @@ export function ToolCall({ tool }: { tool: ToolRow }) {
           </span>
         )}
       </button>
+
+      {/*
+        What it is saying while it says it.
+
+        The last few lines only: what somebody watching a build wants
+        is the line it is on, and the forty before it are scrollback
+        they can read in full the second it finishes. Replaced by the
+        real output when the tool returns, which is why this is a
+        separate field and not an early `output`.
+      */}
+      {tool.running && tool.live && tool.live.length > 0 && (
+        <pre className="figy-tool-live">{tool.live.join("\n")}</pre>
+      )}
 
       {expandable && open && (
         <div className="figy-tool-body">

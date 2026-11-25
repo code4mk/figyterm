@@ -171,6 +171,13 @@ const SYSTEM_PROMPT = [
   // prefix without restating it in prose every turn — but only if it
   // reaches for it, and a tool description alone is read once and
   // forgotten by turn nine.
+  // A command's row says `Bash npm run build` on its own, which is a
+  // fact rather than a reason — and over two minutes of watching it,
+  // the reason is what somebody wants.
+  "When you run a command or send a question to a sub-agent, pass `why`: four or",
+  "five words on what you are doing, in your own words. It is what the person",
+  "watching sees while it runs.",
+  "",
   "For anything with more than two or three steps, write the plan down with",
   "`todo_write` before you start, mark one item `running` while you are on it, and",
   "update the list as you finish each. It is how the person follows what you are",
