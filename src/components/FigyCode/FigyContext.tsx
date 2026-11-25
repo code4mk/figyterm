@@ -157,7 +157,16 @@ export function ContextDialog({
           */}
           <span>
             {context.toolsOffered} of {context.toolsTotal} tools offered
-            {context.toolsOffered < context.toolsTotal && " — narrowed by the tool picker"}
+            {/*
+              What the picker did, said here and nowhere else.
+
+              A router that cannot be reached offers everything and
+              says nothing during the turn, which is the right
+              behaviour and makes "narrowed", "switched off" and "not
+              running" identical from the transcript. This line is the
+              difference.
+            */}
+            {context.picker ? ` · picker: ${context.picker}` : " · no tool picker"}
           </span>
           <span>
             {/*

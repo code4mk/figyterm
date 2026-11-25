@@ -49,7 +49,18 @@ fn shutdown_terminals(app: &AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    env_logger::init();
+    /*
+      Our own lines at `info`, everything else at `warn`.
+
+      `env_logger::init()` alone shows `error` and nothing more, so a
+      `log::warn!` written to explain why a feature quietly fell back
+      — the tool picker's, for one — went nowhere at all and the
+      feature stayed unexplained. `RUST_LOG` still overrides this.
+    */
+    env_logger::Builder::from_env(
+        env_logger::Env::default().default_filter_or("warn,my_terminal_lib=info"),
+    )
+    .init();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())

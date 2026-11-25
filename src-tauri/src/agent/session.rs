@@ -132,6 +132,15 @@ pub struct Pick {
     /// the turn's row the same way Exa's does: a router nobody can see
     /// the price of is exactly what the ledger exists to prevent.
     pub cost_usd: f64,
+    /// One line about what just happened, for `/context` to show.
+    ///
+    /// `None` from a picker that is a constant — there is nothing to
+    /// say about a set that was never in question. A router sets it
+    /// whether it worked or not, because "it narrowed to seven" and
+    /// "it could not be reached, so everything" are the two answers
+    /// somebody is looking for and they are indistinguishable from
+    /// the transcript.
+    pub note: Option<String>,
 }
 
 impl Pick {
@@ -139,6 +148,7 @@ impl Pick {
         Self {
             names,
             cost_usd: 0.0,
+            note: None,
         }
     }
 }
@@ -330,6 +340,9 @@ pub struct Breakdown {
     /// only when a router has narrowed the set.
     pub tools_offered: usize,
     pub tools_total: usize,
+    /// What the picker did on the last message, when there is a
+    /// picker. The only place a silent fallback is visible.
+    pub picker: Option<String>,
     /// The five largest tool results, which is where a window usually
     /// goes. Each one is re-sent on every later turn of the session.
     pub heaviest: Vec<ToolWeight>,
@@ -387,6 +400,9 @@ pub struct Session {
     /// which is the difference between a cached prefix and a rewritten
     /// one.
     tools: Option<Value>,
+    /// What the picker said it did, last message. Shown by `/context`,
+    /// which is the only place a silent fallback can be seen.
+    last_pick: Option<String>,
     /// What this session has spent, against `budget_usd`.
     spent: f64,
     /// The last turn's input count, which is the best estimate of how
@@ -410,6 +426,7 @@ impl Session {
             history: Vec::new(),
             offered: BTreeSet::new(),
             tools: None,
+            last_pick: None,
             spent: 0.0,
             context_used: 0,
             turn: 0,
@@ -455,6 +472,7 @@ impl Session {
             config,
             offered: BTreeSet::new(),
             tools: None,
+            last_pick: None,
             system: snapshot.system,
             history: snapshot.history,
             spent: snapshot.spent,
@@ -572,6 +590,7 @@ impl Session {
             messages: self.history.len() as u32,
             tools_offered: self.offered.len(),
             tools_total: tools::specs_for(self.config.surface).len(),
+            picker: self.last_pick.clone(),
             ..Breakdown::default()
         };
 
@@ -816,6 +835,7 @@ impl Session {
         self.history.push(Message::user(prompt));
         let pick = picker.tools_for(prompt).await;
         let mut picker_cost = pick.cost_usd;
+        self.last_pick = pick.note;
         let tools = self.offer(pick.names);
 
         let max_steps = self.max_steps();

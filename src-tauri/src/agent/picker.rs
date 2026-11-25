@@ -270,17 +270,29 @@ impl Jev {
         Ok(Pick {
             names,
             cost_usd: input_tokens as f64 * self.price_per_mtok / 1_000_000.0,
+            note: None,
         })
     }
 
     async fn pick(&self, prompt: &str) -> Pick {
-        let everything = || {
-            Pick::free(
-                tools::specs_for(self.surface)
-                    .into_iter()
-                    .map(|spec| spec.name.to_string())
-                    .collect(),
-            )
+        let total = tools::specs_for(self.surface).len();
+        /*
+          A fallback that says so, where somebody can read it.
+
+          Quiet during the turn — an outage should cost a few hundred
+          milliseconds and nothing else — but not invisible. `/context`
+          shows this line, which is the difference between "the router
+          is not helping" and "the router is not running". Working
+          that out from the transcript is impossible, because the two
+          look identical.
+        */
+        let everything = |why: String| Pick {
+            names: tools::specs_for(self.surface)
+                .into_iter()
+                .map(|spec| spec.name.to_string())
+                .collect(),
+            cost_usd: 0.0,
+            note: Some(format!("every tool — {why}")),
         };
 
         /*
@@ -296,30 +308,30 @@ impl Jev {
         let body = match self.ask(prompt).await {
             Ok(body) => body,
             Err(error) => {
-                // Quiet on screen, loud in the log. A fallback nobody
-                // can see is the difference between "the router is
-                // not helping" and "the router is not running", and
-                // those take very different afternoons to work out.
                 log::warn!("tool picker: {error} — offering every tool");
-                return everything();
+                return everything(error);
             }
         };
         let Some((names, input_tokens)) = parse(&body, KEEP_MASS) else {
-            log::warn!(
-                "tool picker: could not read the answer — offering every tool. {}",
-                first_line(&body)
-            );
-            return everything();
+            let why = format!("could not read its answer: {}", first_line(&body));
+            log::warn!("tool picker: {why}");
+            return everything(why);
         };
         if names.is_empty() {
             log::warn!("tool picker: chose nothing — offering every tool");
-            return everything();
+            return everything("it chose nothing".into());
         }
         log::info!("tool picker: {} tools, {input_tokens} tokens in", names.len());
 
+        let cost_usd = input_tokens as f64 * self.price_per_mtok / 1_000_000.0;
         Pick {
+            note: Some(format!(
+                "{} of {total} chosen by {} · {input_tokens} tokens in",
+                names.len(),
+                self.model
+            )),
             names,
-            cost_usd: input_tokens as f64 * self.price_per_mtok / 1_000_000.0,
+            cost_usd,
         }
     }
 }

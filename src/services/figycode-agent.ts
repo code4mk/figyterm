@@ -355,6 +355,14 @@ export interface ContextBreakdown {
   /** Tools on the table, and how many this surface has. */
   toolsOffered: number;
   toolsTotal: number;
+  /**
+   * What the tool picker did on the last message, when there is one.
+   *
+   * The only place a silent fallback can be seen. During a turn a
+   * router that cannot be reached quietly offers everything, which is
+   * right and makes "narrowed" and "not running" look identical.
+   */
+  picker: string | null;
   /** The five largest tool results — where a window usually goes. */
   heaviest: { name: string; tokens: number }[];
 }
