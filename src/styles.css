@@ -13239,21 +13239,19 @@ body > .cm-api-completions .cm-completionDetail {
   word-break: break-word;
 }
 
+/* Indented to the same column as everything else, and unmarked. The
+   gutter is for what has to be told apart — the person's `›`, a
+   tool's glyph — and the agent's prose is the transcript's default
+   voice. `17px` is `2px` of padding, a `5px` mark and a `10px` gap:
+   the gutter the other two build out of parts. */
 .figy-assistant {
-  display: flex;
-  gap: 10px;
-  padding: 1px 2px;
+  padding: 1px 2px 1px 17px;
 }
 
-/* Where a new thing starts, and nothing more. Aligned to the first line's
-   optical centre rather than its top, which a square never is. */
-.figy-turn-mark {
-  flex: none;
-  width: 5px;
-  height: 5px;
-  margin-top: 8px;
-  border-radius: 50%;
-  background: var(--ft-accent);
+/* Prose that follows a row of tool calls starts a new thought, and
+   the rows above it are dense. */
+.figy-tool + .figy-assistant {
+  margin-top: 7px;
 }
 
 /*
@@ -13265,11 +13263,27 @@ body > .cm-api-completions .cm-completionDetail {
 */
 .figy-assistant-text {
   min-width: 0;
-  flex: 1;
   color: var(--ft-text-secondary);
   font-size: 12.5px;
   line-height: 1.65;
   word-break: break-word;
+}
+
+/*
+  A measure, for the half of the transcript that is actually read.
+
+  At the default window width a paragraph runs to about a hundred and
+  forty characters, which is roughly twice what the eye tracks back
+  from comfortably — the line below is hard to find and reading slows
+  without it being obvious why. Sixty-five to seventy-five is the
+  usual advice; this sits at the top of it because the content is
+  technical and full of paths that should not wrap.
+
+  Prose only. A fenced block, a table or an image is laid out rather
+  than read, and capping those would wrap code that was fine.
+*/
+.figy-assistant-text :is(p, ul, ol, blockquote, h1, h2, h3, h4) {
+  max-width: 76ch;
 }
 
 /* The first and last blocks sit flush: the renderer's own margins would

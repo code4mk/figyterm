@@ -373,13 +373,21 @@ export function UserTurn({ text }: { text: string }) {
  */
 export const AssistantTurn = memo(function AssistantTurn({ text }: { text: string }) {
   return (
+    /*
+      No mark at all.
+
+      It had a dot, in the same gutter as the user's `›` and a tool
+      row's glyph — four different symbols in one narrow column,
+      three of them trying to say "a new thing starts here". The
+      agent's prose does not need to say it: everything in this
+      transcript that is not marked *is* the agent. The gutter is for
+      the things that have to be told apart, and the plain text is
+      the default voice.
+
+      It keeps the indent, so the column holds whether a line is
+      marked or not.
+    */
     <div className="figy-assistant">
-      {/*
-        A mark, not a letter. The brand belongs in the title bar; repeated
-        down the left of every paragraph it is furniture, and what the
-        reader needs there is only "a new thing starts here".
-      */}
-      <span className="figy-turn-mark" aria-hidden />
       <div className="figy-assistant-text">
         <Markdown source={text} variant="compact" />
       </div>
