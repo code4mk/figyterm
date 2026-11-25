@@ -29,7 +29,6 @@ use serde_json::{json, Value};
 
 use super::output::{cap_lines, clip_line};
 use super::{arg_str, arg_usize, Class, Tool, ToolContext, ToolError, ToolOutput, ToolSpec};
-use crate::agent::workspace::resolve_in;
 use crate::git::operations::{self, GitChange};
 
 const MAX_FILES: usize = 60;
@@ -180,7 +179,7 @@ impl Tool for Diff {
             Some(path) => {
                 // Through `resolve_in` first, so a path that leaves the
                 // project is refused here rather than handed to git.
-                let absolute = resolve_in(ctx.root(), path)?;
+                let absolute = ctx.resolve(path)?;
                 vec![relative_to(&root, &absolute)]
             }
             None => operations::status(&root)
@@ -314,7 +313,7 @@ impl Tool for Blame {
         }
         let line = arg_usize(args, "line", 1, u32::MAX as usize);
 
-        let absolute = resolve_in(ctx.root(), &path)?;
+        let absolute = ctx.resolve(&path)?;
         let relative = relative_to(&root, &absolute);
         let blame = operations::blame(&root, &relative).map_err(|e| format!("git_blame: {e}"))?;
 
@@ -428,7 +427,7 @@ impl Tool for Commit {
                 let mut out = Vec::new();
                 for item in items {
                     let Some(path) = item.as_str() else { continue };
-                    let absolute = resolve_in(ctx.root(), path)?;
+                    let absolute = ctx.resolve(path)?;
                     out.push(relative_to(&root, &absolute));
                 }
                 out

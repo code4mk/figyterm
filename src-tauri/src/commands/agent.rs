@@ -879,12 +879,33 @@ pub async fn agent_send(
       nothing when the session already exists, because the closure below
       only runs when one is being made.
     */
+    // Read per turn, so a folder granted now is reachable now.
+    let extra = workspace.extra(&label);
+    let extra_names: Vec<String> = extra
+        .iter()
+        .filter_map(|dir| dir.file_name().map(|n| n.to_string_lossy().to_string()))
+        .collect();
+
     let mut session = state
         .sessions
         .lock()
         .map_err(|e| e.to_string())?
         .remove(&session_key)
         .unwrap_or_else(|| {
+            /*
+              The preamble, the project's rules, and the folders.
+
+              All three are frozen together, because all three are the
+              prefix. A folder granted mid-conversation reaches the
+              *tools* immediately — the workspace is read per turn —
+              and reaches the model's own description of where it is
+              on the next conversation. The window says so when it
+              grants one.
+            */
+            let system = match rules::folders(&extra_names) {
+                Some(said) => format!("{system}\n\n{said}"),
+                None => system.clone(),
+            };
             let system = rules::attach(&system, rules::read(&root).as_ref());
             Session::new(
                 SessionConfig {
@@ -1033,6 +1054,7 @@ pub async fn agent_send(
     // snapshot after the turn needs to say where all this happened.
     let where_it_happened = root.to_string_lossy().to_string();
 
+
     /*
       The sub-agent `task` hands questions to.
 
@@ -1086,6 +1108,7 @@ pub async fn agent_send(
                 approver: &WindowApprover { state: &state },
                 ctx: &{
                     let ctx = ToolContext::new(root)
+                        .with_extra(extra)
                         .with_shell(shell)
                         .with_lsp(lsp)
                         .with_asker(asker)

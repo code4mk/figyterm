@@ -38,6 +38,16 @@ use crate::commands::fs::{canonicalize, expand_home, to_string};
 #[derive(Default)]
 pub struct Workspace {
     roots: Mutex<HashMap<String, PathBuf>>,
+    /// Folders a window may also reach, beyond its root.
+    ///
+    /// These existed in the window's `localStorage` for a while and
+    /// nowhere else, which made them a label rather than a grant: the
+    /// settings said the agent could read `~/acme-mcp` and every tool
+    /// refused it, because the only folder the backend had ever been
+    /// told about was the root. A permission the enforcement has never
+    /// heard of is worse than no permission at all — it is a promise
+    /// the window makes on the agent's behalf.
+    extra: Mutex<HashMap<String, Vec<PathBuf>>>,
 }
 
 impl Workspace {
@@ -67,6 +77,53 @@ impl Workspace {
         self.roots.lock().ok()?.get(label).cloned()
     }
 
+    /// Replaces the folders this window may also reach.
+    ///
+    /// Replaces rather than adds, because the window owns the list and
+    /// sends the whole of it: a backend that accumulated would keep a
+    /// folder alive after it had been taken away, which is the half of
+    /// a permission that has to be right.
+    ///
+    /// Anything that will not canonicalise is dropped quietly — a
+    /// folder that has been renamed or unmounted is not an error worth
+    /// failing a turn over, and `/project` shows it as unreadable.
+    pub fn set_extra(&self, label: &str, dirs: &[String]) -> Vec<PathBuf> {
+        let root = self.root(label);
+        let resolved: Vec<PathBuf> = dirs
+            .iter()
+            .filter_map(|dir| canonicalize(&expand_home(dir.trim())).ok())
+            .filter(|dir| dir.is_dir())
+            // The root is never also an extra: a folder listed twice
+            // is a folder reported twice in every message that names
+            // what the agent can reach.
+            .filter(|dir| root.as_deref() != Some(dir.as_path()))
+            .collect();
+
+        if let Ok(mut extra) = self.extra.lock() {
+            extra.insert(label.to_string(), resolved.clone());
+        }
+        resolved
+    }
+
+    pub fn extra(&self, label: &str) -> Vec<PathBuf> {
+        self.extra
+            .lock()
+            .ok()
+            .and_then(|all| all.get(label).cloned())
+            .unwrap_or_default()
+    }
+
+    /// Everything this window may touch: the root first, then the rest.
+    ///
+    /// Order matters. The root is where a relative path is taken from
+    /// and what a path is shown relative to, and the extras are the
+    /// places it is also allowed to end up.
+    pub fn reachable(&self, label: &str) -> Vec<PathBuf> {
+        let mut all: Vec<PathBuf> = self.root(label).into_iter().collect();
+        all.extend(self.extra(label));
+        all
+    }
+
     /// Drops what a window had open. Called when the window goes away.
     pub fn forget(&self, label: &str) {
         if let Ok(mut roots) = self.roots.lock() {
@@ -81,11 +138,75 @@ impl Workspace {
     /// search results all session. Absolute paths are allowed and then
     /// checked, because the tenth time it pastes back something it was given.
     pub fn resolve(&self, label: &str, raw: &str) -> Result<PathBuf, String> {
-        let root = self
-            .root(label)
-            .ok_or_else(|| "No folder is open in FigyCode".to_string())?;
-        resolve_in(&root, raw)
+        let roots = self.reachable(label);
+        if roots.is_empty() {
+            return Err("No folder is open in FigyCode".into());
+        }
+        resolve_within(&roots, raw)
     }
+}
+
+/// The same arithmetic, over every folder the window may touch.
+///
+/// `roots[0]` is the project and the rest are the extras, and the
+/// order is the whole of the rule: a relative path means the project
+/// unless it cannot, because that is what a model writes nine times
+/// in ten after a session of reading `src/main.rs` out of search
+/// results.
+///
+/// Three ways a path can land in an extra folder, in the order they
+/// are tried:
+///
+/// 1. **By its own name.** `acme-mcp/README.md`, where `acme-mcp` is
+///    the basename of an extra folder. This is the one that matters —
+///    a model told it can also reach `~/work/acme-mcp` will write
+///    exactly that, and nothing else here would have accepted it.
+/// 2. **Absolutely.** It was given the full path and pasted it back.
+/// 3. **Relatively, after the project refused.** A fallback rather
+///    than a rule, so a file that exists in both is the project's.
+///
+/// The error comes from the *project*, not from the last folder
+/// tried: "outside the folder FigyCode is open on" is the sentence
+/// that explains the situation, and "no such file in ~/notes" would
+/// send the model looking for a typo in the wrong place.
+pub fn resolve_within(roots: &[PathBuf], raw: &str) -> Result<PathBuf, String> {
+    let Some((root, extra)) = roots.split_first() else {
+        return Err("No folder is open in FigyCode".into());
+    };
+
+    let trimmed = raw.trim();
+    if !extra.is_empty() {
+        // By name, before anything else: the leading component of a
+        // relative path naming one of the extra folders.
+        let requested = expand_home(trimmed);
+        if requested.is_relative() {
+            if let Some(first) = requested.components().next() {
+                let head = first.as_os_str();
+                if let Some(dir) = extra.iter().find(|d| d.file_name() == Some(head)) {
+                    let rest: PathBuf = requested.components().skip(1).collect();
+                    let within = if rest.as_os_str().is_empty() {
+                        ".".to_string()
+                    } else {
+                        rest.to_string_lossy().to_string()
+                    };
+                    if let Ok(found) = resolve_in(dir, &within) {
+                        return Ok(found);
+                    }
+                }
+            }
+        }
+    }
+
+    let first = resolve_in(root, trimmed);
+    if first.is_ok() || extra.is_empty() {
+        return first;
+    }
+    for dir in extra {
+        if let Ok(found) = resolve_in(dir, trimmed) {
+            return Ok(found);
+        }
+    }
+    first
 }
 
 /// The path arithmetic, split out so it can be tested without a window.
@@ -135,6 +256,37 @@ fn outside(path: &Path) -> String {
         "{} is outside the folder FigyCode is open on",
         path.display()
     )
+}
+
+/// What to call a path, given everything the window can reach.
+///
+/// Relative to the project where it is in the project, and prefixed
+/// with the extra folder's own name where it is not — `acme-mcp/src/
+/// index.ts` rather than an absolute path, because that is the name
+/// the model was given and the one it can write back.
+pub fn display_within(roots: &[PathBuf], path: &Path) -> String {
+    for (index, root) in roots.iter().enumerate() {
+        if let Ok(rel) = path.strip_prefix(root) {
+            let tail = rel
+                .components()
+                .map(|c| c.as_os_str().to_string_lossy())
+                .collect::<Vec<_>>()
+                .join("/");
+            if index == 0 {
+                return tail;
+            }
+            let name = root
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| to_string(root));
+            return if tail.is_empty() {
+                name
+            } else {
+                format!("{name}/{tail}")
+            };
+        }
+    }
+    to_string(path)
 }
 
 /// Canonicalises a path, including one that does not exist yet.
@@ -316,6 +468,115 @@ mod tests {
         let sibling = scratch("prefix-other");
         let err = resolve_in(&root, &sibling.join("src/main.rs").to_string_lossy()).unwrap_err();
         assert!(err.contains("outside"), "unexpected error: {err}");
+    }
+
+    /* ─── Folders beyond the root ──────────────────────────────────────── */
+
+    /*
+      The bug these are for.
+
+      An extra folder lived in the window's `localStorage` and nowhere
+      else, so the settings said the agent could reach `~/acme-mcp`
+      and every tool refused it. Asked for a file tree, the agent
+      listed the project and told the user — correctly, from where it
+      was standing — that no such folder existed. A permission the
+      enforcement has never heard of is a promise the window makes on
+      the agent's behalf.
+    */
+    /// A folder whose basename is exactly what is asked for, which
+    /// `scratch` cannot give: it prefixes every name with `figy-ws-`,
+    /// and the whole point here is the name a model would type.
+    fn named(parent: &str, name: &str) -> PathBuf {
+        let dir = scratch(parent).join(name);
+        fs::create_dir_all(&dir).unwrap();
+        fs::canonicalize(&dir).unwrap()
+    }
+
+    #[test]
+    fn a_file_in_an_extra_folder_resolves_by_that_folder_s_name() {
+        let root = scratch("extra-root");
+        let other = named("extra-home", "acme-mcp");
+        std::fs::write(other.join("README.md"), "hi").unwrap();
+        let roots = vec![root.clone(), other.clone()];
+
+        // The way a model writes it, having been told the name.
+        let found = resolve_within(&roots, "acme-mcp/README.md").unwrap();
+        assert_eq!(found, canonicalize(&other.join("README.md")).unwrap());
+
+        // And the way it writes it back after being handed a path.
+        let absolute = other.join("README.md").to_string_lossy().to_string();
+        assert_eq!(resolve_within(&roots, &absolute).unwrap(), found);
+    }
+
+    #[test]
+    fn the_project_wins_a_name_that_exists_in_both() {
+        let root = scratch("both-root");
+        let other = named("both-home", "both-extra");
+        std::fs::write(root.join("README.md"), "project").unwrap();
+        std::fs::write(other.join("README.md"), "extra").unwrap();
+
+        let found = resolve_within(&vec![root.clone(), other], "README.md").unwrap();
+        assert_eq!(std::fs::read_to_string(found).unwrap(), "project");
+    }
+
+    #[test]
+    fn a_folder_that_was_never_granted_is_still_outside() {
+        let root = scratch("granted-root");
+        let granted = scratch("granted-extra");
+        let stranger = scratch("granted-stranger");
+        std::fs::write(stranger.join("secrets.env"), "no").unwrap();
+
+        let err = resolve_within(
+            &vec![root, granted],
+            &stranger.join("secrets.env").to_string_lossy(),
+        )
+        .unwrap_err();
+        // And the sentence is the project's, because that is the one
+        // that explains the situation.
+        assert!(err.contains("outside"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn an_extra_folder_is_shown_by_its_name_rather_than_its_path() {
+        // The name is what `resolve_within` accepts back, so it is the
+        // name a result has to use — an absolute path in a search
+        // result is one the model cannot shorten again.
+        let roots = vec![PathBuf::from("/a/b"), PathBuf::from("/x/acme-mcp")];
+        assert_eq!(display_within(&roots, Path::new("/a/b/src/main.rs")), "src/main.rs");
+        assert_eq!(
+            display_within(&roots, Path::new("/x/acme-mcp/src/index.ts")),
+            "acme-mcp/src/index.ts"
+        );
+        assert_eq!(display_within(&roots, Path::new("/x/acme-mcp")), "acme-mcp");
+        assert_eq!(display_within(&roots, Path::new("/nowhere/z.rs")), "/nowhere/z.rs");
+    }
+
+    #[test]
+    fn setting_the_extras_replaces_them_and_never_includes_the_root() {
+        let workspace = Workspace::default();
+        let root = scratch("set-root");
+        let one = scratch("set-one");
+        let two = scratch("set-two");
+        workspace.open("w", &root.to_string_lossy()).unwrap();
+
+        let kept = workspace.set_extra(
+            "w",
+            &[
+                one.to_string_lossy().to_string(),
+                two.to_string_lossy().to_string(),
+                root.to_string_lossy().to_string(),
+                "/nowhere/at/all".to_string(),
+            ],
+        );
+        assert_eq!(kept.len(), 2, "the root and the missing one are dropped");
+        assert_eq!(workspace.reachable("w").len(), 3, "root first, then both");
+
+        // Replaced, not added: taking one away has to take it away.
+        workspace.set_extra("w", &[one.to_string_lossy().to_string()]);
+        assert_eq!(workspace.extra("w").len(), 1);
+        assert!(workspace
+            .resolve("w", &two.join("x.txt").to_string_lossy())
+            .is_err());
     }
 
     #[test]

@@ -14,7 +14,6 @@ use serde_json::json;
 
 use super::output::{approx_tokens, clip_line, truncation_note};
 use super::{arg_str, arg_usize, Class, Tool, ToolContext, ToolError, ToolOutput, ToolSpec};
-use crate::agent::workspace::{display_path, resolve_in};
 use crate::filesystem::operations::{self, FileKind};
 
 /// Lines per call when the model does not say. Enough for a whole small file
@@ -65,8 +64,8 @@ impl Tool for Read {
 
     fn call(&self, ctx: &ToolContext, args: &serde_json::Value) -> Result<ToolOutput, ToolError> {
         let raw = arg_str(args, "path", "read")?;
-        let path = resolve_in(ctx.root(), &raw)?;
-        let shown = display_path(ctx.root(), &path);
+        let path = ctx.resolve(&raw)?;
+        let shown = ctx.display(&path);
 
         let file = operations::read_text_file(&path).map_err(|e| format!("read: {e}"))?;
         match file.kind {

@@ -117,6 +117,10 @@ impl ToolSpec {
 #[derive(Clone)]
 pub struct ToolContext {
     pub root: PathBuf,
+    /// Folders the window may also reach. See `workspace.rs` — these
+    /// were a label in the settings and nothing in the enforcement
+    /// for a while, which is the worst way for a permission to exist.
+    pub extra: Vec<PathBuf>,
     pub shell: Option<Arc<dyn crate::agent::shell::Shell>>,
     pub lsp: Option<Arc<dyn crate::agent::code::Lsp>>,
     pub web: Option<Arc<dyn crate::agent::web::Web>>,
@@ -129,12 +133,18 @@ impl ToolContext {
     pub fn new(root: PathBuf) -> Self {
         Self {
             root,
+            extra: Vec::new(),
             shell: None,
             lsp: None,
             web: None,
             asker: None,
             delegate: None,
         }
+    }
+
+    pub fn with_extra(mut self, extra: Vec<PathBuf>) -> Self {
+        self.extra = extra;
+        self
     }
 
     pub fn with_shell(mut self, shell: Arc<dyn crate::agent::shell::Shell>) -> Self {
@@ -164,6 +174,35 @@ impl ToolContext {
 
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    /// Everything this context may touch: the root, then the extras.
+    pub fn roots(&self) -> Vec<PathBuf> {
+        let mut all = vec![self.root.clone()];
+        all.extend(self.extra.iter().cloned());
+        all
+    }
+
+    /// A tool's path argument, turned into one it may act on.
+    ///
+    /// Every file tool goes through this rather than through
+    /// `resolve_in(ctx.root(), …)`, which is what they all used to do
+    /// and what made the extra folders unreachable: the check was
+    /// against one folder because the context only had one.
+    pub fn resolve(&self, raw: &str) -> Result<PathBuf, ToolError> {
+        if self.extra.is_empty() {
+            return crate::agent::workspace::resolve_in(&self.root, raw);
+        }
+        crate::agent::workspace::resolve_within(&self.roots(), raw)
+    }
+
+    /// What to call a path in a result: relative to the project, or
+    /// prefixed with the extra folder's name.
+    pub fn display(&self, path: &Path) -> String {
+        if self.extra.is_empty() {
+            return crate::agent::workspace::display_path(&self.root, path);
+        }
+        crate::agent::workspace::display_within(&self.roots(), path)
     }
 
     /// The shell, or the sentence a tool returns when there is none.

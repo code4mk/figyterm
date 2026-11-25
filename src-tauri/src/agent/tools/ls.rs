@@ -14,7 +14,6 @@ use serde_json::json;
 
 use super::output::cap_lines;
 use super::{arg_str, arg_usize, Class, Tool, ToolContext, ToolError, ToolOutput, ToolSpec};
-use crate::agent::workspace::{display_path, resolve_in};
 use crate::filesystem::operations;
 
 const DEFAULT_LIMIT: usize = 100;
@@ -58,9 +57,9 @@ impl Tool for Ls {
         // The only tool whose path argument is optional: "what is in this
         // project" is the question it is usually asked.
         let raw = arg_str(args, "path", "ls").unwrap_or_else(|_| ".".to_string());
-        let path = resolve_in(ctx.root(), &raw)?;
+        let path = ctx.resolve(&raw)?;
         let shown = {
-            let relative = display_path(ctx.root(), &path);
+            let relative = ctx.display(&path);
             if relative.is_empty() || relative == "." {
                 ".".to_string()
             } else {
@@ -96,6 +95,30 @@ impl Tool for Ls {
                 }
             })
             .collect();
+
+        /*
+          The other folders, named where they will be found.
+
+          `ls` with no argument is the first thing an agent runs and
+          what it learns from it is what it believes the project is.
+          A window that has been granted `~/work/acme-mcp` and does
+          not say so here has an agent that will tell the user, with
+          confidence, that no such folder exists — which is what it
+          did.
+
+          Listed only at the root, and by name rather than by path,
+          because the name is what `resolve` accepts back.
+        */
+        let mut lines = lines;
+        if shown == "." && !ctx.extra.is_empty() {
+            for dir in &ctx.extra {
+                let name = dir
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| dir.to_string_lossy().to_string());
+                lines.push(format!("{name}/  (also reachable, outside the project)"));
+            }
+        }
 
         let (kept, note) = cap_lines(lines, limit, "list a sub-folder, or use glob");
         let mut text = format!(

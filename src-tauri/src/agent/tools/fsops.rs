@@ -18,7 +18,6 @@
 use serde_json::json;
 
 use super::{arg_str, Class, Tool, ToolContext, ToolError, ToolOutput, ToolSpec};
-use crate::agent::workspace::{display_path, resolve_in};
 use crate::filesystem::operations;
 
 pub struct Move;
@@ -53,10 +52,10 @@ impl Tool for Move {
         let from_raw = arg_str(args, "from", "move")?;
         let to_raw = arg_str(args, "to", "move")?;
 
-        let from = resolve_in(ctx.root(), &from_raw)?;
-        let to = resolve_in(ctx.root(), &to_raw)?;
-        let from_shown = display_path(ctx.root(), &from);
-        let to_shown = display_path(ctx.root(), &to);
+        let from = ctx.resolve(&from_raw)?;
+        let to = ctx.resolve(&to_raw)?;
+        let from_shown = ctx.display(&from);
+        let to_shown = ctx.display(&to);
 
         if !from.exists() {
             return Err(format!("move: no such file: {from_shown}"));
@@ -101,8 +100,8 @@ impl Tool for Delete {
 
     fn call(&self, ctx: &ToolContext, args: &serde_json::Value) -> Result<ToolOutput, ToolError> {
         let raw = arg_str(args, "path", "delete")?;
-        let path = resolve_in(ctx.root(), &raw)?;
-        let shown = display_path(ctx.root(), &path);
+        let path = ctx.resolve(&raw)?;
+        let shown = ctx.display(&path);
 
         if !path.exists() {
             return Err(format!("delete: no such file: {shown}"));

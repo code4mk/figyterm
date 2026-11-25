@@ -132,6 +132,8 @@ pub fn run() {
             commands::claude::claude_session_exists,
             commands::figy_files::figy_open_project,
             commands::figy_files::figy_find_files,
+            commands::figy_files::figy_count_dir,
+            commands::figy_files::figy_set_extra_dirs,
             commands::agent::agent_tools,
             commands::agent::agent_call_tool,
             commands::agent::agent_configure,

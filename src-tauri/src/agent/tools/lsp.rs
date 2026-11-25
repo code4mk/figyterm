@@ -27,7 +27,6 @@ use serde_json::{json, Value};
 use super::output::{cap_lines, clip_line};
 use super::{arg_str, arg_usize, Class, Tool, ToolContext, ToolError, ToolOutput, ToolSpec};
 use crate::agent::code::{Ask, Op};
-use crate::agent::workspace::{display_path, resolve_in};
 use crate::filesystem::operations::{self, FileKind};
 
 const MAX_REFERENCES: usize = 60;
@@ -41,8 +40,8 @@ fn prepare(
     positioned: bool,
 ) -> Result<(Ask, String), ToolError> {
     let raw = arg_str(args, "path", tool)?;
-    let path = resolve_in(ctx.root(), &raw)?;
-    let shown = display_path(ctx.root(), &path);
+    let path = ctx.resolve(&raw)?;
+    let shown = ctx.display(&path);
 
     let file = operations::read_text_file(&path).map_err(|e| format!("{tool}: {e}"))?;
     match file.kind {
@@ -92,7 +91,7 @@ fn location_line(ctx: &ToolContext, value: &Value) -> Option<String> {
 
     let path = uri.strip_prefix("file://").unwrap_or(uri);
     let decoded = path.replace("%20", " ");
-    let shown = display_path(ctx.root(), std::path::Path::new(&decoded));
+    let shown = ctx.display(std::path::Path::new(&decoded));
     Some(format!("{shown}:{line}:{column}"))
 }
 

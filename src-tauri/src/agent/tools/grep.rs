@@ -20,7 +20,6 @@ use serde_json::json;
 
 use super::output::{clip_line, truncation_note};
 use super::{arg_str, arg_usize, Class, Tool, ToolContext, ToolError, ToolOutput, ToolSpec};
-use crate::agent::workspace::display_path;
 use crate::filesystem::operations::{self, SearchOptions};
 
 const DEFAULT_LIMIT: usize = 40;
@@ -102,7 +101,7 @@ impl Tool for Grep {
         let mut seen = 0usize;
 
         operations::search_files(ctx.root(), &pattern, &opts, &mut |m| {
-            let shown = display_path(ctx.root(), std::path::Path::new(&m.path));
+            let shown = ctx.display(std::path::Path::new(&m.path));
             if let Some(glob) = &glob {
                 if !glob_matches(glob, &shown) {
                     return true;

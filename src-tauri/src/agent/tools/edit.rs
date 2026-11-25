@@ -30,7 +30,6 @@
 use serde_json::json;
 
 use super::{arg_bool, arg_str, Class, Tool, ToolContext, ToolError, ToolOutput, ToolSpec};
-use crate::agent::workspace::{display_path, resolve_in};
 use crate::filesystem::operations::{self, FileKind};
 
 pub struct Edit;
@@ -86,8 +85,8 @@ impl Tool for Edit {
         };
         let all = arg_bool(args, "all");
 
-        let path = resolve_in(ctx.root(), &raw)?;
-        let shown = display_path(ctx.root(), &path);
+        let path = ctx.resolve(&raw)?;
+        let shown = ctx.display(&path);
 
         let file = operations::read_text_file(&path).map_err(|e| format!("edit: {e}"))?;
         match file.kind {

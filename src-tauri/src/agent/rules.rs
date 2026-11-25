@@ -87,6 +87,34 @@ pub fn read(root: &Path) -> Option<Rules> {
     None
 }
 
+/// The folders the agent may touch, named in the prompt.
+///
+/// A tool that *accepts* `acme-mcp/README.md` is only half of it: the
+/// model has to know the folder is there to write that path at all.
+/// `ls` names them at the root, which covers the agent that looks —
+/// and this covers the one that is asked a direct question before it
+/// has looked at anything.
+///
+/// Part of the frozen prefix, like everything else here, so a folder
+/// granted mid-conversation applies to the next one. The window says
+/// as much when it grants one.
+pub fn folders(extra: &[String]) -> Option<String> {
+    if extra.is_empty() {
+        return None;
+    }
+    let listed = extra
+        .iter()
+        .map(|name| format!("- {name}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    Some(format!(
+        "As well as the project folder, you can read and edit inside these, by \
+name:\n{listed}\n\nA path beginning with one of those names resolves there — \
+`{}/README.md`, for instance. Everything else is relative to the project.",
+        extra.first().map(String::as_str).unwrap_or("folder")
+    ))
+}
+
 /// The preamble with the project's rules under it.
 ///
 /// Under, not over. The surface's preamble says what this agent *is* —
@@ -129,6 +157,22 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn with_no_extra_folders_the_prompt_says_nothing_about_them() {
+        // It is the cache prefix: a sentence about an empty list is a
+        // different prefix for every session that does not have one.
+        assert_eq!(folders(&[]), None);
+    }
+
+    #[test]
+    fn the_extra_folders_are_named_the_way_a_path_names_them() {
+        let said = folders(&["acme-mcp".into(), "shared".into()]).expect("some");
+        assert!(said.contains("- acme-mcp"));
+        assert!(said.contains("- shared"));
+        // By name, because the name is what `resolve_within` accepts.
+        assert!(said.contains("acme-mcp/README.md"));
     }
 
     #[test]

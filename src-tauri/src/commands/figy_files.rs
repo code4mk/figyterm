@@ -42,6 +42,7 @@ use tauri::{State, Window};
   by construction rather than by convention.
 */
 use crate::agent::workspace::Workspace;
+use crate::commands::fs::{canonicalize, expand_home};
 
 /// Where the index stops.
 ///
@@ -363,6 +364,70 @@ pub fn figy_open_project(
         .insert(window.label().to_string(), index);
 
     Ok(info)
+}
+
+/// Replaces the folders this window may reach beyond its project.
+///
+/// The window owns the list — it is in its `localStorage` and edited
+/// in `/project` — and sends the whole of it whenever it changes.
+/// Replacing rather than adding is the half that has to be right: a
+/// backend that accumulated would keep a folder reachable after it
+/// had been taken away.
+///
+/// Answers with the ones that resolved, so the window can show a
+/// folder that has been renamed or unmounted as unreadable rather
+/// than pretending it is still granted.
+#[tauri::command]
+pub fn figy_set_extra_dirs(
+    window: Window,
+    workspace: State<Workspace>,
+    dirs: Vec<String>,
+) -> Result<Vec<String>, String> {
+    Ok(workspace
+        .set_extra(window.label(), &dirs)
+        .iter()
+        .map(|dir| dir.to_string_lossy().to_string())
+        .collect())
+}
+
+/// How much is in a folder, without adopting it.
+///
+/// For the extra folders in `/project`: a count beside each one, the
+/// same two numbers the project itself shows, so "this agent may also
+/// reach here" comes with a sense of *how much* here is.
+///
+/// Deliberately **not** `figy_open_project`, which would be the
+/// obvious reuse and is the wrong one twice over. That command points
+/// the whole window at the folder and replaces the `@` index with it,
+/// so counting a second folder would silently move the project out
+/// from under the conversation. This walks and throws the walk away.
+///
+/// `async` for the reason the index is: a large folder is a second or
+/// two and the UI thread is not where that belongs.
+#[tauri::command(async)]
+pub fn figy_count_dir(path: String) -> Result<DirCount, String> {
+    // The same expansion and canonicalisation the workspace does, so
+    // `~/notes` and `/Users/me/notes` are one folder and not two.
+    let root = canonicalize(&expand_home(path.trim()))?;
+    if !root.is_dir() {
+        return Err(format!("{} is not a folder", root.display()));
+    }
+    let index = build_index(&root);
+    Ok(DirCount {
+        files: index.files,
+        folders: index.folders,
+        truncated: index.truncated,
+    })
+}
+
+/// What is in a folder, as `/project` lists it.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirCount {
+    pub files: usize,
+    pub folders: usize,
+    /// The walk stopped at the limit, so these are a floor.
+    pub truncated: bool,
 }
 
 /// The best matches for what has been typed after an `@`.

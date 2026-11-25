@@ -16,7 +16,6 @@ use serde_json::json;
 
 use super::output::approx_tokens;
 use super::{arg_bool, arg_str, Class, Tool, ToolContext, ToolError, ToolOutput, ToolSpec};
-use crate::agent::workspace::{display_path, resolve_in};
 use crate::filesystem::operations::{self, Encoding, FileKind, LineEnding};
 
 /// How much of a written file the window is shown. The model already has
@@ -74,8 +73,8 @@ impl Tool for Write {
             None => return Err("write: `content` is required".into()),
         };
 
-        let path = resolve_in(ctx.root(), &raw)?;
-        let shown = display_path(ctx.root(), &path);
+        let path = ctx.resolve(&raw)?;
+        let shown = ctx.display(&path);
         let existing = operations::read_text_file(&path).map_err(|e| format!("write: {e}"))?;
 
         /*
