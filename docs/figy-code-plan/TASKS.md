@@ -480,6 +480,16 @@ entirely.
       rather than silently downscaled. An image is the one thing in a
       conversation that cannot be trimmed: a long tool result can be
       re-run smaller, and a picture is its size for good
+- [x] **`@shot.png` attaches it**, which is the version of this
+      somebody actually reaches for. The mention named a file, the
+      agent called `read` on it, was told it was binary, and asked
+      the person to paste the image they had just mentioned. Matched
+      to an image extension rather than to whitespace, because a real
+      screenshot is called `Screenshot 2026-11-25 at 6.56.52 AM.png`
+      and a path that ends at the first space is a path to nothing
+- [x] And `read` says what to do about an image rather than only that
+      it is binary, so the model asks for the one route a picture has
+      into a conversation instead of apologising for not having OCR
 - [ ] **No tool opens one**, and that is the format rather than a
       decision: `role: "tool"` content is a string on every
       OpenAI-compatible endpoint, so a tool cannot hand the model a

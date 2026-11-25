@@ -52,6 +52,29 @@ export function setExtraDirs(dirs: string[]): Promise<string[]> {
   return invoke<string[]>("figy_set_extra_dirs", { dirs });
 }
 
+/** One image out of the project, for an `@` mention of it. */
+export interface ReadImage {
+  name: string;
+  mime: string;
+  bytes: number;
+  /** Base64, no `data:` prefix. */
+  data: string;
+}
+
+/**
+ * Reads an image out of the project, resolved against the folders
+ * the agent may reach.
+ *
+ * For `@screenshot.png`: the mention names a file and the window
+ * turns it into an attachment, so a picture arrives the way every
+ * other picture does — on the user's message. Without it the
+ * mention was a path, the agent called `read`, and was told the
+ * file was binary.
+ */
+export function readImage(path: string): Promise<ReadImage> {
+  return invoke<ReadImage>("figy_read_image", { path });
+}
+
 /** What is in a folder, as `/project` lists it beside each one. */
 export interface DirCount {
   files: number;

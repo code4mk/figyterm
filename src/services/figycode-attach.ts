@@ -50,6 +50,30 @@ export interface Attachment extends AgentImage {
   url: string;
 }
 
+/**
+ * The image files named with `@` in a message.
+ *
+ * `@public/shot.png summary this` has to come out as
+ * `public/shot.png`, and the hard part is spaces: a real screenshot
+ * is called `Screenshot 2026-11-25 at 6.56.52 AM.png`, and a
+ * mention that ended at the first space would hand back
+ * `public/Screenshot` — a path to nothing.
+ *
+ * So the match runs to an image extension rather than to whitespace.
+ * It is the one place a filename's end can be known without
+ * guessing, and it is why this only works for images — which is all
+ * it is for.
+ */
+export function imageMentions(text: string): string[] {
+  const found: string[] = [];
+  const pattern = /@([^@\n]*?\.(?:png|jpe?g|webp|gif))(?=[\s,;:)\]]|$)/gi;
+  for (const match of text.matchAll(pattern)) {
+    const path = match[1].trim();
+    if (path && !found.includes(path)) found.push(path);
+  }
+  return found;
+}
+
 export function isImage(file: File): boolean {
   return ACCEPTED.includes(file.type);
 }

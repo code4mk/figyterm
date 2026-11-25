@@ -29,6 +29,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine;
 use ignore::WalkBuilder;
 use serde::Serialize;
 use tauri::{State, Window};
@@ -364,6 +366,83 @@ pub fn figy_open_project(
         .insert(window.label().to_string(), index);
 
     Ok(info)
+}
+
+/// One image out of the project, as base64.
+///
+/// For `@screenshot.png`: a mention names a file and the window
+/// turns it into an attachment, so the picture arrives the way every
+/// other picture does — on the user's message. Without this the
+/// mention was a *path*, the agent called `read` on it, and got told
+/// it was binary.
+///
+/// Resolved through the workspace, so the roots are the project's
+/// and the folders it has been granted, and nothing else. The size
+/// cap is the window's, repeated here because a command is reachable
+/// without it.
+#[tauri::command(async)]
+pub fn figy_read_image(
+    window: Window,
+    workspace: State<Workspace>,
+    path: String,
+) -> Result<ReadImage, String> {
+    let resolved = workspace.resolve(window.label(), &path)?;
+    let mime = match resolved
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("png") => "image/png",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("webp") => "image/webp",
+        Some("gif") => "image/gif",
+        other => {
+            return Err(format!(
+                "{} is not an image a model can read{}",
+                resolved.display(),
+                match other {
+                    Some(ext) => format!(" (.{ext})"),
+                    None => String::new(),
+                }
+            ))
+        }
+    };
+
+    let bytes = std::fs::read(&resolved).map_err(|e| format!("{}: {e}", resolved.display()))?;
+    if bytes.len() > MAX_IMAGE_BYTES {
+        return Err(format!(
+            "{} is {:.1} MB, over the {} MB limit",
+            resolved.display(),
+            bytes.len() as f64 / 1_048_576.0,
+            MAX_IMAGE_BYTES / 1_048_576
+        ));
+    }
+
+    Ok(ReadImage {
+        name: resolved
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| path.clone()),
+        mime: mime.to_string(),
+        bytes: bytes.len(),
+        data: BASE64.encode(&bytes),
+    })
+}
+
+/// The window's own cap, enforced here too: a command is reachable
+/// without the window that usually calls it.
+const MAX_IMAGE_BYTES: usize = 4 * 1024 * 1024;
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadImage {
+    pub name: String,
+    pub mime: String,
+    pub bytes: usize,
+    /// Base64, no `data:` prefix — the backend builds that when it
+    /// serialises the message.
+    pub data: String,
 }
 
 /// Replaces the folders this window may reach beyond its project.

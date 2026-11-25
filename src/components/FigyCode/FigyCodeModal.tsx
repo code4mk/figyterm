@@ -41,12 +41,13 @@ import { useOverlayRect } from "../../hooks/useOverlayRect";
 import { useOverlayZSync } from "../../hooks/useOverlayZSync";
 import { fullscreenRect, useDraggableModal } from "../../hooks/useDraggableModal";
 import { collapseHome, normalizeDir, recentDirs } from "../../services/recent-dirs";
-import { attach, type Attachment } from "../../services/figycode-attach";
+import { attach, imageMentions, type Attachment } from "../../services/figycode-attach";
 import {
   findFiles,
   countDir,
   hitMeta,
   openProjectIndex,
+  readImage,
   setExtraDirs,
   type DirCount,
   type FileHit,
@@ -647,6 +648,129 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
 
   /* ─── Sending ──────────────────────────────────────────────────────────── */
 
+  /** Everything after the pictures are in hand. */
+  const finishSend = useCallback(
+    (value: string, sending: Attachment[]) => {
+      /*
+        Said here rather than discovered by the provider.
+
+        A model that cannot see answers a picture with a 400, which
+        arrives as "the turn failed" after the screenshot has been
+        attached, the question typed and the message sent. This is
+        the same answer before any of that is spent, and the
+        attachments survive it — so switching model and pressing
+        enter again is the whole of the fix.
+      */
+      if (sending.length > 0 && !status.models.find((m) => m.id === status.active)?.vision) {
+        notice({
+          tone: "warn",
+          title: `${status.model || "This model"} does not read images`,
+          body: 'Tick "reads images" for it in Settings → Models if it can, or pick one that does. What you attached is still here.',
+        });
+        setText(value);
+        return;
+      }
+
+      setAttachments([]);
+      setSession((state) => pushUser(state, value, sending));
+      setStartedAt(Date.now());
+      setElapsed(0);
+
+      // The promise resolves when the turn is over; everything worth
+      // showing has already arrived as events by then.
+      void agentSend(value, mode, SYSTEM_PROMPT, SURFACE, sending)
+        .catch(() => {
+          /* The `failed` event already said so, in the transcript. */
+        })
+        .finally(() => void agentUsage(SURFACE).then(setTotals));
+    },
+    [mode, notice, status]
+  );
+
+  /* ─── Answering a permission question ──────────────────────────────────── */
+
+  const answer = useCallback(
+    (optionIndex: number) => {
+      const live = session.live;
+      if (!live) return;
+
+      /*
+        Two things stop a run and they are drawn by the same card on
+        purpose — here is the situation, here are the few ways out. They
+        go back by different routes: a permission question is yes or no
+        to the policy, and a question of the model's own is a sentence
+        that lands in the conversation.
+      */
+      if (live.kind === "question") {
+        const picked = live.prompt.options[optionIndex]?.label ?? NONE_OF_THESE;
+        /*
+          An approved plan lifts plan mode in the turn that proposed it.
+
+          Both sides are told: the backend so the next tool in this turn
+          is not refused, and this side so the footer agrees with what
+          is actually happening.
+        */
+        const next = modeAfterPlan(picked);
+        if (next) setMode(next);
+        void agentAnswer(live.id, picked, SURFACE, next ?? undefined);
+      } else {
+        const { allow, remember, acceptEdits } = answerOf(live, optionIndex);
+        if (acceptEdits) setMode("acceptEdits");
+        // The mode goes with the answer rather than with the next
+        // message: "allow all edits this session" that still asks two
+        // tool calls later reads as a button that did not work.
+        void agentApprove(
+          live.id,
+          allow,
+          SURFACE,
+          remember,
+          acceptEdits ? "acceptEdits" : undefined
+        );
+      }
+      setSession((state) => ({ ...state, live: null }));
+      setChoice(0);
+    },
+    [session.live]
+  );
+
+  /*
+    Pictures named with `@`, loaded at the moment of sending.
+
+    `@shot.png summary this` has to work: the mention is how somebody
+    points at a file in this window, and until now it pointed the
+    agent at a path it could only call `read` on — which answered
+    that the file was binary, and the agent asked the person to paste
+    the image they had just mentioned.
+
+    Loaded here rather than when the mention is completed, because a
+    path can also be typed, pasted or edited after the fact. The path
+    stays in the text: it says *which* file, which the picture itself
+    does not.
+  */
+  const mentionedImages = useCallback(
+    async (text: string): Promise<{ added: Attachment[]; refused: string[] }> => {
+      const added: Attachment[] = [];
+      const refused: string[] = [];
+      for (const path of imageMentions(text)) {
+        try {
+          const image = await readImage(path);
+          added.push({
+            id: `${path}-${Date.now()}`,
+            name: image.name,
+            mime: image.mime,
+            data: image.data,
+            bytes: image.bytes,
+            url: `data:${image.mime};base64,${image.data}`,
+          });
+        } catch (error) {
+          refused.push(String(error));
+        }
+      }
+      return { added, refused };
+    },
+    []
+  );
+
   const send = useCallback(
     (raw: string) => {
       const value = raw.trim();
@@ -707,86 +831,24 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
         return;
       }
       /*
-        Said here rather than discovered by the provider.
+        Anything named with `@` joins what was pasted or dropped.
 
-        A model that cannot see answers a picture with a 400, which
-        arrives as "the turn failed" after the screenshot has been
-        attached, the question typed and the message sent. This is
-        the same answer before any of that is spent, and the
-        attachments survive it — so switching model and pressing
-        enter again is the whole of the fix.
+        Asynchronous, so the rest of sending happens in the `then` —
+        the alternative is sending the message and attaching the
+        pictures to the one after it.
       */
-      if (attachments.length > 0 && !status.models.find((m) => m.id === status.active)?.vision) {
-        notice({
-          tone: "warn",
-          title: `${status.model || "This model"} does not read images`,
-          body: 'Tick "reads images" for it in Settings → Models if it can, or pick one that does. What you attached is still here.',
-        });
-        setText(value);
-        return;
-      }
-
-      const sending = attachments;
-      setAttachments([]);
-      setSession((state) => pushUser(state, value, sending));
-      setStartedAt(Date.now());
-      setElapsed(0);
-
-      // The promise resolves when the turn is over; everything worth
-      // showing has already arrived as events by then.
-      void agentSend(value, mode, SYSTEM_PROMPT, SURFACE, sending)
-        .catch(() => {
-          /* The `failed` event already said so, in the transcript. */
-        })
-        .finally(() => void agentUsage(SURFACE).then(setTotals));
+      void mentionedImages(value).then(({ added, refused }) => {
+        if (refused.length > 0) {
+          notice({
+            tone: "warn",
+            title: "Some mentioned images could not be read",
+            body: refused.join(" · "),
+          });
+        }
+        finishSend(value, [...attachments, ...added]);
+      });
     },
-    [activeRoot, attachments, command, mode, notice, shell, status]
-  );
-
-  /* ─── Answering a permission question ──────────────────────────────────── */
-
-  const answer = useCallback(
-    (optionIndex: number) => {
-      const live = session.live;
-      if (!live) return;
-
-      /*
-        Two things stop a run and they are drawn by the same card on
-        purpose — here is the situation, here are the few ways out. They
-        go back by different routes: a permission question is yes or no
-        to the policy, and a question of the model's own is a sentence
-        that lands in the conversation.
-      */
-      if (live.kind === "question") {
-        const picked = live.prompt.options[optionIndex]?.label ?? NONE_OF_THESE;
-        /*
-          An approved plan lifts plan mode in the turn that proposed it.
-
-          Both sides are told: the backend so the next tool in this turn
-          is not refused, and this side so the footer agrees with what
-          is actually happening.
-        */
-        const next = modeAfterPlan(picked);
-        if (next) setMode(next);
-        void agentAnswer(live.id, picked, SURFACE, next ?? undefined);
-      } else {
-        const { allow, remember, acceptEdits } = answerOf(live, optionIndex);
-        if (acceptEdits) setMode("acceptEdits");
-        // The mode goes with the answer rather than with the next
-        // message: "allow all edits this session" that still asks two
-        // tool calls later reads as a button that did not work.
-        void agentApprove(
-          live.id,
-          allow,
-          SURFACE,
-          remember,
-          acceptEdits ? "acceptEdits" : undefined
-        );
-      }
-      setSession((state) => ({ ...state, live: null }));
-      setChoice(0);
-    },
-    [session.live]
+    [activeRoot, attachments, command, finishSend, mentionedImages, notice, shell]
   );
 
   const interrupt = useCallback(() => {

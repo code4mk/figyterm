@@ -71,10 +71,39 @@ impl Tool for Read {
         match file.kind {
             FileKind::Missing => return Err(missing(ctx, &raw, &shown)),
             FileKind::Binary => {
+                /*
+                  An image gets a different sentence from a `.so`.
+
+                  "Nothing to read as text" is true of both and useful
+                  about neither: faced with a PNG the model said it had
+                  no image-to-text step and asked the person to paste
+                  the file in — which they had already mentioned with
+                  `@`. The honest answer names the one route a picture
+                  has into a conversation, because there is exactly
+                  one.
+                */
+                let image = path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .map(|e| {
+                        matches!(
+                            e.to_ascii_lowercase().as_str(),
+                            "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "svg" | "avif"
+                        )
+                    })
+                    .unwrap_or(false);
+                if image {
+                    return Err(format!(
+                        "read: {shown} is an image, and this tool only reads text. A picture \
+                         reaches you when the person attaches it to a message — mentioning it \
+                         with @, pasting it, or dropping it on the box. Ask them to do that \
+                         rather than describing what you cannot see."
+                    ));
+                }
                 return Err(format!(
                     "read: {shown} is binary ({} bytes). Nothing to read as text.",
                     file.size
-                ))
+                ));
             }
             FileKind::TooLarge => {
                 return Err(format!(

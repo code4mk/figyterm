@@ -133,6 +133,7 @@ pub fn run() {
             commands::figy_files::figy_open_project,
             commands::figy_files::figy_find_files,
             commands::figy_files::figy_count_dir,
+            commands::figy_files::figy_read_image,
             commands::figy_files::figy_set_extra_dirs,
             commands::agent::agent_tools,
             commands::agent::agent_call_tool,

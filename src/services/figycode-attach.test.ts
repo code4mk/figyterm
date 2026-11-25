@@ -13,7 +13,14 @@
  */
 
 import assert from "node:assert/strict";
-import { MAX_BYTES, MAX_IMAGES, attach, formatBytes, isImage } from "./figycode-attach";
+import {
+  MAX_BYTES,
+  MAX_IMAGES,
+  attach,
+  formatBytes,
+  imageMentions,
+  isImage,
+} from "./figycode-attach";
 
 let failures = 0;
 function test(name: string, run: () => void | Promise<void>) {
@@ -88,6 +95,37 @@ await test("the cap counts what is already attached, not just this drop", async 
   assert.equal(added.length, MAX_IMAGES - 1, "room for one fewer");
   assert.equal(refused.length, 1);
   assert.ok(refused[0].includes(`${MAX_IMAGES} images`), refused[0]);
+});
+
+/* ─── `@a-file.png` ────────────────────────────────────────────────────────── */
+
+await test("a mentioned image is found, spaces in the name and all", () => {
+  // The case that broke the first version: a real screenshot is
+  // called this, and a mention that ended at the first space handed
+  // back `public/Screenshot` — a path to nothing, and the agent
+  // said it could not see the file.
+  assert.deepEqual(
+    imageMentions("@public/Screenshot 2026-11-25 at 6.56.52 AM.png summary this image"),
+    ["public/Screenshot 2026-11-25 at 6.56.52 AM.png"]
+  );
+});
+
+await test("several, once each, and only the images", () => {
+  assert.deepEqual(
+    imageMentions("compare @a/one.png with @b/two.jpeg and read @src/main.rs"),
+    ["a/one.png", "b/two.jpeg"]
+  );
+  assert.deepEqual(imageMentions("@same.png and @same.png"), ["same.png"]);
+});
+
+await test("punctuation after a mention is not part of the path", () => {
+  assert.deepEqual(imageMentions("look at @shot.png, then tell me"), ["shot.png"]);
+  assert.deepEqual(imageMentions("(@shot.png)"), ["shot.png"]);
+});
+
+await test("a message with no pictures in it mentions none", () => {
+  assert.deepEqual(imageMentions("read @src/main.rs and fix the test"), []);
+  assert.deepEqual(imageMentions("no mentions at all"), []);
 });
 
 await test("sizes read as sizes", () => {
