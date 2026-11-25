@@ -227,7 +227,8 @@ impl LegacySettings {
     }
 }
 
-/// What a session is filed under.
+/// What a session — and a workspace root, and a file index — is
+/// filed under.
 ///
 /// The window label alone was enough right up until the panel existed.
 /// The editor is a modal in the *same* Tauri window as FigyCode, so both
@@ -235,7 +236,7 @@ impl LegacySettings {
 /// the symptom would have been the window answering a question typed into
 /// the sidebar, which is a confusing thing to debug and an easy thing to
 /// prevent.
-fn key(label: &str, surface: Surface) -> String {
+pub fn key(label: &str, surface: Surface) -> String {
     format!(
         "{label}/{}",
         match surface {
@@ -351,11 +352,12 @@ pub struct ToolResult {
 pub fn agent_call_tool(
     window: Window,
     workspace: State<Workspace>,
+    surface: Surface,
     name: String,
     args: Value,
 ) -> Result<ToolResult, String> {
     let root = workspace
-        .root(window.label())
+        .root(&key(window.label(), surface))
         .ok_or_else(|| "No folder is open in FigyCode".to_string())?;
     let out = tools::call(&ToolContext::new(root), &name, &args)?;
     Ok(ToolResult {
@@ -827,7 +829,7 @@ pub async fn agent_send(
     */
     let setup = (|| -> Result<(PathBuf, AgentSettings, ProviderModel, String), String> {
         let root = workspace
-            .root(&label)
+            .root(&session_key)
             .ok_or_else(|| "No folder is open in FigyCode.".to_string())?;
         let settings = current(&app, &state)?.unwrap_or_default();
         if settings.models.is_empty() {
@@ -913,7 +915,7 @@ pub async fn agent_send(
       only runs when one is being made.
     */
     // Read per turn, so a folder granted now is reachable now.
-    let extra = workspace.extra(&label);
+    let extra = workspace.extra(&session_key);
     let extra_names: Vec<String> = extra
         .iter()
         .filter_map(|dir| dir.file_name().map(|n| n.to_string_lossy().to_string()))
@@ -1243,8 +1245,9 @@ pub struct ProjectRules {
 pub fn agent_rules(
     window: Window,
     workspace: State<Workspace>,
+    surface: Surface,
 ) -> Result<Option<ProjectRules>, String> {
-    let Some(root) = workspace.root(window.label()) else {
+    let Some(root) = workspace.root(&key(window.label(), surface)) else {
         return Ok(None);
     };
     Ok(rules::read(&root).map(|rules| ProjectRules {
@@ -1378,7 +1381,9 @@ pub fn agent_conversations(
     workspace: State<Workspace>,
     surface: Surface,
 ) -> Result<Vec<Conversation>, String> {
-    let (Some(root), Some(store)) = (workspace.root(window.label()), store(&app, &state)) else {
+    let (Some(root), Some(store)) =
+        (workspace.root(&key(window.label(), surface)), store(&app, &state))
+    else {
         // No folder open, or no store yet. Nothing to offer is not an
         // error: it is a window that has not been used.
         return Ok(Vec::new());
@@ -1458,7 +1463,7 @@ pub fn agent_resume(
       hand the model forty turns of confident, wrong context.
     */
     let root = workspace
-        .root(window.label())
+        .root(&key(window.label(), surface))
         .ok_or_else(|| "No folder is open in FigyCode.".to_string())?;
     if root.to_string_lossy() != snapshot.root {
         return Err(format!(

@@ -43,7 +43,9 @@ use tauri::{State, Window};
   this module asks: the `@` index and the tools are looking at the same tree
   by construction rather than by convention.
 */
+use crate::agent::ledger::Surface;
 use crate::agent::workspace::Workspace;
+use crate::commands::agent::key as agent_key;
 use crate::commands::fs::{canonicalize, expand_home};
 
 /// Where the index stops.
@@ -90,9 +92,11 @@ struct Index {
     built: Instant,
 }
 
-/// Per window, like every other piece of filesystem state in this app: two
-/// windows can be open on two projects, and an index keyed globally would
-/// answer each of them with the other's files.
+/// Per window **and surface**, like the workspace root and the
+/// sessions. Two windows can be open on two projects and an index
+/// keyed globally would answer each with the other's files — and
+/// the editor panel is a third asker inside one of those windows,
+/// which is why the key is the session's rather than the window's.
 #[derive(Default)]
 pub struct FigyState {
     indexes: Mutex<HashMap<String, Index>>,
@@ -100,8 +104,10 @@ pub struct FigyState {
 
 /// Drops the index a window had built. Called when the window goes away.
 pub fn forget_window(state: &FigyState, label: &str) {
+    // Every surface of it: the key carries both now.
+    let mine = format!("{label}/");
     if let Ok(mut indexes) = state.indexes.lock() {
-        indexes.remove(label);
+        indexes.retain(|key, _| key != label && !key.starts_with(&mine));
     }
 }
 
@@ -344,12 +350,21 @@ pub fn figy_open_project(
     window: Window,
     state: State<FigyState>,
     workspace: State<Workspace>,
+    surface: Surface,
     path: String,
 ) -> Result<ProjectInfo, String> {
-    // The workspace does the validating and the remembering; this command is
-    // only the index on top of it. One answer to "which folder", shared with
-    // every tool the agent has.
-    let root = workspace.open(window.label(), &path)?;
+    /*
+      Filed under the window *and* the surface.
+
+      The editor is a modal in the same Tauri window as FigyCode, so
+      a root keyed by the window alone is one root between two
+      agents — harmless until the panel exists, and then whichever
+      spoke last decides where the other one's `edit` lands. The
+      index goes the same way for the same reason: `@` in the panel
+      should offer the panel's folder.
+    */
+    let scope = agent_key(window.label(), surface);
+    let root = workspace.open(&scope, &path)?;
 
     let index = build_index(&root);
     let info = ProjectInfo {
@@ -363,7 +378,7 @@ pub fn figy_open_project(
         .indexes
         .lock()
         .map_err(|_| "The project index is unavailable".to_string())?
-        .insert(window.label().to_string(), index);
+        .insert(scope, index);
 
     Ok(info)
 }
@@ -384,9 +399,10 @@ pub fn figy_open_project(
 pub fn figy_read_image(
     window: Window,
     workspace: State<Workspace>,
+    surface: Surface,
     path: String,
 ) -> Result<ReadImage, String> {
-    let resolved = workspace.resolve(window.label(), &path)?;
+    let resolved = workspace.resolve(&agent_key(window.label(), surface), &path)?;
     let mime = match resolved
         .extension()
         .and_then(|e| e.to_str())
@@ -460,10 +476,11 @@ pub struct ReadImage {
 pub fn figy_set_extra_dirs(
     window: Window,
     workspace: State<Workspace>,
+    surface: Surface,
     dirs: Vec<String>,
 ) -> Result<Vec<String>, String> {
     Ok(workspace
-        .set_extra(window.label(), &dirs)
+        .set_extra(&agent_key(window.label(), surface), &dirs)
         .iter()
         .map(|dir| dir.to_string_lossy().to_string())
         .collect())
@@ -517,10 +534,11 @@ pub struct DirCount {
 pub fn figy_find_files(
     window: Window,
     state: State<FigyState>,
+    surface: Surface,
     query: String,
     limit: usize,
 ) -> Result<Vec<FileHit>, String> {
-    let label = window.label().to_string();
+    let label = agent_key(window.label(), surface);
 
     // The root is read, and the lock released, before the walk: rebuilding
     // while holding it would block the other window's searches behind this

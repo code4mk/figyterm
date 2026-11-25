@@ -340,8 +340,12 @@ export interface ToolResult {
  * history, and a window that could append to it would be a second writer
  * of the one thing that must stay append-only.
  */
-export function agentCallTool(name: string, args: Record<string, unknown>): Promise<ToolResult> {
-  return invoke<ToolResult>("agent_call_tool", { name, args });
+export function agentCallTool(
+  surface: Surface,
+  name: string,
+  args: Record<string, unknown>
+): Promise<ToolResult> {
+  return invoke<ToolResult>("agent_call_tool", { surface, name, args });
 }
 
 export function agentUsage(surface: Surface): Promise<Totals> {
@@ -371,8 +375,8 @@ export interface ProjectRules {
  * A running session keeps the copy it started with: the prefix is frozen,
  * so an edit to `FIGY.md` applies after `/clear` rather than immediately.
  */
-export function agentRules(): Promise<ProjectRules | null> {
-  return invoke<ProjectRules | null>("agent_rules");
+export function agentRules(surface: Surface): Promise<ProjectRules | null> {
+  return invoke<ProjectRules | null>("agent_rules", { surface });
 }
 
 /* ─── Where the window is going ───────────────────────────────────────────── */

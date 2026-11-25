@@ -34,7 +34,17 @@ use std::sync::Mutex;
 
 use crate::commands::fs::{canonicalize, expand_home, to_string};
 
-/// Per window. Entries are dropped when the window closes.
+/// Per window **and surface**, for the reason the sessions are.
+///
+/// The editor is a modal in the same Tauri window as FigyCode, so a
+/// root keyed by window alone is one root between two agents. That
+/// is harmless right up until the panel exists and somebody has the
+/// editor open on one repository and FigyCode on another — at which
+/// point whichever spoke last decides where the other one's `edit`
+/// lands. A key that is the same shape as the session's is the whole
+/// fix, and it is cheaper to do before there is a panel than after.
+///
+/// Entries are dropped when the window closes.
 #[derive(Default)]
 pub struct Workspace {
     roots: Mutex<HashMap<String, PathBuf>>,
@@ -126,8 +136,14 @@ impl Workspace {
 
     /// Drops what a window had open. Called when the window goes away.
     pub fn forget(&self, label: &str) {
+        // Every surface of that window: the key carries both, and a
+        // closed window takes its panel with it.
+        let mine = format!("{label}/");
         if let Ok(mut roots) = self.roots.lock() {
-            roots.remove(label);
+            roots.retain(|key, _| key != label && !key.starts_with(&mine));
+        }
+        if let Ok(mut extra) = self.extra.lock() {
+            extra.retain(|key, _| key != label && !key.starts_with(&mine));
         }
     }
 
@@ -549,6 +565,48 @@ mod tests {
         );
         assert_eq!(display_within(&roots, Path::new("/x/acme-mcp")), "acme-mcp");
         assert_eq!(display_within(&roots, Path::new("/nowhere/z.rs")), "/nowhere/z.rs");
+    }
+
+    /*
+      Two surfaces in one window, on two folders.
+
+      The editor is a modal in the same Tauri window as FigyCode, so
+      a root keyed by the window alone is one root between two
+      agents. Harmless until the panel exists — and then whichever
+      opened last decides where the other one's `edit` lands, which
+      is a file written to the wrong repository with nothing on
+      screen to suggest it.
+    */
+    #[test]
+    fn a_window_s_two_surfaces_keep_their_own_folders() {
+        let workspace = Workspace::default();
+        let window = scratch("surface-window");
+        let panel = scratch("surface-panel");
+
+        workspace.open("main/window", &window.to_string_lossy()).unwrap();
+        workspace.open("main/panel", &panel.to_string_lossy()).unwrap();
+
+        assert_eq!(workspace.root("main/window").as_deref(), Some(window.as_path()));
+        assert_eq!(workspace.root("main/panel").as_deref(), Some(panel.as_path()));
+
+        // And each resolves into its own, not into the other's.
+        let found = workspace.resolve("main/panel", "src/main.rs").unwrap();
+        assert!(found.starts_with(&panel), "{found:?}");
+    }
+
+    #[test]
+    fn closing_a_window_takes_every_surface_of_it() {
+        let workspace = Workspace::default();
+        let one = scratch("forget-window");
+        let two = scratch("forget-panel");
+        workspace.open("main/window", &one.to_string_lossy()).unwrap();
+        workspace.open("main/panel", &two.to_string_lossy()).unwrap();
+        workspace.set_extra("main/panel", &[one.to_string_lossy().to_string()]);
+
+        workspace.forget("main");
+        assert!(workspace.root("main/window").is_none());
+        assert!(workspace.root("main/panel").is_none(), "the panel goes too");
+        assert!(workspace.extra("main/panel").is_empty());
     }
 
     #[test]

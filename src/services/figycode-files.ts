@@ -15,6 +15,7 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
+import type { Surface } from "./figycode-agent";
 
 export interface ProjectInfo {
   /** The canonical form — what the window should then display and compare. */
@@ -34,8 +35,8 @@ export interface FileHit {
 }
 
 /** Points the window at a folder and indexes it. Slow once, then not again. */
-export function openProjectIndex(path: string): Promise<ProjectInfo> {
-  return invoke<ProjectInfo>("figy_open_project", { path });
+export function openProjectIndex(surface: Surface, path: string): Promise<ProjectInfo> {
+  return invoke<ProjectInfo>("figy_open_project", { surface, path });
 }
 
 /**
@@ -48,8 +49,8 @@ export function openProjectIndex(path: string): Promise<ProjectInfo> {
  * folder the backend had been told about was the root. Answers with
  * the ones that resolved.
  */
-export function setExtraDirs(dirs: string[]): Promise<string[]> {
-  return invoke<string[]>("figy_set_extra_dirs", { dirs });
+export function setExtraDirs(surface: Surface, dirs: string[]): Promise<string[]> {
+  return invoke<string[]>("figy_set_extra_dirs", { surface, dirs });
 }
 
 /** One image out of the project, for an `@` mention of it. */
@@ -71,8 +72,8 @@ export interface ReadImage {
  * mention was a path, the agent called `read`, and was told the
  * file was binary.
  */
-export function readImage(path: string): Promise<ReadImage> {
-  return invoke<ReadImage>("figy_read_image", { path });
+export function readImage(surface: Surface, path: string): Promise<ReadImage> {
+  return invoke<ReadImage>("figy_read_image", { surface, path });
 }
 
 /** What is in a folder, as `/project` lists it beside each one. */
@@ -96,8 +97,8 @@ export function countDir(path: string): Promise<DirCount> {
 }
 
 /** The best matches for what has been typed after an `@`. */
-export function findFiles(query: string, limit = 12): Promise<FileHit[]> {
-  return invoke<FileHit[]>("figy_find_files", { query, limit });
+export function findFiles(surface: Surface, query: string, limit = 12): Promise<FileHit[]> {
+  return invoke<FileHit[]>("figy_find_files", { surface, query, limit });
 }
 
 /**

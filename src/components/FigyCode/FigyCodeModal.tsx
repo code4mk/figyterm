@@ -352,7 +352,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
   */
   useEffect(() => {
     if (!activeRoot) return;
-    void setExtraDirs(extraDirs).catch(() => {});
+    void setExtraDirs(SURFACE, extraDirs).catch(() => {});
   }, [activeRoot, extraDirs]);
 
   /*
@@ -402,7 +402,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
     setIndex(null);
     setIndexError(null);
     setHits([]);
-    openProjectIndex(activeRoot)
+    openProjectIndex(SURFACE, activeRoot)
       .then((info) => {
         if (alive) setIndex(info);
       })
@@ -467,7 +467,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
     // Read live rather than from the session: this says what the *next*
     // conversation will be given, and a running one keeps what it
     // started with.
-    agentRules()
+    agentRules(SURFACE)
       .then((found) => {
         if (alive) setRules(found);
       })
@@ -753,7 +753,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
       const refused: string[] = [];
       for (const path of imageMentions(text)) {
         try {
-          const image = await readImage(path);
+          const image = await readImage(SURFACE, path);
           added.push({
             id: `${path}-${Date.now()}`,
             name: image.name,
@@ -804,7 +804,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
           ],
           nextId: state.nextId + 1,
         }));
-        void agentCallTool("bash", { cmd: value })
+        void agentCallTool(SURFACE, "bash", { cmd: value })
           .then((result) =>
             setSession((state) =>
               patchLocal(state, callId, result.text.split("\n").slice(1), false)
@@ -934,7 +934,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
     }
     const asked = ++askedRef.current;
     const timer = window.setTimeout(() => {
-      findFiles(mentionQuery, 12)
+      findFiles(SURFACE, mentionQuery, 12)
         .then((found) => {
           if (askedRef.current === asked) setHits(found);
         })

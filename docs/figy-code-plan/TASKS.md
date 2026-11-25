@@ -319,6 +319,15 @@ made the cheap one expensive. Four pieces, in this order.
       tool list is the first thing in the cache prefix
 - [x] Its own ledger rows, under `surface = panel`, which is how we find
       out whether the panel is paying for itself
+- [x] **And its own folder.** The root was keyed by window, and the
+      editor is a modal in the *same* Tauri window as FigyCode — so
+      one root between two agents, harmless right up until the panel
+      exists and somebody has the editor on one repository and
+      FigyCode on another. Whichever spoke last would have decided
+      where the other one's `edit` landed, with nothing on screen to
+      suggest it. The root, the extra folders and the `@` index are
+      all filed under window *and* surface now, the same key the
+      sessions use
 
 ### 7b · The panel itself
 
