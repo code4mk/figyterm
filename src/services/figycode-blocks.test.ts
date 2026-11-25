@@ -13,6 +13,7 @@ import {
   formatCost,
   formatTokens,
   mentionAt,
+  partialString,
   toLatinDigits,
   todosFromText,
   typedNumber,
@@ -91,6 +92,42 @@ test("Bengali digits are numbers", () => {
   assert.equal(toLatinDigits("০.৬"), "0.6");
   assert.deepEqual(typedNumber("০.৬"), { text: "0.6", value: 0.6 });
   assert.equal(typedNumber("২০০০০০").value, 200000);
+});
+
+/* ─── Reading JSON that is not finished ───────────────────────────────────── */
+
+test("a string comes out of JSON that is still arriving", () => {
+  // Which is the only kind there is while a file is being written:
+  // `write` is instant and the content takes half a minute to say.
+  assert.equal(
+    partialString('{"path":"a.tsx","content":"export default fun', "content"),
+    "export default fun"
+  );
+  assert.equal(partialString('{"path":"a.tsx","content":"done"}', "content"), "done");
+});
+
+test("escapes are unescaped, including a half-arrived one", () => {
+  // What this feeds is a code box, so `\n` has to be a newline and
+  // not two characters.
+  assert.equal(partialString('{"content":"one\\ntwo', "content"), "one\ntwo");
+  assert.equal(partialString('{"content":"say \\"hi\\" now', "content"), 'say "hi" now');
+  // A backslash with nothing after it yet: stop, do not guess.
+  assert.equal(partialString('{"content":"one\\', "content"), "one");
+});
+
+test("a key that has not arrived is null, not empty", () => {
+  // Different things: one should leave a box alone and the other
+  // should blank it.
+  assert.equal(partialString('{"path":"a.tsx"', "content"), null);
+  assert.equal(partialString('{"path":"a.tsx","content":"', "content"), "");
+  assert.equal(partialString("", "content"), null);
+});
+
+test("a quote inside the string does not end it", () => {
+  assert.equal(
+    partialString('{"content":"className=\\"row\\"","path":"x"}', "content"),
+    'className="row"'
+  );
 });
 
 /* ─── Formatting ───────────────────────────────────────────────────────────── */

@@ -21,7 +21,7 @@ import type {
   ToolKind,
   ToolRow,
 } from "./figycode-blocks";
-import { todosFromText } from "./figycode-blocks";
+import { partialString, todosFromText } from "./figycode-blocks";
 import { addedLines, lineDiff } from "./figycode-diff";
 
 /** A question the run has stopped on, waiting for the user. */
@@ -378,8 +378,11 @@ export function applyEvent(state: SessionState, event: TurnEvent): SessionState 
       return patchTool(state, event.id, (tool) => ({
         ...tool,
         running: false,
-        // The finished output supersedes the tail that was streaming.
+        // The finished output supersedes what was streaming, both
+        // the command's and the call's own.
         live: undefined,
+        writing: undefined,
+        args: undefined,
         meta: summarise(event.text),
         /*
           The body, so every row can be opened.
@@ -437,6 +440,25 @@ export function applyEvent(state: SessionState, event: TurnEvent): SessionState 
         why: event.why || tool.why,
       }));
     }
+
+    /*
+      The call being written, before it is made.
+
+      `write` and `edit` carry the interesting part in their
+      arguments rather than in their result: the file is produced
+      token by token over half a minute and then written in a
+      moment. The row shows it arriving, out of JSON that is not
+      valid yet and will not be until the last character.
+
+      Only those two. A `grep` pattern or a path is a few characters
+      and watching them appear is noise.
+    */
+    case "toolArguments":
+      return patchTool(state, event.id, (tool) => {
+        const json = (tool.args ?? "") + event.delta;
+        const writing = partialString(json, "content") ?? partialString(json, "new");
+        return { ...tool, args: json, writing: writing ?? tool.writing };
+      });
 
     /*
       A line from a build that is still going.

@@ -587,6 +587,41 @@ test("the finished output supersedes what was streaming", () => {
   assert.equal(row.tool.why, "checking it compiles", "the reason outlives the run");
 });
 
+test("a file appears as it is written, not when it lands on disk", () => {
+  // `write` is instant and its content takes half a minute to say,
+  // so the arguments are the only part of creating a file anybody
+  // can watch — and they are not valid JSON until the last
+  // character of them.
+  const state = play(
+    { kind: "toolStarted", id: "t1", name: "write" },
+    { kind: "toolArguments", id: "t1", delta: '{"path":"app/page.tsx",' },
+    { kind: "toolArguments", id: "t1", delta: '"content":"export default' },
+    { kind: "toolArguments", id: "t1", delta: ' function Page() {' }
+  );
+  const row = state.blocks[0];
+  assert.ok(row.kind === "tool");
+  assert.equal(row.tool.writing, "export default function Page() {");
+});
+
+test("what was streaming is dropped when the real result lands", () => {
+  const state = play(
+    { kind: "toolStarted", id: "t1", name: "write" },
+    { kind: "toolArguments", id: "t1", delta: '{"content":"half a file' },
+    {
+      kind: "toolFinished",
+      id: "t1",
+      name: "write",
+      text: "Wrote app/page.tsx · 40 lines",
+      detail: { path: "app/page.tsx", content: "the whole file" },
+      tokens: 20,
+    }
+  );
+  const row = state.blocks[0];
+  assert.ok(row.kind === "tool");
+  assert.equal(row.tool.writing, undefined, "two copies of a file is one too many");
+  assert.equal(row.tool.args, undefined);
+});
+
 /* ─── The plan ─────────────────────────────────────────────────────────────── */
 
 /** A `todo_write` round trip, as the backend emits it. */

@@ -278,6 +278,19 @@ pub enum TurnEvent {
         target: String,
         why: String,
     },
+    /// A piece of a tool call's arguments, while the model is still
+    /// writing them.
+    ///
+    /// For the one case where the tool is instant and the *call* is
+    /// not: `write` with two hundred lines of content takes half a
+    /// minute to say and a moment to do, so the window used to show
+    /// a spinner for the whole of the interesting part. What the
+    /// window does with a half-finished JSON fragment is its own
+    /// business; what matters here is that it is given one.
+    ToolArguments {
+        id: String,
+        delta: String,
+    },
     /// A line from a tool that is still running.
     ///
     /// Only `bash` sends these, and only because a two-minute build
@@ -976,6 +989,9 @@ impl Session {
                         StreamEvent::Text { text } => Some(TurnEvent::Text { text }),
                         StreamEvent::ToolCallStarted { id, name } => {
                             Some(TurnEvent::ToolStarted { id, name })
+                        }
+                        StreamEvent::ToolCallArguments { id, delta } => {
+                            Some(TurnEvent::ToolArguments { id, delta })
                         }
                         StreamEvent::Done { .. } => None,
                         StreamEvent::Retrying {

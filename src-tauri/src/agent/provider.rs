@@ -140,6 +140,14 @@ pub enum StreamEvent {
     Text { text: String },
     /// A tool call has a name. Its arguments may still be arriving.
     ToolCallStarted { id: String, name: String },
+    /// A piece of a tool call's arguments, as it is produced.
+    ///
+    /// Thrown away until now, which is why writing a file looked
+    /// like nothing happening: `write` is instant and the *content*
+    /// takes half a minute to say, so the window sat on a spinner
+    /// while two hundred lines of the thing being written streamed
+    /// past unshown.
+    ToolCallArguments { id: String, delta: String },
     /// The turn is over.
     Done { finish_reason: String },
     /// The provider could not take it, and this is the wait before the
@@ -438,6 +446,7 @@ impl StreamAssembler {
                 self.calls.resize(index + 1, PartialCall::default());
             }
             let slot = &mut self.calls[index];
+            let mut fragment: Option<String> = None;
 
             if let Some(id) = call.get("id").and_then(Value::as_str) {
                 if !id.is_empty() {
@@ -452,6 +461,7 @@ impl StreamAssembler {
                 }
                 if let Some(args) = function.get("arguments").and_then(Value::as_str) {
                     slot.arguments.push_str(args);
+                    fragment = Some(args.to_string());
                 }
             }
 
@@ -463,6 +473,24 @@ impl StreamAssembler {
                     id: slot.id.clone(),
                     name: slot.name.clone(),
                 });
+            }
+
+            /*
+              And the arguments behind the name.
+
+              After the announcement, so the window has a row to put
+              them on — and only once there is an id, because a
+              fragment belonging to nothing is a fragment nobody can
+              place. Providers send the id with the first chunk of a
+              call, so this costs at most the first few characters.
+            */
+            if let Some(delta) = fragment {
+                if !slot.id.is_empty() {
+                    out.push(StreamEvent::ToolCallArguments {
+                        id: slot.id.clone(),
+                        delta,
+                    });
+                }
             }
         }
     }
@@ -572,10 +600,29 @@ mod tests {
         })));
         assert!(matches!(&first[0], StreamEvent::ToolCallStarted { name, .. } if name == "grep"));
 
+        // Announced once — and the arguments behind it, which is a
+        // different event. Writing a file is half a minute of these
+        // and a moment of the tool; without them the window shows a
+        // spinner for the whole of the interesting part.
         let second = a.push(&frame(json!({
             "tool_calls": [{ "index": 0, "function": { "arguments": "{}" } }]
         })));
-        assert!(second.is_empty(), "a call is announced once, not per fragment");
+        assert_eq!(second.len(), 1, "no second announcement");
+        assert!(
+            matches!(&second[0], StreamEvent::ToolCallArguments { id, delta } if id == "c1" && delta == "{}")
+        );
+    }
+
+    #[test]
+    fn arguments_with_no_id_yet_are_held_rather_than_sent_nowhere() {
+        // A fragment belonging to no call is one the window cannot
+        // put on a row. Providers send the id with the first chunk,
+        // so this costs at most the first few characters.
+        let mut a = StreamAssembler::default();
+        let out = a.push(&frame(json!({
+            "tool_calls": [{ "index": 0, "function": { "arguments": "{\"p" } }]
+        })));
+        assert!(out.is_empty(), "nothing to attach it to yet");
     }
 
     #[test]

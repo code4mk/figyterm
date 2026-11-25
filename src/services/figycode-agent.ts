@@ -68,6 +68,15 @@ export type TurnEvent =
    */
   | { kind: "toolRunning"; id: string; name: string; target: string; why: string }
   /**
+   * A piece of a tool call's arguments, while the model writes them.
+   *
+   * For the case where the tool is instant and the *call* is not:
+   * `write` with two hundred lines takes half a minute to say and a
+   * moment to do, so the window used to show a spinner through the
+   * whole of the interesting part.
+   */
+  | { kind: "toolArguments"; id: string; delta: string }
+  /**
    * A line from a tool that is still running.
    *
    * Only `bash` sends these. None of it reaches the model, which

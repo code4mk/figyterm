@@ -13513,6 +13513,12 @@ body > .cm-api-completions .cm-completionDetail {
   font-style: italic;
 }
 
+/* A file being written reads as code rather than as log output. */
+.figy-tool-live.code {
+  max-height: 200px;
+  color: var(--ft-text-secondary);
+}
+
 /* The tail of a command that is still going. Short, dim and
    monospaced — a window onto the work rather than the record of it.
    The record arrives when the row can be opened. */
@@ -13572,9 +13578,42 @@ body > .cm-api-completions .cm-completionDetail {
   font-size: 9px;
 }
 
+/* Capped and scrollable, with the lid taken off on request.
+
+   Opening a row should not mean a four-hundred-line file between
+   the question above it and the answer below: the scroll position
+   goes, and so does the thread of what was being read. A fixed
+   height keeps the row a row. */
 .figy-tool-body {
   position: relative;
-  margin: 6px 0 8px 2px;
+  max-height: 340px;
+  overflow: auto;
+  margin: 6px 0 2px 2px;
+}
+
+.figy-tool-body.whole {
+  max-height: none;
+  overflow: visible;
+}
+
+/* Only drawn when there is more than the box is showing: a button
+   saying "show all 6 lines" over six lines teaches people to ignore
+   buttons. */
+.figy-tool-more {
+  margin: 0 0 8px 3px;
+  padding: 2px 8px;
+  border: 1px solid var(--ft-border-subtle);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ft-text-muted);
+  font-family: var(--figy-mono);
+  font-size: 10.5px;
+  cursor: pointer;
+}
+
+.figy-tool-more:hover {
+  border-color: var(--ft-accent);
+  color: var(--ft-text);
 }
 
 .figy-output {

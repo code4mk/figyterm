@@ -119,6 +119,17 @@ export interface ToolRow {
    */
   why?: string;
   /**
+   * The call's arguments as they arrive, before it has run.
+   *
+   * Half-finished JSON. The row reads the one field worth watching
+   * out of it — the content of a `write`, the replacement of an
+   * `edit` — so a file being written appears line by line instead
+   * of all at once when it is already on disk.
+   */
+  writing?: string;
+  /** The raw argument text so far, which `writing` is read out of. */
+  args?: string;
+  /**
    * Output arriving while the tool is still running.
    *
    * Kept apart from `output`, which is the finished result. These are
@@ -271,6 +282,71 @@ export type Block =
    * and ten copies of it down the scroll would bury the work between them.
    */
   | { id: number; kind: "todos"; items: TodoItem[] };
+
+/* ─── Reading JSON that is not finished ───────────────────────────────────── */
+
+/**
+ * The value of a string field out of JSON that is still arriving.
+ *
+ * `{"path":"a.tsx","content":"export default function` is not JSON
+ * and will not be for another thirty seconds, which is exactly how
+ * long somebody watches a file being written with nothing on screen.
+ * `JSON.parse` cannot help; this can.
+ *
+ * It scans from `"<key>":"` to the closing quote, honouring escapes
+ * so a `\"` inside the string does not end it, and returns
+ * everything so far when the string has not closed yet. Escapes are
+ * unescaped as it goes, so `\n` is a newline rather than two
+ * characters — which is the whole point, since what this feeds is a
+ * code box.
+ *
+ * `null` when the key has not arrived. Deliberately not `""`: "no
+ * content yet" and "content is empty" are different, and only one
+ * of them should blank a box that already has lines in it.
+ */
+export function partialString(json: string, key: string): string | null {
+  const opener = `"${key}":`;
+  let at = json.indexOf(opener);
+  if (at < 0) return null;
+  at += opener.length;
+  while (at < json.length && /\s/.test(json[at])) at += 1;
+  if (json[at] !== '"') return null;
+  at += 1;
+
+  let out = "";
+  while (at < json.length) {
+    const ch = json[at];
+    if (ch === '"') return out;
+    if (ch !== "\\") {
+      out += ch;
+      at += 1;
+      continue;
+    }
+    // An escape, which may itself be half-arrived.
+    const next = json[at + 1];
+    if (next === undefined) return out;
+    const simple: Record<string, string> = {
+      n: "\n",
+      t: "\t",
+      r: "\r",
+      b: "\b",
+      f: "\f",
+      '"': '"',
+      "\\": "\\",
+      "/": "/",
+    };
+    if (next === "u") {
+      const hex = json.slice(at + 2, at + 6);
+      if (hex.length < 4) return out;
+      out += String.fromCharCode(parseInt(hex, 16));
+      at += 6;
+      continue;
+    }
+    out += simple[next] ?? next;
+    at += 2;
+  }
+  return out;
+}
 
 /* ─── Typing a number ─────────────────────────────────────────────────────── */
 

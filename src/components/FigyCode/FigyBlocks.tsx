@@ -24,6 +24,21 @@ import type {
   ToolRow,
 } from "../../services/figycode-blocks";
 
+/**
+ * How much of a result a row shows before it has to be asked twice.
+ *
+ * Opening a row is a cheap act and it should stay one: a
+ * four-hundred-line file between the question above and the answer
+ * below is not an expansion, it is losing your place.
+ */
+const CAPPED_LINES = 18;
+
+/** The last `n` lines, which are the ones still moving. */
+function tail(text: string, n: number): string {
+  const lines = text.split("\n");
+  return lines.length <= n ? text : lines.slice(-n).join("\n");
+}
+
 /* ─── Copying ─────────────────────────────────────────────────────────────── */
 
 /**
@@ -134,6 +149,15 @@ export function ToolCall({ tool }: { tool: ToolRow }) {
     was still running, and the diff would arrive to find the row shut.
   */
   const [toggled, setToggled] = useState<boolean | null>(null);
+  /*
+    A second limit inside the first.
+
+    Opening a row should not mean a four-hundred-line file between
+    the question above it and the answer below. The body is capped
+    and scrolls; "show all" takes the lid off for the one row where
+    somebody wants the whole thing.
+  */
+  const [whole, setWhole] = useState(false);
   const body = tool.diff ?? tool.output;
   const expandable = !!body && body.length > 0;
   const open = toggled ?? !!tool.diff;
@@ -202,6 +226,18 @@ export function ToolCall({ tool }: { tool: ToolRow }) {
       </button>
 
       {/*
+        The file, as it is written.
+
+        `write` is instant and its *content* takes half a minute to
+        arrive, so this is the only part of creating a file anybody
+        can watch. The tail rather than the head, because the line
+        being written is the one that is moving.
+      */}
+      {tool.running && tool.writing && (
+        <pre className="figy-tool-live code">{tail(tool.writing, 12)}</pre>
+      )}
+
+      {/*
         What it is saying while it says it.
 
         The last few lines only: what somebody watching a build wants
@@ -215,16 +251,28 @@ export function ToolCall({ tool }: { tool: ToolRow }) {
       )}
 
       {expandable && open && (
-        <div className="figy-tool-body">
-          {tool.diff ? (
-            <Diff lines={tool.diff} />
-          ) : (
-            <div className="figy-output-wrap">
-              <CopyButton text={tool.output!.join("\n")} label="Copy this output" />
-              <pre className="figy-output">{tool.output!.join("\n")}</pre>
-            </div>
+        <>
+          <div className={`figy-tool-body ${whole ? "whole" : ""}`}>
+            {tool.diff ? (
+              <Diff lines={tool.diff} />
+            ) : (
+              <div className="figy-output-wrap">
+                <CopyButton text={tool.output!.join("\n")} label="Copy this output" />
+                <pre className="figy-output">{tool.output!.join("\n")}</pre>
+              </div>
+            )}
+          </div>
+          {/*
+            Offered only when there is more than the box is showing.
+            A button that says "show all 6 lines" over six lines is
+            a button that teaches people to ignore buttons.
+          */}
+          {(body?.length ?? 0) > CAPPED_LINES && (
+            <button type="button" className="figy-tool-more" onClick={() => setWhole(!whole)}>
+              {whole ? "Collapse" : `Show all ${body!.length} lines`}
+            </button>
           )}
-        </div>
+        </>
       )}
     </div>
   );
