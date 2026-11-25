@@ -31,6 +31,7 @@ import type { EditorOpenRequest } from "../Editor/EditorModal";
 import type { ClaudeMentionRequest } from "../Claude/ClaudeModal";
 import { isMac, EMBEDDED_BROWSER_SUPPORTED } from "../../services/platform";
 import { DockWindow, MinimizedDock } from "./MinimizedDock";
+import { serveAgentLsp } from "../../services/figycode-lsp";
 
 const MAX_PANES_PER_TAB = 4;
 
@@ -57,6 +58,18 @@ const EditorModal = lazy(() =>
  */
 const ClaudeModal = lazy(() =>
   import("../Claude/ClaudeModal").then((module) => ({ default: module.ClaudeModal }))
+);
+
+/**
+ * The Figy Code window, fetched on first open like the others.
+ *
+ * It latches mounted for the weakest of the reasons on this page — there is
+ * no process behind it yet, only a scripted transcript — but a window you
+ * dismissed mid-conversation and reopened to find blank would be wrong
+ * whichever side of it is real.
+ */
+const FigyCodeModal = lazy(() =>
+  import("../FigyCode/FigyCodeModal").then((module) => ({ default: module.FigyCodeModal }))
 );
 
 /**
@@ -106,6 +119,9 @@ export function AppShell() {
   const [claudeOpen, setClaudeOpen] = useState(false);
   /** Latches on the first open; the window then stays mounted. See above. */
   const [claudeMounted, setClaudeMounted] = useState(false);
+  const [figyOpen, setFigyOpen] = useState(false);
+  /** Latches on the first open; the window then stays mounted. */
+  const [figyMounted, setFigyMounted] = useState(false);
   const [drawingOpen, setDrawingOpen] = useState(false);
   /** Latches on the first open; the drawing window then stays mounted. */
   const [drawingMounted, setDrawingMounted] = useState(false);
@@ -446,6 +462,32 @@ export function AppShell() {
   }, [claudeOpen]);
 
   useEffect(() => {
+    if (figyOpen) setFigyMounted(true);
+  }, [figyOpen]);
+
+  /*
+    The agent's questions about code are answered here rather than inside
+    the FigyCode window.
+
+    They go to the language server this process is already running — see
+    `services/figycode-lsp.ts` — and the agent can be mid-turn while its
+    window is minimised. A listener that came and went with the window
+    would drop the reply and leave the turn waiting out its timeout.
+  */
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let alive = true;
+    void serveAgentLsp().then((off) => {
+      if (alive) unlisten = off;
+      else off();
+    });
+    return () => {
+      alive = false;
+      unlisten?.();
+    };
+  }, []);
+
+  useEffect(() => {
     if (drawingOpen) setDrawingMounted(true);
   }, [drawingOpen]);
 
@@ -484,6 +526,7 @@ export function AppShell() {
       if (which === "browser") setBrowserOpen(false);
       else if (which === "editor") setEditorOpen(false);
       else if (which === "claude") setClaudeOpen(false);
+      else if (which === "figycode") setFigyOpen(false);
       else setApiOpen(false);
       focusActivePane();
     },
@@ -496,6 +539,7 @@ export function AppShell() {
     if (which === "browser") setBrowserOpen(true);
     else if (which === "editor") setEditorOpen(true);
     else if (which === "claude") setClaudeOpen(true);
+    else if (which === "figycode") setFigyOpen(true);
     else setApiOpen(true);
   }, []);
 
@@ -512,11 +556,12 @@ export function AppShell() {
           !(id === "browser" && browserOpen) &&
           !(id === "editor" && editorOpen) &&
           !(id === "claude" && claudeOpen) &&
+          !(id === "figycode" && figyOpen) &&
           !(id === "api" && apiOpen)
       );
       return next.length === ids.length ? ids : next;
     });
-  }, [browserOpen, editorOpen, claudeOpen, apiOpen]);
+  }, [browserOpen, editorOpen, claudeOpen, figyOpen, apiOpen]);
 
   const closeEditor = useCallback(() => {
     setEditorOpen(false);
@@ -548,6 +593,21 @@ export function AppShell() {
     if (claudeOpenRef.current) closeClaude();
     else setClaudeOpen(true);
   }, [closeClaude]);
+
+  /** Read by the shortcut handler, which is registered once. */
+  const figyOpenRef = useRef(figyOpen);
+  figyOpenRef.current = figyOpen;
+
+  const closeFigy = useCallback(() => {
+    setFigyOpen(false);
+    setMinimized((ids) => ids.filter((id) => id !== "figycode"));
+    focusActivePane();
+  }, [focusActivePane]);
+
+  const toggleFigy = useCallback(() => {
+    if (figyOpenRef.current) closeFigy();
+    else setFigyOpen(true);
+  }, [closeFigy]);
 
   /** Read by the shortcut handler, which is registered once and must not be
    * torn down and rebuilt every time the window is toggled. */
@@ -717,6 +777,7 @@ export function AppShell() {
       listenToSelf("menu://browser", () => setBrowserOpen((open) => !open)),
       listenToSelf("menu://editor", () => toggleEditor()),
       listenToSelf("menu://claude", () => toggleClaude()),
+      listenToSelf("menu://figy-code", () => toggleFigy()),
       listenToSelf("menu://drawing", () => toggleDrawing()),
       listenToSelf("menu://api", () => toggleApi()),
       listenToSelf("menu://monitor", () => setMonitorOpen((open) => !open)),
@@ -760,6 +821,7 @@ export function AppShell() {
     toggleTheme,
     toggleEditor,
     toggleClaude,
+    toggleFigy,
     toggleDrawing,
     toggleApi,
     runMenuChord,
@@ -809,6 +871,9 @@ export function AppShell() {
       } else if (matches(e, SHORTCUTS.claude)) {
         e.preventDefault();
         toggleClaude();
+      } else if (matches(e, SHORTCUTS.figyCode)) {
+        e.preventDefault();
+        toggleFigy();
       } else if (matches(e, SHORTCUTS.drawing)) {
         e.preventDefault();
         toggleDrawing();
@@ -838,7 +903,7 @@ export function AppShell() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleNewTab, handleNewTabInSameDir, handleClosePane, handleClearTerminal, switchToNextTab, switchToPreviousTab, handleSplitPane, handleSwitchTab, tabs, toggleTheme, toggleEditor, toggleClaude, toggleDrawing, toggleApi]);
+  }, [handleNewTab, handleNewTabInSameDir, handleClosePane, handleClearTerminal, switchToNextTab, switchToPreviousTab, handleSplitPane, handleSwitchTab, tabs, toggleTheme, toggleEditor, toggleClaude, toggleFigy, toggleDrawing, toggleApi]);
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
 
@@ -887,6 +952,7 @@ export function AppShell() {
       : []),
     { id: "editor", label: "Open Code Editor", shortcut: keys(SHORTCUTS.editor), action: () => setEditorOpen(true) },
     { id: "claude", label: "Open Claude Code", shortcut: keys(SHORTCUTS.claude), action: () => setClaudeOpen(true) },
+    { id: "figy-code", label: "Open FigyCode", shortcut: keys(SHORTCUTS.figyCode), action: () => setFigyOpen(true) },
     { id: "drawing", label: "Open Drawing", shortcut: keys(SHORTCUTS.drawing), action: () => setDrawingOpen(true) },
     { id: "api", label: "Open API Client", shortcut: keys(SHORTCUTS.api), action: () => setApiOpen(true) },
     {
@@ -1025,6 +1091,22 @@ export function AppShell() {
               onLiveCountChange={setClaudeLive}
               onAttentionCountChange={setClaudeAttention}
               mentionRequest={claudeMention}
+            />
+          </Suspense>
+        </OverlayBoundary>
+      )}
+      {/*
+        Mounted once and then kept, so a scripted run you dismissed halfway
+        is still there when the window comes back.
+      */}
+      {figyMounted && (
+        <OverlayBoundary label="FigyCode" onDismiss={closeFigy}>
+          <Suspense fallback={null}>
+            <FigyCodeModal
+              visible={figyOpen}
+              onClose={closeFigy}
+              onMinimize={() => minimizeWindow("figycode")}
+              cwd={getActiveCwd()}
             />
           </Suspense>
         </OverlayBoundary>

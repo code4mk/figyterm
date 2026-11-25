@@ -7,12 +7,16 @@ pub mod menu;
 pub mod secrets;
 pub mod spawn;
 pub mod state;
+pub mod agent;
 pub mod store;
 pub mod sync;
 pub mod terminal;
 pub mod updater;
 
+use agent::workspace::Workspace;
+use commands::agent::AgentState;
 use commands::browser::BrowserState;
+use commands::figy_files::FigyState;
 use commands::fs::FsState;
 use commands::fs_watch::WatchState;
 use http::ApiState;
@@ -45,7 +49,18 @@ fn shutdown_terminals(app: &AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    env_logger::init();
+    /*
+      Our own lines at `info`, everything else at `warn`.
+
+      `env_logger::init()` alone shows `error` and nothing more, so a
+      `log::warn!` written to explain why a feature quietly fell back
+      — the tool picker's, for one — went nowhere at all and the
+      feature stayed unexplained. `RUST_LOG` still overrides this.
+    */
+    env_logger::Builder::from_env(
+        env_logger::Env::default().default_filter_or("warn,my_terminal_lib=info"),
+    )
+    .init();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -54,6 +69,9 @@ pub fn run() {
         .manage(AppState::new())
         .manage(BrowserState::default())
         .manage(FsState::default())
+        .manage(FigyState::default())
+        .manage(Workspace::default())
+        .manage(AgentState::default())
         .manage(WatchState::default())
         .manage(LspState::default())
         .manage(ApiState::default())
@@ -94,6 +112,9 @@ pub fn run() {
             let label = window.label();
             commands::terminal::close_sessions_of_window(app, label);
             commands::fs::forget_window(&app.state::<FsState>(), label);
+            commands::figy_files::forget_window(&app.state::<FigyState>(), label);
+            app.state::<Workspace>().forget(label);
+            commands::agent::forget_window(&app.state::<AgentState>(), label);
             commands::fs_watch::forget_window(&app.state::<WatchState>(), label);
             commands::lsp::forget_window(app, label);
         })
@@ -109,6 +130,31 @@ pub fn run() {
             commands::claude::claude_transcript_head,
             commands::claude::claude_past_conversations,
             commands::claude::claude_session_exists,
+            commands::figy_files::figy_open_project,
+            commands::figy_files::figy_find_files,
+            commands::figy_files::figy_count_dir,
+            commands::figy_files::figy_read_image,
+            commands::figy_files::figy_set_extra_dirs,
+            commands::agent::agent_tools,
+            commands::agent::agent_call_tool,
+            commands::agent::agent_configure,
+            commands::agent::agent_status,
+            commands::agent::agent_send,
+            commands::agent::agent_approve,
+            commands::agent::agent_lsp_reply,
+            commands::agent::agent_answer,
+            commands::agent::agent_cancel,
+            commands::agent::agent_clear,
+            commands::agent::agent_usage,
+            commands::agent::agent_rules,
+            commands::agent::agent_background,
+            commands::agent::agent_background_kill,
+            commands::agent::agent_background_output,
+            commands::agent::agent_context,
+            commands::agent::agent_test_router,
+            commands::agent::agent_conversations,
+            commands::agent::agent_resume,
+            commands::agent::agent_forget_conversation,
             commands::autocomplete::list_path_completions,
             commands::autocomplete::get_home_dir,
             commands::autocomplete::read_project_file,

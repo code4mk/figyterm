@@ -1,4 +1,4 @@
-import { Code2, Globe, Send } from "lucide-react";
+import { Code2, Globe, Send, Sparkles } from "lucide-react";
 
 /**
  * The windows that can be put away, and brought back from the footer.
@@ -10,7 +10,7 @@ import { Code2, Globe, Send } from "lucide-react";
  * that keep running?" a question with no answer anywhere in the window. The
  * dock is that answer: what is still alive, in one row along the bottom.
  */
-export type DockWindow = "browser" | "editor" | "claude" | "api";
+export type DockWindow = "browser" | "editor" | "claude" | "figycode" | "api";
 
 /**
  * How each one appears in the dock.
@@ -27,6 +27,7 @@ const WINDOWS: Record<DockWindow, { name: string; mark: React.ReactNode }> = {
     name: "Claude Code",
     mark: <img src="/claude-code.png" alt="" className="dock-mark-image" />,
   },
+  figycode: { name: "FigyCode", mark: <Sparkles size={12} /> },
   api: { name: "API", mark: <Send size={12} /> },
 };
 

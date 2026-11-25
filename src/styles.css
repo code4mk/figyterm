@@ -12926,3 +12926,4365 @@ body > .cm-api-completions .cm-completionDetail {
   background: var(--ft-accent);
   transition: width 0.25s ease;
 }
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   FigyCode — the agent window
+   ────────────────────────────────────────────────────────────────────────────
+
+   The chrome is the app's: a 44px title bar in three zones, a breadcrumb in
+   the middle, a 28px status bar saying what the agent can reach, and the
+   shared resize grip in the corner. Those rules are written out here rather
+   than borrowed from `.claude-*`, which is the same agreement the drawing
+   window made — the two bars match because they say the same numbers, not
+   because one inherits from the other, so changing one cannot silently move
+   the other.
+
+   The body is the part that is this window's own. It is monospaced
+   throughout, because almost every line in it is a path, a diff, a command
+   or a count, and the one sentence per turn reads perfectly well in the same
+   face. Everything reads from the `--ft-*` tokens — a few locals below are
+   derived from them for the diff colours — so light mode is one small block
+   at the end rather than a second palette.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+.figy-modal {
+  position: relative;
+  isolation: isolate;
+  background: var(--ft-surface);
+  border: 1px solid var(--ft-border);
+  /* Two shadows: the cast one for depth, a hairline for the lit top edge. */
+  box-shadow:
+    0 32px 80px -16px rgba(0, 0, 0, 0.7),
+    0 0 0 1px rgba(255, 255, 255, 0.03);
+
+  /* Tones the transcript needs and the app's tokens don't carry. */
+  --figy-add: #6ee7a8;
+  --figy-add-bg: rgba(63, 185, 80, 0.1);
+  --figy-del: #f9908b;
+  --figy-del-bg: rgba(248, 81, 73, 0.09);
+  --figy-amber: #e3b341;
+  --figy-teal: #4fd1b0;
+  --figy-line: rgba(255, 255, 255, 0.07);
+  --figy-well: rgba(0, 0, 0, 0.18);
+  --figy-mono: ui-monospace, SFMono-Regular, Menlo, "JetBrains Mono", monospace;
+
+  --figy-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+
+  color: var(--ft-text);
+  /*
+    Prose in the interface font, structure in mono.
+
+    The window was monospaced throughout, on the argument that almost
+    every line in it is a path or a count. With a real model answering,
+    that stopped being true: what arrives between tool calls is two or
+    three sentences of English, and English set in a terminal font at
+    12px is the single thing that made this read as a mock-up rather
+    than as software. Paths, diffs, commands and counts stay mono, which
+    is what the `--figy-mono` token is now for.
+  */
+  font-family: var(--figy-ui);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+/* ─── Title bar ──────────────────────────────────────────────────────────── */
+
+.figy-header {
+  position: relative;
+  z-index: 3;
+  height: 44px;
+  flex-shrink: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.05),
+    rgba(255, 255, 255, 0.012)
+  );
+  border-bottom: 1px solid var(--ft-border-subtle);
+}
+
+/* The mark, in a tile of its own — the one place the product's own colour
+   appears in the chrome, so the window is identifiable at a glance in a
+   stack of five that are otherwise the same grey. */
+.figy-mark {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  background: linear-gradient(160deg, var(--ft-accent-hover), var(--ft-accent));
+  color: #fff;
+  font-size: 13px;
+  font-style: italic;
+  font-weight: 700;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+
+.figy-brand-title {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  font-size: 11.5px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--ft-text);
+  white-space: nowrap;
+}
+
+/* A hairline, wherever one group of controls ends and another begins. */
+.figy-sep {
+  flex: none;
+  width: 1px;
+  height: 18px;
+  margin: 0 4px;
+  background: var(--ft-border-subtle);
+}
+
+/* The locator: folder › conversation, read as a breadcrumb. A label is
+   allowed to be quiet, so it takes no background and only the half that
+   does something lifts under the pointer. */
+.figy-locator {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  font-size: 11.5px;
+  letter-spacing: -0.01em;
+}
+
+.figy-locator-project {
+  height: 22px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ft-text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.figy-locator-project:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.figy-locator-sep {
+  color: var(--ft-text-muted);
+  opacity: 0.8;
+}
+
+.figy-locator-conv {
+  color: var(--ft-text-secondary);
+  min-width: 0;
+}
+
+.figy-locator-conv.idle {
+  color: var(--ft-text-muted);
+  font-style: italic;
+}
+
+.figy-live-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--ft-text-secondary);
+}
+
+.figy-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ft-text-muted);
+}
+
+.figy-dot.live {
+  background: var(--ft-success);
+  box-shadow: 0 0 0 2px rgba(63, 185, 80, 0.16);
+}
+
+.figy-iconbtn {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ft-text-secondary);
+  cursor: pointer;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+
+.figy-iconbtn:hover:not(:disabled) {
+  color: var(--ft-text);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.figy-iconbtn:disabled {
+  color: var(--ft-text-muted);
+  opacity: 0.5;
+  cursor: default;
+}
+
+.figy-iconbtn.on {
+  color: #a5b4fc;
+  background: rgba(99, 102, 241, 0.16);
+}
+
+.figy-iconbtn.danger:hover:not(:disabled) {
+  color: #fca5a5;
+  background: rgba(248, 113, 113, 0.13);
+}
+
+/* ─── Body ───────────────────────────────────────────────────────────────── */
+
+.figy-body {
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 18px 22px 8px;
+  background: var(--ft-bg);
+  scrollbar-gutter: stable;
+}
+
+.figy-transcript {
+  display: flex;
+  flex-direction: column;
+  /*
+    A turn is a paragraph and then the work it set off, so the gap
+    between blocks is smaller than the gap around a turn — see the
+    `+ .figy-user` rule below, which is what gives the scroll its rhythm.
+  */
+  gap: 10px;
+  padding-bottom: 12px;
+  /* Prose stops being readable past about ninety characters however wide
+     the window is dragged. Code is free to use the rest. */
+  max-width: 980px;
+}
+
+/* A symbol name inside a sentence, as the markdown renderer emits it:
+   mono and tinted, because bolding prose to mean "this is code" is a
+   convention that fails the moment a sentence has two of them. */
+.figy-assistant-text code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.055);
+  color: var(--ft-text);
+}
+
+/* Except inside a fenced block, which is already a tinted surface. */
+.figy-assistant-text pre code {
+  padding: 0;
+  background: none;
+}
+
+.figy-sub {
+  color: var(--ft-text-muted);
+}
+
+/* ─── A turn ─────────────────────────────────────────────────────────────── */
+
+/*
+  The user's words, boxed; the agent's, not.
+
+  Only one of the two needs finding again. Scrolling back through a long run
+  is almost always a search for "what did I ask for", and a filled box with a
+  rule down its left edge is the thing the eye lands on.
+*/
+/* No box and no fill. A tinted panel with a bar down its left edge
+   is this window's shape for a notice — "the turn failed", "earlier
+   turns summarised" — and wearing it made the one line the person
+   wrote look like something the machine was telling them.
+
+   It carries the composer's glyph instead: the mark from the box it
+   was typed into. */
+.figy-user {
+  display: flex;
+  gap: 10px;
+  /* The assistant's padding and gap exactly, so the two marks sit in
+     one gutter and the two sides of the conversation start on the
+     same column. */
+  padding: 2px 2px;
+}
+
+.figy-user-mark {
+  flex: none;
+  /* The width of the assistant's dot, not of the glyph: the glyph
+     overhangs it a little and centres where the dot would be, which
+     is what keeps the gutter a line rather than a zigzag. */
+  width: 5px;
+  color: var(--ft-accent-hover);
+  font-family: var(--figy-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
+  user-select: none;
+}
+
+/* Air above a new question, so the scroll reads as a conversation with
+   turns in it rather than as one column of output. More of it than
+   before: the box used to do this work, and without it the only
+   thing separating one exchange from the next is the gap. */
+.figy-transcript > * + .figy-user {
+  margin-top: 18px;
+}
+
+.figy-user-said {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+}
+
+/* Small, and side by side. A screenshot at full width would be the
+   loudest thing in the transcript and it is a question's footnote,
+   not the question. Clicking is not wired up: the file is on disk
+   where it came from, and a lightbox inside a modal inside a window
+   is three Escape keys deep. */
+.figy-user-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.figy-user-image {
+  max-width: 180px;
+  max-height: 120px;
+  border: 1px solid var(--ft-border);
+  border-radius: 7px;
+  object-fit: cover;
+}
+
+.figy-user-text {
+  min-width: 0;
+  color: var(--ft-text);
+  font-size: 12.5px;
+  /* Heavier than the agent's prose, which is the whole of the
+     distinction now that the panel is gone: a question reads as the
+     heading of everything under it. */
+  font-weight: 600;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Indented to the same column as everything else, and unmarked. The
+   gutter is for what has to be told apart — the person's `›`, a
+   tool's glyph — and the agent's prose is the transcript's default
+   voice. `17px` is `2px` of padding, a `5px` mark and a `10px` gap:
+   the gutter the other two build out of parts. */
+.figy-assistant {
+  padding: 1px 2px 1px 17px;
+}
+
+/* Prose that follows a row of tool calls starts a new thought, and
+   the rows above it are dense. */
+.figy-tool + .figy-assistant {
+  margin-top: 7px;
+}
+
+/*
+  The markdown renderer lays this out, so the container only sets the
+  colour and gets out of the way.
+
+  `pre-wrap` has to go: the renderer emits real blocks, and preserving the
+  source's newlines inside them doubles every gap it already made.
+*/
+.figy-assistant-text {
+  min-width: 0;
+  color: var(--ft-text-secondary);
+  font-size: 12.5px;
+  line-height: 1.65;
+  word-break: break-word;
+}
+
+/*
+  A measure, for the half of the transcript that is actually read.
+
+  At the default window width a paragraph runs to about a hundred and
+  forty characters, which is roughly twice what the eye tracks back
+  from comfortably — the line below is hard to find and reading slows
+  without it being obvious why. Sixty-five to seventy-five is the
+  usual advice; this sits at the top of it because the content is
+  technical and full of paths that should not wrap.
+
+  Prose only. A fenced block, a table or an image is laid out rather
+  than read, and capping those would wrap code that was fine.
+*/
+.figy-assistant-text :is(p, ul, ol, blockquote, h1, h2, h3, h4) {
+  max-width: 76ch;
+}
+
+/* The first and last blocks sit flush: the renderer's own margins would
+   otherwise add a blank line above and below every answer. */
+.figy-assistant-text > *:first-child {
+  margin-top: 0;
+}
+
+.figy-assistant-text > *:last-child {
+  margin-bottom: 0;
+}
+
+/* A fenced block inside an answer is code, and gets the transcript's own
+   treatment rather than the release notes'. */
+.figy-assistant-text pre {
+  font-family: var(--figy-mono);
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+.figy-assistant-text code {
+  font-family: var(--figy-mono);
+  font-size: 0.92em;
+}
+
+/* ─── Pictures on the way out ────────────────────────────────────────────── */
+
+/* Above the text, because they were attached before the sentence was
+   written and the sentence is about them. */
+.figy-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 9px 12px 0;
+}
+
+.figy-attachment {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 230px;
+  padding: 3px 4px 3px 3px;
+  border: 1px solid var(--ft-border-subtle);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 11px;
+}
+
+.figy-attachment-thumb {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  object-fit: cover;
+}
+
+.figy-attachment-name {
+  min-width: 0;
+  color: var(--ft-text-secondary);
+}
+
+.figy-attachment-size {
+  flex: none;
+  color: var(--ft-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Something is being dragged over the box. The whole composer, not a
+   zone inside it: a target you have to aim at is one you miss. */
+.figy-composer.over {
+  border-color: var(--ft-accent);
+  background: rgb(var(--ft-accent-rgb) / 0.05);
+}
+
+.light .figy-attachment {
+  background: rgba(15, 17, 23, 0.04);
+}
+
+/* ─── A tool call ────────────────────────────────────────────────────────── */
+
+/*
+  The run's own margin.
+
+  Tool rows are indented behind a hairline, so a turn reads as one block of
+  work under the sentence that introduced it rather than as a flat list in
+  which the agent's prose and its actions have equal weight.
+*/
+.figy-tool {
+  margin-left: 2px;
+  padding-left: 13px;
+  border-left: 1px solid var(--ft-border-subtle);
+}
+
+/* Consecutive calls read as one run of work, so they are tightened
+   against each other and the rail between them is continuous. */
+.figy-tool + .figy-tool {
+  margin-top: -6px;
+}
+
+.figy-tool-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 3px 8px 3px 6px;
+  margin-left: -6px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ft-text-secondary);
+  font-family: var(--figy-mono);
+  font-size: 11.5px;
+  text-align: left;
+  cursor: default;
+  transition: background 0.1s ease;
+}
+
+.figy-tool-row.expandable {
+  cursor: pointer;
+}
+
+.figy-tool-row.expandable:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* The row the pointer is over owns its triangle; the others keep theirs
+   quiet so a column of rows is not a column of controls. */
+.figy-tool-row .figy-tool-size {
+  opacity: 0.55;
+  transition: opacity 0.1s ease;
+}
+
+.figy-tool-row:hover .figy-tool-size {
+  opacity: 1;
+}
+
+.figy-tool-glyph {
+  flex: none;
+  font-size: 10px;
+}
+
+/* In the glyph's place while the call is still running: a row with no
+   result yet should not be wearing the mark that means it has one. */
+.figy-tool-spinner {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid rgb(var(--ft-accent-rgb) / 0.3);
+  border-top-color: var(--ft-accent-hover);
+  border-radius: 50%;
+  animation: figy-spin 0.8s linear infinite;
+}
+
+.figy-tool-glyph.read,
+.figy-tool-glyph.search {
+  color: var(--ft-text-muted);
+}
+
+.figy-tool-glyph.edit,
+.figy-tool-glyph.write {
+  color: var(--figy-teal);
+}
+
+.figy-tool-glyph.bash {
+  color: var(--figy-amber);
+}
+
+.figy-tool-name {
+  flex: none;
+  color: var(--ft-text);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.figy-tool-target {
+  /* Gives way before the reason does, and never takes more than its
+     share of a row it is sharing. */
+  flex: 0 1 auto;
+  max-width: 45%;
+  min-width: 0;
+  color: var(--ft-text-secondary);
+  overflow: hidden;
+  /* The tail of a path is the part that identifies it. */
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+/* The reason, in the model's own words, beside the thing it acted
+   on. Prose where that was a path, so it is set in italic and it is
+   the one that keeps its room: a path is recognisable from its tail
+   and a sentence cut in half is one nobody can finish. */
+.figy-tool-why {
+  flex: 1 1 auto;
+  min-width: 3ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ft-text-muted);
+  font-style: italic;
+}
+
+/* How long and how far, while it is still going. It sits where the
+   result's summary will be, so a row does not jump when it lands. */
+.figy-tool-ticking {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-left: auto;
+  flex: none;
+  color: var(--ft-text-muted);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.figy-tool-seconds {
+  color: var(--ft-text-secondary);
+}
+
+/* A file being written reads as code rather than as log output. */
+.figy-tool-live.code {
+  max-height: 200px;
+  color: var(--ft-text-secondary);
+}
+
+/* The tail of a command that is still going. Short, dim and
+   monospaced — a window onto the work rather than the record of it.
+   The record arrives when the row can be opened. */
+.figy-tool-live {
+  margin: 2px 0 6px 21px;
+  max-height: 132px;
+  overflow: hidden;
+  color: var(--ft-text-muted);
+  font-family: var(--figy-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  /* The newest line is the one being read, so the oldest fades out
+     rather than being cut off square. */
+  mask-image: linear-gradient(to bottom, transparent, #000 18px);
+}
+
+.figy-tool-meta {
+  color: var(--ft-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.figy-tool-meta.failed {
+  color: var(--figy-del);
+}
+
+/* A refusal is the permission mode working, not a crash. Quiet, not red. */
+.figy-tool-meta.refused {
+  font-style: italic;
+}
+
+.figy-add {
+  color: var(--figy-add);
+}
+
+.figy-del {
+  color: var(--figy-del);
+}
+
+/* What opening the row would show, beside the triangle that opens it. A
+   bare caret is an affordance with no promise attached. */
+.figy-tool-size {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  margin-left: auto;
+  flex: none;
+  color: var(--ft-text-muted);
+  font-size: 10.5px;
+}
+
+.figy-caret {
+  color: var(--ft-text-muted);
+  font-size: 9px;
+}
+
+/* Capped and scrollable, with the lid taken off on request.
+
+   Opening a row should not mean a four-hundred-line file between
+   the question above it and the answer below: the scroll position
+   goes, and so does the thread of what was being read. A fixed
+   height keeps the row a row. */
+.figy-tool-body {
+  position: relative;
+  max-height: 340px;
+  overflow: auto;
+  margin: 6px 0 2px 2px;
+}
+
+.figy-tool-body.whole {
+  max-height: none;
+  overflow: visible;
+}
+
+/* Only drawn when there is more than the box is showing: a button
+   saying "show all 6 lines" over six lines teaches people to ignore
+   buttons. */
+.figy-tool-more {
+  margin: 0 0 8px 3px;
+  padding: 2px 8px;
+  border: 1px solid var(--ft-border-subtle);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ft-text-muted);
+  font-family: var(--figy-mono);
+  font-size: 10.5px;
+  cursor: pointer;
+}
+
+.figy-tool-more:hover {
+  border-color: var(--ft-accent);
+  color: var(--ft-text);
+}
+
+.figy-output {
+  margin: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--ft-border-subtle);
+  border-radius: 8px;
+  background: var(--figy-well);
+  color: var(--ft-text-secondary);
+  font-family: var(--figy-mono);
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ─── Copying ───────────────────────────────────────────────────────────── */
+
+.figy-output-wrap {
+  position: relative;
+}
+
+/*
+  Present but quiet until the block is hovered.
+
+  A button on every code block, at full strength, is a column of icons
+  down the side of the transcript. At 0 opacity it is undiscoverable; this
+  is the middle, and it goes to full on hover or focus.
+*/
+.figy-copy {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--ft-border-subtle);
+  border-radius: 6px;
+  background: var(--ft-surface);
+  color: var(--ft-text-muted);
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+
+.figy-output-wrap:hover .figy-copy,
+.figy-diff:hover .figy-copy,
+.figy-copy:focus-visible {
+  opacity: 1;
+}
+
+.figy-copy:hover {
+  color: var(--ft-text);
+  background: var(--ft-elevated);
+}
+
+.figy-copy.done {
+  opacity: 1;
+  color: var(--figy-add);
+  border-color: rgb(var(--ft-success-rgb) / 0.4);
+}
+
+/* ─── Diffs ──────────────────────────────────────────────────────────────── */
+
+.figy-diff {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--ft-border-subtle);
+  border-radius: 8px;
+  background: var(--figy-well);
+  font-family: var(--figy-mono);
+  font-size: 11.5px;
+  line-height: 1.7;
+}
+
+/* The scale of the change, before the change itself. */
+.figy-diff-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 24px;
+  padding: 0 6px 0 10px;
+  border-bottom: 1px solid var(--ft-border-subtle);
+  background: rgba(255, 255, 255, 0.022);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.figy-diff-head-spacer {
+  flex: 1;
+}
+
+/* Inside the header rather than floating over the first line of code. */
+.figy-diff .figy-copy {
+  position: static;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+}
+
+.figy-diff-line {
+  display: flex;
+  gap: 8px;
+  padding: 0 10px 0 0;
+  white-space: pre;
+}
+
+/* Long lines scroll rather than wrap: a wrapped diff line loses the
+   column alignment that makes a diff readable at all. */
+.figy-diff-text {
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.figy-diff-text::-webkit-scrollbar {
+  display: none;
+}
+
+.figy-diff-line.add {
+  background: var(--figy-add-bg);
+}
+
+.figy-diff-line.del {
+  background: var(--figy-del-bg);
+}
+
+.figy-diff-no {
+  flex: none;
+  width: 32px;
+  padding-right: 2px;
+  text-align: right;
+  color: var(--ft-text-muted);
+  font-variant-numeric: tabular-nums;
+  /* A gutter, so the numbers are a column beside the code rather than
+     the first word of each line. */
+  border-right: 1px solid var(--ft-border-subtle);
+  opacity: 0.8;
+}
+
+.figy-diff-sign {
+  flex: none;
+  width: 6px;
+}
+
+.figy-diff-line.add .figy-diff-sign,
+.figy-diff-line.add .figy-diff-text {
+  color: var(--figy-add);
+}
+
+.figy-diff-line.del .figy-diff-sign,
+.figy-diff-line.del .figy-diff-text {
+  color: var(--figy-del);
+}
+
+.figy-diff-text {
+  color: var(--ft-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The elision between two hunks, indented to the line numbers so it reads as
+   "lines are missing here" rather than as a line of its own. */
+.figy-diff-gap {
+  padding: 0 10px 0 14px;
+  color: var(--ft-text-muted);
+  letter-spacing: 2px;
+}
+
+/* ─── Cards ──────────────────────────────────────────────────────────────── */
+
+.figy-card {
+  border: 1px solid var(--ft-border-subtle);
+  border-radius: 10px;
+  background: var(--ft-surface);
+}
+
+/* ─── Notices ────────────────────────────────────────────────────────────── */
+
+/*
+  Five tones, one shape.
+
+  The left edge carries the severity and nothing else does — no coloured
+  title, no icon in a tinted circle — because five of these stacked in a
+  transcript is a real state (see `/errors`) and anything louder turns the
+  window into a dashboard of alarms.
+*/
+.figy-notice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px 9px 14px;
+  border-left-width: 2px;
+}
+
+.figy-notice.stop {
+  border-left-color: var(--ft-text-muted);
+}
+
+.figy-notice.warn {
+  border-left-color: var(--figy-amber);
+  background: rgba(227, 179, 65, 0.06);
+}
+
+.figy-notice.info {
+  border-left-color: var(--ft-accent);
+  background: rgb(var(--ft-accent-rgb) / 0.07);
+}
+
+.figy-notice.error {
+  border-left-color: var(--figy-del);
+  background: rgba(248, 81, 73, 0.06);
+}
+
+.figy-notice-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.figy-notice-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--ft-text);
+  font-weight: 650;
+}
+
+.figy-notice-glyph {
+  flex: none;
+  width: 9px;
+  font-size: 10px;
+  color: var(--ft-text-muted);
+}
+
+.figy-notice.warn .figy-notice-glyph {
+  color: var(--figy-amber);
+}
+
+.figy-notice.info .figy-notice-glyph {
+  color: var(--ft-accent-hover);
+}
+
+.figy-notice.error .figy-notice-glyph {
+  color: var(--figy-del);
+}
+
+.figy-notice-body {
+  padding-left: 17px;
+  color: var(--ft-text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.figy-notice-actions {
+  display: flex;
+  gap: 6px;
+  flex: none;
+}
+
+/* ─── Chips ──────────────────────────────────────────────────────────────── */
+
+.figy-chip {
+  height: 26px;
+  padding: 0 11px;
+  border: 1px solid var(--ft-border);
+  border-radius: 999px;
+  background: var(--ft-elevated);
+  color: var(--ft-text-secondary);
+  font-family: var(--figy-mono);
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.figy-chip:hover {
+  color: var(--ft-text);
+  border-color: var(--ft-text-muted);
+}
+
+.figy-chip.primary {
+  border-color: transparent;
+  background: var(--ft-accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.figy-chip.primary:hover {
+  background: var(--ft-accent-hover);
+}
+
+/* ─── What is about to happen ───────────────────────────────────────────────
+
+   The proposal, which is drawn as the transcript row it is about to
+   become rather than as part of a dialog. Same glyph, same weights, same
+   diff — so what was approved and what then happened are visibly one
+   object, and the only difference is that this one has not happened yet.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/* One card for both halves. They were two, which read as two things
+   happening when it is one: *this is about to run, do you want it
+   to*. The separation that mattered is kept — a hairline, and a
+   proposal that scrolls on its own so a long diff cannot push the
+   question off the screen. */
+.figy-prompt {
+  border-color: rgb(var(--ft-accent-rgb) / 0.4);
+  background: var(--ft-surface);
+  overflow: hidden;
+}
+
+/* A command is the one proposal worth a second look before saying
+   yes, and the card says so on its edge. */
+.figy-prompt.bash {
+  border-color: rgba(227, 179, 65, 0.45);
+}
+
+.figy-proposal {
+  padding: 10px 14px;
+  background: var(--ft-elevated);
+  /* It can be long; the decision under it must not be pushed off screen. */
+  max-height: 34vh;
+  overflow-y: auto;
+}
+
+.figy-proposal-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.figy-proposal-diff {
+  margin-top: 2px;
+}
+
+.figy-prompt-glyph {
+  flex: none;
+  font-size: 10px;
+  color: var(--figy-teal);
+}
+
+.figy-prompt-glyph.bash {
+  color: var(--figy-amber);
+}
+
+.figy-prompt-glyph.question,
+.figy-prompt-glyph.plan {
+  color: var(--ft-accent-hover);
+  font-size: 12px;
+}
+
+.figy-prompt-title {
+  color: var(--ft-text);
+  font-weight: 700;
+}
+
+.figy-prompt-path {
+  color: var(--ft-text-secondary);
+}
+
+.figy-prompt-sub {
+  color: var(--ft-text-muted);
+}
+
+.figy-prompt-command {
+  display: flex;
+  gap: 9px;
+  padding: 9px 11px;
+  border: 1px solid var(--ft-border-subtle);
+  border-radius: 8px;
+  background: var(--figy-well);
+  color: var(--ft-text);
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.figy-dollar {
+  color: var(--ft-text-muted);
+}
+
+.figy-prompt-facts {
+  margin: 7px 0 2px;
+  color: var(--ft-text-muted);
+  font-size: 11px;
+}
+
+/* The plan, numbered — the order is the content, and what gets checked
+   before approving one is whether step three can follow step two. */
+.figy-prompt-steps {
+  margin: 8px 0 2px;
+  padding: 0;
+  list-style: none;
+}
+
+.figy-prompt-step {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  padding: 3px 0;
+  color: var(--ft-text-secondary);
+  font-size: 12px;
+}
+
+.figy-prompt-step-no {
+  flex: none;
+  width: 16px;
+  color: var(--ft-text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* ─── The decision ──────────────────────────────────────────────────────────
+
+   Short, and the same shape whatever is above it. It keeps its own card so
+   that the options sit in one place on screen however long the proposal
+   is — the hands do not move because the diff got longer.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+.figy-ask {
+  padding: 11px 14px 9px;
+}
+
+/* The hairline that used to be two borders and a gap. */
+.figy-ask.under {
+  border-top: 1px solid var(--ft-border);
+}
+
+.figy-ask-question {
+  color: var(--ft-text);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.figy-prompt-footer {
+  padding-top: 8px;
+  color: var(--ft-text-muted);
+  font-size: 11px;
+}
+
+/* ─── The numbered list, shared by prompts and the two screens ───────────── */
+
+.figy-choices {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+}
+
+.figy-choice {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ft-text-secondary);
+  font-family: var(--figy-ui);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+/* Selection is a wash and a caret, not a border: the list is read as a column
+   and a box around one row breaks the column. */
+.figy-choice.on {
+  background: rgb(var(--ft-accent-rgb) / 0.17);
+}
+
+.figy-choice-caret {
+  flex: none;
+  width: 7px;
+  color: var(--ft-accent-hover);
+}
+
+.figy-choice-no {
+  flex: none;
+  color: var(--ft-text-muted);
+}
+
+.figy-choice.on .figy-choice-no,
+.figy-choice.on .figy-choice-label {
+  color: var(--ft-text);
+  font-weight: 650;
+}
+
+.figy-choice-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.figy-choice-hint {
+  color: var(--ft-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.figy-choice-chord {
+  margin-left: auto;
+  flex: none;
+  padding: 1px 5px;
+  border: 1px solid var(--ft-border-subtle);
+  border-radius: 4px;
+  color: var(--ft-text-muted);
+  font-family: var(--figy-mono);
+  font-size: 10px;
+}
+
+/* ─── The start screen ───────────────────────────────────────────────────── */
+
+.figy-welcome {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.figy-welcome-card {
+  display: grid;
+  grid-template-columns: minmax(190px, 1fr) 1.4fr;
+  gap: 24px;
+  padding: 18px 20px;
+}
+
+.figy-welcome-mark {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  margin-bottom: 10px;
+  border-radius: 10px;
+  background: linear-gradient(160deg, var(--ft-accent-hover), var(--ft-accent));
+  color: #fff;
+  font-size: 19px;
+  font-style: italic;
+  font-weight: 700;
+}
+
+.figy-welcome-name {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ft-text);
+}
+
+.figy-welcome-version {
+  color: var(--ft-text-muted);
+  font-size: 11px;
+}
+
+.figy-welcome-copy {
+  margin-top: 12px;
+  color: var(--ft-text-secondary);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+/* A grid child's minimum is its content, so the prose in this column
+   can push the card wider than the body it sits in. The same rule the
+   settings dialog needed, one layout down. */
+.figy-welcome-left {
+  min-width: 0;
+}
+
+.figy-welcome-right {
+  min-width: 0;
+  border-left: 1px solid var(--ft-border-subtle);
+  padding-left: 24px;
+}
+
+.figy-welcome-check {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  padding: 2px 0;
+  font-family: var(--figy-mono);
+  font-size: 11.5px;
+}
+
+.figy-welcome-check-label {
+  width: 48px;
+  flex: none;
+  color: var(--ft-text-muted);
+}
+
+.figy-welcome-check-detail {
+  min-width: 0;
+  color: var(--ft-text);
+}
+
+.figy-welcome-check-detail.dim,
+.figy-welcome-check-detail .dim {
+  color: var(--ft-text-muted);
+}
+
+.figy-link {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--ft-accent-hover);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.figy-welcome-resume-head {
+  margin: 14px 0 3px;
+  color: var(--ft-text-muted);
+  font-size: 11px;
+}
+
+.figy-welcome-resume {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 3px 8px 3px 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ft-text-secondary);
+  font-family: var(--figy-mono);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.figy-welcome-resume:hover {
+  color: var(--ft-text);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.figy-welcome-resume-icon {
+  flex: none;
+  color: var(--ft-text-muted);
+}
+
+.figy-welcome-resume-title {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.figy-welcome-resume-when {
+  min-width: 0;
+  margin-left: auto;
+  color: var(--ft-text-muted);
+  font-size: 11px;
+}
+
+.figy-welcome-hints {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding-left: 2px;
+  color: var(--ft-text-muted);
+  font-size: 11.5px;
+}
+
+/* The keys themselves, as keys. */
+.figy-welcome-hints .figy-key {
+  padding: 1px 5px;
+  border: 1px solid var(--ft-border-subtle);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  font-family: var(--figy-mono);
+  font-size: 10.5px;
+}
+
+.figy-key {
+  color: var(--ft-accent-hover);
+  font-weight: 650;
+}
+
+.figy-key.warn {
+  color: var(--figy-amber);
+}
+
+.figy-key.accent {
+  color: var(--ft-accent-hover);
+}
+
+/* ─── /rewind and /model ─────────────────────────────────────────────────── */
+
+.figy-button {
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--ft-border);
+  border-radius: 8px;
+  background: var(--ft-elevated);
+  color: var(--ft-text);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.figy-button:hover {
+  border-color: var(--ft-text-muted);
+}
+
+.figy-button.primary {
+  border-color: transparent;
+  background: var(--ft-accent);
+  color: #fff;
+}
+
+.figy-button.primary:hover {
+  background: var(--ft-accent-hover);
+}
+
+/* ─── Catching up ───────────────────────────────────────────────────────── */
+
+/*
+  Shown only when the reader has scrolled away from a conversation that is
+  still moving. It sits above the composer rather than floating over the
+  transcript, because the transcript is what is being read.
+*/
+.figy-to-bottom {
+  align-self: center;
+  height: 24px;
+  padding: 0 12px;
+  border: 1px solid var(--ft-border);
+  border-radius: 999px;
+  background: var(--ft-elevated);
+  color: var(--ft-text-secondary);
+  font-family: var(--figy-ui);
+  font-size: 11px;
+  cursor: pointer;
+  box-shadow: 0 6px 16px -8px rgba(0, 0, 0, 0.5);
+  transition: color 0.12s ease, border-color 0.12s ease;
+}
+
+.figy-to-bottom:hover {
+  color: var(--ft-text);
+  border-color: var(--ft-accent);
+}
+
+/* ─── The bottom of the window ───────────────────────────────────────────── */
+
+.figy-bottom {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  flex-shrink: 0;
+  padding: 11px 22px 13px;
+  background: var(--ft-bg);
+  /* A hairline and a lift, so the composer reads as a surface in front of
+     the transcript rather than as the end of it. */
+  border-top: 1px solid var(--ft-border-subtle);
+  box-shadow: 0 -12px 24px -20px rgba(0, 0, 0, 0.8);
+}
+
+.figy-running {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 2px;
+  font-size: 11.5px;
+}
+
+.figy-running-meta {
+  font-family: var(--figy-mono);
+}
+
+.figy-running.idle {
+  justify-content: flex-end;
+}
+
+.figy-running-label {
+  color: var(--ft-accent-hover);
+  font-weight: 650;
+}
+
+.figy-running-meta {
+  color: var(--ft-text-muted);
+  font-family: var(--figy-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.figy-running-spacer {
+  flex: 1;
+}
+
+.figy-spinner {
+  flex: none;
+  width: 11px;
+  height: 11px;
+  border: 1.5px solid rgb(var(--ft-accent-rgb) / 0.3);
+  border-top-color: var(--ft-accent-hover);
+  border-radius: 50%;
+  animation: figy-spin 0.8s linear infinite;
+}
+
+@keyframes figy-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .figy-spinner {
+    animation-duration: 2.4s;
+  }
+}
+
+/* ─── What is running in the background ──────────────────────────────────── *
+
+  Its own row above the composer, not a chip inside the running line.
+
+  That is where it used to be, and it was the bug: a background job
+  exists precisely because it outlives the turn that started it, so a
+  chip drawn inside the turn's own spinner could only be seen while the
+  turn was still going. A five-minute build started by a ten-second
+  turn was invisible for four minutes and fifty seconds.
+*/
+
+.figy-bg-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.figy-bg-job {
+  border: 1px solid var(--ft-border-subtle);
+  border-radius: 8px;
+  background: rgba(39, 194, 160, 0.06);
+  overflow: hidden;
+}
+
+.figy-bg-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 9px;
+  font-family: var(--figy-mono);
+  font-size: 10.5px;
+}
+
+/*
+  The row is the control.
+
+  A separate disclosure triangle beside a command, a clock and a Stop
+  button is a fourth thing to aim at in a row 24px tall.
+*/
+.figy-bg-open {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+/*
+  Pulsing, because the one thing this row has to say is *still going*.
+  A static dot beside a time that only changes once a second reads as
+  a record of something rather than something happening.
+*/
+.figy-bg-dot {
+  flex-shrink: 0;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--figy-teal);
+  animation: figy-bg-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes figy-bg-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* The command, which is what the person started — `bg_1` is the
+   agent's handle for it and means nothing to them. */
+.figy-bg-cmd {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ft-text-secondary);
+}
+
+.figy-bg-time {
+  flex-shrink: 0;
+  color: var(--ft-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.figy-bg-stop {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border-radius: 5px;
+  border: 1px solid var(--ft-border);
+  color: var(--ft-text-muted);
+  font-family: var(--figy-sans, inherit);
+  font-size: 10px;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.figy-bg-stop:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--ft-text);
+}
+
+/*
+  What it is doing, live.
+
+  Capped in height and scrolled rather than allowed to grow: this sits
+  directly above the composer, and a build log that pushed the text box
+  off the bottom of the window would be a feature that broke the one
+  thing underneath it.
+*/
+.figy-bg-log {
+  padding: 0 7px 7px;
+}
+
+.figy-bg-out {
+  max-height: 180px;
+  overflow: auto;
+  font-size: 10.5px;
+  line-height: 1.5;
+  /* Long build lines are read at their start, and wrapping a thousand
+     of them is a tall box of soft-wrapped noise. */
+  white-space: pre;
+}
+
+.figy-bg-quiet {
+  padding: 4px 4px 2px;
+  color: var(--ft-text-muted);
+  font-size: 10.5px;
+}
+
+.figy-bg-open:hover .figy-bg-cmd {
+  color: var(--ft-text);
+}
+
+.light .figy-bg-stop:hover {
+  background: rgba(15, 17, 23, 0.06);
+}
+
+/* ─── Completion ─────────────────────────────────────────────────────────── */
+
+/*
+  Attached to the box rather than floating over the transcript.
+
+  It is a continuation of what is being typed, and a panel that hovered
+  somewhere above the caret made the composer feel like two unrelated
+  controls. The keyboard line lives at its foot, where it is true only while
+  the popup is open — the status bar used to carry it, and a status bar whose
+  text changes every keystroke is not a status bar.
+*/
+.figy-popup {
+  overflow: hidden;
+  border: 1px solid var(--ft-border);
+  border-radius: 10px;
+  background: var(--ft-surface);
+  box-shadow: 0 12px 28px -12px rgba(0, 0, 0, 0.5);
+}
+
+.figy-popup-list {
+  max-height: 196px;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.figy-popup-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  width: 100%;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ft-text-secondary);
+  font-family: var(--figy-mono);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.figy-popup-row.on {
+  background: rgb(var(--ft-accent-rgb) / 0.17);
+}
+
+.figy-popup-label {
+  flex: none;
+  min-width: 164px;
+  max-width: 52%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.figy-popup-row.on .figy-popup-label {
+  color: var(--ft-text);
+  font-weight: 650;
+}
+
+.figy-popup-meta {
+  min-width: 0;
+  color: var(--ft-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The popup opens with nothing in it when the answer is "nothing" — and an
+   absence has to say which absence it is: no folder, a folder that would not
+   read, an index still building, or a query that matches none of it. */
+.figy-popup-empty {
+  padding: 9px 12px;
+  color: var(--ft-text-muted);
+  font-size: 11.5px;
+}
+
+.figy-popup-hint {
+  font-family: var(--figy-ui);
+  padding: 5px 12px;
+  border-top: 1px solid var(--ft-border-subtle);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--ft-text-muted);
+  font-size: 10.5px;
+}
+
+/* ─── The box ────────────────────────────────────────────────────────────── */
+
+/*
+  A card with two rows, not a line with a glyph in front of it.
+
+  The second row is the point: `@`, `/` and `!` are the three things this
+  window can do that a chat box cannot, and they were discoverable only by
+  being told about them in a hint that vanished the moment anyone typed. Next
+  to them sit the two settings most likely to change mid-task and the send
+  key — which is a control, not a piece of folklore about the return key.
+*/
+.figy-composer {
+  border: 1px solid var(--ft-border);
+  border-radius: 12px;
+  background: var(--ft-surface);
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.figy-composer:focus-within {
+  border-color: rgb(var(--ft-accent-rgb) / 0.6);
+  box-shadow: 0 0 0 3px rgb(var(--ft-accent-rgb) / 0.12);
+}
+
+/* Shell mode is a different mode of the same box, and says so in its own
+   colour rather than by moving anything. */
+.figy-composer.shell {
+  border-color: rgba(227, 179, 65, 0.5);
+}
+
+.figy-composer.shell:focus-within {
+  box-shadow: 0 0 0 3px rgba(227, 179, 65, 0.14);
+}
+
+.figy-composer-top {
+  display: flex;
+  gap: 9px;
+  padding: 10px 12px 2px;
+}
+
+.figy-composer-glyph {
+  flex: none;
+  color: var(--ft-accent-hover);
+  font-family: var(--figy-mono);
+  line-height: 1.6;
+  opacity: 0.75;
+}
+
+.figy-composer-glyph.shell {
+  color: var(--figy-amber);
+  font-weight: 700;
+}
+
+.figy-composer-input {
+  flex: 1;
+  min-width: 0;
+  max-height: 150px;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--ft-text);
+  /* What is typed here is mostly a sentence. The `!` mode is the
+     exception and sets mono on itself below. */
+  font-family: var(--figy-ui);
+  font-size: 13px;
+  line-height: 1.55;
+  resize: none;
+  overflow-y: auto;
+}
+
+.figy-composer.shell .figy-composer-input {
+  font-family: var(--figy-mono);
+  font-size: 12.5px;
+}
+
+.figy-composer-input::placeholder {
+  color: var(--ft-text-muted);
+}
+
+/*
+  The row under the box, which has to survive being narrow.
+
+  Everything in it was content-sized and `nowrap`: three icon buttons,
+  a mode pill, a model picker and the send button. Drag the window in
+  and there is nothing for the layout to give, so the row overflowed
+  its own rounded corner. The two pills shrink now — `min-width: 0`
+  and an ellipsis each — and the send button and the icons never do,
+  because a send button you cannot hit is worse than a model name you
+  cannot finish reading.
+*/
+.figy-composer-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 6px 8px 7px;
+}
+
+.figy-composer-spacer {
+  flex: 1;
+  min-width: 0;
+}
+
+.figy-composer-bar > .figy-tool-btn,
+.figy-composer-bar > .figy-send {
+  flex: none;
+}
+
+.figy-tool-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ft-text-muted);
+  cursor: pointer;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+
+.figy-tool-btn:hover {
+  color: var(--ft-text);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.figy-tool-btn.on {
+  color: var(--figy-amber);
+  background: rgba(227, 179, 65, 0.14);
+}
+
+/* The two settings worth changing without leaving the keyboard behind. */
+.figy-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 1;
+  min-width: 0;
+  height: 24px;
+  padding: 0 9px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border: 1px solid var(--ft-border-subtle);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ft-text-secondary);
+  font-family: var(--figy-mono);
+  font-size: 10.5px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+
+.figy-pill:hover {
+  color: var(--ft-text);
+  border-color: var(--ft-text-muted);
+}
+
+.figy-mode-dot {
+  width: 5px;
+  height: 5px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--ft-text-muted);
+}
+
+.figy-mode-dot.accept {
+  background: var(--ft-success);
+}
+
+.figy-mode-dot.plan {
+  background: var(--ft-accent-hover);
+}
+
+.figy-pill.accept {
+  color: var(--ft-success);
+  border-color: rgb(var(--ft-success-rgb) / 0.4);
+}
+
+.figy-pill.plan {
+  color: var(--ft-accent-hover);
+  border-color: rgb(var(--ft-accent-rgb) / 0.45);
+}
+
+.figy-send {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin-left: 4px;
+  border: none;
+  border-radius: 8px;
+  background: var(--ft-accent);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.12s ease, opacity 0.12s ease;
+}
+
+.figy-send:hover:not(:disabled) {
+  background: var(--ft-accent-hover);
+}
+
+.figy-send:disabled {
+  background: var(--ft-elevated);
+  color: var(--ft-text-muted);
+  cursor: default;
+}
+
+/* Interrupting is the same button in the same place: whatever is in flight,
+   the key under your hand is the one that stops it. */
+.figy-send.stop {
+  background: rgba(248, 81, 73, 0.16);
+  color: #fca5a5;
+}
+
+.figy-send.stop:hover {
+  background: rgba(248, 81, 73, 0.26);
+}
+
+/* ─── A form, for /model ─────────────────────────────────────────────────── */
+
+.figy-form {
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+  max-width: 560px;
+}
+
+/* Inside a dialog the pane is already the measure. A second one set
+   in pixels leaves a column of empty space at one width and crops at
+   another. */
+.figy-dialog-body .figy-form {
+  max-width: none;
+}
+
+.figy-field,
+.figy-field-row {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.figy-field-label {
+  color: var(--ft-text-secondary);
+  font-size: 11px;
+}
+
+.figy-field-hint {
+  color: var(--ft-text-muted);
+  font-size: 10.5px;
+}
+
+.figy-field-group {
+  display: flex;
+  gap: 8px;
+}
+
+/* A full-width field put in a row shares it. Without this the text
+   box takes its content width and the number beside it is squeezed
+   into whatever is left. */
+.figy-field-group > .figy-field {
+  flex: 1;
+  min-width: 0;
+}
+
+.figy-field.narrow {
+  flex: 1;
+  min-width: 0;
+}
+
+.figy-input {
+  width: 100%;
+  height: 29px;
+  padding: 0 9px;
+  border: 1px solid var(--ft-border);
+  border-radius: 8px;
+  background: var(--ft-bg);
+  color: var(--ft-text);
+  font-family: var(--figy-mono);
+  font-size: 12px;
+  outline: none;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.figy-input::placeholder {
+  color: var(--ft-text-muted);
+}
+
+.figy-input:focus {
+  border-color: rgb(var(--ft-accent-rgb) / 0.6);
+  box-shadow: 0 0 0 3px rgb(var(--ft-accent-rgb) / 0.12);
+}
+
+/* ─── The settings dialog ────────────────────────────────────────────────── */
+
+/* Over the window, not over the app: a child of the FigyCode window, so
+   it moves and resizes with it and can never cover a terminal somebody
+   is watching. The backdrop dims the transcript rather than hiding it —
+   what is being configured is that conversation. */
+.figy-dialog-layer {
+  position: absolute;
+  inset: 0;
+  /* Above the transcript, the prompt card and the completion popup;
+     level with the project picker, which comes after it in the DOM and
+     so wins if both are somehow open. */
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(1.5px);
+}
+
+.figy-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(560px, 100%);
+  /* It is a flex item too: without this its content can push it
+     wider than the layer, which is the same bug as the body's. */
+  min-width: 0;
+  max-height: 100%;
+  overflow: hidden;
+  border: 1px solid var(--ft-border);
+  border-radius: 11px;
+  background: var(--ft-surface);
+  box-shadow: 0 18px 44px -14px rgba(0, 0, 0, 0.7);
+  font-family: var(--figy-mono);
+}
+
+.figy-dialog-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  padding: 10px 10px 10px 14px;
+  border-bottom: 1px solid var(--ft-border-subtle);
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.figy-dialog-title {
+  flex: 1;
+  color: var(--ft-text);
+  font-size: 12.5px;
+  letter-spacing: 0.01em;
+}
+
+.figy-dialog.wide {
+  /* Six columns and a tab rail. The table truncates rather than
+     pushing past this now, but below it the model names go first and
+     the comparison the table exists for goes with them. */
+  width: min(760px, 100%);
+
+  /*
+    A fixed height, capped at what there is.
+
+    Tabs hold different amounts, and a dialog that resized every time
+    you clicked one read as something coming loose. A `min-height`
+    would have fixed the jumping and broken the other end — the
+    window can be 480px tall, and a minimum taller than the space
+    available pushes the footer out through the bottom. `min()` takes
+    whichever is smaller, so it is stable when there is room and it
+    still fits when there is not.
+  */
+  height: min(540px, 100%);
+}
+
+/* A column of sections beside the one being edited. A tab strip across
+   the top would have worked for four and stopped working for six, and
+   the labels read better left-aligned than centred in equal thirds. */
+.figy-dialog-split {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+
+
+.figy-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: none;
+  width: 158px;
+  padding: 9px 7px;
+  border-right: 1px solid var(--ft-border-subtle);
+}
+
+.figy-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ft-text-secondary);
+  font-family: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+/* A bar on the edge as well as a tint. The tint alone is a few per
+   cent of lightness, which is not a difference somebody can find at a
+   glance or in a screenshot. */
+.figy-tab.on::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 7px;
+  bottom: 7px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--ft-accent);
+}
+
+.figy-tab:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ft-text);
+}
+
+.figy-tab.on {
+  background: rgba(var(--ft-accent-rgb), 0.14);
+  color: var(--ft-text);
+}
+
+.figy-tab-icon {
+  flex: none;
+  color: var(--ft-text-muted);
+}
+
+.figy-tab.on .figy-tab-icon {
+  color: var(--ft-accent);
+}
+
+/* How many models are set up, where the question is asked. */
+.figy-tab-count {
+  margin-left: auto;
+  padding: 0 5px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--ft-text-muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.figy-dialog-body {
+  flex: 1;
+  /*
+    `min-width: 0` is the whole of a bug worth remembering.
+
+    A flex item's minimum is its content by default, so a table as
+    wide as the longest base URL pushed this pane wider than the
+    dialog that contains it — the dialog grew past its own edge
+    instead of the table truncating. Height had the same rule and
+    already had the same fix.
+  */
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden auto;
+  padding: 12px 14px 14px;
+}
+
+.figy-dialog-section {
+  padding: 11px 0;
+}
+
+/* The first one in a panel is already under the panel's own padding. */
+.figy-dialog-section.first {
+  padding-top: 0;
+}
+
+.figy-dialog-section + .figy-dialog-section {
+  border-top: 1px solid var(--ft-border-subtle);
+}
+
+.figy-dialog-section-head {
+  margin-bottom: 7px;
+  color: var(--ft-text-muted);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.figy-dialog-note {
+  margin: -3px 0 11px;
+  color: var(--ft-text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.figy-dialog-note.muted {
+  margin: 14px 0 0;
+  color: var(--ft-text-muted);
+  font-size: 11.5px;
+}
+
+.figy-dialog-note code {
+  color: var(--ft-text);
+  font-size: 11.5px;
+}
+
+/* ─── /context ───────────────────────────────────────────────────────────── */
+
+.figy-context-head {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  margin-bottom: 9px;
+  font-family: var(--figy-mono);
+}
+
+.figy-context-total {
+  color: var(--ft-text);
+  font-size: 19px;
+  font-variant-numeric: tabular-nums;
+}
+
+.figy-context-of,
+.figy-context-percent {
+  color: var(--ft-text-muted);
+  font-size: 12px;
+}
+
+.figy-context-percent {
+  margin-left: auto;
+}
+
+/* One bar in wire order rather than a pie: these are parts of a
+   sequence — tools, then the prompt, then the conversation — and the
+   order is what decides which of them a cache keeps. */
+.figy-context-bar {
+  display: flex;
+  gap: 2px;
+  height: 10px;
+  margin-bottom: 14px;
+}
+
+.figy-context-slice {
+  min-width: 2px;
+  border-radius: 2px;
+}
+
+/* Five parts, told apart by hue and by the key beside each row — the
+   colour is a second signal rather than the only one, so the list
+   reads the same for anybody who cannot separate two of them. */
+.figy-context-slice.tools,
+.figy-context-key.tools,
+.figy-sheet-bar-slice.tools,
+.figy-sheet-row-fill.tools {
+  background: #7c5cff;
+}
+
+.figy-context-slice.system,
+.figy-context-key.system,
+.figy-sheet-bar-slice.system,
+.figy-sheet-row-fill.system {
+  background: #3f8cff;
+}
+
+.figy-context-slice.user,
+.figy-context-key.user,
+.figy-sheet-bar-slice.user,
+.figy-sheet-row-fill.user {
+  background: #27c2a0;
+}
+
+.figy-context-slice.assistant,
+.figy-context-key.assistant,
+.figy-sheet-bar-slice.assistant,
+.figy-sheet-row-fill.assistant {
+  background: #e0a33a;
+}
+
+.figy-context-slice.toolResults,
+.figy-context-key.toolResults,
+.figy-sheet-bar-slice.toolResults,
+.figy-sheet-row-fill.toolResults {
+  background: #e06c9a;
+}
+
+.figy-context-slice.imageTokens,
+.figy-context-key.imageTokens,
+.figy-sheet-bar-slice.imageTokens,
+.figy-sheet-row-fill.imageTokens {
+  background: #9b6cff;
+}
+
+.figy-context-slice.free,
+.figy-context-key.free {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.figy-context-parts {
+  display: flex;
+  flex-direction: column;
+}
+
+.figy-context-row {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--ft-border-subtle);
+  font-family: var(--figy-mono);
+  font-size: 12px;
+}
+
+.figy-context-key {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  transform: translateY(-1px);
+}
+
+.figy-context-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+  color: var(--ft-text-secondary);
+}
+
+.figy-context-note {
+  color: var(--ft-text-muted);
+  font-size: 10.5px;
+}
+
+.figy-context-tokens {
+  flex: none;
+  color: var(--ft-text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The measured number against the estimate. They will not agree, and
+   the footer is where that is admitted rather than smoothed over. */
+.figy-context-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 12px;
+  color: var(--ft-text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.light .figy-context-slice.free,
+.light .figy-context-key.free {
+  background: rgba(15, 17, 23, 0.1);
+}
+
+/* The result of asking the picker whether it works. Stated in words
+   rather than a tick: "working" and "working but choosing badly" are
+   different answers, and only the list of tools tells them apart. */
+.figy-check {
+  display: block;
+  margin-top: 6px;
+  color: var(--ft-text-secondary);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.figy-check.ok strong {
+  color: var(--ft-success);
+}
+
+.figy-check.bad {
+  color: var(--ft-warning);
+}
+
+/* In a dialog the card is the content, not a hero: the body already
+   has the padding and there is no empty transcript to fill. */
+.figy-welcome.in-dialog {
+  padding: 0;
+  gap: 0;
+}
+
+.figy-welcome.in-dialog .figy-welcome-card {
+  /* One column. The two-column card is right across a window and
+     wrong across a dialog, where each side would be about thirty
+     characters — a paragraph set two words to the line. */
+  grid-template-columns: 1fr;
+  gap: 14px;
+  border: none;
+  padding: 0;
+  background: transparent;
+}
+
+.figy-welcome.in-dialog .figy-welcome-right {
+  padding-left: 0;
+  border-left: none;
+}
+
+/* The blurb is an introduction. Somebody opening `/project` on turn
+   forty has been introduced. */
+.figy-welcome.in-dialog .figy-welcome-copy {
+  display: none;
+}
+
+/* ─── Folders a project may also reach ──────────────────────────────────── */
+
+/* Under the picker's list rather than in it: these are not folders
+   you switch to, they are folders the one you are in may also touch.
+   The difference is the whole reason they are a separate block. */
+.figy-extra {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ft-border-subtle);
+  font-family: var(--figy-mono);
+}
+
+.figy-extra-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 5px;
+  color: var(--ft-text-muted);
+  font-size: 10px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.figy-extra-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding: 1px 7px;
+  border: 1px dashed var(--ft-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ft-text-muted);
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0;
+  text-transform: none;
+  cursor: pointer;
+}
+
+.figy-extra-add:hover {
+  border-color: var(--ft-accent);
+  color: var(--ft-text);
+}
+
+.figy-extra-empty {
+  padding: 3px 0;
+  color: var(--ft-text-muted);
+  font-size: 11px;
+}
+
+.figy-extra-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 11.5px;
+}
+
+.figy-extra-icon {
+  flex: none;
+  color: var(--ft-text-muted);
+}
+
+.figy-extra-path {
+  min-width: 0;
+  flex: 1;
+  color: var(--ft-text-secondary);
+}
+
+/* The row, asking. Tinted so it is clearly a question and not the
+   same row with different words in it. */
+.figy-extra-row.confirming {
+  gap: 7px;
+  margin: 1px -8px;
+  padding: 5px 8px;
+  border-radius: 7px;
+  background: rgba(var(--ft-warning-rgb), 0.1);
+}
+
+.figy-extra-ask {
+  min-width: 0;
+  flex: 1;
+  color: var(--ft-text-secondary);
+  font-size: 11px;
+}
+
+.figy-extra-ask strong {
+  color: var(--ft-text);
+  font-weight: 400;
+}
+
+.figy-extra-yes,
+.figy-extra-no {
+  flex: none;
+  padding: 2px 9px;
+  border: 1px solid var(--ft-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ft-text-secondary);
+  font: inherit;
+  font-size: 10.5px;
+  cursor: pointer;
+}
+
+.figy-extra-no:hover {
+  border-color: var(--ft-text-muted);
+  color: var(--ft-text);
+}
+
+/* The destructive one is the one that is coloured, and it is second:
+   the pointer lands on "Keep" on its way across. */
+.figy-extra-yes {
+  border-color: rgb(var(--ft-warning-rgb) / 0.5);
+  color: var(--ft-warning);
+}
+
+.figy-extra-yes:hover {
+  background: rgb(var(--ft-warning-rgb) / 0.14);
+}
+
+/* The same two numbers the project shows for itself. "The agent may
+   also reach here" is a different sentence when here is four files
+   and when it is forty thousand. */
+.figy-extra-count {
+  flex: none;
+  color: var(--ft-text-muted);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.light .figy-folder-button:hover {
+  background: rgba(15, 17, 23, 0.05);
+}
+
+/* ─── The model picker, the settings rows and the plan ──────────────────────
+
+   Restored wholesale after a careless edit: a block replacement that
+   was meant to swap the model *list* for a table took the picker, the
+   permission rows, the footer's Settings button and the whole to-do
+   renderer with it, because they happened to sit between the two
+   markers it matched on. Nothing complained — CSS has no compiler —
+   and the picker rendered as a column of run-together text.
+
+   `styles.test.ts` now fails when a class used in a component has no
+   rule, which is the check that would have caught it in a second.
+   ────────────────────────────────────────────────────────────────── */
+
+/* A view of the session rather than a setting: one line, and it opens in
+   the body where there is room to read it. */
+.figy-settings-link {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 5px 7px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ft-text-secondary);
+  font-family: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.figy-settings-link:hover,
+.figy-settings-link:focus-visible {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ft-text);
+  outline: none;
+}
+
+.figy-settings-link-label::after {
+  content: " →";
+  color: var(--ft-text-muted);
+}
+
+.figy-settings-link-value {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ft-text-muted);
+  font-size: 11px;
+}
+
+.figy-settings-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ft-text-secondary);
+  font-family: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.figy-settings-row:hover,
+.figy-settings-row:focus-visible {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ft-text);
+  outline: none;
+}
+
+.figy-settings-row.on {
+  color: var(--ft-text);
+}
+
+.figy-settings-icon {
+  flex: none;
+  width: 13px;
+  color: var(--ft-text-muted);
+  /* Icons sit on the cap line, not the baseline the text uses. */
+  transform: translateY(2px);
+}
+
+.figy-settings-row.on .figy-settings-icon {
+  color: var(--ft-accent);
+}
+
+.figy-settings-label {
+  flex: none;
+}
+
+/* The current value, right-aligned and quiet: the row says what the
+   setting is, this says where it stands. */
+.figy-settings-value {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ft-text-secondary);
+  font-size: 11px;
+}
+
+.figy-settings-value.dim {
+  color: var(--ft-text-muted);
+}
+
+/* The one state worth a colour: nothing can be sent without a model. */
+.figy-settings-value.warn,
+.figy-status-right.warn {
+  color: var(--ft-warning, #d29922);
+}
+
+/* Named, not just a gear. An icon alone is a guess, and the one thing
+   a window nobody has configured needs is the way to configure it. */
+.figy-status-settings {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.figy-picker {
+  position: relative;
+  display: flex;
+  /* Shrinks before the send button does, and never past the chevron. */
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+/* A pill, like the mode beside it: these two are one row of controls
+   on the composer and the model is not the odd one out. A model name
+   can be anything from `gpt-5.6` to a self-hosted path, so it is given
+   a width and an ellipsis rather than pushing the send button around. */
+.figy-picker-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 1 auto;
+  min-width: 0;
+  height: 24px;
+  max-width: 190px;
+  padding: 0 8px 0 9px;
+  border: 1px solid var(--ft-border-subtle);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ft-text-secondary);
+  font-family: var(--figy-mono);
+  font-size: 10.5px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+
+.figy-picker-button:hover {
+  color: var(--ft-text);
+  border-color: var(--ft-text-muted);
+}
+
+.figy-picker-button.on {
+  color: var(--ft-text);
+  border-color: var(--ft-accent);
+}
+
+.figy-picker-button.warn {
+  color: var(--ft-warning);
+}
+
+/* The label truncates; the chevron never does, or the control stops
+   looking like something that opens. */
+.figy-picker-button > span {
+  min-width: 0;
+}
+
+.figy-picker-caret {
+  flex: none;
+  color: var(--ft-text-muted);
+}
+
+/* Opens upwards, right-aligned: it is a control on a bar at the bottom
+   of the window, and a list that dropped would be off the screen. */
+.figy-picker-list {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 0;
+  z-index: 15;
+  width: max-content;
+  min-width: 240px;
+  max-width: min(360px, calc(100vw - 80px));
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--ft-border);
+  border-radius: 9px;
+  background: var(--ft-surface);
+  box-shadow: 0 14px 30px -12px rgba(0, 0, 0, 0.6);
+}
+
+.figy-picker-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  width: 100%;
+  padding: 6px 7px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ft-text-secondary);
+  font-family: var(--figy-mono);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Hover and the arrow keys share one notion of "the current row",
+   rather than lighting two. */
+.figy-picker-row.at {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--ft-text);
+}
+
+.figy-picker-tick {
+  flex: none;
+  width: 12px;
+  padding-top: 1px;
+  color: var(--ft-accent);
+}
+
+.figy-picker-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.figy-picker-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ft-text);
+}
+
+/* The host and the price. The price is why anybody switches: an agent
+   about to read forty files has a right answer and it is not the
+   expensive model. */
+.figy-picker-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ft-text-muted);
+  font-size: 10.5px;
+}
+
+.figy-picker-flag {
+  flex: none;
+  padding-top: 1px;
+  color: var(--ft-warning);
+  font-size: 10px;
+}
+
+.figy-picker-manage {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  margin-top: 3px;
+  padding: 6px 7px;
+  border: none;
+  border-top: 1px solid var(--ft-border-subtle);
+  border-radius: 0 0 6px 6px;
+  background: transparent;
+  color: var(--ft-text-muted);
+  font-family: var(--figy-mono);
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.figy-picker-manage:hover {
+  color: var(--ft-text);
+}
+
+.light .figy-picker-button:hover,
+.light .figy-picker-button.on,
+.light .figy-picker-row.at {
+  background: rgba(15, 17, 23, 0.06);
+}
+
+.light .figy-settings-row:hover,
+.light .figy-settings-row:focus-visible,
+.light .figy-settings-link:hover,
+.light .figy-settings-link:focus-visible,
+.light .figy-status-right.on {
+  background: rgba(15, 17, 23, 0.06);
+}
+
+.figy-todos {
+  margin: 8px 0 10px;
+  padding: 8px 10px 9px;
+  border: 1px solid var(--ft-border-subtle);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.022);
+  font-family: var(--figy-mono);
+  font-size: 12px;
+}
+
+.figy-todos-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+
+.figy-todos-title {
+  color: var(--ft-text-secondary);
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.figy-todos-count {
+  margin-left: auto;
+  color: var(--ft-text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.figy-todo {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0;
+  color: var(--ft-text-secondary);
+}
+
+.figy-todo-mark {
+  flex: none;
+  width: 10px;
+  color: var(--ft-text-muted);
+  text-align: center;
+}
+
+.figy-todo-text {
+  min-width: 0;
+}
+
+/* Done recedes: it is context for what is left, not the thing being
+   read. Struck through as well as dimmed, so the state survives a
+   screenshot and anybody who cannot see the colour difference. */
+.figy-todo.done .figy-todo-text {
+  color: var(--ft-text-muted);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.figy-todo.done .figy-todo-mark {
+  color: var(--ft-success);
+}
+
+/* The one line anybody is actually looking at. */
+.figy-todo.running .figy-todo-text {
+  color: var(--ft-text);
+}
+
+.figy-todo.running .figy-todo-mark {
+  color: var(--ft-accent);
+}
+
+.light .figy-todos {
+  background: rgba(15, 17, 23, 0.025);
+}
+
+/* ─── Tables ─────────────────────────────────────────────────────────────── */
+
+.figy-empty {
+  padding: 16px 12px;
+  border: 1px dashed var(--ft-border-subtle);
+  border-radius: 8px;
+  color: var(--ft-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+/* One table for the models and for the ledger, because they are the
+   same object: rows of the same few facts, where a column is how you
+   compare two of them. */
+.figy-table {
+  width: 100%;
+  /* Declared widths win over content. Without this the longest
+     endpoint anybody pastes decides the width of the dialog. */
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-family: var(--figy-mono);
+  font-size: 12px;
+}
+
+.figy-table-plain {
+  table-layout: auto;
+}
+
+.figy-table th {
+  padding: 0 8px 5px;
+  color: var(--ft-text-muted);
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.figy-table td {
+  overflow: hidden;
+  padding: 7px 8px;
+  border-top: 1px solid var(--ft-border-subtle);
+  color: var(--ft-text-secondary);
+  vertical-align: top;
+}
+
+/* Numbers line up under each other or they are not worth tabulating. */
+.figy-table .num {
+  width: 1%;
+  color: var(--ft-text);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.figy-table .pick,
+.figy-table .act {
+  width: 1%;
+  padding-left: 2px;
+  padding-right: 2px;
+}
+
+.figy-table tbody tr:hover > td {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* The row that answers. A tint rather than a border, so the table
+   keeps its grid. */
+.figy-table tbody tr.on > td {
+  background: rgba(var(--ft-accent-rgb), 0.08);
+}
+
+.figy-table tbody tr.on:hover > td {
+  background: rgba(var(--ft-accent-rgb), 0.12);
+}
+
+.figy-table-name {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--ft-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.figy-table-name > span {
+  min-width: 0;
+}
+
+.figy-table-caret {
+  flex: none;
+  color: var(--ft-text-muted);
+  transition: transform 0.12s ease;
+}
+
+.figy-table-caret.on {
+  transform: rotate(90deg);
+}
+
+.figy-table-sub {
+  display: block;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ft-text-muted);
+  font-size: 10.5px;
+}
+
+.figy-table-dim {
+  color: var(--ft-text-muted);
+}
+
+/* The editor, inside the table rather than beside it: the row it
+   belongs to is directly above, and a form that opened elsewhere
+   would make you find your place again. */
+.figy-table-editor > td {
+  padding: 2px 10px 14px 28px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+/* A table of two or three columns with no header, for the ledger. */
+.figy-table-plain td:first-child {
+  color: var(--ft-text-secondary);
+}
+
+.figy-table-plain .figy-context-key {
+  display: inline-block;
+  margin-right: 7px;
+}
+
+.figy-table-total > td {
+  border-top-color: var(--ft-border);
+  color: var(--ft-text);
+}
+
+/* Present or missing, in a word. A model with no key is the commonest
+   reason a window will not send. */
+.figy-pip {
+  font-size: 10.5px;
+}
+
+.figy-pip.ok {
+  color: var(--ft-text-muted);
+}
+
+.figy-pip.bad {
+  color: var(--ft-warning);
+}
+
+.figy-add-model {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  margin-top: 9px;
+  padding: 7px 9px;
+  border: 1px dashed var(--ft-border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ft-text-secondary);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.figy-add-model:hover {
+  border-color: var(--ft-accent);
+  color: var(--ft-text);
+}
+
+/* The dot that says which model answers. Kept apart from the name,
+   which opens the editor: choosing is done far more often than
+   editing and should not go through a form. */
+.figy-model-pick {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.figy-model-dot {
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--ft-text-muted);
+  border-radius: 50%;
+}
+
+.figy-model-pick.on .figy-model-dot {
+  border-color: var(--ft-accent);
+  box-shadow: inset 0 0 0 2.5px var(--ft-accent);
+}
+
+/* ─── The headline figures ───────────────────────────────────────────────── */
+
+/* Two or three numbers, before any of the detail. What it has cost
+   and whether the cache is working are the questions; everything
+   under them explains one or the other. */
+.figy-figures {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.figy-figure {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+  padding: 10px 11px;
+  border: 1px solid var(--ft-border-subtle);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.figy-figure-value {
+  color: var(--ft-text);
+  font-family: var(--figy-mono);
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.figy-figure.good .figy-figure-value {
+  color: var(--ft-success);
+}
+
+.figy-figure.warn .figy-figure-value {
+  color: var(--ft-warning);
+}
+
+.figy-figure-label {
+  margin-top: 3px;
+  color: var(--ft-text-secondary);
+  font-size: 11px;
+}
+
+.figy-figure-note {
+  color: var(--ft-text-muted);
+  font-size: 10.5px;
+}
+
+/* Visually hidden, still read aloud: a column of radio buttons and a
+   column of delete buttons both need a name they do not show. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.light .figy-dialog-head,
+.light .figy-dialog-foot {
+  background: rgba(15, 17, 23, 0.02);
+}
+
+.light .figy-table tbody tr:hover > td {
+  background: rgba(15, 17, 23, 0.04);
+}
+
+.light .figy-table-editor > td,
+.light .figy-figure {
+  background: rgba(15, 17, 23, 0.025);
+}
+
+/* ─── /resume ────────────────────────────────────────────────────────────── */
+
+.figy-resume-list {
+  display: flex;
+  flex-direction: column;
+}
+
+/* The row is the button plus the one thing that is not it. Laid out
+   here rather than inside the button, so "forget" is never something
+   you hit while reaching for "open". */
+.figy-resume-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-bottom: 1px solid var(--ft-border-subtle);
+}
+
+.figy-resume-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.figy-resume-open {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  flex: 1;
+  min-width: 0;
+  padding: 8px 6px;
+  border: none;
+  background: transparent;
+  color: var(--ft-text-secondary);
+  font-family: var(--figy-mono);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.figy-resume-open:hover {
+  color: var(--ft-text);
+}
+
+.figy-resume-icon {
+  flex: none;
+  /* Baseline-aligned text beside an icon puts the icon too high. */
+  transform: translateY(2px);
+  color: var(--ft-text-muted);
+}
+
+.figy-resume-title {
+  min-width: 0;
+  flex: 1;
+}
+
+.figy-resume-meta {
+  flex: none;
+  color: var(--ft-text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.figy-resume-row .figy-iconbtn {
+  flex: none;
+  opacity: 0;
+}
+
+.figy-resume-row:hover .figy-iconbtn,
+.figy-resume-row .figy-iconbtn:focus-visible {
+  opacity: 1;
+}
+
+.light .figy-resume-row:hover {
+  background: rgba(15, 17, 23, 0.05);
+}
+
+/* ─── Status bar ─────────────────────────────────────────────────────────── */
+
+.figy-statusbar {
+  height: 28px;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.022);
+  border-top: 1px solid var(--ft-border-subtle);
+  /* Paths and numbers, so mono — and the one place in the window where
+     10px is right, because it is glanced at rather than read. */
+  font-family: var(--figy-mono);
+  font-size: 10px;
+  color: var(--ft-text-muted);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.figy-statusbar::-webkit-scrollbar {
+  display: none;
+}
+
+.figy-folder-icon {
+  color: var(--ft-text-muted);
+}
+
+/* The folder is a button now: it is the thing you click to change
+   it, and it was the one piece of the bar that looked like a label
+   and behaved like nothing. */
+.figy-folder-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 6px 1px 4px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.figy-folder-button:hover {
+  border-color: var(--ft-border);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.figy-folder-primary {
+  min-width: 0;
+  color: var(--ft-text-secondary);
+}
+
+.figy-folder-button:hover .figy-folder-primary {
+  color: var(--ft-text);
+}
+
+/* A chip counts what else the agent can reach, and opens the place
+   that lists it. The paths themselves used to be here, which was most
+   of the bar's width spent on grey text that could not be acted on. */
+.figy-chip-sm {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px;
+  border: 1px solid var(--ft-border-subtle);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.055);
+  color: var(--ft-text-secondary);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.figy-chip-sm:hover {
+  border-color: var(--ft-accent);
+  color: var(--ft-text);
+}
+
+.figy-chip-sm.add {
+  background: transparent;
+  border-style: dashed;
+  color: var(--ft-text-muted);
+  cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+
+.figy-chip-sm.add:hover {
+  color: var(--ft-text);
+  border-color: var(--ft-accent);
+  background: rgb(var(--ft-accent-rgb) / 0.09);
+}
+
+.figy-status-right {
+  padding: 1px 6px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ft-text-muted);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.figy-status-right:hover {
+  color: var(--ft-text);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+/* ─── The project picker ─────────────────────────────────────────────────── */
+
+/* A folder the terminal has been in, rather than one anyone pointed this
+   window at. Said once, quietly, and only in the list. */
+.figy-suggestion {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ft-text-muted);
+  font-size: 9px;
+}
+
+/* ─── Keyboard focus ─────────────────────────────────────────────────────── */
+
+.figy-modal button:focus-visible {
+  outline: 2px solid var(--ft-accent);
+  outline-offset: -1px;
+}
+
+/*
+  The box is not in that list, and must not be.
+
+  The card around it already lights up on `:focus-within` — a tinted border
+  and a soft ring — so an outline on the textarea as well drew a second
+  rectangle a few pixels inside the first. One focused control, one
+  indicator; the card is the control as far as anyone looking at it is
+  concerned.
+*/
+.figy-composer-input:focus,
+.figy-composer-input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+/* ─── Light ──────────────────────────────────────────────────────────────────
+
+   Almost nothing, because almost everything above is a token. What is left is
+   the handful of washes written as white-on-dark — a 7% white hover is
+   invisible on paper — and the diff tones, which need ink rather than neon.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+.light .figy-modal {
+  --figy-add: #117a42;
+  --figy-add-bg: rgba(5, 150, 105, 0.12);
+  --figy-del: #c0362f;
+  --figy-del-bg: rgba(220, 38, 38, 0.09);
+  --figy-amber: #a9690a;
+  --figy-teal: #0f8a74;
+  --figy-line: rgba(15, 17, 23, 0.08);
+  --figy-well: rgba(15, 17, 23, 0.04);
+
+  box-shadow: 0 24px 64px -16px rgba(15, 23, 42, 0.28);
+}
+
+.light .figy-header {
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.022), rgba(0, 0, 0, 0.006));
+}
+
+.light .figy-locator-project:hover,
+.light .figy-iconbtn:hover:not(:disabled),
+.light .figy-tool-row.expandable:hover,
+.light .figy-welcome-resume:hover,
+.light .figy-tool-btn:hover {
+  background: rgba(15, 17, 23, 0.06);
+}
+
+.light .figy-statusbar,
+.light .figy-popup-hint {
+  background: rgba(15, 17, 23, 0.02);
+}
+
+.light .figy-chip-sm,
+.light .figy-suggestion,
+.light .figy-assistant-text code,
+.light .figy-welcome-hints .figy-key {
+  background: rgba(15, 17, 23, 0.05);
+}
+
+.light .figy-diff-head {
+  background: rgba(15, 17, 23, 0.03);
+}
+
+.light .figy-copy {
+  background: var(--ft-surface);
+}
+
+/* ─── The editor's agent panel ────────────────────────────────────────────── *
+
+  The FigyCode transcript in a 320px column.
+
+  Everything here is layout and scale: the blocks, cards and composer
+  are the window's own components and keep the window's rules. What a
+  sidebar needs on top of that is a frame that holds its height, a
+  scroller that does not push the composer off the bottom, and prose
+  that gives up the window's comfortable measure — `figy-transcript`
+  caps itself at 980px, which is four times this column and so has no
+  effect here at all.
+*/
+
+.figy-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  /* The positioned ancestor the sheets fill. Without it they would
+     size themselves against the editor modal and cover the buffer. */
+  position: relative;
+  /* `min-height: 0` on a flex child is the whole reason the scroller
+     below can scroll rather than growing the column past its parent. */
+  min-height: 0;
+  background: var(--ft-bg);
+  border-left: 1px solid var(--ft-border-subtle);
+}
+
+.figy-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  height: 30px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--ft-border-subtle);
+  color: var(--ft-text-muted);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.figy-panel-title {
+  font-weight: 600;
+}
+
+.figy-panel-spacer {
+  flex: 1;
+}
+
+.figy-panel-act {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  color: var(--ft-text-muted);
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.figy-panel-act:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ft-text);
+}
+
+.figy-panel-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 10px 10px 0;
+}
+
+/*
+  The same transcript, with the window's padding taken back out.
+
+  A 22px gutter is right in a 960px window and is a seventh of this
+  column, so the rows are given the width and the column's own padding
+  does the breathing.
+*/
+.figy-panel-transcript {
+  max-width: none;
+  gap: 8px;
+}
+
+.figy-panel-bottom {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  flex-shrink: 0;
+  padding: 8px;
+  border-top: 1px solid var(--ft-border-subtle);
+  background: var(--ft-bg);
+}
+
+/*
+  Which model is answering — a label, not a picker.
+
+  The settings are one file for both surfaces, so a picker here would
+  change the FigyCode window's model from a control the window cannot
+  see. It truncates rather than wrapping: the send button beside it is
+  the part that has to stay where it is.
+*/
+.figy-panel-model {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ft-text-muted);
+  font-family: var(--figy-mono);
+  font-size: 10px;
+}
+
+.figy-panel-welcome {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 22px 6px;
+  color: var(--ft-text-muted);
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+
+.figy-panel-welcome-note {
+  padding-top: 2px;
+  border-top: 1px solid var(--ft-border-subtle);
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+/* ─── /tools ──────────────────────────────────────────────────────────────── *
+
+  One tool's definition, as a row in the dialog.
+
+  Deliberately not `figy-tool-*`, which is the *transcript's* row — mono,
+  a negative margin and a glyph rail, all of which are right there and
+  wrong in a table.
+*/
+
+.figy-tooldef {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 1px 0;
+  text-align: left;
+  color: var(--ft-text);
+  cursor: pointer;
+}
+
+.figy-tooldef-caret {
+  color: var(--ft-text-muted);
+  transition: transform 0.12s ease;
+}
+
+.figy-tooldef.on .figy-tooldef-caret {
+  transform: rotate(90deg);
+}
+
+.figy-tooldef-name {
+  font-family: var(--figy-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+/*
+  The class, as a word rather than a colour alone.
+
+  It is the whole of what a permission card will do about this tool, so
+  it reads as text — a tint that has to be learned is a legend nobody
+  opens a dialog to study.
+*/
+.figy-tooldef-class {
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.055);
+  color: var(--ft-text-muted);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.figy-tooldef-class.write {
+  background: rgb(var(--ft-accent-rgb) / 0.14);
+  color: var(--ft-accent);
+}
+
+.figy-tooldef-class.exec,
+.figy-tooldef-class.net {
+  background: rgba(227, 179, 65, 0.16);
+  color: var(--figy-amber);
+}
+
+/*
+  The description the *model* reads.
+
+  Indented under its row and in prose rather than mono: it is a
+  paragraph written for a reader, and it is the most useful thing on
+  the row — which is also why only one is open at a time.
+*/
+.figy-tooldef-body {
+  padding: 4px 0 6px 17px;
+  color: var(--ft-text-secondary);
+  font-size: 11.5px;
+  line-height: 1.5;
+  max-width: 62ch;
+}
+
+.figy-tooldef-note {
+  margin-top: 3px;
+  color: var(--ft-text-muted);
+  font-size: 10.5px;
+}
+
+/*
+  The bar above the table, in the pills' own colours.
+
+  `figy-context-slice` gives it the geometry every bar in this window
+  has; these four give it the one meaning worth encoding here. The
+  modifiers are the class names, so the bar and the pill on each row
+  cannot drift apart.
+*/
+.figy-tooldef-slice.read {
+  background: var(--ft-text-muted);
+  opacity: 0.45;
+}
+
+.figy-tooldef-slice.write {
+  background: var(--ft-accent);
+}
+
+.figy-tooldef-slice.exec,
+.figy-tooldef-slice.net {
+  background: var(--figy-amber);
+}
+
+/* Two amber neighbours would read as one slice, so the second is
+   stepped down rather than given a colour of its own. */
+.figy-tooldef-slice.net {
+  opacity: 0.6;
+}
+
+.light .figy-tooldef-class {
+  background: rgba(15, 17, 23, 0.06);
+}
+
+/* ─── Typed ahead ─────────────────────────────────────────────────────────── *
+
+  One message, held until the turn ends.
+
+  A conversation runs one turn at a time, and a turn can now sit for
+  five minutes waiting on a build — which is exactly when somebody
+  types the next thing. It is shown rather than silently held, because
+  a message that was typed and did not appear is a message somebody
+  thinks was lost: they type it again, and then both go.
+
+  Deliberately quiet: it is not a notice, nothing went wrong, and it
+  will take care of itself.
+*/
+.figy-queued {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 5px 9px;
+  border: 1px dashed var(--ft-border);
+  border-radius: 8px;
+  color: var(--ft-text-muted);
+  font-size: 11px;
+}
+
+.figy-queued-mark {
+  flex-shrink: 0;
+  font-family: var(--figy-mono);
+  opacity: 0.6;
+}
+
+.figy-queued-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ft-text-secondary);
+}
+
+.figy-queued-note {
+  flex-shrink: 0;
+  font-size: 10px;
+  opacity: 0.75;
+}
+
+.figy-queued-drop {
+  flex-shrink: 0;
+  padding: 0 3px;
+  border-radius: 4px;
+  color: var(--ft-text-muted);
+  font-size: 10px;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.figy-queued-drop:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--ft-text);
+}
+
+.light .figy-queued-drop:hover {
+  background: rgba(15, 17, 23, 0.06);
+}
+
+/* ─── The agent panel's sheet ─────────────────────────────────────────────── *
+
+  One sheet, five views, over the whole column.
+
+  Absolutely positioned rather than floated: a dialog floats over
+  something you can still read, and at 320px there is nothing behind it
+  to read. The sheet *is* the column while it is open.
+
+  The idea that makes the views readable at this width is that no
+  proportion is ever a column. Label, number and share would be three
+  columns in 300px, and the labels truncate to nothing long before the
+  numbers do — so every share is a bar *under* its own row.
+*/
+
+.figy-sheet {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--ft-bg);
+}
+
+.figy-sheet-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 7px 6px 6px;
+}
+
+.figy-sheet-heading {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.figy-sheet-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ft-text);
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+/* The model every figure on the sheet is about, said once. */
+.figy-sheet-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ft-text-muted);
+  font-family: var(--figy-mono);
+  font-size: 9.5px;
+}
+
+.figy-sheet-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  color: var(--ft-text-muted);
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.figy-sheet-icon:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ft-text);
+}
+
+/* The switcher spans the column, so its five segments are equal and
+   wide enough to hit. */
+.figy-sheet-tabs {
+  flex-shrink: 0;
+  padding: 0 8px 8px;
+}
+
+.figy-sheet-tabs .seg-tabs {
+  width: 100%;
+}
+
+.figy-sheet-body {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden auto;
+  padding: 2px 10px 12px;
+}
+
+/* ─── The figure a view opens with ────────────────────────────────────────── */
+
+.figy-sheet-figure {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-bottom: 9px;
+  margin-bottom: 9px;
+  border-bottom: 1px solid var(--ft-border-subtle);
+}
+
+.figy-sheet-figure-line {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+}
+
+.figy-sheet-figure-value {
+  color: var(--ft-text);
+  font-family: var(--figy-mono);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  /* Tabular, so the figure does not shuffle sideways as it climbs. */
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.figy-sheet-figure.warn .figy-sheet-figure-value {
+  color: var(--figy-amber);
+}
+
+.figy-sheet-figure-unit {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ft-text-muted);
+  font-size: 10.5px;
+}
+
+.figy-sheet-figure-note {
+  color: var(--ft-text-muted);
+  font-size: 10px;
+  opacity: 0.85;
+}
+
+/* ─── The composition bar ─────────────────────────────────────────────────── */
+
+.figy-sheet-bar {
+  display: flex;
+  gap: 1.5px;
+  height: 5px;
+  margin-bottom: 11px;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.figy-sheet-bar-slice {
+  min-width: 2px;
+  border-radius: 1px;
+}
+
+/*
+  The slices take their colours from the window's context dialog, which
+  already has a hue per part under these same class names — see
+  `.figy-context-slice` above, where both are defined together.
+
+  One palette on purpose: the sheet and the dialog are the same
+  quantities seen in two places, and "tool results" changing from pink
+  to amber between them would make them two different pictures.
+*/
+
+/* ─── A row, with its share under it ──────────────────────────────────────── */
+
+.figy-sheet-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.figy-sheet-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.figy-sheet-row-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.figy-sheet-row-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ft-text);
+  font-size: 11.5px;
+}
+
+.figy-sheet-row-value {
+  flex-shrink: 0;
+  color: var(--ft-text-secondary);
+  font-family: var(--figy-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.figy-sheet-row-note {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ft-text-muted);
+  font-size: 9.5px;
+  line-height: 1.3;
+}
+
+/*
+  The share, as 3px of colour rather than a percentage column.
+
+  The track stays visible at zero so a row with nothing in it still
+  reads as a row rather than as a gap in the list.
+*/
+.figy-sheet-row-track {
+  display: block;
+  height: 3px;
+  margin-top: 2px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.055);
+  overflow: hidden;
+}
+
+.figy-sheet-row-fill {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--ft-text-muted);
+  transition: width 240ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* ─── Sections, notes and verdicts ────────────────────────────────────────── */
+
+.figy-sheet-section {
+  margin-top: 14px;
+}
+
+.figy-sheet-section-head {
+  margin-bottom: 7px;
+  color: var(--ft-text-muted);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/*
+  The sentence that introduces a section, above its rows.
+
+  The window puts this in a `figy-dialog-note`, which is a boxed aside.
+  At this width a box inside a section inside a sheet is three nested
+  frames, so it is just the text, set quieter than the rows it explains.
+*/
+.figy-sheet-lede {
+  margin: -2px 0 8px;
+  color: var(--ft-text-muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+/*
+  The lines of fact at the foot of the context view.
+
+  The same three the window's dialog ends with, which is why they are a
+  list here rather than three hand-written lines — writing them out
+  twice is how the panel came to be missing two of them.
+*/
+.figy-sheet-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 12px;
+  padding-top: 9px;
+  border-top: 1px solid var(--ft-border-subtle);
+  color: var(--ft-text-muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+/* The row that is the sum of the ones above it. */
+.figy-sheet-row.total {
+  margin-top: 1px;
+  padding-top: 6px;
+  border-top: 1px solid var(--ft-border-subtle);
+}
+
+.figy-sheet-row.total .figy-sheet-row-label,
+.figy-sheet-row.total .figy-sheet-row-value {
+  color: var(--ft-text);
+  font-weight: 600;
+}
+
+/* Whatever is left of the window, which is not one of the parts. */
+.figy-sheet-bar-slice.free,
+.figy-sheet-row-fill.free {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.light .figy-sheet-bar-slice.free,
+.light .figy-sheet-row-fill.free {
+  background: rgba(15, 17, 23, 0.1);
+}
+
+.figy-sheet-empty {
+  padding: 18px 2px;
+  color: var(--ft-text-muted);
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+
+.figy-sheet-note {
+  margin-top: 12px;
+  padding-top: 9px;
+  border-top: 1px solid var(--ft-border-subtle);
+  color: var(--ft-text-muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.figy-sheet-note strong {
+  color: var(--ft-text-secondary);
+  font-family: var(--figy-mono);
+  font-weight: 600;
+}
+
+/*
+  The one number on these screens that is a verdict rather than a
+  measurement, so it is the one thing drawn as a judgement.
+*/
+.figy-sheet-verdict {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  margin-top: 12px;
+  padding: 8px 9px;
+  border-radius: 7px;
+  border: 1px solid var(--ft-border-subtle);
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+.figy-sheet-verdict.good {
+  border-color: rgb(var(--ft-accent-rgb) / 0.3);
+  background: rgb(var(--ft-accent-rgb) / 0.07);
+}
+
+.figy-sheet-verdict.warn {
+  border-color: rgba(227, 179, 65, 0.35);
+  background: rgba(227, 179, 65, 0.08);
+}
+
+.figy-sheet-verdict-value {
+  flex-shrink: 0;
+  font-family: var(--figy-mono);
+  font-size: 15px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.figy-sheet-verdict.good .figy-sheet-verdict-value {
+  color: var(--ft-accent);
+}
+
+.figy-sheet-verdict.warn .figy-sheet-verdict-value {
+  color: var(--figy-amber);
+}
+
+.figy-sheet-verdict-text {
+  color: var(--ft-text-secondary);
+}
+
+.figy-sheet-action {
+  width: 100%;
+  margin-top: 12px;
+  padding: 7px 9px;
+  border: 1px solid var(--ft-border);
+  border-radius: 7px;
+  color: var(--ft-text-secondary);
+  font-size: 11px;
+  text-align: left;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.figy-sheet-action:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ft-text);
+}
+
+/* ─── Lists: earlier conversations, and the models ────────────────────────── */
+
+.figy-sheet-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.figy-sheet-list li {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.figy-sheet-list-row {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+  padding: 7px 8px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  text-align: left;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.figy-sheet-list-row:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/*
+  The current model, marked by the row itself rather than a tick.
+
+  A tick is 11px of glyph that shifts the label sideways on the one row
+  that matters; a tinted row with a left edge reads from across the
+  column and moves nothing.
+*/
+.figy-sheet-list-row.on {
+  border-color: rgb(var(--ft-accent-rgb) / 0.35);
+  background: rgb(var(--ft-accent-rgb) / 0.09);
+}
+
+.figy-sheet-list-title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--ft-text);
+  font-size: 11.5px;
+  font-weight: 550;
+}
+
+.figy-sheet-list-title > :first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.figy-sheet-list-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ft-text-muted);
+  font-family: var(--figy-mono);
+  font-size: 9.5px;
+}
+
+.figy-sheet-tag {
+  flex-shrink: 0;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--ft-text-muted);
+  font-size: 8.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.light .figy-sheet-icon:hover,
+.light .figy-sheet-action:hover,
+.light .figy-sheet-list-row:hover {
+  background: rgba(15, 17, 23, 0.05);
+}
+
+.light .figy-sheet-row-track,
+.light .figy-sheet-tag {
+  background: rgba(15, 17, 23, 0.07);
+}
+
+/*
+  The spend and the context percentage, in the header.
+
+  The window puts these in a status bar and a column this narrow has
+  no room for one — but they are the numbers worth watching while they
+  climb, so they ride in the header and open the same breakdowns.
+*/
+.figy-panel-spend {
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--ft-text-muted);
+  font-family: var(--figy-mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  text-transform: none;
+  letter-spacing: 0;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.figy-panel-spend:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ft-text);
+}
+
+/* Which model is answering, under the box. */
+.figy-panel-foot {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  flex-shrink: 0;
+  padding: 0 10px 7px;
+  overflow: hidden;
+}
+
+.figy-panel-foot-dim {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ft-text-muted);
+  font-family: var(--figy-mono);
+  font-size: 9.5px;
+  opacity: 0.6;
+}
+
+/* The sheet's own light-mode hovers are with its rules; these two are
+   the panel chrome around it. */
+.light .figy-panel-act:hover,
+.light .figy-panel-spend:hover {
+  background: rgba(15, 17, 23, 0.05);
+}

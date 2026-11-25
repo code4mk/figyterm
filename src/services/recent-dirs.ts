@@ -148,6 +148,21 @@ export async function seedFromHistory(): Promise<void> {
   }
 }
 
+/**
+ * The folders this user actually works in, most recent first.
+ *
+ * The same store `cd` has been feeding all session, read back out. It exists
+ * because a "pick a project" list that starts empty is a list that makes
+ * everyone reach for the file dialog on their first try — and the answer is
+ * nearly always a folder the terminal has already been in.
+ */
+export function recentDirs(limit = 12): string[] {
+  return load()
+    .sort((a, b) => b.lastUsed - a.lastUsed)
+    .slice(0, limit)
+    .map((entry) => entry.path);
+}
+
 export function sortByRecency<T extends { path?: string; name?: string }>(
   items: T[],
   parentDir: string

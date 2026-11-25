@@ -103,6 +103,22 @@ export function overlayZ(id: string): number | null {
 }
 
 /**
+ * Whether `id` is the one in front.
+ *
+ * For keys rather than for painting. An overlay that listens on the
+ * document — because a key has to work when focus is not inside it —
+ * needs to know whether the key is *its* key, and the rank alone does
+ * not say: every open overlay has one.
+ *
+ * `false` when nothing is open, and when `id` is not.
+ */
+export function isFront(id: string): boolean {
+  const mine = claims.get(id);
+  if (mine === undefined) return false;
+  return [...claims.values()].every((other) => other <= mine);
+}
+
+/**
  * Where each overlay is, for the ones that are a window rather than a
  * full-screen modal. Absent means "assume it covers everything".
  */

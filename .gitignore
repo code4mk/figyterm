@@ -27,5 +27,10 @@ app-icon.png
 # `.gitmodules` behind it. The directory form matches the entry itself.
 frontend/
 docs/issues/*
+# The FigyCode mockups the window was built from: a dozen 1x PNGs that are
+# design input rather than source, and a megabyte the repository does not
+# need. They live alongside `docs/CODE-AGENT.md`, which describes what they
+# show.
+docs/figycode-design/
 # Vendored by scripts/copy-excalidraw-assets.mjs
 public/excalidraw-assets/

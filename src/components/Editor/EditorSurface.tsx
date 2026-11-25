@@ -371,6 +371,20 @@ export interface EditorSurfaceHandle {
    */
   hasSelection: () => boolean;
   /**
+   * The selected text and the lines it spans, or null for a bare cursor.
+   *
+   * `hasSelection` answers a menu's question — *would Cut do anything* —
+   * and this one answers the agent panel's: *what is the person looking
+   * at*. The line numbers come with it because they are most of what
+   * makes the excerpt findable again; a snippet with no line numbers is
+   * something the agent has to grep for to edit.
+   *
+   * The main range only. A multi-cursor selection is a real thing in
+   * this editor and pasting four disjoint fragments into a prompt as if
+   * they were one excerpt would be a lie about the file.
+   */
+  getSelection: () => { text: string; startLine: number; endLine: number } | null;
+  /**
    * Whether the text has the keyboard.
    *
    * Asked before a chord that arrives from the native menu is treated as the
@@ -1746,6 +1760,18 @@ export const EditorSurface = forwardRef<EditorSurfaceHandle, EditorSurfaceProps>
           viewRef.current
             ? viewRef.current.state.selection.ranges.some((range) => !range.empty)
             : false,
+
+        getSelection: () => {
+          const state = viewRef.current?.state;
+          if (!state) return null;
+          const range = state.selection.main;
+          if (range.empty) return null;
+          return {
+            text: state.doc.sliceString(range.from, range.to),
+            startLine: state.doc.lineAt(range.from).number,
+            endLine: state.doc.lineAt(range.to).number,
+          };
+        },
 
         hasFocus: () => viewRef.current?.hasFocus ?? false,
 
