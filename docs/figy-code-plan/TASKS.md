@@ -124,11 +124,21 @@ The shape of the thing being built, decided and not re-opened here:
             Said plainly in the dialog, including what it trades
       - [x] `/context` and `/tools` show *offered of total*, so the
             saving is visible and so is the cage if it becomes one
-      - [ ] And then measure it: `$ per completed task` with it on and
-            off, which is section 4's open item and the only thing that
-            will settle whether it stays. Nothing has been measured
-            yet — what exists is the switch and the discipline around
-            it, not evidence that it wins
+      - [x] Verified against the real endpoint, in the app, on
+            **2026-11-25**. "hi" narrowed to 5 of 24 — exactly the
+            floor, which is the right answer for a greeting — at 961
+            input tokens, about $0.00004, taking the turn's prefix
+            from ~3.8K to ~900 tokens. `/context` is where that is
+            read, and it is the only place a silent fallback is
+            visible
+      - [ ] And then measure what it is *worth*: `$ per completed
+            task` with it on and off, which is section 4's open item.
+            One turn is not a measurement. The arithmetic to beat is
+            unkind — the tokens it saves were being read from cache at
+            a tenth of the price, so roughly $0.0008 a turn against
+            $0.00004 for the pick, plus a prefix rewrite every time
+            the set grows. The accuracy argument is the stronger one
+            and is also unmeasured
 - [ ] Explicit cache breakpoints for endpoints that take them (Anthropic's
       `cache_control`). Prefix stability is done; breakpoints are an
       Anthropic-shaped extra
