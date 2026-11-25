@@ -21,14 +21,13 @@ The shape of the thing being built, decided and not re-opened here:
   is the insurance: a second implementation is a day's work the moment a
   wire format appears that we do not speak. See 3b for the two
   conditions that would make it one.
-- **The model picks its own tools** — *settled: no external router.* The
-  picker is behind a trait, so a router choosing on the model's behalf stays
-  a drop-in rather than a rewrite, and typesafe.ai's Jev was the candidate.
-  Section 3 has the measurement that settled it: twenty-four definitions are
-  3.8K tokens read from cache at a tenth of a cent, a per-turn router pays
-  full price for them *and* for every byte after them, and the vendor's own
-  recipe narrows nothing anyway. Worth reopening if the set ever reaches a
-  hundred tools, and not before.
+- **The model picks its own tools, unless you turn on a router.** The
+  picker is behind a trait; the default hands over everything and lets the
+  model choose, and typesafe.ai's Jev is an option you switch on with a key.
+  Section 3 has the measurement that keeps it optional — twenty-four
+  definitions are 3.8K tokens read from cache at a tenth of a cent — and the
+  three rules that fall out of it: the offered set only grows, a failed
+  router offers everything, and its bill goes in the ledger.
 - **Exa is the search provider**, behind the `search_web` tool.
 
 ---
@@ -73,38 +72,61 @@ The shape of the thing being built, decided and not re-opened here:
       largest tool result, into SQLite
 - [x] `commands/agent.rs` — configure, send, approve, cancel, usage, with
       the turn narrated over one `agent://event` stream
-- [x] **No external tool picker.** *Settled.* The `Picker` seam stays —
-      it costs nothing and it is where one would go — but typesafe.ai's
-      Jev is not being wired in, for three reasons that are worth
-      keeping written down.
+- [ ] **Jev (typesafe.ai) as an optional tool picker.** Off by default,
+      switched on from the settings with its own key. The arguments
+      against making it the default are kept below rather than deleted,
+      because they are the specification for how it has to be built: if
+      it cannot be built in a way that answers them, it should not be
+      on.
 
-      *It is a model call.* `api.typesafe.ai/v1/systemone` is hosted and
-      billed per input token. It answers with typed choices rather than
-      text, which is not the same as answering without a model, and the
-      docs document no local runtime.
+      *What the measurement said.* The window's twenty-four definitions
+      are 3,833 tokens and the panel's six are 1,297 (pinned by a test
+      in `tools/mod.rs`). Tools are the **first** bytes of the request,
+      so a set that changes invalidates the whole cached prefix —
+      everything after it is rewritten at 1.25× to save part of a block
+      that was being read at 0.1×. A router that re-picks every message
+      loses by an order of magnitude.
 
-      *Their own recipe does not narrow anything.* The skill-suggestion
-      cookbook sends the full roster to the agent and appends the
-      suggestion to the prompt. Its published numbers are accuracy —
-      wrong loads 15.7% → 7.9% on 452 requests — and not cost. Narrowing
-      is a thing we would have to do ourselves, on top.
+      *What the vendor's own recipe does.* Nothing, to the prefix: the
+      skill cookbook sends the full roster to the agent anyway and
+      appends a suggestion to the prompt. Its published numbers are
+      accuracy — wrong loads 15.7% → 7.9% over 452 requests — not cost.
+      Narrowing is ours to do.
 
-      *And here it would cost more than it saves.* The window's whole
-      tool set is **3,833 tokens** and the panel's is 1,297 (pinned by a
-      test in `tools/mod.rs`). Tools are the *first* bytes of the
-      request, so a set that varies per turn invalidates the entire
-      cached prefix every turn — forty turns of conversation rewritten
-      at 1.25× to save part of 3.8K that was being read from cache at
-      0.1×. The arithmetic is negative by an order of magnitude.
+      So the design that survives both:
 
-      What would reopen it: a tool set several times this size, where
-      narrowing **once per session** — before the first message, while
-      the prefix is being written anyway — saves something worth the
-      round trip. At a hundred tools that is 15K a turn and a different
-      conversation. At twenty-four it is not, and the accuracy problem
-      the vendor's numbers describe is one we have no evidence of
-      having: the ledger would show it, and `$ per completed task`
-      either side is how it would be shown (section 4)
+      - [ ] `Picker` answers with **names and a cost**, not a blob of
+            JSON. The session builds the schema, which is what lets it
+            tell "the same set" from "a different set"
+      - [ ] **The offered set only ever grows.** Picked per message,
+            unioned with everything offered so far, and the schema
+            rebuilt *only when the names actually change*. A stable
+            pick produces identical bytes and the cache holds; a turn
+            that needs `bash` on message five pays one prefix rewrite
+            and never pays it again. A set that could shrink would
+            thrash the cache and take away a tool the model had already
+            seen
+      - [ ] **A floor of always-offered tools**, so a session that
+            opened with "explain this" is not unable to read a second
+            file. Narrowing is a saving, not a cage
+      - [ ] **Any failure offers everything.** A router that is down,
+            slow, rate-limited or answering nonsense must cost a few
+            hundred milliseconds and nothing else. It is on the hot
+            path of a turn and it is not allowed to break one
+      - [ ] **Its bill is in the ledger**, under the turn that paid it,
+            the same way Exa's is. A router nobody can see the cost of
+            is the thing this project refuses to ship
+      - [ ] `agent/picker.rs`: the Jev client. `POST
+            /v1/systemone`, one `choice` question whose criteria are
+            `{tool name: description}`, the prompt as the state, and
+            the probabilities above a threshold as the answer
+      - [ ] Settings: a switch and a key, off until both are there.
+            Said plainly in the dialog, including what it trades
+      - [ ] `/context` and `/tools` show *offered of total*, so the
+            saving is visible and so is the cage if it becomes one
+      - [ ] And then measure it: `$ per completed task` with it on and
+            off, which is section 4's open item and the only thing that
+            will settle whether it stays
 - [ ] Explicit cache breakpoints for endpoints that take them (Anthropic's
       `cache_control`). Prefix stability is done; breakpoints are an
       Anthropic-shaped extra
