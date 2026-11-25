@@ -34,10 +34,12 @@ impl Tool for Read {
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "read",
-            description: "Read lines from a file in the project. Returns numbered lines and \
-                says how many the file has in total, so you can ask for another range. \
-                Prefer a range you have a reason for — from a grep hit, or a symbol's \
-                line — over reading a file from the top to find out what is in it.",
+            description: "Read lines from a file in the project. Lines come back as \
+                `12 │ the line`, so everything after the bar and one space is the file \
+                itself — including its indentation, which `edit` needs exactly. Says how \
+                many lines there are in total, so you can ask for another range. Prefer a \
+                range you have a reason for — from a grep hit, or a symbol's line — over \
+                reading a file from the top to find out what is in it.",
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -133,10 +135,26 @@ impl Tool for Read {
         let end = (start + limit).min(total);
         let width = end.to_string().len();
 
+        /*
+          A bar between the number and the line.
+
+          It used to be two spaces, and two spaces is ambiguous
+          against a line that is itself indented: `  42      <div>`
+          is a number, the gutter, and four spaces of real
+          indentation, and nothing in it says where the gutter stops.
+          A model copying that line out has to guess, and the guess
+          is why `edit` failed over and over on text that was plainly
+          there.
+
+          `edit` forgives the indentation now, which fixes the
+          symptom. This is the cause: with a delimiter there is
+          nothing to guess, because everything after the bar and one
+          space is the file.
+        */
         let mut body = String::new();
         for (i, line) in lines[start..end].iter().enumerate() {
             body.push_str(&format!(
-                "{:>width$}  {}\n",
+                "{:>width$} │ {}\n",
                 start + i + 1,
                 clip_line(line, MAX_LINE),
                 width = width
@@ -243,8 +261,11 @@ mod tests {
         let ctx = scratch("small", "alpha\nbeta\n");
         let out = Read.call(&ctx, &json!({ "path": "src/main.rs" })).unwrap();
         assert!(out.text.contains("src/main.rs (2 lines)"));
-        assert!(out.text.contains("1  alpha"));
-        assert!(out.text.contains("2  beta"));
+        // The bar is the point: two spaces could not be told apart
+        // from a line that is itself indented, and a model copying
+        // one out had to guess where the gutter stopped.
+        assert!(out.text.contains("1 │ alpha"), "{}", out.text);
+        assert!(out.text.contains("2 │ beta"));
         assert!(!out.text.contains("truncated"));
     }
 
@@ -264,7 +285,7 @@ mod tests {
             .call(&ctx, &json!({ "path": "src/main.rs", "offset": 100, "limit": 3 }))
             .unwrap();
         assert!(out.text.contains("lines 100–102 of 500"));
-        assert!(out.text.contains("100  line 100"));
+        assert!(out.text.contains("100 │ line 100"), "{}", out.text);
         assert!(!out.text.contains("line 103\n"));
     }
 

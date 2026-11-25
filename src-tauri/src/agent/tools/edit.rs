@@ -105,6 +105,38 @@ impl Tool for Edit {
             return Err(format!("edit: `old` and `new` are identical, so {shown} is unchanged"));
         }
 
+        /*
+          Exactly, or allowing for the indentation.
+
+          A model does not copy a `read` result byte for byte. It
+          reads `  42 │     <div className="…">`, strips what it
+          thinks is the prefix, and writes back something with four
+          spaces where the file has six — and the edit fails, every
+          time, on text that is unmistakably there.
+
+          This used to be an error that explained itself and sent the
+          model round again. Explaining the same thing on every edit
+          is not a diagnosis, it is a tax: the retry costs a turn,
+          the whole conversation is re-sent to pay for it, and the
+          second attempt is a guess at an indent nobody can see.
+
+          So an exact match wins, and failing that a match on the
+          lines with their indentation taken off — *if* it is unique.
+          Unique is the whole safety argument: ambiguity is still an
+          error, because re-indenting the wrong block of a file is a
+          worse outcome than asking again.
+        */
+        let mut old = old;
+        let mut new = new;
+        let mut realigned = false;
+        if !file.content.contains(&old) {
+            if let Some(found) = realign(&file.content, &old, &new) {
+                old = found.old;
+                new = found.new;
+                realigned = true;
+            }
+        }
+
         let count = file.content.matches(&old).count();
         match count {
             0 => return Err(not_found(&shown, &old, &file.content)),
@@ -143,8 +175,17 @@ impl Tool for Edit {
         let replaced = if all { count } else { 1 };
 
         Ok(ToolOutput::text(format!(
-            "Edited {shown}: {replaced} replacement{} at line {where_}, +{added} -{removed}",
-            if replaced == 1 { "" } else { "s" }
+            "Edited {shown}: {replaced} replacement{} at line {where_}, +{added} -{removed}{}",
+            if replaced == 1 { "" } else { "s" },
+            // Said, not silent. The file now differs from what was
+            // asked for, by exactly the indentation, and a model
+            // that is not told will write the next edit the same
+            // way.
+            if realigned {
+                ". The indentation you gave did not match; the file's own was used"
+            } else {
+                ""
+            }
         ))
         .with_detail(json!({
             "path": shown,
@@ -156,6 +197,79 @@ impl Tool for Edit {
             "new": new,
         })))
     }
+}
+
+/// What a realignment found: the text as the file really has it,
+/// and the replacement re-indented to match.
+struct Realigned {
+    old: String,
+    new: String,
+}
+
+/// The same lines, with the file's indentation instead of the
+/// model's.
+///
+/// Lines are compared with their leading whitespace removed. One
+/// match and it is taken; none or several and this answers `None`,
+/// because re-indenting the wrong block is worse than asking again.
+///
+/// The replacement is shifted by the difference between the two
+/// indents rather than re-indented absolutely. A model that wrote
+/// four spaces where the file has six, and eight on the line below,
+/// meant *one level deeper* — so every line moves by the same two,
+/// and the shape it intended survives.
+fn realign(content: &str, old: &str, new: &str) -> Option<Realigned> {
+    let wanted: Vec<&str> = old.lines().collect();
+    if wanted.is_empty() {
+        return None;
+    }
+    // A single line with nothing around it is the one case where
+    // indentation is not enough to be sure: `}` trimmed matches
+    // every closing brace in the file. Unique-after-trimming already
+    // rules most of that out, and this rules out the rest.
+    let lines: Vec<&str> = content.lines().collect();
+
+    let mut at: Option<usize> = None;
+    for start in 0..lines.len().saturating_sub(wanted.len() - 1) {
+        let matches = wanted
+            .iter()
+            .enumerate()
+            .all(|(i, line)| lines[start + i].trim() == line.trim());
+        if !matches {
+            continue;
+        }
+        if at.is_some() {
+            return None; // Ambiguous: the model has to be clearer.
+        }
+        at = Some(start);
+    }
+    let at = at?;
+
+    let found: Vec<&str> = lines[at..at + wanted.len()].to_vec();
+    let shift = indent_of(found[0]) as isize - indent_of(wanted[0]) as isize;
+
+    Some(Realigned {
+        old: found.join("\n"),
+        new: new
+            .lines()
+            .map(|line| shift_line(line, shift))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    })
+}
+
+fn indent_of(line: &str) -> usize {
+    line.len() - line.trim_start().len()
+}
+
+/// Moves a line by `shift` spaces, never past its own indent.
+fn shift_line(line: &str, shift: isize) -> String {
+    if line.trim().is_empty() {
+        return line.to_string();
+    }
+    let indent = indent_of(line);
+    let moved = (indent as isize + shift).max(0) as usize;
+    format!("{}{}", " ".repeat(moved), line.trim_start())
 }
 
 /// Not found, with the reason it is usually not found.
@@ -267,25 +381,100 @@ mod tests {
     }
 
     #[test]
-    fn whitespace_that_differs_is_said_out_loud() {
-        // The commonest failure by a long way: the model retyped the line
-        // instead of copying it, and lost the indentation.
-        let (ctx, _) = scratch("whitespace", "fn main() {\n    let a = 1;\n}\n");
-        let err = Edit
-            .call(&ctx, &json!({ "path": "src/main.rs", "old": "let a = 1;\nlet b = 2;", "new": "x" }))
-            .unwrap_err();
-        assert!(err.contains("not found"), "got: {err}");
+    fn an_indent_that_does_not_match_is_realigned_rather_than_refused() {
+        /*
+          The commonest failure by a long way, and it used to be a
+          refusal with an explanation attached.
 
-        // A tab where the file has spaces: the line is there, and the text
-        // is not — which is the failure this message exists for, and the one
-        // a model makes by retyping a line instead of copying it.
-        let err = Edit
+          A model reads `  2 │     let a = 1;`, strips what it takes
+          to be the prefix, and writes back a line indented by four
+          spaces where the file has four — or a tab, or two. The text
+          is unmistakably there. Sending it round again costs a turn
+          and re-sends the whole conversation to pay for a guess at
+          an indent nobody can see.
+        */
+        let (ctx, path) = scratch("realign", "fn main() {\n    let a = 1;\n}\n");
+        let out = Edit
             .call(
                 &ctx,
                 &json!({ "path": "src/main.rs", "old": "\tlet a = 1;", "new": "\tlet a = 2;" }),
             )
+            .unwrap();
+
+        // The file keeps its own indentation, not the one it was given.
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "fn main() {\n    let a = 2;\n}\n"
+        );
+        // And the model is told, so the next edit is not the same guess.
+        assert!(out.text.contains("indentation you gave did not match"), "{}", out.text);
+    }
+
+    #[test]
+    fn realigning_keeps_the_shape_the_edit_was_written_with() {
+        // Four spaces where the file has eight means *one level
+        // deeper*, so every line moves by the same four and the
+        // nesting the model intended survives.
+        let (ctx, path) = scratch(
+            "realign-shape",
+            "fn main() {\n    if x {\n        a();\n    }\n}\n",
+        );
+        Edit.call(
+            &ctx,
+            &json!({
+                "path": "src/main.rs",
+                "old": "if x {\n    a();\n}",
+                "new": "if x {\n    a();\n    b();\n}"
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "fn main() {\n    if x {\n        a();\n        b();\n    }\n}\n"
+        );
+    }
+
+    #[test]
+    fn text_that_is_simply_not_there_is_still_not_found() {
+        // Its own directory. Two tests sharing one is a failure that
+        // depends on which finishes first, and this file has had it
+        // before.
+        let (ctx, _) = scratch("absent-lines", "fn main() {\n    let a = 1;\n}\n");
+        let err = Edit
+            .call(
+                &ctx,
+                &json!({ "path": "src/main.rs", "old": "let a = 1;\nlet b = 2;", "new": "x" }),
+            )
             .unwrap_err();
-        assert!(err.contains("whitespace differs"), "got: {err}");
+        assert!(err.contains("not found"), "got: {err}");
+    }
+
+    #[test]
+    fn an_indent_that_could_mean_two_places_is_refused() {
+        /*
+          The safety argument for all of this, in one test.
+
+          Realigning is only sound while there is one candidate.
+          Re-indenting the wrong block of a file is a worse outcome
+          than asking the model to be clearer, so an ambiguous match
+          goes back as the error it always was.
+        */
+        let (ctx, before) = scratch(
+            "realign-ambiguous",
+            "fn a() {\n    go();\n}\n\nfn b() {\n        go();\n}\n",
+        );
+        let content = std::fs::read_to_string(&before).unwrap();
+
+        let err = Edit
+            .call(&ctx, &json!({ "path": "src/main.rs", "old": "go();", "new": "stop();" }))
+            .unwrap_err();
+        assert!(err.contains("appears 2 times") || err.contains("whitespace"), "got: {err}");
+        assert_eq!(
+            std::fs::read_to_string(&before).unwrap(),
+            content,
+            "nothing is written when it is not clear what to write"
+        );
     }
 
     #[test]
