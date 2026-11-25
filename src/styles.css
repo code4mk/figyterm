@@ -13188,23 +13188,52 @@ body > .cm-api-completions .cm-completionDetail {
   is almost always a search for "what did I ask for", and a filled box with a
   rule down its left edge is the thing the eye lands on.
 */
+/* No box and no fill. A tinted panel with a bar down its left edge
+   is this window's shape for a notice — "the turn failed", "earlier
+   turns summarised" — and wearing it made the one line the person
+   wrote look like something the machine was telling them.
+
+   It carries the composer's glyph instead: the mark from the box it
+   was typed into. */
 .figy-user {
-  padding: 9px 13px;
-  border-radius: 9px;
-  border-left: 2px solid var(--ft-accent);
-  background: rgb(var(--ft-accent-rgb) / 0.07);
+  display: flex;
+  gap: 10px;
+  /* The assistant's padding and gap exactly, so the two marks sit in
+     one gutter and the two sides of the conversation start on the
+     same column. */
+  padding: 2px 2px;
+}
+
+.figy-user-mark {
+  flex: none;
+  /* The width of the assistant's dot, not of the glyph: the glyph
+     overhangs it a little and centres where the dot would be, which
+     is what keeps the gutter a line rather than a zigzag. */
+  width: 5px;
+  color: var(--ft-accent-hover);
+  font-family: var(--figy-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
+  user-select: none;
 }
 
 /* Air above a new question, so the scroll reads as a conversation with
-   turns in it rather than as one column of output. */
+   turns in it rather than as one column of output. More of it than
+   before: the box used to do this work, and without it the only
+   thing separating one exchange from the next is the gap. */
 .figy-transcript > * + .figy-user {
-  margin-top: 10px;
+  margin-top: 18px;
 }
 
 .figy-user-text {
+  min-width: 0;
   color: var(--ft-text);
   font-size: 12.5px;
-  font-weight: 550;
+  /* Heavier than the agent's prose, which is the whole of the
+     distinction now that the panel is gone: a question reads as the
+     heading of everything under it. */
+  font-weight: 600;
   line-height: 1.55;
   white-space: pre-wrap;
   word-break: break-word;

@@ -318,9 +318,29 @@ export const Todos = memo(function Todos({ items }: { items: TodoItem[] }) {
 
 /* ─── The two plain ones ──────────────────────────────────────────────────── */
 
+/**
+ * What the person said, marked the way they said it.
+ *
+ * It used to be a tinted box with a coloured bar down its left edge,
+ * which is `.figy-notice` — the shape this window uses for "the turn
+ * failed", "earlier turns summarised", "stopped after 40 steps". So
+ * the one thing in the transcript the *person* wrote was drawn as a
+ * message from the machine, and `yes` arrived looking like a
+ * warning.
+ *
+ * It wears the composer's own `›` now. That is the glyph in the box
+ * they typed it into, so the line reads as the thing they typed
+ * rather than as something the window is telling them — and the
+ * assistant's turn keeps its dot, so the two sides of the
+ * conversation are told apart by their marks rather than by one of
+ * them being in a box.
+ */
 export function UserTurn({ text }: { text: string }) {
   return (
     <div className="figy-user">
+      <span className="figy-user-mark" aria-hidden>
+        ›
+      </span>
       <div className="figy-user-text">{text}</div>
     </div>
   );
