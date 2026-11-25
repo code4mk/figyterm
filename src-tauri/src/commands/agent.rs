@@ -1198,6 +1198,87 @@ pub fn agent_rules(
     }))
 }
 
+/* ─── Is the router actually running? ────────────────────────────────────── */
+
+/// What one real call to the tool picker did.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RouterCheck {
+    pub ok: bool,
+    /// What it chose, or everything, depending on `ok`.
+    pub picked: Vec<String>,
+    pub total: usize,
+    pub cost_usd: f64,
+    /// Why it did not work, when it did not.
+    pub error: Option<String>,
+}
+
+/// Makes one real request to the tool picker and says what happened.
+///
+/// This exists because of a question nobody could answer from the
+/// window: *is it working?* A router that falls back silently — which
+/// is the right behaviour during a turn — is indistinguishable from
+/// one that is switched off, one with a bad key, and one whose
+/// endpoint has changed shape. The only honest way to tell is to make
+/// a call on purpose and report the whole of it.
+///
+/// Deliberately a button rather than something automatic: it costs a
+/// request and a fraction of a cent, and both belong to whoever
+/// pressed it.
+#[tauri::command(async)]
+pub async fn agent_test_router(
+    app: AppHandle,
+    state: State<'_, AgentState>,
+    surface: Surface,
+) -> Result<RouterCheck, String> {
+    let settings = current(&app, &state)?.unwrap_or_default();
+    let total = tools::specs_for(surface).len();
+
+    let Some(key) = settings
+        .router_key
+        .clone()
+        .filter(|key| !key.trim().is_empty())
+    else {
+        return Ok(RouterCheck {
+            ok: false,
+            picked: Vec::new(),
+            total,
+            cost_usd: 0.0,
+            error: Some("No typesafe.ai key is stored.".into()),
+        });
+    };
+
+    let jev = Jev::new(key, surface)
+        .with_model(settings.router_model.clone())
+        .with_price(settings.router_price);
+
+    /*
+      A question with an obvious answer, so the result is readable.
+
+      Editing a file and running a test should produce `edit` and
+      `bash` and leave out every git tool. Anybody looking at the
+      answer can tell at a glance whether the router understood the
+      question or merely replied to it.
+    */
+    let probe = "add a timeout to the retry in the http client, then run the tests";
+    match jev.check(probe).await {
+        Ok(pick) => Ok(RouterCheck {
+            ok: true,
+            picked: pick.names,
+            total,
+            cost_usd: pick.cost_usd,
+            error: None,
+        }),
+        Err(error) => Ok(RouterCheck {
+            ok: false,
+            picked: Vec::new(),
+            total,
+            cost_usd: 0.0,
+            error: Some(error),
+        }),
+    }
+}
+
 /* ─── Where the window is going ──────────────────────────────────────────── */
 
 /// What is in this conversation's context, and what it is made of.

@@ -40,7 +40,12 @@ import {
   typedNumber,
   type PermissionMode,
 } from "../../services/figycode-blocks";
-import type { AgentSettings, AgentStatus, ProviderModel } from "../../services/figycode-agent";
+import type {
+  AgentSettings,
+  AgentStatus,
+  ProviderModel,
+  RouterCheck,
+} from "../../services/figycode-agent";
 
 /* ─── Tabs ────────────────────────────────────────────────────────────────── */
 
@@ -147,6 +152,7 @@ export function SettingsDialog({
   rules,
   onMode,
   onSave,
+  onTest,
   onCommand,
   onClose,
 }: {
@@ -159,6 +165,8 @@ export function SettingsDialog({
   rules: string | null;
   onMode: (mode: PermissionMode) => void;
   onSave: (settings: AgentSettings) => void;
+  /** One real call to the tool picker, for the button that asks. */
+  onTest: () => Promise<RouterCheck>;
   onCommand: (name: string) => void;
   onClose: () => void;
 }) {
@@ -173,6 +181,9 @@ export function SettingsDialog({
   const [routerPrice, setRouterPrice] = useState<number | undefined>(
     status.routerPrice ?? undefined
   );
+  /** The last real call to the picker, when somebody has asked for one. */
+  const [check, setCheck] = useState<RouterCheck | null>(null);
+  const [checking, setChecking] = useState(false);
   /**
    * Which row is open for editing. A new one opens itself.
    *
@@ -529,6 +540,64 @@ export function SettingsDialog({
               <span className="figy-field-hint">
                 What the picker charges, so its share lands in the ledger under the turn
                 that paid it. Blank uses the published figures.
+              </span>
+            </div>
+
+            {/*
+              The answer to "is it actually running".
+
+              During a turn a router that cannot be reached falls back
+              to every tool and says nothing, which is the right
+              behaviour and makes "off", "wrong key" and "endpoint
+              moved" look identical. This is one call made on purpose,
+              with the failure kept — and it has to be a button
+              because it costs a request.
+
+              Save first: it tests what is stored, not what is typed.
+            */}
+            <div className="figy-field-row">
+              <button
+                type="button"
+                className="figy-button"
+                disabled={checking}
+                onClick={() => {
+                  setChecking(true);
+                  setCheck(null);
+                  void onTest()
+                    .then(setCheck)
+                    .catch((error: unknown) =>
+                      setCheck({
+                        ok: false,
+                        picked: [],
+                        total: 0,
+                        costUsd: 0,
+                        error: String(error),
+                      })
+                    )
+                    .finally(() => setChecking(false));
+                }}
+              >
+                {checking ? "Asking…" : "Test the picker"}
+              </button>
+
+              {check && (
+                <span className={`figy-check ${check.ok ? "ok" : "bad"}`}>
+                  {check.ok ? (
+                    <>
+                      Working. For &ldquo;add a timeout, then run the tests&rdquo; it chose{" "}
+                      <strong>
+                        {check.picked.length} of {check.total}
+                      </strong>
+                      : {check.picked.join(", ")} · {formatCost(check.costUsd)}
+                    </>
+                  ) : (
+                    <>Not working: {check.error}. Turns are getting every tool.</>
+                  )}
+                </span>
+              )}
+              <span className="figy-field-hint">
+                One real request, billed to your account. It tests the saved key — save
+                first if you have just typed one.
               </span>
             </div>
           </div>

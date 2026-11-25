@@ -14908,6 +14908,25 @@ body > .cm-api-completions .cm-completionDetail {
   background: rgba(15, 17, 23, 0.1);
 }
 
+/* The result of asking the picker whether it works. Stated in words
+   rather than a tick: "working" and "working but choosing badly" are
+   different answers, and only the list of tools tells them apart. */
+.figy-check {
+  display: block;
+  margin-top: 6px;
+  color: var(--ft-text-secondary);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.figy-check.ok strong {
+  color: var(--ft-success);
+}
+
+.figy-check.bad {
+  color: var(--ft-warning);
+}
+
 /* ─── The model list ─────────────────────────────────────────────────────── */
 
 .figy-empty {

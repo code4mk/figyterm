@@ -359,6 +359,28 @@ export interface ContextBreakdown {
   heaviest: { name: string; tokens: number }[];
 }
 
+/** What one real call to the tool picker did. */
+export interface RouterCheck {
+  ok: boolean;
+  /** What it chose. Empty when it could not be reached. */
+  picked: string[];
+  total: number;
+  costUsd: number;
+  error: string | null;
+}
+
+/**
+ * Makes one real request to the tool picker and says what happened.
+ *
+ * A router that falls back silently is right during a turn and
+ * useless when the question is whether it works at all — switched
+ * off, bad key, and changed endpoint all look identical from the
+ * outside. This is the call made on purpose, with the failure kept.
+ */
+export function agentTestRouter(surface: Surface): Promise<RouterCheck> {
+  return invoke<RouterCheck>("agent_test_router", { surface });
+}
+
 /** `null` when this folder has no conversation yet. */
 export function agentContext(surface: Surface): Promise<ContextBreakdown | null> {
   return invoke<ContextBreakdown | null>("agent_context", { surface });

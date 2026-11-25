@@ -84,6 +84,7 @@ import {
   agentRules,
   agentSend,
   agentStatus,
+  agentTestRouter,
   agentTools,
   agentUsage,
   onAgentEvent,
@@ -1419,6 +1420,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
           rules={rules?.name ?? null}
           onMode={setMode}
           onSave={saveSettings}
+          onTest={() => agentTestRouter(SURFACE)}
           onCommand={command}
           onClose={() => setDialog(null)}
         />

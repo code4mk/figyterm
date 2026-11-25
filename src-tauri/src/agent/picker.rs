@@ -257,6 +257,22 @@ impl Picker for Jev {
 }
 
 impl Jev {
+    /// One call, with the failure kept rather than swallowed.
+    ///
+    /// `tools_for` turns every failure into "offer everything", which
+    /// is right during a turn and useless when the question is
+    /// whether the thing works at all. This is the same call with the
+    /// error still attached, for the button that asks.
+    pub async fn check(&self, prompt: &str) -> Result<Pick, String> {
+        let body = self.ask(prompt).await?;
+        let (names, input_tokens) =
+            parse(&body, KEEP_MASS).ok_or_else(|| format!("could not read the answer: {}", first_line(&body)))?;
+        Ok(Pick {
+            names,
+            cost_usd: input_tokens as f64 * self.price_per_mtok / 1_000_000.0,
+        })
+    }
+
     async fn pick(&self, prompt: &str) -> Pick {
         let everything = || {
             Pick::free(
@@ -277,15 +293,29 @@ impl Jev {
           a window where a third-party outage looks like the agent
           forgetting how to edit files.
         */
-        let Ok(body) = self.ask(prompt).await else {
-            return everything();
+        let body = match self.ask(prompt).await {
+            Ok(body) => body,
+            Err(error) => {
+                // Quiet on screen, loud in the log. A fallback nobody
+                // can see is the difference between "the router is
+                // not helping" and "the router is not running", and
+                // those take very different afternoons to work out.
+                log::warn!("tool picker: {error} — offering every tool");
+                return everything();
+            }
         };
         let Some((names, input_tokens)) = parse(&body, KEEP_MASS) else {
+            log::warn!(
+                "tool picker: could not read the answer — offering every tool. {}",
+                first_line(&body)
+            );
             return everything();
         };
         if names.is_empty() {
+            log::warn!("tool picker: chose nothing — offering every tool");
             return everything();
         }
+        log::info!("tool picker: {} tools, {input_tokens} tokens in", names.len());
 
         Pick {
             names,
