@@ -50,7 +50,7 @@ use serde_json::Value;
 use tokio::sync::{mpsc::UnboundedSender, oneshot};
 
 use crate::agent::ledger::{Ledger, Price, Surface, TurnRecord};
-use crate::agent::message::{Message, Role, ToolCall};
+use crate::agent::message::{Image, Message, Role, ToolCall};
 use crate::agent::store::Snapshot;
 use crate::agent::policy::{approval_key, decide, Decision, Mode, ModeCell};
 use crate::agent::provider::{Provider, StreamEvent, TurnRequest, CANCELLED};
@@ -915,15 +915,25 @@ impl Session {
     /// reached, the user cancels, or the provider fails. Every exit leaves
     /// the history consistent: a tool call in it always has its result after
     /// it, because a dangling call is a request every later turn rejects.
+    ///
+    /// `images` are pictures attached to *this* message, and they are
+    /// a parameter for a reason worth keeping. The first version took
+    /// them as far as the command, checked them against the model's
+    /// `vision` flag, and then built the user message without them.
+    /// Everything looked right — the chip was in the transcript, the
+    /// attachment was in the request object, the model said it could
+    /// not see anything — and the compiler was no help, because the
+    /// check counted as a use.
     pub async fn send<P: Provider, K: Picker + ?Sized, A: Approver>(
         &mut self,
         prompt: &str,
+        images: Vec<Image>,
         turn: Turn<'_, P, K, A>,
         events: UnboundedSender<TurnEvent>,
         mut cancel: oneshot::Receiver<()>,
     ) -> Result<(), String> {
         let Turn { provider, picker, approver, ctx, ledger } = turn;
-        self.history.push(Message::user(prompt));
+        self.history.push(Message::user_seeing(prompt, images));
         let pick = picker.tools_for(prompt).await;
         let mut picker_cost = pick.cost_usd;
         self.last_pick = pick.note;
@@ -1473,6 +1483,7 @@ mod tests {
         let result = session
             .send(
                 "do the thing",
+                Vec::new(),
                 Turn { provider, picker: &OfferEverything(Surface::Window), approver, ctx, ledger },
                 tx,
                 cancel_rx,
@@ -1614,6 +1625,66 @@ mod tests {
       told it was doing — rewriting it on the way back in would be
       editing history.
     */
+    /*
+      The test that was missing, which is why this shipped broken.
+
+      Pictures reached the command, were checked against the model's
+      `vision` flag, and were then dropped: the user message was
+      built from the words alone. Every surface of it looked right —
+      the chip was in the transcript, the attachment was in the
+      request — and the only symptom was a model saying it could not
+      see an image that was, as far as anybody could tell, attached.
+
+      So this asserts the end of the chain rather than the middle:
+      what the provider is actually handed.
+    */
+    #[tokio::test]
+    async fn a_picture_attached_to_a_message_reaches_the_provider() {
+        let ctx = scratch("images");
+        let provider = answers(vec![text_turn("A login form.")]);
+        let mut session = session(Mode::Ask);
+
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let (_cancel, cancel_rx) = oneshot::channel();
+        session
+            .send(
+                "summarise this",
+                vec![Image {
+                    mime: "image/png".into(),
+                    data: "iVBORw0KGgo=".into(),
+                }],
+                Turn {
+                    provider: &provider,
+                    picker: &OfferEverything(Surface::Window),
+                    approver: &Yes,
+                    ctx: &ctx,
+                    ledger: None,
+                },
+                tx,
+                cancel_rx,
+            )
+            .await
+            .unwrap();
+
+        // In the history, so it is re-sent on every later turn.
+        let asked = &session.history()[0];
+        assert_eq!(asked.images.len(), 1);
+
+        // And on the wire, which is the part that was broken: the
+        // parts array rather than a bare string.
+        let sent = provider.seen.lock().unwrap().clone();
+        let user = sent[0]
+            .iter()
+            .find(|m| m.role == Role::User)
+            .expect("a user message")
+            .as_openai();
+        let parts = user["content"]
+            .as_array()
+            .expect("an array — a string here is the bug this exists for");
+        assert_eq!(parts[0]["type"], "text");
+        assert_eq!(parts[1]["image_url"]["url"], "data:image/png;base64,iVBORw0KGgo=");
+    }
+
     #[tokio::test]
     async fn a_resumed_session_carries_its_history_its_prompt_and_its_spend() {
         let ctx = scratch("resume");
@@ -1798,6 +1869,7 @@ mod tests {
         let result = session
             .send(
                 "hi",
+                Vec::new(),
                 Turn {
                     provider: &Broken,
                     picker: &OfferEverything(Surface::Window),
@@ -1950,6 +2022,7 @@ mod tests {
         let result = session
             .send(
                 "hi",
+                Vec::new(),
                 Turn {
                     provider: &provider,
                     picker: &OfferEverything(Surface::Window),
@@ -2000,6 +2073,7 @@ mod tests {
         let result = session
             .send(
                 "run the tests",
+                Vec::new(),
                 Turn {
                     provider: &provider,
                     picker: &OfferEverything(Surface::Window),

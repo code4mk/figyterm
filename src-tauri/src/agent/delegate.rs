@@ -220,6 +220,10 @@ impl<P: Provider> Delegate for SubAgent<P> {
 
         let result = self.handle.block_on(session.send(
             prompt,
+            // A sub-agent is handed a question, never a picture: what
+            // it reads is thrown away, and an image that reached it
+            // would be paid for and then discarded unseen.
+            Vec::new(),
             Turn {
                 provider: self.provider.as_ref(),
                 picker: &ReadOnly,

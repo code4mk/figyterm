@@ -1135,6 +1135,7 @@ pub async fn agent_send(
     */
     let result = AssertUnwindSafe(session.send(
             &prompt,
+            images,
             Turn {
                 provider: &provider,
                 picker,
