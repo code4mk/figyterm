@@ -25,6 +25,7 @@ import {
 } from "react";
 import { ArrowUp, AtSign, Slash, Square, Terminal, X } from "lucide-react";
 import { formatBytes, type Attachment } from "../../services/figycode-attach";
+import { formatDuration } from "../../services/figycode-background";
 
 /* ─── The running line ────────────────────────────────────────────────────── */
 
@@ -32,14 +33,10 @@ export function RunningLine({
   label,
   elapsed,
   tokens,
-  background,
-  onBackground,
 }: {
   label: string;
   elapsed: string;
   tokens: string;
-  background: string | null;
-  onBackground: () => void;
 }) {
   return (
     <div className="figy-running">
@@ -50,13 +47,135 @@ export function RunningLine({
       </span>
 
       <div className="figy-running-spacer" />
-
-      {background && (
-        <button type="button" className="figy-bg-chip" onClick={onBackground}>
-          <span className="figy-bg-dot" />1 background task · {background} · ctrl+b
-        </button>
-      )}
     </div>
+  );
+}
+
+/**
+ * What is running in the background, and what it is doing.
+ *
+ * Its own row, **outside** the running line, which is where it used to
+ * be and was the bug: a background job's whole reason for existing is
+ * that it outlives the turn that started it, and a chip inside the
+ * turn's own spinner could only be seen while the turn was still
+ * going. A five-minute build started by a ten-second turn was
+ * invisible for four minutes and fifty seconds.
+ *
+ * Named by command rather than by id. `bg_1` is the agent's handle for
+ * it; `docker build` is what the person started.
+ *
+ * ## The log
+ *
+ * Clicking a row opens what it has written, live. That was the gap
+ * after the bar existed: it said a build was running and for how long,
+ * which answers *whether* and not *what* — and "what" is the whole
+ * question somebody has while watching a build they cannot see. The
+ * agent could read the output all along; the person could not.
+ *
+ * The tail rather than the whole thing, because a Docker build writes
+ * a few thousand lines and the interesting one is always the last.
+ */
+export function BackgroundBar({
+  jobs,
+  open,
+  log,
+  onOpen,
+  onStop,
+}: {
+  jobs: { id: string; command: string; ms: number; lines: number }[];
+  /** Which job's log is showing, if any. One at a time. */
+  open: string | null;
+  /** The open job's output, newest last. */
+  log: string[];
+  onOpen: (id: string | null) => void;
+  onStop: (id: string) => void;
+}) {
+  if (jobs.length === 0) return null;
+
+  return (
+    <div className="figy-bg-bar">
+      {jobs.map((job) => {
+        const showing = open === job.id;
+        return (
+          <div className="figy-bg-job" key={job.id}>
+            <div className="figy-bg-row">
+              {/*
+                The row is the control. A separate disclosure triangle
+                beside a command, a clock and a Stop button is a fourth
+                thing to aim at in a row 24px tall.
+              */}
+              <button
+                type="button"
+                className="figy-bg-open"
+                onClick={() => onOpen(showing ? null : job.id)}
+                aria-expanded={showing}
+                title={showing ? "Hide the output" : "Show what it is doing"}
+              >
+                <span className="figy-bg-dot" />
+                <span className="figy-bg-cmd">{job.command}</span>
+              </button>
+              <span className="figy-bg-time">{formatDuration(job.ms)}</span>
+              <button
+                type="button"
+                className="figy-bg-stop"
+                onClick={() => onStop(job.id)}
+                title={`Stop ${job.command}`}
+                aria-label={`Stop ${job.command}`}
+              >
+                Stop
+              </button>
+            </div>
+
+            {showing && (
+              <div className="figy-bg-log">
+                {log.length > 0 ? (
+                  <JobLog lines={log} />
+                ) : (
+                  <p className="figy-bg-quiet">
+                    {job.lines > 0 ? "Reading the output…" : "Nothing written yet."}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * A live log, following its own tail.
+ *
+ * Without the follow this is the first 180px of a build log — which is
+ * `#1 [internal] load build definition` for as long as anybody cares
+ * to watch it, while the line that matters scrolls past unseen below.
+ *
+ * It follows only while the reader is already at the bottom, which is
+ * the same rule the transcript uses: scrolling up to read an error and
+ * being dragged back down by the next line is the bug every streaming
+ * log ships with.
+ */
+function JobLog({ lines }: { lines: string[] }) {
+  const box = useRef<HTMLPreElement>(null);
+  const following = useRef(true);
+
+  useEffect(() => {
+    const el = box.current;
+    if (el && following.current) el.scrollTop = el.scrollHeight;
+  }, [lines]);
+
+  return (
+    <pre
+      ref={box}
+      className="figy-output figy-bg-out"
+      onScroll={(e) => {
+        const el = e.currentTarget;
+        following.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+      }}
+    >
+      {lines.join("\n")}
+    </pre>
   );
 }
 

@@ -18,7 +18,7 @@
  * implementations of that would diverge within a month, and the one in the
  * front end would be the one nobody tested.
  *
- * Escape, in order: close a completion popup, answer "no" to a question,
+ * Escape, in order: close a completion completion.items, answer "no" to a question,
  * come back from a screen, leave shell mode, interrupt the turn, close the
  * window. One meaning at a time, the innermost first.
  */
@@ -41,18 +41,7 @@ import { useOverlayRect } from "../../hooks/useOverlayRect";
 import { useOverlayZSync } from "../../hooks/useOverlayZSync";
 import { fullscreenRect, useDraggableModal } from "../../hooks/useDraggableModal";
 import { collapseHome, normalizeDir, recentDirs } from "../../services/recent-dirs";
-import { attach, imageMentions, type Attachment } from "../../services/figycode-attach";
-import {
-  findFiles,
-  countDir,
-  hitMeta,
-  openProjectIndex,
-  readImage,
-  setExtraDirs,
-  type DirCount,
-  type FileHit,
-  type ProjectInfo,
-} from "../../services/figycode-files";
+import { countDir, setExtraDirs, type DirCount } from "../../services/figycode-files";
 import {
   addExtraDir,
   removeExtraDir,
@@ -66,64 +55,28 @@ import {
 import {
   MODE_LABEL,
   cycleMode,
-  modeAfterPlan,
-  filterCommands,
   formatCost,
   formatElapsed,
   formatTokens,
-  mentionAt,
   type Block,
-  type Notice,
-  type PermissionMode,
 } from "../../services/figycode-blocks";
 import {
-  agentAnswer,
-  agentApprove,
-  agentCallTool,
-  agentCancel,
-  agentClear,
-  agentConfigure,
-  agentContext,
-  agentConversations,
-  agentForgetConversation,
-  agentResume,
-  agentRules,
-  agentSend,
-  agentStatus,
   agentTestRouter,
-  agentTools,
-  agentUsage,
-  onAgentEvent,
+  settingsFrom,
   type AgentSettings,
-  type AgentStatus,
-  type ContextBreakdown,
-  type Conversation,
-  type ProjectRules,
   type Totals,
 } from "../../services/figycode-agent";
-import {
-  answerOf,
-  applyEvent,
-  emptySession,
-  NONE_OF_THESE,
-  pushUser,
-  resumeSession,
-  type SessionState,
-} from "../../services/figycode-session";
 import { BlockView } from "./FigyBlocks";
 import { PromptCard } from "./FigyPrompt";
-import {
-  Composer,
-  CompletionPopup,
-  RunningLine,
-  type ComposerHandle,
-  type PopupItem,
-} from "./FigyComposer";
+import { BackgroundBar, Composer, CompletionPopup, RunningLine } from "./FigyComposer";
 import { ProjectDialog, ResumeDialog, UsageDialog, Welcome } from "./FigyScreens";
 import { FigyProjects } from "./FigyProjects";
 import { SettingsDialog } from "./FigySettings";
 import { ModelPicker } from "./FigyModelPicker";
 import { ContextDialog } from "./FigyContext";
+import { ToolsDialog } from "./FigyTools";
+import { useAgentSurface } from "./useAgentSurface";
+import { screenFor, type Screen } from "../../services/figycode-views";
 
 export interface FigyCodeModalProps {
   visible: boolean;
@@ -144,7 +97,7 @@ const DEFAULT_SIZE = { w: 960, h: 680 };
  * two body screens, which meant two different ways to be somewhere
  * else and two different ways back.
  */
-type Dialog = "settings" | "resume" | "usage" | "context" | "project" | null;
+type Dialog = "settings" | "resume" | "usage" | "context" | "project" | "tools" | null;
 
 /**
  * The prompt the agent is given, built once per session.
@@ -186,6 +139,19 @@ const SYSTEM_PROMPT = [
   "Tool results are re-sent on every later turn, so ask for what you need and not",
   "more. Do not re-read a range you have already been given.",
   "",
+  // The pathology this replaces: asked to build a Docker image and
+  // report back, a model with only `bash_output` polls it. Each poll
+  // is a whole round trip that re-sends the conversation, so a
+  // four-minute build arrived as forty rows that each said "still
+  // running, 7 lines" and forty times the input bill.
+  "For something slow — a build, a test suite, an install — start it with",
+  "background=true and then call `bash_wait` on its id. It returns when the command is",
+  "done, with its exit code. **Never poll `bash_output` in a loop**: each call is a",
+  "whole request that re-sends this conversation, and it tells the person nothing that",
+  "the waiting row does not already show them. When the wait comes back, say what",
+  "happened in a sentence — whether it worked, and what to do about it if it did not.",
+
+  "",
   // The list is the only thing that keeps the model's own intent in the
   // prefix without restating it in prose every turn — but only if it
   // reaches for it, and a tool description alone is read once and
@@ -214,44 +180,6 @@ const SURFACE = "window" as const;
  * state is "not configured" rather than a guess at a default provider
  * that was wrong for everybody not using OpenAI.
  */
-const NOTHING_YET: AgentStatus = {
-  hasKey: false,
-  hasExaKey: false,
-  router: false,
-  hasRouterKey: false,
-  active: null,
-  model: "",
-  models: [],
-  path: "",
-};
-
-/**
- * The stored settings, as something that can be saved back.
- *
- * `agent_configure` takes the whole shape and writes what it is given,
- * which means a partial save is a reset of everything left out. The
- * model picker in the composer learned that the hard way: sending
- * `{models, active}` to switch model turned the tool router off, every
- * time, silently — `router` is a boolean and an absent boolean is
- * false.
- *
- * So nothing builds that object by hand any more. This takes what the
- * backend says is stored and changes only what was asked for. Keys are
- * left out on purpose: they never come back from the backend, and an
- * empty one means "keep the stored one".
- */
-function settingsFrom(status: AgentStatus, change: Partial<AgentSettings>): AgentSettings {
-  return {
-    models: status.models,
-    active: status.active,
-    budgetUsd: status.budgetUsd,
-    router: status.router,
-    routerModel: status.routerModel ?? undefined,
-    routerPrice: status.routerPrice ?? undefined,
-    ...change,
-  };
-}
-
 /** The conversation's name: the first thing asked of it. */
 function conversationTitle(blocks: Block[]): string | null {
   const first = blocks.find((b) => b.kind === "user");
@@ -262,49 +190,7 @@ function conversationTitle(blocks: Block[]): string | null {
 
 export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<ComposerHandle>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-
-  /* ─── The conversation ─────────────────────────────────────────────────── */
-
-  /*
-    One piece of state, reduced from the event stream. The reducer is pure
-    and tested in `figycode-session.test.ts` — which is where the awkward
-    parts live, because text arriving in forty pieces and a tool row filled
-    in two seconds after it appears are not things anybody can click.
-  */
-  const [session, setSession] = useState<SessionState>(emptySession);
-  const [choice, setChoice] = useState(0);
-  const [startedAt, setStartedAt] = useState(0);
-  const [elapsed, setElapsed] = useState(0);
-
-  /* ─── Session settings ─────────────────────────────────────────────────── */
-
-  const [mode, setMode] = useState<PermissionMode>("ask");
-  /*
-    What the *backend* says it is set up with, not what this side believes.
-    The window asks rather than deducing: a guess assembled from a key
-    check and a local copy of the settings is a second source of truth for
-    "can I send a message", and the one that refuses.
-  */
-  const [status, setStatus] = useState<AgentStatus>(NOTHING_YET);
-  const [totals, setTotals] = useState<Totals | null>(null);
-  /** What `/context` last read. Fetched when it opens, not kept live. */
-  const [context, setContext] = useState<ContextBreakdown | null>(null);
-  /** The conversations this folder has had, for `/resume`. */
-  const [past, setPast] = useState<Conversation[]>([]);
-  /** What this project tells the agent, from its own `FIGY.md`. */
-  const [rules, setRules] = useState<ProjectRules | null>(null);
-  const configured = status.hasKey && !!status.model.trim();
-
-  /* ─── The composer ─────────────────────────────────────────────────────── */
-
-  const [text, setText] = useState("");
-  /** Pictures attached to the message being written. */
-  const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const [caret, setCaret] = useState(0);
-  const [shell, setShell] = useState(false);
-  const [popupIndex, setPopupIndex] = useState(0);
 
   /* ─── Window state ─────────────────────────────────────────────────────── */
 
@@ -339,6 +225,82 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
 
   const project = projects.find((p) => p.root === activeRoot) ?? null;
   const extraDirs = project?.extraDirs ?? [];
+
+  /* ─── The agent ────────────────────────────────────────────────────────── */
+
+  /*
+    The chatbox, shared with the editor's panel.
+
+    Everything in `useAgentSurface` was written here first and moved
+    there when the panel needed the same behaviour — the reducer, the
+    completion, the attachments, what Enter means while a card is up.
+    What stays in this file is what it means to be a *window*: the
+    dialogs, the project list, the title bar, dragging and fullscreen.
+  */
+  const commandRef = useRef<(name: string) => boolean>(() => false);
+  const agent = useAgentSurface({
+    surface: SURFACE,
+    system: SYSTEM_PROMPT,
+    root: activeRoot,
+    active: visible,
+    // The window has `bash`, so the window has a `!` prompt.
+    shell: true,
+    onCommand: useCallback((name: string) => commandRef.current(name), []),
+    commandHint: "Try /model, /project, /context, /usage, /tools, /resume or /clear.",
+    noFolder: {
+      short: "No folder open — choose one from the title bar",
+      long: "Choose one from the title bar first — every tool resolves against it.",
+    },
+  });
+  const {
+    session,
+    choice,
+    setChoice,
+    elapsed,
+    mode,
+    setMode,
+    status,
+    configured,
+    totals,
+    context,
+    past,
+    rules,
+    tools,
+    loadContext,
+    loadUsage,
+    loadPast,
+    loadTools,
+    saveSettings: persist,
+    inputRef,
+    text,
+    setText,
+    setCaret,
+    shell,
+    setShell,
+    attachments,
+    addFiles,
+    removeFile,
+    queued,
+    unqueue,
+    completion,
+    setPopupIndex,
+    complete,
+    insert,
+    index,
+    notice,
+    running,
+    stopJob,
+    openJob,
+    setOpenJob,
+    log,
+    command,
+    send,
+    answer,
+    interrupt,
+    newConversation: clearConversation,
+    resume: resumeConversation,
+    forgetConversation,
+  } = agent;
 
   /*
     The grant itself, sent whenever the list changes.
@@ -382,480 +344,110 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dialog, extraDirs]);
 
-  /* ─── The file index behind @ ──────────────────────────────────────────── */
-
-  const [index, setIndex] = useState<ProjectInfo | null>(null);
-  const [indexError, setIndexError] = useState<string | null>(null);
-  const [hits, setHits] = useState<FileHit[]>([]);
-
-  /**
-   * Index the folder once, when it is adopted.
-   *
-   * This is also what tells the backend which folder every tool resolves
-   * against — `figy_open_project` sets the agent's root. The walk is the
-   * slow part and it happens here rather than on the first `@`, so the
-   * first mention is as quick as the twentieth.
-   */
-  useEffect(() => {
-    if (!activeRoot) return;
-    let alive = true;
-    setIndex(null);
-    setIndexError(null);
-    setHits([]);
-    openProjectIndex(SURFACE, activeRoot)
-      .then((info) => {
-        if (alive) setIndex(info);
-      })
-      .catch((error: unknown) => {
-        if (alive) setIndexError(String(error));
-      });
-    return () => {
-      alive = false;
-    };
-  }, [activeRoot]);
-
-  /* ─── The agent ────────────────────────────────────────────────────────── */
-
-  /**
-   * One subscription for the window's whole life.
-   *
-   * Not per turn: the backend emits to the window, and a listener added on
-   * send and removed on finish would miss the events of a turn that is
-   * still arriving when the next one starts.
-   */
-  useEffect(() => {
-    let unlisten: (() => void) | null = null;
-    let alive = true;
-    onAgentEvent((event) => setSession((state) => applyEvent(state, event))).then((off) => {
-      if (alive) unlisten = off;
-      else off();
-    });
-    return () => {
-      alive = false;
-      unlisten?.();
-    };
-  }, []);
-
-  /*
-    Asked, not remembered. The settings live in one file owned by the
-    backend; a copy on this side would be a second answer to "which model"
-    and the two would disagree the first time one of them failed to save.
-  */
-  useEffect(() => {
-    if (!visible) return;
-    void agentStatus()
-      .then(setStatus)
-      .catch(() => {});
-  }, [visible]);
-
-  /*
-    What this folder was working on before.
-
-    Loaded when the window opens on a project rather than when `/resume`
-    is typed, because the count is wanted on the first screen: a command
-    nobody knows about is a feature nobody has. The list itself is
-    refreshed by `/resume`, so opening the screen never shows a stale one.
-  */
-  useEffect(() => {
-    if (!visible || !activeRoot) return;
-    let alive = true;
-    agentConversations(SURFACE)
-      .then((conversations) => {
-        if (alive) setPast(conversations);
-      })
-      .catch(() => {});
-    // Read live rather than from the session: this says what the *next*
-    // conversation will be given, and a running one keeps what it
-    // started with.
-    agentRules(SURFACE)
-      .then((found) => {
-        if (alive) setRules(found);
-      })
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, [visible, activeRoot]);
-
-  /*
-    A new question starts on its first option.
-
-    The cursor is window state and the question is the backend's, so
-    without this the second prompt of a turn opens with the cursor
-    wherever the first one left it — which on an edit card is "No".
-  */
-  useEffect(() => setChoice(0), [session.live?.id]);
-
-  // The elapsed counter, which only has to tick while something is running.
-  useEffect(() => {
-    if (!session.running) return;
-    const tick = window.setInterval(() => setElapsed(Date.now() - startedAt), 250);
-    return () => window.clearInterval(tick);
-  }, [session.running, startedAt]);
-
-  /*
-    A pasted or dropped file, on its way to becoming an attachment.
-
-    Refusals are notices rather than thrown errors, and partial: three
-    files where one is a PDF attach the two and say so about the
-    third. Failing the whole drop because one item was wrong is the
-    kind of strictness that makes people stop using a feature.
-  */
-  const addFiles = useCallback(
-    (files: File[]) => {
-      void attach(files, attachments).then(({ added, refused }) => {
-        if (added.length > 0) setAttachments((all) => [...all, ...added]);
-        if (refused.length > 0) {
-          notice({
-            tone: "warn",
-            title: refused.length === 1 ? "That file was not attached" : "Some files were not attached",
-            body: refused.join(" · "),
-          });
-        }
-      });
-    },
-    // `notice` is defined below and is stable; `attachments` is read
-    // to know how much room is left.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [attachments]
-  );
-
-  const notice = useCallback((notice: Notice) => {
-    setSession((state) => ({
-      ...state,
-      blocks: [...state.blocks, { id: state.nextId, kind: "notice", notice }],
-      nextId: state.nextId + 1,
-    }));
-  }, []);
-
   /* ─── Commands ─────────────────────────────────────────────────────────── */
-
-  const newConversation = useCallback(() => {
-    void agentCancel(SURFACE);
-    void agentClear(SURFACE);
-    setSession(emptySession());
-    setDialog(null);
-    setText("");
-    setShell(false);
-  }, []);
-
-  /**
-   * Picks a past conversation back up.
-   *
-   * The backend puts the session back under this window's key and hands
-   * back the transcript; this side redraws it. What does not come back is
-   * the diff on an edit row — the structured half of a tool's answer never
-   * entered the conversation and is not stored, so a resumed edit shows
-   * what it reported rather than the tinted before-and-after.
-   */
-  const resume = useCallback(
-    (sessionId: string) => {
-      void agentResume(SURFACE, sessionId)
-        .then((conversation) => {
-          setSession(resumeSession(conversation.messages, conversation.spentUsd));
-          setDialog(null);
-          setText("");
-          setShell(false);
-        })
-        .catch((error: unknown) => {
-          notice({
-            tone: "error",
-            title: "That conversation could not be opened",
-            body: String(error),
-          });
-        });
-    },
-    [notice]
-  );
-
-  const forgetConversation = useCallback((sessionId: string) => {
-    void agentForgetConversation(sessionId).then(() => {
-      setPast((list) => list.filter((one) => one.sessionId !== sessionId));
-    });
-  }, []);
-
-  const command = useCallback(
-    (name: string) => {
-      switch (name) {
-        // `/settings` is unlisted and accepted, because it is what the
-        // dialog is now and half of everybody will try it.
-        case "/model":
-        case "/settings":
-          setDialog("settings");
-          return;
-        case "/context":
-          void agentContext(SURFACE).then((breakdown) => {
-            setContext(breakdown);
-            setDialog("context");
-          });
-          return;
-        case "/usage":
-          void agentUsage(SURFACE).then((totals) => {
-            setTotals(totals);
-            setDialog("usage");
-          });
-          return;
-        /*
-          The first screen, reopened.
-
-          It said which folder, how much of it is indexed, which model
-          and what rules it carries — and then the first message
-          replaced it for ever. Those do not stop being the things you
-          need to check; they stop being visible. The folders this
-          project may also reach are there too, because that is a
-          decision and the status bar is not a place to make one.
-        */
-        case "/project":
-        case "/folder":
-        case "/folders":
-          setDialog("project");
-          return;
-        case "/resume":
-          void agentConversations(SURFACE).then((conversations) => {
-            setPast(conversations);
-            setDialog("resume");
-          });
-          return;
-        case "/clear":
-          newConversation();
-          return;
-        case "/tools":
-          void agentTools().then((tools) => {
-            /*
-              The tokens matter more than the list. Every definition sits
-              in the cached prefix of every request for the whole session,
-              so "ten tools" is a fact about the window and "1.2k tokens
-              before you have said anything" is a fact about the bill.
-            */
-            const json = JSON.stringify(tools.map((t) => t.schema));
-            notice({
-              tone: "info",
-              title: `${tools.length} tools · ~${formatTokens(json.length / 4)} tokens of definitions`,
-              body: tools.map((t) => `${t.name} (${t.class})`).join(" · "),
-            });
-          });
-          return;
-        default:
-          notice({
-            tone: "info",
-            title: `No command ${name}`,
-            body: "Try /model, /project, /context, /usage, /tools, /resume or /clear.",
-          });
-      }
-    },
-    [newConversation, notice]
-  );
 
   /* ─── Sending ──────────────────────────────────────────────────────────── */
 
-  /** Everything after the pictures are in hand. */
-  const finishSend = useCallback(
-    (value: string, sending: Attachment[]) => {
-      /*
-        Said here rather than discovered by the provider.
+  /* ─── Projects ─────────────────────────────────────────────────────────── */
 
-        A model that cannot see answers a picture with a 400, which
-        arrives as "the turn failed" after the screenshot has been
-        attached, the question typed and the message sent. This is
-        the same answer before any of that is spent, and the
-        attachments survive it — so switching model and pressing
-        enter again is the whole of the fix.
-      */
-      if (sending.length > 0 && !status.models.find((m) => m.id === status.active)?.vision) {
-        notice({
-          tone: "warn",
-          title: `${status.model || "This model"} does not read images`,
-          body: 'Tick "reads images" for it in Settings → Models if it can, or pick one that does. What you attached is still here.',
-        });
-        setText(value);
-        return;
-      }
+  /**
+   * Starting fresh, and closing whatever asked for it.
+   *
+   * The hook ends the conversation; the dialog it was asked from is
+   * this window's and it has to be dismissed here, or `/clear` typed
+   * into the settings dialog leaves the dialog sitting over an empty
+   * transcript.
+   */
+  const newConversation = useCallback(() => {
+    clearConversation();
+    setDialog(null);
+  }, [clearConversation]);
 
-      setAttachments([]);
-      setSession((state) => pushUser(state, value, sending));
-      setStartedAt(Date.now());
-      setElapsed(0);
-
-      // The promise resolves when the turn is over; everything worth
-      // showing has already arrived as events by then.
-      void agentSend(value, mode, SYSTEM_PROMPT, SURFACE, sending)
-        .catch(() => {
-          /* The `failed` event already said so, in the transcript. */
-        })
-        .finally(() => void agentUsage(SURFACE).then(setTotals));
-    },
-    [mode, notice, status]
-  );
-
-  /* ─── Answering a permission question ──────────────────────────────────── */
-
-  const answer = useCallback(
-    (optionIndex: number) => {
-      const live = session.live;
-      if (!live) return;
-
-      /*
-        Two things stop a run and they are drawn by the same card on
-        purpose — here is the situation, here are the few ways out. They
-        go back by different routes: a permission question is yes or no
-        to the policy, and a question of the model's own is a sentence
-        that lands in the conversation.
-      */
-      if (live.kind === "question") {
-        const picked = live.prompt.options[optionIndex]?.label ?? NONE_OF_THESE;
-        /*
-          An approved plan lifts plan mode in the turn that proposed it.
-
-          Both sides are told: the backend so the next tool in this turn
-          is not refused, and this side so the footer agrees with what
-          is actually happening.
-        */
-        const next = modeAfterPlan(picked);
-        if (next) setMode(next);
-        void agentAnswer(live.id, picked, SURFACE, next ?? undefined);
-      } else {
-        const { allow, remember, acceptEdits } = answerOf(live, optionIndex);
-        if (acceptEdits) setMode("acceptEdits");
-        // The mode goes with the answer rather than with the next
-        // message: "allow all edits this session" that still asks two
-        // tool calls later reads as a button that did not work.
-        void agentApprove(
-          live.id,
-          allow,
-          SURFACE,
-          remember,
-          acceptEdits ? "acceptEdits" : undefined
-        );
-      }
-      setSession((state) => ({ ...state, live: null }));
-      setChoice(0);
-    },
-    [session.live]
+  const resume = useCallback(
+    (sessionId: string) => void resumeConversation(sessionId).then(() => setDialog(null)),
+    [resumeConversation]
   );
 
   /*
-    Pictures named with `@`, loaded at the moment of sending.
+    The commands that open something.
 
-    `@shot.png summary this` has to work: the mention is how somebody
-    points at a file in this window, and until now it pointed the
-    agent at a path it could only call `read` on — which answered
-    that the file was binary, and the agent asked the person to paste
-    the image they had just mentioned.
-
-    Loaded here rather than when the mention is completed, because a
-    path can also be typed, pasted or edited after the fact. The path
-    stays in the text: it says *which* file, which the picture itself
-    does not.
+    Filled through a ref because they reach for the hook's loaders and
+    the hook is constructed above them — and they cannot move into the
+    hook, because what each one opens is a dialog this window has and
+    the editor's panel does not.
   */
-  const mentionedImages = useCallback(
-    async (text: string): Promise<{ added: Attachment[]; refused: string[] }> => {
-      const added: Attachment[] = [];
-      const refused: string[] = [];
-      for (const path of imageMentions(text)) {
-        try {
-          const image = await readImage(SURFACE, path);
-          added.push({
-            id: `${path}-${Date.now()}`,
-            name: image.name,
-            mime: image.mime,
-            data: image.data,
-            bytes: image.bytes,
-            url: `data:${image.mime};base64,${image.data}`,
-          });
-        } catch (error) {
-          refused.push(String(error));
-        }
-      }
-      return { added, refused };
+  /**
+   * Opens a screen, having loaded what it needs.
+   *
+   * One function for every way in — a command, the status bar's two
+   * figures, the composer's "manage models" — because otherwise a
+   * button would show the last answer it happened to have while the
+   * command showed a fresh one, and the two would disagree about the
+   * same number.
+   */
+  const show = useCallback(
+    (screen: Screen) => {
+      /*
+        `/tools` needs two calls, because the two halves of that screen
+        come from different places: the registry says what the tools
+        *are* and the breakdown says how many of them the last message
+        actually offered. Without the second, the one fact about the
+        tool picker that cannot be seen anywhere else is missing from
+        the screen that is about tools.
+      */
+      const ready =
+        screen === "tools"
+          ? Promise.all([loadTools(), loadContext().catch(() => null)])
+          : screen === "context"
+            ? loadContext()
+            : screen === "usage"
+              ? loadUsage()
+              : screen === "resume"
+                ? loadPast()
+                : Promise.resolve(null);
+      // Shown either way: a screen that fails to load says so in its
+      // own empty state, which beats a command that does nothing.
+      void Promise.resolve(ready)
+        .catch(() => null)
+        .then(() => setDialog(screen));
     },
-    []
+    [loadContext, loadPast, loadTools, loadUsage]
   );
 
-  const send = useCallback(
-    (raw: string) => {
-      const value = raw.trim();
-      // A picture on its own is a message: "what is wrong with this?"
-      // is in the screenshot, not in the words.
-      if (!value && attachments.length === 0) return;
+  /*
+    Which command opens which screen is `COMMAND_SCREEN`, shared with
+    the editor panel — `/project` was offered by the composer on both
+    surfaces and handled on only one, so typing it there completed from
+    the popup and then answered "No command /project".
 
+    Through a ref because these reach for the loaders above them, and
+    they cannot move into the hook: *how* a screen is shown is the
+    surface's own, a dialog here and a tab in a sheet there.
+  */
+  useEffect(() => {
+    commandRef.current = (name: string) => {
+      const screen = screenFor(name);
+      if (screen === null) return false;
       /*
-        `!` runs one tool with no model and no permission prompt — the user
-        typed the command, so there is nobody to ask. Its output does not
-        enter the conversation: `agent/session.rs` owns the history, and a
-        window that could append to it would be a second writer of the one
-        thing that must stay append-only.
+        Intercepted rather than left to the hook, which ends the
+        conversation but knows nothing about the dialog that may be
+        over it — `/clear` typed with one open would empty the
+        transcript behind a screen still describing it.
       */
-      if (shell) {
-        setText("");
-        // Minted before the state update rather than from it: an event
-        // arriving in between would bump `nextId`, and the row this
-        // promise later looks for would be a different one.
-        const callId = `local_${Date.now()}`;
-        setSession((state) => ({
-          ...state,
-          blocks: [
-            ...state.blocks,
-            {
-              id: state.nextId,
-              kind: "tool",
-              callId,
-              tool: { kind: "bash", name: "Bash", target: value, running: true },
-            },
-          ],
-          nextId: state.nextId + 1,
-        }));
-        void agentCallTool(SURFACE, "bash", { cmd: value })
-          .then((result) =>
-            setSession((state) =>
-              patchLocal(state, callId, result.text.split("\n").slice(1), false)
-            )
-          )
-          .catch((error: unknown) =>
-            setSession((state) => patchLocal(state, callId, [String(error)], true))
-          );
-        return;
+      if (screen === "clear") {
+        newConversation();
+        return true;
       }
+      show(screen);
+      return true;
+    };
+  });
 
-      setText("");
-      if (value.startsWith("/")) {
-        command(value.split(/\s+/)[0]);
-        return;
-      }
-
-      if (!activeRoot) {
-        notice({
-          tone: "warn",
-          title: "No folder open",
-          body: "Choose one from the title bar first — every tool resolves against it.",
-        });
-        return;
-      }
-      /*
-        Anything named with `@` joins what was pasted or dropped.
-
-        Asynchronous, so the rest of sending happens in the `then` —
-        the alternative is sending the message and attaching the
-        pictures to the one after it.
-      */
-      void mentionedImages(value).then(({ added, refused }) => {
-        if (refused.length > 0) {
-          notice({
-            tone: "warn",
-            title: "Some mentioned images could not be read",
-            body: refused.join(" · "),
-          });
-        }
-        finishSend(value, [...attachments, ...added]);
-      });
-    },
-    [activeRoot, attachments, command, finishSend, mentionedImages, notice, shell]
+  /** Saving closes the dialog it was saved from. */
+  const saveSettings = useCallback(
+    (next: AgentSettings, quiet?: boolean) => void persist(next, quiet).then(() => setDialog(null)),
+    [persist]
   );
-
-  const interrupt = useCallback(() => {
-    void agentCancel(SURFACE);
-  }, []);
-
-  /* ─── Projects ─────────────────────────────────────────────────────────── */
 
   const openProject = useCallback(
     (root: string) => {
@@ -919,170 +511,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
     }
   }, [activeRoot, notice, projects, session.blocks.length]);
 
-  /* ─── Completion ───────────────────────────────────────────────────────── */
-
-  const slashing = !shell && text.startsWith("/") && !/\s/.test(text);
-  const mention = shell ? null : mentionAt(text, caret);
-  const mentionQuery = mention?.query ?? null;
-
-  const askedRef = useRef(0);
-  useEffect(() => {
-    if (mentionQuery === null) return;
-    if (!index) {
-      setHits([]);
-      return;
-    }
-    const asked = ++askedRef.current;
-    const timer = window.setTimeout(() => {
-      findFiles(SURFACE, mentionQuery, 12)
-        .then((found) => {
-          if (askedRef.current === asked) setHits(found);
-        })
-        .catch(() => {
-          if (askedRef.current === asked) setHits([]);
-        });
-    }, 60);
-    return () => window.clearTimeout(timer);
-  }, [index, mentionQuery]);
-
-  const popup: PopupItem[] = useMemo(() => {
-    if (slashing) {
-      return filterCommands(text).map((c) => ({
-        value: `${c.name} `,
-        label: c.name,
-        meta: c.summary,
-      }));
-    }
-    if (mention) {
-      return hits.map((hit) => ({
-        value: `@${hit.path}${hit.isDir ? "" : " "}`,
-        label: hit.path,
-        meta: hitMeta(hit),
-      }));
-    }
-    return [];
-  }, [hits, mention, slashing, text]);
-
-  const popupAt = popup.length ? Math.min(popupIndex, popup.length - 1) : 0;
-
-  const popupEmpty = !mention
-    ? null
-    : !activeRoot
-      ? "No folder open — choose one from the title bar"
-      : indexError
-        ? `Could not read that folder: ${indexError}`
-        : !index
-          ? "Indexing the folder…"
-          : `Nothing matches “${mention.query}”`;
-
-  const focusAt = useCallback((at: number) => {
-    window.requestAnimationFrame(() => {
-      inputRef.current?.focus();
-      inputRef.current?.setCaret(at);
-    });
-  }, []);
-
-  const complete = useCallback(
-    (itemIndex: number) => {
-      const item = popup[itemIndex];
-      if (!item) return;
-      const next = mention
-        ? `${text.slice(0, mention.start)}${item.value}${text.slice(caret)}`
-        : item.value;
-      const at = mention ? mention.start + item.value.length : next.length;
-      setText(next);
-      setCaret(at);
-      setPopupIndex(0);
-      focusAt(at);
-    },
-    [caret, focusAt, mention, popup, text]
-  );
-
-  const insert = useCallback(
-    (token: "@" | "/" | "!") => {
-      if (token === "!") {
-        setShell((on) => !on);
-        focusAt(text.length);
-        return;
-      }
-      setShell(false);
-      const next = !text || text.endsWith(" ") ? `${text}${token}` : `${text} ${token}`;
-      setText(next);
-      setCaret(next.length);
-      setPopupIndex(0);
-      focusAt(next.length);
-    },
-    [focusAt, text]
-  );
-
   /* ─── Settings ─────────────────────────────────────────────────────────── */
-
-  const saveSettings = useCallback(
-    (next: AgentSettings, quiet?: boolean) => {
-      const before = status.active;
-      void agentConfigure(next)
-        .then((saved) => {
-          setStatus(saved);
-          setDialog(null);
-
-          /*
-            Switching model mid-conversation is allowed and is not free.
-
-            The next message re-sends the whole history to a provider
-            that has never seen it, so the first turn after this has no
-            cache behind it at all. Said once, where it happens, rather
-            than left to be noticed on the bill.
-          */
-          if (before && saved.active && saved.active !== before && session.blocks.length > 0) {
-            notice({
-              tone: "info",
-              title: `Now using ${saved.model}`,
-              body: "The next message re-sends this conversation to a provider that has not seen it, so that turn will not be cached. /clear starts fresh.",
-            });
-            return;
-          }
-
-          /*
-            Switching model from the footer, with nothing said yet,
-            needs no announcement: the picker already shows the new
-            name, and a notice in an empty transcript is the first
-            thing in a conversation being about the window.
-          */
-          if (quiet) return;
-          /*
-            Said out loud, because the commonest way this goes wrong is
-            silent: a write that fails leaves a window that looks
-            configured and a backend with no key.
-          */
-          notice(
-            saved.hasKey
-              ? {
-                  tone: "info",
-                  title: `Using ${saved.model}`,
-                  // The path, every time. A key kept in plain text in a
-                  // place nobody mentioned is worse than one in a place
-                  // everybody knows about.
-                  body: `${saved.models.length} model${
-                    saved.models.length === 1 ? "" : "s"
-                  } · settings and keys saved in ${saved.path}`,
-                }
-              : {
-                  tone: "warn",
-                  title: "Saved, but there is no key stored",
-                  body: "The model and URL are set. Add a key in /model — nothing can be sent without one.",
-                }
-          );
-        })
-        .catch((error: unknown) =>
-          notice({
-            tone: "error",
-            title: "That could not be saved",
-            body: String(error),
-          })
-        );
-    },
-    [notice, session.blocks.length, status.active]
-  );
 
   /* ─── Keyboard ─────────────────────────────────────────────────────────── */
 
@@ -1101,7 +530,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
       setDialog(null);
       return;
     }
-    if ((popup.length || popupEmpty) && (slashing || mention)) {
+    if ((completion.items.length || completion.empty) && (completion.slashing || completion.mention)) {
       setText((t) => `${t} `);
       return;
     }
@@ -1123,14 +552,14 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
     answer,
     dialog,
     interrupt,
-    mention,
+    completion.mention,
     onClose,
-    popup.length,
-    popupEmpty,
+    completion.items.length,
+    completion.empty,
     session.live,
     session.running,
     shell,
-    slashing,
+    completion.slashing,
   ]);
 
   const onKeyDown = useCallback(
@@ -1168,17 +597,17 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
         return;
       }
 
-      if (e.key === "Tab" && bare && popup.length) {
+      if (e.key === "Tab" && bare && completion.items.length) {
         stop();
-        complete(popupAt);
+        complete(completion.at);
         return;
       }
 
       if ((e.key === "ArrowDown" || e.key === "ArrowUp") && bare) {
         const delta = e.key === "ArrowDown" ? 1 : -1;
-        if (popup.length) {
+        if (completion.items.length) {
           stop();
-          setPopupIndex((i) => (popup.length + Math.min(i, popup.length - 1) + delta) % popup.length);
+          setPopupIndex((i) => (completion.items.length + Math.min(i, completion.items.length - 1) + delta) % completion.items.length);
           return;
         }
         const count = session.live?.prompt.options.length ?? 0;
@@ -1191,8 +620,8 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
 
       if (e.key === "Enter" && !e.shiftKey && bare) {
         stop();
-        if (popup.length) {
-          complete(popupAt);
+        if (completion.items.length) {
+          complete(completion.at);
           return;
         }
         if (session.live) {
@@ -1222,16 +651,16 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
       choice,
       complete,
       interrupt,
-      mention,
+      completion.mention,
       onClose,
-      popup.length,
-      popupAt,
-      popupEmpty,
+      completion.items.length,
+      completion.at,
+      completion.empty,
       send,
       session.live,
       session.running,
       shell,
-      slashing,
+      completion.slashing,
       text,
       dialog,
     ]
@@ -1342,7 +771,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
 
   const title = conversationTitle(session.blocks);
   const label = activeRoot ? projectLabel(activeRoot) : "No folder";
-  const hint = mention
+  const hint = completion.mention
     ? "↑↓ choose · tab insert · esc close"
     : "↑↓ choose · ↵ or tab to complete · esc close";
 
@@ -1460,7 +889,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
             earlier={past.length}
             onPick={openProject}
             onBrowse={() => setPickerOpen(true)}
-            onConfigure={() => setDialog("settings")}
+            onConfigure={() => show("settings")}
             onResume={() => command("/resume")}
           />
         ) : (
@@ -1492,6 +921,32 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
           </button>
         )}
 
+
+        {/*
+          What is waiting for the turn to end.
+
+          Shown, because a message that was typed and did not appear is
+          a message somebody thinks was lost — they will type it again,
+          and then both go. The ✕ is there because the commonest reason
+          to type ahead is to change your mind.
+        */}
+        {queued && (
+          <div className="figy-queued">
+            <span className="figy-queued-mark">↵</span>
+            <span className="figy-queued-text">{queued.text}</span>
+            <span className="figy-queued-note">sends when this finishes</span>
+            <button
+              type="button"
+              className="figy-queued-drop"
+              onClick={unqueue}
+              title="Don't send this"
+              aria-label="Don't send this"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         {session.live && (
           <PromptCard
             prompt={session.live.prompt}
@@ -1518,18 +973,31 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
                then — a meter that reads zero while text is pouring in is
                worse than an estimate. */
             tokens={formatTokens(session.usage?.output ?? session.streamed / 4)}
-            background={null}
-            onBackground={() => {}}
           />
         )}
 
         <CompletionPopup
-          items={popup}
-          selected={popupAt}
+          items={completion.items}
+          selected={completion.at}
           hint={hint}
-          empty={popupEmpty}
+          empty={completion.empty}
           onSelect={setPopupIndex}
           onChoose={complete}
+        />
+
+        {/*
+          What is running in the background, whether or not a turn is.
+
+          Above the composer rather than in the status bar: it is the
+          thing you check on the way to typing the next message, and a
+          build you started is not a fact about the window.
+        */}
+        <BackgroundBar
+          jobs={running}
+          open={openJob}
+          log={log}
+          onOpen={setOpenJob}
+          onStop={stopJob}
         />
 
         <Composer
@@ -1551,13 +1019,13 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
           */
           attachments={attachments}
           onFiles={addFiles}
-          onRemoveFile={(id) => setAttachments((all) => all.filter((one) => one.id !== id))}
+          onRemoveFile={removeFile}
           modelPicker={
             <ModelPicker
               models={status.models}
               active={status.active}
               onPick={(id) => saveSettings(settingsFrom(status, { active: id }), true)}
-              onManage={() => setDialog("settings")}
+              onManage={() => show("settings")}
             />
           }
           onChange={(value) => {
@@ -1578,7 +1046,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
           <>
             <button
               className="figy-folder-button min-w-0"
-              onClick={() => setDialog("project")}
+              onClick={() => show("project")}
               title={`${activeRoot}\nWhat this project is, and what else it can reach`}
             >
               <FolderOpen size={10} className="figy-folder-icon shrink-0" />
@@ -1627,12 +1095,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
         {session.usage?.contextPercent != null && (
           <button
             className="figy-status-right shrink-0"
-            onClick={() =>
-              void agentContext(SURFACE).then((breakdown) => {
-                setContext(breakdown);
-                setDialog("context");
-              })
-            }
+            onClick={() => show("context")}
             title="What is filling the context window"
           >
             ctx {session.usage.contextPercent}%
@@ -1641,7 +1104,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
 
         <button
           className="figy-status-right shrink-0"
-          onClick={() => void agentUsage(SURFACE).then((t) => (setTotals(t), setDialog("usage")))}
+          onClick={() => show("usage")}
           title="This session's tokens and spend"
         >
           {session.usage ? `cache ${session.usage.hitRate}% · ` : ""}
@@ -1657,7 +1120,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
           className={`figy-status-right figy-status-settings ${
             dialog === "settings" ? "on" : ""
           } shrink-0`}
-          onClick={() => setDialog("settings")}
+          onClick={() => show("settings")}
           title="Models, keys, limits and the permission mode"
           aria-haspopup="dialog"
           aria-expanded={dialog === "settings"}
@@ -1714,6 +1177,20 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
         <ContextDialog context={context} onClose={() => setDialog(null)} />
       )}
 
+      {dialog === "tools" && (
+        <ToolsDialog
+          tools={tools}
+          /*
+            The breakdown, for what the picker did on the last message
+            — the one thing about it that cannot be seen anywhere
+            else. `toolsView` is what reads it, so the window and the
+            panel draw the same conclusion from it.
+          */
+          context={context}
+          onClose={() => setDialog(null)}
+        />
+      )}
+
       {dialog === "project" && (
         <ProjectDialog
           root={activeRoot}
@@ -1727,7 +1204,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
           counts={dirCounts}
           onPick={openProject}
           onBrowse={() => setPickerOpen(true)}
-          onConfigure={() => setDialog("settings")}
+          onConfigure={() => show("settings")}
           onResume={() => command("/resume")}
           onAddDir={() => void addFolder()}
           onRemoveDir={dropFolder}
@@ -1766,32 +1243,6 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
       </div>
     </OverlayPortal>
   );
-}
-
-/** A `!` command's row, once it has finished. */
-function patchLocal(
-  state: SessionState,
-  callId: string,
-  output: string[],
-  failed: boolean
-): SessionState {
-  const at = state.blocks.findIndex((b) => b.kind === "tool" && b.callId === callId);
-  if (at < 0) return state;
-  const block = state.blocks[at];
-  if (block.kind !== "tool") return state;
-
-  const blocks = [...state.blocks];
-  blocks[at] = {
-    ...block,
-    tool: {
-      ...block.tool,
-      running: false,
-      failed,
-      meta: output[0] ?? "",
-      output: output.length > 1 ? output : undefined,
-    },
-  };
-  return { ...state, blocks };
 }
 
 const emptyTotals: Totals = {

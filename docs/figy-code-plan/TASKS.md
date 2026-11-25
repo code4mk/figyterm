@@ -201,10 +201,13 @@ what a destroyed cache prefix looks like.
 - [ ] `$ per completed task` measured either side of this section — the 5×
       is claimed here and unproven until real sessions are run through the
       ledger
-- [x] A narrower registry for the editor panel: `tools::PANEL_TOOLS`,
-      filtered by surface rather than by each tool remembering to
-      check. Six tools against the window's twenty-five, which is
-      1,523 tokens of prefix against 4,768
+- [x] ~~A narrower registry for the editor panel~~ — **reversed.** It was
+      seven tools against the window's twenty-four, 1,523 tokens of
+      prefix against 4,768. The saving was real and it was bought by
+      refusing work: the panel would reach the point where it needed to
+      run something and send the person to the other window with the
+      context rebuilt by hand. `specs_for` stays as the seam, because
+      the next reason to narrow a set will not be the last one
 
 ## 5 · The window, told the truth
 
@@ -307,16 +310,47 @@ whole value is being **short and cheap**, and if it grows compaction, a
 shell and thirty-turn conversations we have built the window twice and
 made the cheap one expensive. Four pieces, in this order.
 
+**Where that line actually fell — twice.** First the interface: cheap
+was never about *that*. Giving the panel a worse `@`, no images and no
+way to see what it cost did not make it cheaper, only harder to use. So
+the interface is the window's, shared through `useAgentSurface`.
+
+Then the tools, which took longer to admit. Seven tools did keep the
+turns small and it kept them small by **refusing work** — the panel
+would reach the point where it needed to run something and say so,
+leaving the person to re-ask in the other window with the context
+rebuilt by hand. That is not a cheaper agent, it is the same agent with
+a worse first attempt.
+
+What actually makes the panel cheap is the **seed**: the open file and
+the selection ride in the first message, so its turns start with the
+context the window spends a round trip discovering. That survives, and
+it is the only part that was ever load-bearing. What is left of "short
+and cheap" is a preamble that asks for short answers and a column that
+makes long ones uncomfortable — both of which shape the *answer* rather
+than forbidding the work.
+
 ### 7a · The backend can host two surfaces
 
 - [x] Sessions keyed by window **and surface**. They were keyed by window
       alone, which is the same thing right up until the panel exists —
       the editor is a modal in the same Tauri window as FigyCode, so both
       would have been writing to one conversation
-- [x] A tool set per surface. The panel gets read, grep, edit and the
-      three language-server tools; no shell, no git, no network, no
-      filesystem rearranging. Decided once at session start, because the
-      tool list is the first thing in the cache prefix
+- [x] A tool set per surface, decided once at session start, because the
+      tool list is the first thing in the cache prefix.
+      **The panel's narrowing has since been reversed** — it was seven
+      tools (read, grep, edit, the three language-server ones,
+      `ask_user`) and is now the whole registry, the same as the window.
+      The argument for narrowing was not wrong about what a panel *is*;
+      it was wrong about who decides. The question that starts beside an
+      open file does not stay inside the buffer — "why does this test
+      fail" needs to run the test — and a sidebar that answers "open the
+      FigyCode window and ask again" has made the person do the routing.
+      The cost it was protecting, a two-minute wait in a sidebar, is one
+      they can see and stop with Escape.
+      `tools::PANEL_TOOLS_WAS` keeps the whole argument beside the code,
+      because the next person to wonder why the panel has `git_commit`
+      deserves more than its conclusion
 - [x] Its own ledger rows, under `surface = panel`, which is how we find
       out whether the panel is paying for itself
 - [x] **And its own folder.** The root was keyed by window, and the
@@ -331,17 +365,62 @@ made the cheap one expensive. Four pieces, in this order.
 
 ### 7b · The panel itself
 
-- [ ] A second mode for the column opposite the explorer — {Preview,
+- [x] A second mode for the column opposite the explorer — {Preview,
       Agent} — so the editor ends with one symmetric idea: two columns,
-      each with modes, flanking the buffer
-- [ ] The transcript and composer, reusing the window's components
-- [ ] **The selection and the open tabs are seeded into the first user
+      each with modes, flanking the buffer. One divider and one stored
+      width between the two modes, because they are never both on screen
+      and two numbers would only have something to disagree about
+- [x] The transcript and composer, reusing the window's components.
+      `BlockView`, `PromptCard`, `Composer` and `applyEvent` are
+      imported, not reimplemented narrow — the CSS makes them fit a
+      320px column, and a second renderer would have drifted from the
+      first on the next change to either
+- [x] **And then the whole chatbox, because half a chatbox is not one.**
+      The panel started with a transcript and a box; what it needed was
+      `/` commands, `@` mentions, pasted and dropped images, notices,
+      the model picker, what the turn cost and the conversations this
+      folder has had. So `useAgentSurface` — the window's glue, *moved*
+      rather than copied: the reducer, the completion, the attachments,
+      what Enter means while a card is up. `FigyCodeModal` went from
+      1,770 lines to 1,179 and kept only what it means to be a window
+- [x] The screens the commands open are the surface's own. A settings
+      table is a dialog at 960px and has nowhere to go at 320, so the
+      panel answers `/project`, `/context`, `/usage`, `/tools`,
+      `/resume` and `/model` with one sheet and a switcher — same data,
+      same arithmetic, a tenth of the width. Models are still *set up*
+      in the window, and the sheet says so rather than pretending
+- [x] **Which** command opens which screen is `COMMAND_SCREEN`, shared.
+      It was a switch per surface, and the entry the panel was missing
+      was `/project`: offered by the same composer popup, completed from
+      the same list, and then answered "No command /project". A test
+      now fails if a command is offered that either surface cannot open
+- [x] Every view's content comes from `figycode-views.ts`, rendered by
+      both surfaces. They had drifted on six facts — which number the
+      context screen led with, how many parts and in what order, whether
+      the spend table had a total, whether a conversation had "4 turns"
+      or "4 messages". Layout is still per surface; content is not
+- [x] `settingsFrom` moved to the service both surfaces import. It is
+      the function that silently turned the tool router off on every
+      model switch, and two model pickers would have been two places for
+      that to come back. Tested now
+- [x] The `!` button is hidden where there is no `bash`, rather than
+      present and dead — the only way to discover a dead control is to
+      press it
+- [x] **The selection and the open tabs are seeded into the first user
       message**, not offered as tools. The cheapest turn an agent can
       have is the one where the context was free, and a round trip to ask
-      "what am I looking at" is not free
-- [ ] A system prompt of its own. Not the window's: a different preamble
+      "what am I looking at" is not free. After that only what *changed*
+      goes — a new selection is news, the same open file is not — and a
+      ⌘A selection becomes its address rather than four thousand lines
+- [x] A system prompt of its own. Not the window's: a different preamble
       is a different cache prefix, and sharing one would pay 1.25× to
       destroy something that was saving 10×
+- [x] **The event channel carries the surface in its name.** The panel
+      and the window are two React trees in one Tauri window, so one
+      channel was one both of them heard — each drawing the other's tool
+      rows for a conversation it was not having. The desks `ask_user`
+      waits at are keyed the same way, and the window-close sweep with
+      them
 
 ### 7c · Edits land in the buffer
 

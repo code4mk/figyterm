@@ -4,6 +4,7 @@ import {
   AlignLeft,
   ArrowLeft,
   ArrowRight,
+  Bot,
   ChevronDown,
   ChevronRight,
   CircleAlert,
@@ -123,6 +124,8 @@ import { GlobalSearch } from "./GlobalSearch";
 import { WorkspacePicker } from "./WorkspacePicker";
 import { MarkdownPreview, MarkdownPreviewHandle } from "./MarkdownPreview";
 import { QuickOpen } from "./QuickOpen";
+import { AgentPanel } from "./AgentPanel";
+import type { EditorContext } from "../../services/figycode-panel";
 
 /**
  * The embedded code editor.
@@ -612,7 +615,21 @@ export function EditorModal({
   /** Ditto, for the preview's divider. */
   const [previewDragWidth, setPreviewDragWidth] = useState<number | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
-  const [previewOpen, setPreviewOpen] = useState(false);
+  /**
+   * What the column opposite the explorer is showing.
+   *
+   * One column with modes rather than two columns that can both be
+   * open, which makes the editor one symmetric idea: a panel on each
+   * side of the buffer, each with a mode. The alternative — a third
+   * fixed column — is 240px of a 960px window spent on chrome before
+   * any text is shown, on a layout that already has to narrow its panes
+   * in picture-in-picture to leave the editor anything.
+   */
+  const [rightPane, setRightPane] = useState<"none" | "preview" | "agent">("none");
+  /** The preview is one of the column's modes; the rest of this file
+      asks the question that way round. */
+  const previewOpen = rightPane === "preview";
+  const agentOpen = rightPane === "agent";
   /**
    * The Markdown the preview is rendering.
    *
@@ -1835,12 +1852,27 @@ export function EditorModal({
       startPaneResize(e, {
         width: explorerWidth,
         min: MIN_EXPLORER,
-        max: paneLimit(MAX_EXPLORER, previewOpen && isMarkdown ? previewWidth : 0),
+        // Whichever mode the right-hand column is in, it is the same
+        // width out of the same total.
+        max: paneLimit(
+          MAX_EXPLORER,
+          (previewOpen && isMarkdown) || agentOpen ? previewWidth : 0
+        ),
         side: panelSide,
         onDrag: setDragWidth,
         onCommit: setExplorerWidth,
       }),
-    [startPaneResize, explorerWidth, setExplorerWidth, paneLimit, previewOpen, isMarkdown, previewWidth, panelSide]
+    [
+      startPaneResize,
+      explorerWidth,
+      setExplorerWidth,
+      paneLimit,
+      previewOpen,
+      agentOpen,
+      isMarkdown,
+      previewWidth,
+      panelSide,
+    ]
   );
 
   const startPreviewResize = useCallback(
@@ -1901,6 +1933,8 @@ export function EditorModal({
   */
   const panelShown = explorerVisible && !!root;
   const previewShown = previewOpen && isMarkdown;
+  /** Whether the column opposite the explorer is taking any width. */
+  const rightShown = previewShown || agentOpen;
 
   /**
    * A pane's width as the layout should use it.
@@ -1943,6 +1977,34 @@ export function EditorModal({
    * The store's loaded text covers exactly that gap, and for a file this new it
    * *is* the document.
    */
+  /**
+   * What the agent panel is handed, read at the moment a message is
+   * sent.
+   *
+   * A function rather than a prop, because the selection changes on
+   * every click of the mouse and a prop would re-render the panel's
+   * whole transcript each time. Nothing here is watched; it is read
+   * once, when somebody presses enter.
+   *
+   * Paths come out relative to the project, which is what the agent's
+   * own tools take — an absolute path would be refused by the fence
+   * the moment it tried to `read` it.
+   */
+  const lookAtEditor = useCallback((): EditorContext => {
+    const open = buffers.find((buffer) => buffer.id === activeBufferId) ?? null;
+    const within = (path: string | null) =>
+      path && root && path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
+
+    return {
+      file: within(open?.path ?? null),
+      // Names, not paths: the point is "these are the files in play",
+      // and a column of absolute paths in a prompt is mostly the same
+      // prefix repeated.
+      tabs: buffers.filter((buffer) => buffer.id !== activeBufferId).map((b) => b.name),
+      selection: surfaceRef.current?.getSelection() ?? null,
+    };
+  }, [buffers, activeBufferId, root]);
+
   const refreshPreview = useCallback(() => {
     const state = useEditorStore.getState();
     const id = state.activeBufferId;
@@ -1970,10 +2032,11 @@ export function EditorModal({
   }, [markdownShown, activeBufferId, refreshPreview]);
 
   // A preview left open is meaningless once the active tab is source code, so
-  // it closes rather than showing a stale document.
+  // it closes rather than showing a stale document. The agent is about
+  // whatever file is in front of it, so it survives the same switch.
   useEffect(() => {
     if (!activeBuffer || isMarkdown || !previewOpen) return;
-    setPreviewOpen(false);
+    setRightPane("none");
   }, [activeBuffer, isMarkdown, previewOpen]);
 
   const onEdited = useCallback(
@@ -3223,7 +3286,9 @@ export function EditorModal({
                     }`}
                     // The outline rides inside the preview now, so opening one
                     // brings the other with no panel juggling.
-                    onClick={() => setPreviewOpen((open) => !open)}
+                    onClick={() =>
+                      setRightPane((pane) => (pane === "preview" ? "none" : "preview"))
+                    }
                     title={
                       previewOpen
                         ? "Hide the Markdown preview"
@@ -3236,6 +3301,31 @@ export function EditorModal({
                   </button>
                 )}
               </>
+            )}
+
+            {/*
+              The column's other mode.
+
+              Beside Preview rather than in a menu, and gated on the
+              *folder* rather than on a buffer: "what is in this project"
+              is a fair question with no file open, and the panel says so
+              itself when there is nothing to look at. Opening it closes
+              the preview, which is the point of one column with modes —
+              there is never a question of which of the two the editor is
+              being squeezed by.
+            */}
+            {root && (
+              <button
+                className={`editor-btn-text flex items-center gap-1.5 px-2 py-1 rounded shrink-0 ${
+                  agentOpen ? "on" : ""
+                }`}
+                onClick={() => setRightPane((pane) => (pane === "agent" ? "none" : "agent"))}
+                title={agentOpen ? "Hide the agent" : "Ask the agent about this file"}
+                aria-pressed={agentOpen}
+              >
+                <Bot size={12} />
+                <span className="text-[10px]">Agent</span>
+              </button>
             )}
 
             {/* Searches the workspace, so it needs one. */}
@@ -3425,28 +3515,45 @@ export function EditorModal({
               </div>
             </div>
 
-            {previewShown && (
+            {/*
+              One column, two modes, one divider and one stored width.
+
+              The agent could have had a width of its own, and it would
+              be a second number to drag, to persist and to subtract
+              from the editor's share in `paneLimit`. They are never on
+              screen together, so there is nothing for two numbers to
+              disagree about.
+            */}
+            {rightShown && (
               <>
                 <div
                   className="editor-divider shrink-0"
                   onPointerDown={startPreviewResize}
                   role="separator"
                   aria-orientation="vertical"
-                  aria-label="Resize the preview"
+                  aria-label={agentOpen ? "Resize the agent panel" : "Resize the preview"}
                 />
                 <div
                   className="shrink-0 min-h-0"
                   style={{ width: paneWidth(previewDragWidth ?? previewWidth) }}
                 >
-                  <MarkdownPreview
-                    ref={previewRef}
-                    source={previewSource}
-                    name={activeBuffer?.name ?? ""}
-                    onScrollLine={onPreviewScrollLine}
-                    activeLine={outlineLine}
-                    onSelectHeading={goToHeading}
-                    onFollowLink={followMarkdownLink}
-                  />
+                  {agentOpen ? (
+                    <AgentPanel
+                      root={root}
+                      look={lookAtEditor}
+                      onClose={() => setRightPane("none")}
+                    />
+                  ) : (
+                    <MarkdownPreview
+                      ref={previewRef}
+                      source={previewSource}
+                      name={activeBuffer?.name ?? ""}
+                      onScrollLine={onPreviewScrollLine}
+                      activeLine={outlineLine}
+                      onSelectHeading={goToHeading}
+                      onFollowLink={followMarkdownLink}
+                    />
+                  )}
                 </div>
               </>
             )}

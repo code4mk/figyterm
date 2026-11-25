@@ -26,28 +26,7 @@
 import { formatTokens } from "../../services/figycode-blocks";
 import type { ContextBreakdown } from "../../services/figycode-agent";
 import { Dialog } from "./FigyDialog";
-
-/** The parts of the window, in the order they go on the wire. */
-const PARTS = [
-  {
-    key: "tools",
-    label: "Tool definitions",
-    note: "Sent before anything else, on every turn, for the whole session",
-  },
-  { key: "system", label: "System prompt", note: "Frozen at the start, including FIGY.md" },
-  { key: "user", label: "What you asked", note: "Every message you have sent" },
-  { key: "assistant", label: "What it said", note: "Answers, and the arguments of its tool calls" },
-  {
-    key: "toolResults",
-    label: "Tool results",
-    note: "Each one re-sent on every later turn — usually the largest part",
-  },
-  {
-    key: "imageTokens",
-    label: "Pictures",
-    note: "The one part that cannot be trimmed — an image is its size for good",
-  },
-] as const;
+import { CONTEXT_EMPTY, contextView } from "../../services/figycode-views";
 
 export function ContextDialog({
   context,
@@ -60,23 +39,22 @@ export function ContextDialog({
     return (
       <Dialog title="Context" onClose={onClose}>
         <div className="figy-dialog-body">
-          <div className="figy-empty">
-            Nothing has been asked in this folder yet. The window fills from the first
-            message — and the tool definitions are in it before that.
-          </div>
+          <div className="figy-empty">{CONTEXT_EMPTY}</div>
         </div>
       </Dialog>
     );
   }
 
-  const parts = PARTS.map((part) => ({ ...part, tokens: context[part.key] }));
-  const estimated = parts.reduce((sum, part) => sum + part.tokens, 0);
-  const window = context.window ?? 0;
-  /* Against the window where there is one, against itself where there
-     is not: a bar with no scale is a bar that says nothing. */
-  const scale = window > 0 ? window : Math.max(estimated, 1);
-  const free = Math.max(0, window - estimated);
-  const percent = window > 0 ? Math.min(100, Math.round((estimated / window) * 100)) : null;
+  /*
+    Every label, order, number and footnote on this screen comes out of
+    `contextView`, which the editor panel's version renders too. They
+    used to compute their own and disagree — this one led with the
+    estimate and that one with the provider's measured count, about the
+    same conversation.
+  */
+  const view = contextView(context);
+  const { estimated, free, percent, parts } = view;
+  const window = view.window;
 
   return (
     <Dialog title="Context" onClose={onClose}>
@@ -101,11 +79,16 @@ export function ContextDialog({
               <span
                 key={part.key}
                 className={`figy-context-slice ${part.key}`}
-                style={{ flexGrow: part.tokens / scale }}
+                style={{ flexGrow: part.share }}
                 title={`${part.label}: ${formatTokens(part.tokens)} tokens`}
               />
             ))}
-          {free > 0 && <span className="figy-context-slice free" style={{ flexGrow: free / scale }} />}
+          {free > 0 && (
+            <span
+              className="figy-context-slice free"
+              style={{ flexGrow: view.freeShare }}
+            />
+          )}
         </div>
 
         <div className="figy-context-parts">
@@ -136,11 +119,8 @@ export function ContextDialog({
         {context.heaviest.length > 0 && (
           <div className="figy-dialog-section">
             <div className="figy-dialog-section-head">Heaviest results</div>
-            <div className="figy-dialog-note">
-              Each of these is re-sent with every later message. A 3k result on turn
-              three of a thirty-turn session is about 80k input tokens.
-            </div>
-            {context.heaviest.map((one, i) => (
+            <div className="figy-dialog-note">{view.heaviestNote}</div>
+            {view.heaviest.map((one, i) => (
               <div className="figy-context-row" key={`${i}-${one.name}`}>
                 <span className="figy-context-key toolResults" />
                 <span className="figy-context-label">{one.name}</span>
@@ -151,42 +131,9 @@ export function ContextDialog({
         )}
 
         <div className="figy-context-foot">
-          <span>
-            {context.messages} message{context.messages === 1 ? "" : "s"} · {context.turns} from
-            you
-            {context.images > 0 &&
-              ` · ${context.images} picture${context.images === 1 ? "" : "s"}`}{" "}
-            · {context.model || "no model"}
-          </span>
-          {/*
-            Said whenever a router has narrowed the set, because a
-            session that cannot do something it could do yesterday
-            should be able to find out why here.
-          */}
-          <span>
-            {context.toolsOffered} of {context.toolsTotal} tools offered
-            {/*
-              What the picker did, said here and nowhere else.
-
-              A router that cannot be reached offers everything and
-              says nothing during the turn, which is the right
-              behaviour and makes "narrowed", "switched off" and "not
-              running" identical from the transcript. This line is the
-              difference.
-            */}
-            {context.picker ? ` · picker: ${context.picker}` : " · no tool picker"}
-          </span>
-          <span>
-            {/*
-              Said rather than hidden. The parts are an estimate at
-              four characters a token; the provider's own count for
-              the last request is the real number, and they will not
-              agree.
-            */}
-            {context.measured > 0
-              ? `The last request measured ${formatTokens(context.measured)}. The breakdown above is an estimate.`
-              : "An estimate at four characters a token, until the first turn is measured."}
-          </span>
+          {view.facts.map((fact) => (
+            <span key={fact}>{fact}</span>
+          ))}
         </div>
       </div>
     </Dialog>

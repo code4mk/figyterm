@@ -48,6 +48,19 @@ function components(dir: string): string[] {
 }
 
 /**
+ * Everywhere a `figy-` class can be written.
+ *
+ * The editor's agent panel is the second place: it is the same
+ * transcript in a narrower column, so it uses the window's classes and
+ * adds a few of its own — and it is outside `FigyCode/`, which is
+ * exactly the kind of file a guard scoped to one folder stops covering
+ * without saying so.
+ */
+function everywhere(): string[] {
+  return [...components("src/components/FigyCode"), ...components("src/components/Editor")];
+}
+
+/**
  * The `figy-` names out of every `className`.
  *
  * Both spellings: a plain string, and a template literal whose
@@ -73,7 +86,7 @@ test("every figy- class the window uses has a rule in styles.css", () => {
   );
 
   const orphans: string[] = [];
-  for (const file of components("src/components/FigyCode")) {
+  for (const file of everywhere()) {
     for (const name of classesUsed(readFileSync(file, "utf8"))) {
       if (!defined.has(name)) orphans.push(`${name} (${file})`);
     }
@@ -99,7 +112,7 @@ test("styles.css is not mostly rules for things that no longer exist", () => {
     [...css.matchAll(/\.(figy-[a-zA-Z0-9_-]+)/g)].map((match) => match[1])
   );
   const used = new Set<string>();
-  for (const file of components("src/components/FigyCode")) {
+  for (const file of everywhere()) {
     for (const name of classesUsed(readFileSync(file, "utf8"))) used.add(name);
   }
 

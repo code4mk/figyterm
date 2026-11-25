@@ -242,6 +242,39 @@ export function agentConfigure(settings: AgentSettings): Promise<AgentStatus> {
   return invoke<AgentStatus>("agent_configure", { settings });
 }
 
+/**
+ * The stored settings, as something that can be saved back.
+ *
+ * `agent_configure` takes the whole shape and writes what it is given,
+ * which means a partial save is a reset of everything left out. The
+ * model picker learned that the hard way: sending `{models, active}`
+ * to switch model turned the tool router off, every time, silently —
+ * `router` is a boolean and an absent boolean is false.
+ *
+ * So nothing builds that object by hand. This takes what the backend
+ * says is stored and changes only what was asked for. Keys are left
+ * out on purpose: they never come back from the backend, and an empty
+ * one means "keep the stored one".
+ *
+ * It lives here rather than in either surface because both of them
+ * have a model picker, and two copies of this is two places for that
+ * bug to come back.
+ */
+export function settingsFrom(
+  status: AgentStatus,
+  change: Partial<AgentSettings> = {}
+): AgentSettings {
+  return {
+    models: status.models,
+    active: status.active,
+    budgetUsd: status.budgetUsd,
+    router: status.router,
+    routerModel: status.routerModel ?? undefined,
+    routerPrice: status.routerPrice ?? undefined,
+    ...change,
+  };
+}
+
 export function agentStatus(): Promise<AgentStatus> {
   return invoke<AgentStatus>("agent_status");
 }
@@ -494,6 +527,74 @@ export interface Resumed {
   messages: PastMessage[];
 }
 
+/**
+ * One background command, running or just finished.
+ *
+ * Per *window*, not per surface: the shell is one per window, so a
+ * build started from the FigyCode window is visible in the editor's
+ * panel too. That is one machine and one set of processes, and a job
+ * that disappeared because you looked from the wrong panel would be a
+ * worse lie than a shared list.
+ */
+export interface BackgroundJob {
+  id: string;
+  command: string;
+  /**
+   * Which conversation started it — `"window"` or `"panel"`.
+   *
+   * Both surfaces see every job, because it is one machine and one set
+   * of processes. Only the one that started a job reports its outcome
+   * to its model: otherwise two conversations each spend a request on
+   * the same finished build, and one of them never started it and has
+   * no idea what it was for.
+   */
+  owner: Surface;
+  finished: boolean;
+  status: number | null;
+  /** How long it has been going, or how long it took. */
+  ms: number;
+  lines: number;
+}
+
+/**
+ * What is running in the background, and what has just stopped.
+ *
+ * The window polls this, which is the opposite of the rule `bash_wait`
+ * exists to enforce — and the difference is the point. A *model*
+ * polling spends a request that re-sends the whole conversation; the
+ * window polling spends an IPC call and a `Vec` clone. The expensive
+ * loop is the one with a language model in it.
+ */
+export function agentBackground(): Promise<BackgroundJob[]> {
+  return invoke<BackgroundJob[]>("agent_background");
+}
+
+/** What a background job has written, from a cursor onwards. */
+export interface BackgroundOutput {
+  lines: string[];
+  total: number;
+  finished: boolean;
+  status: number | null;
+}
+
+/**
+ * The log of one background job.
+ *
+ * Separate from `agentBackground` because it is asked for far less
+ * often and costs more. The list is polled once a second for every
+ * job; this is polled only while somebody has one *open*, and `from`
+ * is a cursor so each line crosses IPC once rather than the whole
+ * buffer every second. A Docker build writes a few thousand.
+ */
+export function agentBackgroundOutput(id: string, from: number): Promise<BackgroundOutput> {
+  return invoke<BackgroundOutput>("agent_background_output", { id, from });
+}
+
+/** Stops one from the chip, without going through the model. */
+export function agentBackgroundKill(id: string): Promise<void> {
+  return invoke("agent_background_kill", { id });
+}
+
 /** What was being worked on in this folder before, newest first. */
 export function agentConversations(surface: Surface): Promise<Conversation[]> {
   return invoke<Conversation[]>("agent_conversations", { surface });
@@ -517,12 +618,22 @@ export function agentForgetConversation(sessionId: string): Promise<void> {
 }
 
 /**
- * Subscribes to the turn.
+ * Subscribes to the turn — **for one surface**.
  *
  * Returns the unlisten function, so it can be handed straight back from a
- * `useEffect`. One subscription per window: the backend emits to the window
- * that asked, and a second listener would double every line of the answer.
+ * `useEffect`.
+ *
+ * The channel carries the surface in its name rather than in a field
+ * every listener has to remember to check, and the reason is that the
+ * editor panel and the Figy Code window are two React trees in *one*
+ * Tauri window. A single channel is one both of them hear: the panel
+ * would draw the window's tool rows and the window would draw the
+ * panel's, each applying events for a conversation it is not having.
+ * A name per surface is the whole fix.
  */
-export function onAgentEvent(handler: (event: TurnEvent) => void): Promise<UnlistenFn> {
-  return listen<TurnEvent>("agent://event", (event) => handler(event.payload));
+export function onAgentEvent(
+  surface: Surface,
+  handler: (event: TurnEvent) => void
+): Promise<UnlistenFn> {
+  return listen<TurnEvent>(`agent://event/${surface}`, (event) => handler(event.payload));
 }

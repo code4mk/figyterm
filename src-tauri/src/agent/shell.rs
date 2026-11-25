@@ -29,6 +29,13 @@ use std::time::{Duration, Instant};
 
 use crate::spawn;
 
+/// How often [`Shell::wait`] looks at the output buffer.
+///
+/// The buffer is a `Vec` behind a mutex in this process, so a look
+/// costs nanoseconds — this is about how soon a line reaches the
+/// screen, not about load.
+const POLL_EVERY: Duration = Duration::from_millis(250);
+
 /// What a finished command produced.
 #[derive(Debug, Clone)]
 pub struct Finished {
@@ -39,6 +46,26 @@ pub struct Finished {
     pub status: i32,
     pub timed_out: bool,
     pub ms: u64,
+}
+
+/// One background job, as the window reports it.
+///
+/// Includes jobs that have **finished**, which is the difference from
+/// [`Shell::running`]. The window needs both: the running ones to say
+/// what is happening, and the newly finished ones to say what
+/// happened. A job that vanished from a list is not an outcome.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JobState {
+    pub id: String,
+    pub command: String,
+    /// Which conversation started it — see [`Shell::start`].
+    pub owner: String,
+    pub finished: bool,
+    pub status: Option<i32>,
+    /// How long it has been going, or how long it took.
+    pub ms: u64,
+    /// How much it has written, so the window can say "nothing yet".
+    pub lines: usize,
 }
 
 /// What a command that is still going has said so far.
@@ -74,12 +101,116 @@ pub trait Shell: Send + Sync {
         self.run(command, cwd, timeout)
     }
     /// Starts something that keeps going, and returns its id.
-    fn start(&self, command: &str, cwd: &Path) -> Result<String, String>;
+    ///
+    /// `owner` is which conversation started it — `"window"` or
+    /// `"panel"`. The shell is one per window and both surfaces share
+    /// it, which is right: it is one machine and one set of processes,
+    /// and a build that vanished because you looked at it from the
+    /// other panel would be a worse lie than a shared list.
+    ///
+    /// But *reporting* a finished job is not sharing. Both surfaces
+    /// watch the same list, so without this both would tell their own
+    /// model that the build finished — two conversations each spending
+    /// a request on it, one of which never started it and has no idea
+    /// what it was for.
+    fn start(&self, command: &str, cwd: &Path, owner: &str) -> Result<String, String>;
     /// Lines from `from` onwards.
     fn poll(&self, id: &str, from: usize) -> Result<Running, String>;
+
+    /// Blocks until the job ends, or the deadline passes.
+    ///
+    /// This exists because of what a model does without it. Asked to
+    /// build a Docker image in the background and report back, it has
+    /// only `poll` — so it calls it, gets "still running, 7 lines",
+    /// and calls it again. Each of those is a whole round trip:
+    /// request, tool call, result, request. A four-minute build
+    /// becomes forty of them, the transcript becomes forty rows that
+    /// each say nothing, and the session pays for its entire history
+    /// forty times over to learn the same fact.
+    ///
+    /// Waiting is the backend's job. It has the process handle, it is
+    /// already polling the buffer every fifteen milliseconds, and it
+    /// can block a thread for four minutes for nothing. One tool call
+    /// in, one answer out.
+    ///
+    /// `on_line` is called with each new line as it arrives, so a wait
+    /// that takes four minutes is something to read rather than a
+    /// spinner — the turn loop wires it to the row's progress.
+    ///
+    /// A default over `poll`, so a shell that only knows how to poll
+    /// still knows how to wait.
+    fn wait(
+        &self,
+        id: &str,
+        from: usize,
+        deadline: Duration,
+        on_line: &(dyn Fn(&str) + Sync),
+    ) -> Result<Running, String> {
+        let started = Instant::now();
+        let mut cursor = from;
+        let mut seen: Vec<String> = Vec::new();
+
+        loop {
+            let mut running = self.poll(id, cursor)?;
+            for line in &running.lines {
+                on_line(line);
+            }
+            cursor = running.total;
+            seen.append(&mut running.lines);
+
+            /*
+              Finished, or out of time. Both return the same shape and
+              the caller tells them apart by `finished` — a wait that
+              timed out has not failed, it has not finished, and those
+              are different sentences to put in front of a model.
+            */
+            if running.finished || started.elapsed() >= deadline {
+                running.lines = seen;
+                return Ok(running);
+            }
+
+            /*
+              A quarter of a second.
+
+              The buffer is a `Vec` behind a mutex in this process, so
+              a poll is nanoseconds — the interval is about how soon a
+              line should reach the screen, not about load. Much
+              longer and the output arrives in visible clumps; much
+              shorter and it is a spin loop for no gain.
+            */
+            std::thread::sleep(POLL_EVERY);
+        }
+    }
+
     fn kill(&self, id: &str) -> Result<(), String>;
     /// What is still running, for the window's background chip.
     fn running(&self) -> Vec<(String, String)>;
+
+    /// Every job this shell knows about, running or finished.
+    ///
+    /// The window polls this — which is the opposite of the advice
+    /// `bash_wait` exists to enforce, and for a reason worth writing
+    /// down. A *model* polling costs a request that re-sends the whole
+    /// conversation; the window polling costs a lock and a `Vec`
+    /// clone. The expensive loop is the one with a language model in
+    /// it.
+    ///
+    /// A default over `running`, so a shell that only tracks live jobs
+    /// still answers — it simply never reports a finished one.
+    fn jobs(&self) -> Vec<JobState> {
+        self.running()
+            .into_iter()
+            .map(|(id, command)| JobState {
+                id,
+                command,
+                owner: String::new(),
+                finished: false,
+                status: None,
+                ms: 0,
+                lines: 0,
+            })
+            .collect()
+    }
 }
 
 /* ─── The real one ───────────────────────────────────────────────────────── */
@@ -92,10 +223,14 @@ pub struct SystemShell {
 
 struct Job {
     command: String,
+    owner: String,
     child: Arc<Mutex<Child>>,
     lines: Arc<Mutex<Vec<String>>>,
     done: Arc<AtomicBool>,
     status: Arc<Mutex<Option<i32>>>,
+    /// When it was started, so the window can say how long a build has
+    /// been going without keeping its own clock per job.
+    started: Instant,
 }
 
 impl SystemShell {
@@ -230,7 +365,7 @@ impl Shell for SystemShell {
         })
     }
 
-    fn start(&self, command: &str, cwd: &Path) -> Result<String, String> {
+    fn start(&self, command: &str, cwd: &Path, owner: &str) -> Result<String, String> {
         let mut child = Self::spawn(command, cwd)?;
         let lines = Self::drain(&mut child);
         let id = format!("bg_{}", self.next.fetch_add(1, Ordering::SeqCst) + 1);
@@ -263,10 +398,12 @@ impl Shell for SystemShell {
             id.clone(),
             Job {
                 command: command.to_string(),
+                owner: owner.to_string(),
                 child,
                 lines,
                 done,
                 status,
+                started: Instant::now(),
             },
         );
         Ok(id)
@@ -321,6 +458,29 @@ impl Shell for SystemShell {
             .filter(|(_, job)| !job.done.load(Ordering::SeqCst))
             .map(|(id, job)| (id.clone(), job.command.clone()))
             .collect()
+    }
+
+    fn jobs(&self) -> Vec<JobState> {
+        let Ok(jobs) = self.jobs.lock() else {
+            return Vec::new();
+        };
+        let mut all: Vec<JobState> = jobs
+            .iter()
+            .map(|(id, job)| JobState {
+                id: id.clone(),
+                command: job.command.clone(),
+                owner: job.owner.clone(),
+                finished: job.done.load(Ordering::SeqCst),
+                status: job.status.lock().ok().and_then(|s| *s),
+                ms: job.started.elapsed().as_millis() as u64,
+                lines: job.lines.lock().map(|l| l.len()).unwrap_or(0),
+            })
+            .collect();
+        // Oldest first, so a list of three does not reshuffle itself
+        // between two polls a second apart. `ms` counts *up*, so the
+        // oldest is the largest and the key is negated.
+        all.sort_by_key(|job| std::cmp::Reverse(job.ms));
+        all
     }
 }
 
@@ -409,7 +569,7 @@ mod tests {
         fn a_background_task_can_be_polled_as_it_goes_and_then_killed() {
             let shell = SystemShell::new();
             let id = shell
-                .start("echo first; sleep 30", &cwd())
+                .start("echo first; sleep 30", &cwd(), "window")
                 .unwrap();
 
             // Give the echo time to land.
@@ -431,7 +591,7 @@ mod tests {
         #[test]
         fn a_background_task_that_ends_on_its_own_is_noticed_without_polling() {
             let shell = SystemShell::new();
-            let id = shell.start("echo bye", &cwd()).unwrap();
+            let id = shell.start("echo bye", &cwd(), "window").unwrap();
             std::thread::sleep(Duration::from_millis(400));
             let state = shell.poll(&id, 0).unwrap();
             assert!(state.finished);

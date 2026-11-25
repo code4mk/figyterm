@@ -99,23 +99,37 @@ export function emptySession(): SessionState {
 export function pushUser(
   state: SessionState,
   text: string,
-  images: { id: string; url: string; name: string }[] = []
+  images: { id: string; url: string; name: string }[] = [],
+  /**
+   * Whether to draw the message at all.
+   *
+   * A background job finishing sends the agent a line asking it to
+   * report — nobody typed that, and drawing it as a user turn would
+   * put words in their mouth. The *notice* above it is the visible
+   * record of what happened; this is the plumbing that makes the
+   * agent answer it. The turn still starts, so the spinner and
+   * Escape work exactly as they do for a typed message.
+   */
+  shown = true
 ): SessionState {
   return {
     ...state,
-    blocks: [
-      ...state.blocks,
-      {
-        id: state.nextId,
-        kind: "user",
-        text,
-        // Kept as the data URLs they already are: the picture is in
-        // the conversation either way, and a second copy fetched
-        // from disk would be a second thing to keep in step.
-        images: images.map((one) => ({ url: one.url, name: one.name })),
-      },
-    ],
-    nextId: state.nextId + 1,
+    blocks: shown
+      ? [
+          ...state.blocks,
+          {
+            id: state.nextId,
+            kind: "user",
+            text,
+            // Kept as the data URLs they already are: the picture is
+            // in the conversation either way, and a second copy
+            // fetched from disk would be a second thing to keep in
+            // step.
+            images: images.map((one) => ({ url: one.url, name: one.name })),
+          },
+        ]
+      : state.blocks,
+    nextId: shown ? state.nextId + 1 : state.nextId,
     running: true,
     status: "Working…",
     streamed: 0,
@@ -275,6 +289,7 @@ export function subjectOf(tool: string, args: Record<string, unknown>): string {
       return first("pattern") ?? "";
     case "bash":
     case "bash_output":
+    case "bash_wait":
     case "bash_kill":
       return first("cmd", "id") ?? "";
     case "move":

@@ -118,6 +118,7 @@ mistake is unrecoverable without git. Either it goes to the trash
 |---|---|---|---|
 | `bash` | `(cmd, timeout?, background?)` | `execute_shell_command` | exec |
 | `bash_output` | `(id, from?)` | the job's captured output | read |
+| `bash_wait` | `(id, seconds?, from?)` | the job registry | read |
 | `bash_kill` | `(id)` | the job registry | exec |
 
 **Background processes are not optional.** A dev server, a watch build and a
@@ -133,6 +134,32 @@ process is a pipe nobody can see. Make `bash(background: true)` open a tab.
 **The timeout has a default and the default is short.** Two minutes. A command
 that needs longer is a command that should have been backgrounded, and an
 agent waiting ten minutes on a hung process is an agent burning a session.
+
+**`bash_wait` exists because of what a model does without it.** Asked to build
+a Docker image in the background and report back when it is done, a model with
+only `bash_output` polls: it calls it, reads *"still running, 7 lines"*, and
+calls it again. Each of those is a whole round trip — request, tool call,
+result, request — and each request re-sends the entire conversation. A
+four-minute build came back as **forty rows that each said nothing**, forty
+times the input bill, and a transcript nobody could read.
+
+Waiting belongs on this side of the wire. The backend holds the process handle,
+already polls its buffer every fifteen milliseconds, and can block a thread for
+four minutes for nothing. One call in, one answer out — and the new lines stream
+onto the row as they arrive, so the single waiting row says what the build is
+doing *now*.
+
+Three things it has to get right, each of which is a test:
+
+- **A deadline.** A dev server never exits, and a wait with no end holds the
+  turn open until somebody presses Escape. Timing out is not failing, and the
+  two get different sentences: *still running after 300s, wait again or leave
+  it* against *FAILED, exit 1*.
+- **Exit code in the headline.** "Finished" for a build that exited 1 is how an
+  agent tells somebody their image built when it did not.
+- **Interruptible.** The turn loop already selects on the cancel channel around
+  every tool call, so Escape lands during a wait. The child keeps running, which
+  is the point of it being a background job.
 
 ---
 
@@ -305,30 +332,43 @@ button blue" → edit → reload → look. A CLI agent cannot look. This is phas
 
 ---
 
-## The two tool sets
+## One tool set, after trying two
 
 `CODE-AGENT.md` argues the window and the editor panel are different sessions
-with different caches. They are also different tool sets, and the panel's is
-small on purpose: **every definition sits in the cached prefix of every
-request in that session.**
+with different caches. That is still true — different preambles, different
+conversations, different ledger rows. For a while they were also different
+*tool sets*, and that part has been reversed.
 
-| | Window | Panel |
-|---|---|---|
-| `read`, `edit`, `grep` | ✓ | ✓ |
-| `glob`, `write`, `ls`, `move`, `delete` | ✓ | — |
-| `bash`, `bash_output`, `bash_kill` | ✓ | — |
-| `definition`, `references`, `diagnostics`, `explain` | ✓ | ✓ |
-| `symbols`, `find_symbol`, `rename_symbol`, `quick_fix`, `format` | ✓ | — |
-| git tools | ✓ | — |
-| `todo_write`, `plan`, `task` | ✓ | — |
-| `ask_user` | ✓ | ✓ |
-| net tools | ✓ | — |
-| `selection`, `open_tabs`, `apply_hunk` | — | ✓ |
-| `show_diff`, `open_file`, `run_in_tab` | ✓ | — |
+The panel was given seven: `read`, `grep`, `edit`, `definition`, `references`,
+`diagnostics`, `ask_user`. No shell, no git, no network, no `write`. The
+reasoning was that every definition sits in the cached prefix of every request
+in that session, and that a panel answering "fix *this*, here" does not need a
+repository's worth of tools to do it.
 
-The panel's whole value is being short and cheap. A twenty-turn conversation
-in it is a symptom; give it `bash` and a todo list and we have built the
-window twice and made the cheap one expensive.
+**What went wrong with it.** Seven tools did keep the panel's turns short, and
+the way it kept them short was by refusing work. The question that starts
+beside an open file does not stay inside the buffer: "why does this test fail"
+needs to run the test. The panel would get to that point and say so — and the
+person would re-ask in the FigyCode window, rebuilding the context by hand.
+That is not a cheaper agent. It is the same agent with a worse first attempt,
+plus a routing decision nobody asked to make.
+
+The cost the narrowing protected was a two-minute wait in a sidebar. That is a
+cost somebody can *see*, and stop with Escape.
+
+So both surfaces carry the whole registry. `tools::PANEL_TOOLS_WAS` keeps the
+original list and the argument beside the code.
+
+**What makes the panel cheap now**, and what always did: the **seed**. The open
+file and the selection ride in the first user message, so a panel turn starts
+with the context a window turn spends a round trip discovering. Everything else
+that was called cheapness was a restriction. What is left of "short" is a
+preamble that asks for short answers and a column that makes long ones
+uncomfortable — both of which shape the answer rather than forbidding the work.
+
+The prefix argument stands on its own, for both surfaces: the registry is held
+under 6,000 tokens by a test, because past that, picking a subset per session
+starts to be worth its complexity.
 
 ---
 

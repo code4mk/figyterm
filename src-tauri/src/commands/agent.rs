@@ -46,7 +46,18 @@ use crate::agent::tools::{self, ToolContext};
 use crate::agent::workspace::Workspace;
 
 /// The event every turn is narrated through.
-pub const AGENT_EVENT: &str = "agent://event";
+/// The event every turn is narrated through — **per surface**.
+///
+/// The editor panel and the FigyCode window are two React trees in
+/// one Tauri window, so a single channel is one both of them hear:
+/// the panel would draw the window's tool rows and the window would
+/// draw the panel's, each of them applying events for a
+/// conversation it is not having. A name per surface is the whole
+/// fix, and it is cheaper than a field every listener has to
+/// remember to check.
+pub fn agent_event(surface: Surface) -> String {
+    format!("agent://event/{}", surface.as_str())
+}
 
 /// A question for the window's language-server client. See `agent/code.rs`
 /// for why these go out rather than being asked in Rust.
@@ -275,8 +286,10 @@ pub struct AgentState {
     shells: Mutex<HashMap<String, Arc<SystemShell>>>,
     /// One bridge per window, holding the questions it has outstanding.
     bridges: Mutex<HashMap<String, Arc<Bridge>>>,
-    /// One desk per window, holding the questions `ask_user` has put to
-    /// the person and not had answered yet.
+    /// One desk per window *and surface*, holding the questions
+    /// `ask_user` has put to the person and not had answered yet. Keyed
+    /// like the sessions rather than like the shell: the card is drawn
+    /// in the conversation that asked it.
     desks: Mutex<HashMap<String, Arc<Desk>>>,
 }
 
@@ -304,9 +317,19 @@ pub fn forget_window(state: &AgentState, label: &str) {
             bridge.abandon();
         }
     }
-    // And anything waiting on the person at it.
+    /*
+      And anything waiting on the person at it — on *either* surface.
+
+      Keyed by window and surface like the sessions, rather than by
+      window like the shell and the bridge, because the card is drawn
+      in the conversation that asked: a panel's question answered into
+      the window's transcript would be answering a question nobody
+      there had been asked. Which makes this a prefix sweep and not a
+      `remove`, and getting that wrong leaves a desk alive after its
+      window is gone with somebody's `ask_user` waiting on it forever.
+    */
     if let Ok(mut desks) = state.desks.lock() {
-        if let Some(desk) = desks.remove(label) {
+        for (_, desk) in desks.extract_if(|k, _| k.starts_with(&mine)) {
             desk.abandon();
         }
     }
@@ -818,6 +841,42 @@ pub async fn agent_send(
     let session_key = key(&label, surface);
 
     /*
+      One turn at a time, per conversation.
+
+      This is a guard against a sequence that silently destroyed work.
+      A running turn *owns* its session — it is removed from the map for
+      the duration and put back at the end, so that nothing has to hold
+      a lock across a four-minute tool call. A second `agent_send` on
+      the same key while that is happening finds no session, builds a
+      **brand-new one with empty history**, and the two run side by
+      side: both narrating into the same transcript, both inserting
+      themselves back at the end so the slower one erases the other's
+      whole conversation, and the second overwriting the first's cancel
+      sender so Escape can no longer reach it.
+
+      None of that reported anything. It was hard to hit while turns
+      lasted seconds, and `bash_wait` made turns that legitimately sit
+      for five minutes — which is exactly when somebody types the next
+      thing.
+
+      Refused here rather than only in the window, because this is the
+      side that owns the session and a front end that has to remember a
+      rule will eventually forget it. The window queues instead, so this
+      is a backstop and not the usual path.
+    */
+    if state
+        .running
+        .lock()
+        .map_err(|e| e.to_string())?
+        .contains_key(&session_key)
+    {
+        return Err(
+            "That conversation is still working. Wait for it, or press Escape to stop it."
+                .into(),
+        );
+    }
+
+    /*
       Everything that can stop a turn before it starts, reported the same
       way a turn that fails half-way through is.
 
@@ -868,7 +927,7 @@ pub async fn agent_send(
         Ok(ready) => ready,
         Err(error) => {
             let _ = window.emit(
-                AGENT_EVENT,
+                &agent_event(surface),
                 &TurnEvent::Failed {
                     error: error.clone(),
                 },
@@ -980,9 +1039,10 @@ pub async fn agent_send(
 
     let (events_tx, mut events_rx) = tokio::sync::mpsc::unbounded_channel::<TurnEvent>();
     let emitter = window.clone();
+    let channel = agent_event(surface);
     let pump = tokio::spawn(async move {
         while let Some(event) = events_rx.recv().await {
-            let _ = emitter.emit(AGENT_EVENT, &event);
+            let _ = emitter.emit(&channel, &event);
         }
     });
 
@@ -1022,20 +1082,26 @@ pub async fn agent_send(
     /*
       The desk `ask_user` puts its questions on.
 
-      Per window for the same reason as the bridge — the card is drawn
-      in the window that asked and the answer comes back from it — and
-      it emits on the *turn's* event channel rather than one of its own,
-      so the window has one stream to render rather than two to
+      Per *conversation*, not per window like the bridge: the card is
+      drawn in the transcript that asked for it, and the editor panel
+      is a second transcript in the same window. Keyed by window and
+      surface, a panel's question cannot be answered out of the
+      FigyCode window's card — which would be answering a question
+      nobody there was asked.
+
+      It emits on the turn's own event channel rather than one of its
+      own, so each surface has one stream to render rather than two to
       interleave.
     */
     let desk = {
         let mut desks = state.desks.lock().map_err(|e| e.to_string())?;
-        Arc::clone(desks.entry(label.clone()).or_insert_with(|| {
+        Arc::clone(desks.entry(session_key.clone()).or_insert_with(|| {
             let emitter = window.clone();
+            let asking = agent_event(surface);
             Arc::new(Desk::new(move |question: &Question| {
                 emitter
                     .emit(
-                        AGENT_EVENT,
+                        &asking,
                         &TurnEvent::AskingUser {
                             id: question.id.clone(),
                             question: question.question.clone(),
@@ -1145,6 +1211,7 @@ pub async fn agent_send(
                 ctx: &{
                     let ctx = ToolContext::new(root)
                         .with_extra(extra)
+                        .with_surface(surface.as_str())
                         .with_shell(shell)
                         .with_lsp(lsp)
                         .with_asker(asker)
@@ -1176,7 +1243,7 @@ pub async fn agent_send(
                 String::new()
             }
         );
-        let _ = window.emit(AGENT_EVENT, &TurnEvent::Failed { error: error.clone() });
+        let _ = window.emit(&agent_event(surface), &TurnEvent::Failed { error: error.clone() });
         Err(error)
     });
 
@@ -1217,6 +1284,130 @@ pub async fn agent_send(
         .insert(session_key, session);
 
     result
+}
+
+/* ─── Background jobs ────────────────────────────────────────────────────── */
+
+/// One background command, as the window draws it.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackgroundJob {
+    pub id: String,
+    pub command: String,
+    /// Which conversation started it, so only that one reports it.
+    pub owner: String,
+    pub finished: bool,
+    pub status: Option<i32>,
+    pub ms: u64,
+    pub lines: usize,
+}
+
+/// What this window has running in the background, and what has just
+/// finished.
+///
+/// **Per window, not per surface.** The shell is one per window — the
+/// FigyCode window and the editor panel share it — so a build started
+/// from one is visible in the other. That is right: it is one machine
+/// and one set of processes, and a job that vanished because you
+/// looked at it from the wrong panel would be a worse lie than a
+/// shared list.
+///
+/// The window polls this, which is the opposite of the rule
+/// `bash_wait` exists to enforce — and the difference is the whole
+/// point. A model polling spends a request that re-sends the entire
+/// conversation; a window polling spends a mutex and a `Vec` clone.
+/// The expensive loop is the one with a language model in it.
+///
+/// Finished jobs are included, because "it disappeared from the list"
+/// is not an outcome. The window keeps what it last saw, notices what
+/// has turned finished, and says so.
+#[tauri::command]
+pub fn agent_background(window: Window, state: State<AgentState>) -> Vec<BackgroundJob> {
+    let shell = {
+        let Ok(shells) = state.shells.lock() else {
+            return Vec::new();
+        };
+        shells.get(window.label()).map(Arc::clone)
+    };
+    let Some(shell) = shell else {
+        // No shell yet means nothing has ever been run from this
+        // window, which is a shorter answer than an error.
+        return Vec::new();
+    };
+    shell
+        .jobs()
+        .into_iter()
+        .map(|job| BackgroundJob {
+            id: job.id,
+            command: job.command,
+            owner: job.owner,
+            finished: job.finished,
+            status: job.status,
+            ms: job.ms,
+            lines: job.lines,
+        })
+        .collect()
+}
+
+/// What a background job has written, from `from` onwards.
+///
+/// Separate from [`agent_background`] because it is asked for far less
+/// often and costs more: the list is polled once a second for every
+/// job, and this is polled only while somebody has one *open*. A
+/// hundred-line build log in every poll of the bar would be a hundred
+/// lines serialised across IPC every second for a row showing a
+/// pulsing dot.
+///
+/// `from` is a cursor, so an open log fetches each line once rather
+/// than re-sending the whole buffer every second. A Docker build
+/// writes a few thousand.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackgroundOutput {
+    pub lines: Vec<String>,
+    /// How many exist in total, so the caller can advance its cursor.
+    pub total: usize,
+    pub finished: bool,
+    pub status: Option<i32>,
+}
+
+#[tauri::command]
+pub fn agent_background_output(
+    window: Window,
+    state: State<AgentState>,
+    id: String,
+    from: usize,
+) -> Result<BackgroundOutput, String> {
+    let shell = {
+        let shells = state.shells.lock().map_err(|e| e.to_string())?;
+        shells.get(window.label()).map(Arc::clone)
+    };
+    let running = shell
+        .ok_or_else(|| "Nothing has been run from this window.".to_string())?
+        .poll(&id, from)?;
+
+    Ok(BackgroundOutput {
+        lines: running.lines,
+        total: running.total,
+        finished: running.finished,
+        status: running.status,
+    })
+}
+
+/// Stops one, from the window's own chip rather than through the model.
+#[tauri::command]
+pub fn agent_background_kill(
+    window: Window,
+    state: State<AgentState>,
+    id: String,
+) -> Result<(), String> {
+    let shell = {
+        let shells = state.shells.lock().map_err(|e| e.to_string())?;
+        shells.get(window.label()).map(Arc::clone)
+    };
+    shell
+        .ok_or_else(|| "Nothing has been run from this window.".to_string())?
+        .kill(&id)
 }
 
 /* ─── The project's own instructions ─────────────────────────────────────── */
@@ -1742,5 +1933,75 @@ mod tests {
         let back: AgentSettings = serde_json::from_str(&json).unwrap();
         assert_eq!(back.models[0].cached_price, Some(0.03));
         assert_eq!(back.chosen().unwrap().id, "m1");
+    }
+
+    /* ─── Closing a window ────────────────────────────────────────────── */
+
+    #[test]
+    fn a_turn_is_narrated_on_its_own_surface_and_not_the_other() {
+        // One Tauri window holds both trees, so a single channel is one
+        // both of them hear: the panel drawing the window's tool rows
+        // and the window drawing the panel's.
+        assert_ne!(agent_event(Surface::Window), agent_event(Surface::Panel));
+        assert!(agent_event(Surface::Panel).ends_with("/panel"));
+    }
+
+    #[test]
+    fn a_conversation_with_a_turn_in_flight_is_busy_and_the_other_surface_is_not() {
+        /*
+          A running turn owns its session: it is removed from the map
+          for the duration, so nothing holds a lock across a
+          four-minute tool call. That makes a second send on the same
+          key dangerous — it would find no session, build an empty one,
+          and the two would run side by side until the slower one put
+          itself back over the other's whole history.
+
+          The guard is a lookup in `running`, so what it has to get
+          right is the *key*: busy on one surface must not mean busy on
+          the other, or opening the editor's agent during a long window
+          turn would refuse to work.
+        */
+        let state = AgentState::default();
+        let (tx, _rx) = oneshot::channel();
+        state
+            .running
+            .lock()
+            .unwrap()
+            .insert(key("main", Surface::Window), tx);
+
+        let running = state.running.lock().unwrap();
+        assert!(running.contains_key(&key("main", Surface::Window)), "the window is busy");
+        assert!(
+            !running.contains_key(&key("main", Surface::Panel)),
+            "the panel in the same window is a different conversation"
+        );
+        assert!(
+            !running.contains_key(&key("other", Surface::Window)),
+            "another window is another conversation"
+        );
+    }
+
+    #[test]
+    fn closing_a_window_frees_the_person_waiting_at_every_surface_of_it() {
+        /*
+          The desks are keyed by window *and* surface, and the teardown
+          used to `remove` by window alone — which found nothing, left
+          both desks alive after their window was gone, and left
+          anybody's `ask_user` waiting on a card that no longer exists
+          until it timed out half an hour later.
+        */
+        let state = AgentState::default();
+        {
+            let mut desks = state.desks.lock().unwrap();
+            for surface in [Surface::Window, Surface::Panel] {
+                desks.insert(key("main", surface), Arc::new(Desk::new(|_| Ok(()))));
+            }
+            desks.insert(key("other", Surface::Window), Arc::new(Desk::new(|_| Ok(()))));
+        }
+
+        forget_window(&state, "main");
+
+        let left: Vec<String> = state.desks.lock().unwrap().keys().cloned().collect();
+        assert_eq!(left, vec![key("other", Surface::Window)]);
     }
 }

@@ -184,6 +184,12 @@ pub struct ToolContext {
     /// Where a long tool puts its output while it is still going.
     /// Bound per call by the loop, because it carries the call's id.
     pub progress: Option<Arc<dyn Progress>>,
+    /// Which surface this turn belongs to — `"window"` or `"panel"`.
+    ///
+    /// Only background jobs use it, and only to record who started
+    /// one: both surfaces watch the same shell, so without an owner
+    /// both would report the same finished build to their own model.
+    pub surface: String,
 }
 
 impl ToolContext {
@@ -198,7 +204,16 @@ impl ToolContext {
             asker: None,
             delegate: None,
             progress: None,
+            // The window unless told otherwise, which is what a test
+            // and a one-off `agent_call_tool` both are.
+            surface: "window".into(),
         }
+    }
+
+    /// Which surface this turn is for. See the field.
+    pub fn with_surface(mut self, surface: &str) -> Self {
+        self.surface = surface.to_string();
+        self
     }
 
     pub fn with_extra(mut self, extra: Vec<PathBuf>) -> Self {
@@ -362,36 +377,39 @@ pub trait Tool: Send + Sync {
     fn call(&self, ctx: &ToolContext, args: &Value) -> Result<ToolOutput, ToolError>;
 }
 
-/// What the **editor panel** is offered.
+/// The editor panel's old tool set, kept as a record of a decision that
+/// was reversed.
 ///
-/// `TOOLS.md` argues the panel is a different product from the window, not
-/// a smaller copy of it: it answers "fix *this*, here" in one to five
-/// turns, where the window answers "do this across the repo" in twenty to
-/// sixty. So it gets the tools that serve a file you are looking at, and
-/// none of the ones that serve a repository you are exploring.
+/// `TOOLS.md` argued the panel was a different product from the window
+/// rather than a smaller copy: "fix *this*, here" in one to five turns,
+/// against "do this across the repo" in twenty to sixty. So it was given
+/// seven tools — read, grep, edit, the three language-server ones and
+/// `ask_user` — and no `bash`, no git, nothing on the network.
 ///
-/// What is deliberately missing, and why:
+/// The argument was not wrong about what a *panel* is. It was wrong about
+/// who decides. In practice the panel is where somebody already has the
+/// file open, and the question that starts there does not stay inside the
+/// buffer: "why does this test fail" needs to run the test, and a panel
+/// that answers "open the FigyCode window and ask again" has made the
+/// person do the routing. The cost it was protecting — a two-minute wait
+/// in a sidebar — is a cost they can see and stop with Escape.
 ///
-/// - **`bash`.** A panel that can run the test suite is a panel that waits
-///   two minutes, and a two-minute wait in a sidebar is the window.
-/// - **`git_*` and the network.** Both are repository-wide or outside it
-///   entirely; neither is about the buffer under the cursor.
-/// - **`write`, `move`, `delete`, `ls`.** Rearranging a project from a
-///   sidebar beside one file is how a quick fix becomes a surprise.
+/// What actually keeps the panel cheap was never this list. It is the
+/// seed: the open file and the selection go in the first message, so the
+/// panel's turns start with the context the window spends a round trip
+/// discovering. That is still true, and it is in `figycode-panel.ts`.
 ///
-/// The list is here rather than a flag on each tool because this *is* the
-/// argument — it should be readable in one place and checkable against the
-/// table in `TOOLS.md`, which is where it came from.
-pub const PANEL_TOOLS: &[&str] = &[
+/// Left here because the next person to wonder "why does the panel have
+/// `git_commit`" deserves the whole argument rather than its conclusion.
+/// Nothing reads it.
+#[allow(dead_code)]
+pub const PANEL_TOOLS_WAS: &[&str] = &[
     "read",
     "grep",
     "edit",
     "definition",
     "references",
     "diagnostics",
-    // The one thing on this list that is not about the buffer: a panel
-    // that cannot ask has to guess, and a wrong guess in a sidebar is
-    // the same wrong guess, made faster.
     "ask_user",
 ];
 
@@ -440,6 +458,10 @@ pub fn registry() -> Vec<Box<dyn Tool>> {
         Box::new(fsops::Delete),
         Box::new(bash::Bash),
         Box::new(bash::BashOutput),
+        // Beside the one it replaces in practice: `bash_output` is a
+        // glance and this is the wait, and a model that has both stops
+        // polling.
+        Box::new(bash::BashWait),
         Box::new(bash::BashKill),
         Box::new(lsp::Definition),
         Box::new(lsp::References),
@@ -465,17 +487,19 @@ pub fn specs() -> Vec<ToolSpec> {
 
 /// What this surface is offered, in the registry's order.
 ///
+/// Every surface gets everything. The panel was once given seven of
+/// these — `PANEL_TOOLS_WAS` has that argument and why it was dropped.
+///
+/// The function stays rather than collapsing into `specs()`, and not out
+/// of sentiment: it is the one place a surface's set is decided, every
+/// caller goes through it, and the *next* reason to narrow a set will not
+/// be the last one. It is also the seam the tool picker's fallback uses.
+///
 /// Decided once, at session start, and then frozen — the tool list is the
 /// *first* thing in the request and caching is a prefix match, so a set
 /// that varied per turn would rewrite the cache on the turn it varied.
-pub fn specs_for(surface: Surface) -> Vec<ToolSpec> {
+pub fn specs_for(_surface: Surface) -> Vec<ToolSpec> {
     specs()
-        .into_iter()
-        .filter(|spec| match surface {
-            Surface::Window => true,
-            Surface::Panel => PANEL_TOOLS.contains(&spec.name),
-        })
-        .collect()
 }
 
 /// The whole set as the provider wants it.
@@ -615,29 +639,27 @@ mod tests {
     }
 
     #[test]
-    fn the_panel_gets_the_buffer_in_front_of_it_and_nothing_wider() {
-        let panel: Vec<&str> = specs_for(Surface::Panel).iter().map(|s| s.name).collect();
-        assert_eq!(panel, PANEL_TOOLS);
-
-        // A panel that can run the test suite is a panel that waits two
-        // minutes, and a two-minute wait in a sidebar is the window.
-        for absent in ["bash", "git_commit", "search_web", "write", "delete", "ls"] {
-            assert!(!panel.contains(&absent), "the panel should not have {absent}");
+    fn every_surface_is_offered_every_tool() {
+        /*
+          The panel used to get seven of these, and the symptom was a
+          sidebar that answered "I cannot run commands — open the
+          FigyCode window". Both surfaces are offered the same set now;
+          `PANEL_TOOLS_WAS` holds the argument that was.
+        */
+        let all: Vec<&str> = specs().iter().map(|s| s.name).collect();
+        for surface in [Surface::Window, Surface::Panel] {
+            let offered: Vec<&str> = specs_for(surface).iter().map(|s| s.name).collect();
+            assert_eq!(offered, all, "{surface:?} is not offered everything");
         }
     }
 
     #[test]
-    fn the_window_gets_everything() {
-        assert_eq!(specs_for(Surface::Window).len(), specs().len());
-    }
-
-    #[test]
-    fn every_panel_tool_is_a_tool_that_exists() {
-        // The list is written by hand against the table in TOOLS.md; a
-        // rename elsewhere would otherwise silently shrink the panel.
-        let all: Vec<&str> = specs().iter().map(|s| s.name).collect();
-        for name in PANEL_TOOLS {
-            assert!(all.contains(name), "{name} is in PANEL_TOOLS but not in the registry");
+    fn the_things_a_panel_needed_a_window_for_are_in_its_set() {
+        // The four the old list left out, which is what sent somebody
+        // to the other surface mid-question.
+        let panel: Vec<&str> = specs_for(Surface::Panel).iter().map(|s| s.name).collect();
+        for present in ["bash", "git_commit", "write", "todo_write"] {
+            assert!(panel.contains(&present), "the panel should have {present}");
         }
     }
 
@@ -676,9 +698,11 @@ mod tests {
             names,
             vec![
                 "read", "grep", "edit", "write", "ls", "move", "delete", "bash",
-                "bash_output", "bash_kill", "definition", "references", "diagnostics",
+                "bash_output", "bash_wait", "bash_kill", "definition", "references",
+                "diagnostics",
                 "search_web", "fetch_url", "git_status", "git_diff", "git_log",
-                "git_blame", "git_show", "git_commit", "todo_write", "ask_user", "plan", "task"
+                "git_blame", "git_show", "git_commit", "todo_write", "ask_user", "plan",
+                "task"
             ]
         );
     }
@@ -798,11 +822,18 @@ mod prefix_cost {
         let panel = output::approx_tokens(&openai_tools_for(Surface::Panel).to_string());
         println!("tool definitions: window {window} tokens, panel {panel} tokens");
 
+        /*
+          This is the bound that matters now that both surfaces carry
+          the whole registry. It sits in the cached prefix of every
+          request on both of them, so growing it is paid for twice —
+          and past about six thousand tokens, narrowing per session
+          starts to be worth its complexity.
+        */
         assert!(
             window < 6000,
-            "the window's tool definitions are {window} tokens — past this, picking a \
+            "the tool definitions are {window} tokens — past this, picking a \
              subset per session starts to be worth its complexity"
         );
-        assert!(panel < window / 2, "the panel's set is the small one on purpose");
+        assert_eq!(panel, window, "both surfaces carry the same prefix");
     }
 }

@@ -221,10 +221,10 @@ pub type BoxFuture<'a, T> = Pin<Box<dyn std::future::Future<Output = T> + Send +
 
 /// Every tool this surface has, every turn. The cache-stable default.
 ///
-/// "Every tool" is per surface, not absolute: the panel is offered a
-/// narrower set than the window, decided here once and then unchanging
-/// for the life of the session. See `tools::PANEL_TOOLS` for the argument
-/// about which ones.
+/// Both surfaces are offered the whole registry. It goes through
+/// `specs_for` rather than `specs` because that is where a surface's set
+/// is decided, and the panel was narrowed there once —
+/// `tools::PANEL_TOOLS_WAS` holds that argument and why it was dropped.
 pub struct OfferEverything(pub Surface);
 
 impl Picker for OfferEverything {
@@ -2288,13 +2288,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_panel_session_is_offered_the_panel_s_tools() {
-        let offered = OfferEverything(Surface::Panel).tools_for("fix this").await;
-        assert_eq!(offered.names, tools::PANEL_TOOLS);
-        assert!(
-            offered.names.len() < tools::specs().len(),
-            "the panel's set is the smaller one"
-        );
+    async fn a_panel_session_is_offered_the_same_tools_as_the_window() {
+        /*
+          It used to be offered seven of them, and the symptom was a
+          sidebar that answered "I cannot run commands — open the
+          FigyCode window", which made the person do the routing.
+        */
+        let panel = OfferEverything(Surface::Panel).tools_for("fix this").await;
+        let window = OfferEverything(Surface::Window).tools_for("fix this").await;
+        assert_eq!(panel.names, window.names);
+        assert_eq!(panel.names.len(), tools::specs().len());
     }
 
     fn conversation(turns: usize) -> Vec<Message> {

@@ -47,8 +47,9 @@ impl Tool for Bash {
             name: "bash",
             description: "Run a shell command in the project folder and return its output and \
                 exit code. Output is trimmed to the first and last lines when it is long. \
-                For anything that keeps running — a dev server, a watcher — pass \
-                background=true and poll it with `bash_output`.",
+                Use background=true for something you do not need to wait for — a dev \
+                server, a watcher — and then `bash_wait` if you do need its result, or \
+                `bash_output` to glance at it once.",
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -83,7 +84,7 @@ impl Tool for Bash {
 
         if arg_bool(args, "background") {
             let id = shell
-                .start(&command, ctx.root())
+                .start(&command, ctx.root(), &ctx.surface)
                 .map_err(|e| format!("bash: {e}"))?;
             return Ok(ToolOutput::text(format!(
                 "Started `{command}` in the background as {id}. Poll it with \
@@ -190,8 +191,9 @@ impl Tool for BashOutput {
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "bash_output",
-            description: "Read what a background command has written since you last looked, \
-                and whether it has finished.",
+            description: "Glance once at what a background command has written, and whether \
+                it has finished. To wait for one to finish, use `bash_wait` — it returns \
+                when the command is done. Do not call this in a loop.",
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -258,6 +260,147 @@ impl Tool for BashOutput {
     }
 }
 
+/// `bash_wait(id)` — block until a background command finishes.
+///
+/// ## The round trip this removes
+///
+/// Without it a model asked to "build the image and tell me when it is
+/// done" has only `bash_output`, so it calls it, reads "still running,
+/// 7 lines", and calls it again. Each of those is a full round trip —
+/// request, tool call, result, request — and each request re-sends the
+/// whole conversation. A four-minute build came back as forty rows
+/// that each said nothing and forty times the input bill, and the
+/// transcript was unreadable.
+///
+/// Waiting belongs on this side. The backend holds the process, polls
+/// its buffer every fifteen milliseconds already, and can block a
+/// thread for four minutes for free. One call in, one answer out.
+///
+/// ## Why it still has a deadline
+///
+/// A command that never exits — a dev server, a watcher — would
+/// otherwise hold the turn open until the person pressed Escape. The
+/// deadline turns that into an answer: *not finished yet, here is what
+/// it has said, decide*. Timing out is not failing, and the two get
+/// different sentences.
+///
+/// Escape reaches this: the turn loop selects on the cancel channel
+/// around every tool call, so a wait is interruptible even though the
+/// child it is waiting on keeps running.
+pub struct BashWait;
+
+/// Long enough for a Docker build or a cold `cargo build`, short
+/// enough that a dev server does not hold a turn open until somebody
+/// notices.
+const MAX_WAIT: u64 = 600;
+
+/// What to wait when nothing was asked for. Most builds are inside it,
+/// and the ones that are not say so and can be waited on again.
+const DEFAULT_WAIT: u64 = 300;
+
+impl Tool for BashWait {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec {
+            name: "bash_wait",
+            description: "Wait for a background command to finish and return its exit code \
+                and output. Returns as soon as it is done — use this instead of calling \
+                `bash_output` over and over, which costs a whole request each time and \
+                tells the person nothing. If it is still running when the wait is up, you \
+                are told so and can wait again.",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "The id `bash` returned when it started the command."
+                    },
+                    "seconds": {
+                        "type": "integer",
+                        "description":
+                            "How long to wait before answering anyway. Defaults to 300, \
+                             and 600 is the most. A build is usually worth the full wait."
+                    },
+                    "from": {
+                        "type": "integer",
+                        "description":
+                            "Line to report from. Pass the `total` from an earlier call to \
+                             get only what is new. Defaults to 0."
+                    }
+                },
+                "required": ["id"],
+                "additionalProperties": false
+            }),
+            // Waiting on a command that was already approved. A second
+            // permission card for *watching* it would be a prompt about
+            // nothing.
+            class: Class::Read,
+        }
+    }
+
+    fn call(&self, ctx: &ToolContext, args: &serde_json::Value) -> Result<ToolOutput, ToolError> {
+        let id = arg_str(args, "id", "bash_wait")?;
+        let from = args.get("from").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+        let seconds = args
+            .get("seconds")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(DEFAULT_WAIT)
+            .clamp(1, MAX_WAIT);
+
+        /*
+          Every line, as it arrives, onto the row.
+
+          This is the half that makes a four-minute wait bearable to
+          watch: one row that says what the build is doing now, rather
+          than forty rows that each say "still running". The progress
+          sink is the same one `bash` streams through.
+        */
+        let state = ctx
+            .shell()?
+            .wait(&id, from, Duration::from_secs(seconds), &|line| {
+                ctx.progress(line);
+            })
+            .map_err(|e| format!("bash_wait: {e}"))?;
+
+        let (kept, dropped) = head_and_tail(&state.lines, HEAD, TAIL);
+
+        /*
+          Three outcomes, and the model has to tell them apart: it
+          worked, it failed, or it is still going. A single "done"
+          would make a build that exited 1 look like a success.
+        */
+        let headline = match (state.finished, state.status) {
+            (true, Some(0)) => format!("{id} — finished, exit 0, after {seconds}s at most"),
+            (true, Some(code)) => format!("{id} — FAILED, exit {code}"),
+            (true, None) => format!("{id} — finished, no exit code reported"),
+            (false, _) => format!(
+                "{id} — still running after {seconds}s. Wait again, or leave it and say so"
+            ),
+        };
+
+        let mut text = format!("{headline}, {} lines total\n", state.total);
+        for line in &kept {
+            text.push_str(&clip_line(line, MAX_LINE));
+            text.push('\n');
+        }
+        if dropped > 0 {
+            text.push_str(&truncation_note(dropped, "line", "ask again with a later `from`"));
+            text.push('\n');
+        }
+        if kept.is_empty() {
+            text.push_str("(no output)\n");
+        }
+
+        Ok(ToolOutput::text(text).with_detail(json!({
+            "id": id,
+            "total": state.total,
+            "finished": state.finished,
+            "status": state.status,
+            "waitedSeconds": seconds,
+            "why": arg_str(args, "why", "bash_wait").unwrap_or_default(),
+        })))
+    }
+}
+
 pub struct BashKill;
 
 impl Tool for BashKill {
@@ -315,7 +458,7 @@ mod tests {
                 .clone()
                 .ok_or_else(|| "nothing scripted".to_string())
         }
-        fn start(&self, cmd: &str, _cwd: &Path) -> Result<String, String> {
+        fn start(&self, cmd: &str, _cwd: &Path, _owner: &str) -> Result<String, String> {
             self.started.lock().unwrap().push(cmd.to_string());
             Ok("bg_1".into())
         }
@@ -341,6 +484,162 @@ mod tests {
 
     fn lines(n: usize) -> Vec<String> {
         (1..=n).map(|i| format!("line {i}")).collect()
+    }
+
+    /// A job that finishes on the nth look, writing a line each time.
+    ///
+    /// The point of `bash_wait` is that *it* does the looking, so a
+    /// fake that was finished on the first poll would pass whatever
+    /// the tool did.
+    struct Eventually {
+        polls: Mutex<usize>,
+        finishes_on: usize,
+        status: i32,
+    }
+
+    impl Shell for Eventually {
+        fn run(&self, _c: &str, _w: &Path, _t: Duration) -> Result<Finished, String> {
+            unreachable!("the wait never runs a command")
+        }
+        fn start(&self, _c: &str, _w: &Path, _owner: &str) -> Result<String, String> {
+            Ok("bg_1".into())
+        }
+        fn poll(&self, _id: &str, from: usize) -> Result<Running, String> {
+            let mut polls = self.polls.lock().unwrap();
+            *polls += 1;
+            let done = *polls >= self.finishes_on;
+            let total = *polls;
+            Ok(Running {
+                id: "bg_1".into(),
+                lines: (from..total).map(|i| format!("step {}", i + 1)).collect(),
+                total,
+                finished: done,
+                status: done.then_some(self.status),
+            })
+        }
+        fn kill(&self, _id: &str) -> Result<(), String> {
+            Ok(())
+        }
+        fn running(&self) -> Vec<(String, String)> {
+            Vec::new()
+        }
+    }
+
+    fn eventually(finishes_on: usize, status: i32) -> Arc<Eventually> {
+        Arc::new(Eventually {
+            polls: Mutex::new(0),
+            finishes_on,
+            status,
+        })
+    }
+
+    /* ─── Waiting, rather than polling ──────────────────────────────── */
+
+    #[test]
+    fn waiting_returns_when_the_job_is_done_and_not_before() {
+        /*
+          The whole point. Without this the model polls `bash_output`
+          in a loop — each call a full round trip that re-sends the
+          conversation — and a four-minute build arrives as forty rows
+          that each say "still running".
+        */
+        let shell = eventually(4, 0);
+        let out = BashWait
+            .call(
+                &ToolContext::new(std::env::temp_dir()).with_shell(Arc::clone(&shell) as Arc<dyn Shell>),
+                &json!({ "id": "bg_1", "seconds": 30 }),
+            )
+            .unwrap();
+
+        assert!(*shell.polls.lock().unwrap() >= 4, "it returned before the job finished");
+        assert!(out.text.contains("finished, exit 0"), "{}", out.text);
+        let detail = out.detail.unwrap();
+        assert_eq!(detail["finished"], true);
+        assert_eq!(detail["status"], 0);
+    }
+
+    #[test]
+    fn a_build_that_failed_is_not_reported_as_done() {
+        // "finished" for a build that exited 1 is how a model tells
+        // somebody their image built when it did not.
+        let out = BashWait
+            .call(
+                &ToolContext::new(std::env::temp_dir()).with_shell(eventually(2, 1) as Arc<dyn Shell>),
+                &json!({ "id": "bg_1", "seconds": 30 }),
+            )
+            .unwrap();
+        assert!(out.text.contains("FAILED, exit 1"), "{}", out.text);
+        assert_eq!(out.detail.unwrap()["status"], 1);
+    }
+
+    #[test]
+    fn a_job_that_outlives_the_wait_is_not_a_failure() {
+        /*
+          A dev server never exits. Saying so — with what it has
+          printed — is an answer; holding the turn open until somebody
+          presses Escape is not. Not finished and failed are different
+          sentences.
+        */
+        let out = BashWait
+            .call(
+                &ToolContext::new(std::env::temp_dir())
+                    .with_shell(eventually(100_000, 0) as Arc<dyn Shell>),
+                &json!({ "id": "bg_1", "seconds": 1 }),
+            )
+            .unwrap();
+        assert!(out.text.contains("still running after 1s"), "{}", out.text);
+        assert!(out.text.contains("Wait again"), "it says what to do next");
+        assert_eq!(out.detail.unwrap()["finished"], false);
+    }
+
+    #[test]
+    fn the_wait_is_capped_however_long_it_was_asked_for() {
+        // An hour-long wait is a turn nobody can get out of except by
+        // closing the window.
+        let out = BashWait
+            .call(
+                &ToolContext::new(std::env::temp_dir())
+                    .with_shell(eventually(1, 0) as Arc<dyn Shell>),
+                &json!({ "id": "bg_1", "seconds": 99_999 }),
+            )
+            .unwrap();
+        assert_eq!(out.detail.unwrap()["waitedSeconds"], MAX_WAIT);
+    }
+
+    #[test]
+    fn output_arrives_on_the_row_while_the_wait_is_in_flight() {
+        /*
+          One row that says what the build is doing now, instead of
+          forty that say nothing. Without this a four-minute wait is a
+          spinner, which is the thing the polling loop was at least
+          honest about.
+        */
+        #[derive(Default)]
+        struct Seen(Mutex<Vec<String>>);
+        impl crate::agent::tools::Progress for Seen {
+            fn line(&self, line: &str) {
+                self.0.lock().unwrap().push(line.to_string());
+            }
+        }
+
+        let seen = Arc::new(Seen::default());
+        let ctx = ToolContext::new(std::env::temp_dir())
+            .with_shell(eventually(3, 0) as Arc<dyn Shell>)
+            .with_progress(Arc::clone(&seen) as Arc<dyn crate::agent::tools::Progress>);
+
+        BashWait.call(&ctx, &json!({ "id": "bg_1", "seconds": 30 })).unwrap();
+        let lines = seen.0.lock().unwrap();
+        assert!(lines.len() >= 3, "nothing reached the row: {lines:?}");
+        assert_eq!(lines[0], "step 1");
+    }
+
+    #[test]
+    fn an_unknown_id_says_so_rather_than_waiting_out_the_clock() {
+        let shell = Arc::new(FakeShell::default());
+        let error = BashWait
+            .call(&ctx_with(shell), &json!({ "id": "nope", "seconds": 30 }))
+            .unwrap_err();
+        assert!(error.contains("no background task"), "{error}");
     }
 
     #[test]

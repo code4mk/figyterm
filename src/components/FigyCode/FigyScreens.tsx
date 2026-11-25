@@ -22,6 +22,14 @@ import { Dialog } from "./FigyDialog";
 import { projectLabel, type FigyProject } from "../../services/figycode-projects";
 import { formatCost, formatTokens } from "../../services/figycode-blocks";
 import type { Conversation, ProjectRules, Totals } from "../../services/figycode-agent";
+import {
+  RESUME_EMPTY,
+  RESUME_NOTE,
+  USAGE_EMPTY,
+  cacheWord,
+  conversationRow,
+  usageView,
+} from "../../services/figycode-views";
 import type { DirCount } from "../../services/figycode-files";
 
 /* ─── Start ───────────────────────────────────────────────────────────────── */
@@ -420,15 +428,6 @@ export function ProjectDialog({
 /* ─── /resume ─────────────────────────────────────────────────────────────── */
 
 /** `just now`, `14m ago`, `yesterday`, then the date. */
-function when(ms: number): string {
-  const seconds = Math.max(0, (Date.now() - ms) / 1000);
-  if (seconds < 90) return "just now";
-  if (seconds < 3600) return `${Math.round(seconds / 60)}m ago`;
-  if (seconds < 18 * 3600) return `${Math.round(seconds / 3600)}h ago`;
-  if (seconds < 42 * 3600) return "yesterday";
-  return new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
-
 /**
  * The conversations this folder has had, to pick one back up.
  *
@@ -455,44 +454,41 @@ export function ResumeDialog({
   return (
     <Dialog title="Earlier in this folder" onClose={onClose}>
       <div className="figy-dialog-body">
-        <div className="figy-dialog-note">
-          Carrying one on re-sends the whole conversation on the next message — the
-          provider&rsquo;s cache does not survive the gap. The shorter the conversation,
-          the cheaper it is to come back to.
-        </div>
+        <div className="figy-dialog-note">{RESUME_NOTE}</div>
 
         {conversations.length === 0 ? (
-          <div className="figy-empty">
-            Nothing yet. A conversation is written down after its first answer.
-          </div>
+          <div className="figy-empty">{RESUME_EMPTY}</div>
         ) : (
           <div className="figy-resume-list">
-            {conversations.map((conversation) => (
-              <div className="figy-resume-row" key={conversation.sessionId}>
-                <button
-                  type="button"
-                  className="figy-resume-open"
-                  onClick={() => onResume(conversation.sessionId)}
-                  title={conversation.title}
-                >
-                  <MessageSquare size={12} className="figy-resume-icon" />
-                  <span className="figy-resume-title truncate">{conversation.title}</span>
-                  <span className="figy-resume-meta">
-                    {conversation.turns} {conversation.turns === 1 ? "message" : "messages"} ·{" "}
-                    {formatCost(conversation.spentUsd)} · {when(conversation.updatedAt)}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  className="figy-iconbtn"
-                  onClick={() => onForget(conversation.sessionId)}
-                  title="Forget this conversation"
-                  aria-label={`Forget ${conversation.title}`}
-                >
-                  <Trash2 size={11} />
-                </button>
-              </div>
-            ))}
+            {conversations.map((conversation) => {
+              /* The same title and the same meta line the editor
+                 panel's list shows — it said "turns" where this said
+                 "messages", about the same number. */
+              const row = conversationRow(conversation);
+              return (
+                <div className="figy-resume-row" key={conversation.sessionId}>
+                  <button
+                    type="button"
+                    className="figy-resume-open"
+                    onClick={() => onResume(conversation.sessionId)}
+                    title={row.title}
+                  >
+                    <MessageSquare size={12} className="figy-resume-icon" />
+                    <span className="figy-resume-title truncate">{row.title}</span>
+                    <span className="figy-resume-meta">{row.meta}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="figy-iconbtn"
+                    onClick={() => onForget(conversation.sessionId)}
+                    title="Forget this conversation"
+                    aria-label={`Forget ${row.title}`}
+                  >
+                    <Trash2 size={11} />
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -511,11 +507,24 @@ export function ResumeDialog({
  * percentage nobody knows how to read.
  */
 export function UsageDialog({ totals, onClose }: { totals: Totals; onClose: () => void }) {
-  const healthy = totals.hitRate >= 70;
-  const fresh = Math.max(0, totals.input - totals.cached);
-  const all = Math.max(1, totals.input + totals.output);
-  const total = totals.costUsd + totals.toolCostUsd;
-  const perTurn = totals.turns > 0 ? total / totals.turns : 0;
+  /*
+    Every figure, label, order and footnote comes from `usageView`,
+    which the editor panel's spend view renders too. They used to
+    compute their own and leave out different things — this one had the
+    turn count and the spend total, that one did not, so the two
+    screens about one session added up differently.
+  */
+  const view = usageView(totals);
+
+  if (view.turns === 0) {
+    return (
+      <Dialog title="Tokens and spend" onClose={onClose}>
+        <div className="figy-dialog-body">
+          <div className="figy-empty">{USAGE_EMPTY}</div>
+        </div>
+      </Dialog>
+    );
+  }
 
   return (
     <Dialog title="Tokens and spend" onClose={onClose}>
@@ -527,21 +536,17 @@ export function UsageDialog({ totals, onClose }: { totals: Totals; onClose: () =
         */}
         <div className="figy-figures">
           <div className="figy-figure">
-            <span className="figy-figure-value">{formatCost(total)}</span>
+            <span className="figy-figure-value">{formatCost(view.total)}</span>
             <span className="figy-figure-label">this session</span>
-            {totals.turns > 0 && (
-              <span className="figy-figure-note">{formatCost(perTurn)} a turn</span>
-            )}
+            <span className="figy-figure-note">{formatCost(view.perTurn)} a turn</span>
           </div>
-          <div className={`figy-figure ${healthy ? "good" : "warn"}`}>
-            <span className="figy-figure-value">{totals.hitRate}%</span>
+          <div className={`figy-figure ${view.healthy ? "good" : "warn"}`}>
+            <span className="figy-figure-value">{view.hitRate}%</span>
             <span className="figy-figure-label">read from cache</span>
-            <span className="figy-figure-note">
-              {healthy ? "healthy" : totals.turns > 2 ? "too low" : "early days"}
-            </span>
+            <span className="figy-figure-note">{cacheWord(totals)}</span>
           </div>
           <div className="figy-figure">
-            <span className="figy-figure-value">{totals.turns}</span>
+            <span className="figy-figure-value">{view.turns}</span>
             <span className="figy-figure-label">turns</span>
             <span className="figy-figure-note">{formatTokens(totals.input)} in</span>
           </div>
@@ -549,63 +554,34 @@ export function UsageDialog({ totals, onClose }: { totals: Totals; onClose: () =
 
         {/*
           Input against output, to scale. The point it makes in one
-          glance is the one the note used to make in a sentence:
-          output is a rounding error, and almost all of what you pay
-          for is the conversation being re-sent.
+          glance is the one the note used to make in a sentence: output
+          is a rounding error, and almost all of what you pay for is the
+          conversation being re-sent.
         */}
         <div className="figy-context-bar" role="img" aria-label="Where the tokens went">
-          {totals.cached > 0 && (
-            <span
-              className="figy-context-slice user"
-              style={{ flexGrow: totals.cached / all }}
-              title={`${formatTokens(totals.cached)} read from cache`}
-            />
-          )}
-          {fresh > 0 && (
-            <span
-              className="figy-context-slice toolResults"
-              style={{ flexGrow: fresh / all }}
-              title={`${formatTokens(fresh)} sent fresh`}
-            />
-          )}
-          {totals.output > 0 && (
-            <span
-              className="figy-context-slice assistant"
-              style={{ flexGrow: totals.output / all }}
-              title={`${formatTokens(totals.output)} written`}
-            />
-          )}
+          {view.flow
+            .filter((one) => one.tokens > 0)
+            .map((one) => (
+              <span
+                key={one.key}
+                className={`figy-context-slice ${one.key}`}
+                style={{ flexGrow: one.share }}
+                title={`${formatTokens(one.tokens)} ${one.label.toLowerCase()}`}
+              />
+            ))}
         </div>
 
         <table className="figy-table figy-table-plain">
           <tbody>
-            <tr>
-              <td>
-                <span className="figy-context-key user" /> Read from cache
-              </td>
-              <td className="num">{formatTokens(totals.cached)}</td>
-              <td className="num figy-table-dim">
-                {totals.input > 0 ? `${Math.round((totals.cached / totals.input) * 100)}%` : "—"}
-              </td>
-            </tr>
-            <tr>
-              <td>
-                <span className="figy-context-key toolResults" /> Sent fresh
-              </td>
-              <td className="num">{formatTokens(fresh)}</td>
-              <td className="num figy-table-dim">
-                {totals.input > 0 ? `${Math.round((fresh / totals.input) * 100)}%` : "—"}
-              </td>
-            </tr>
-            <tr>
-              <td>
-                <span className="figy-context-key assistant" /> Written back
-              </td>
-              <td className="num">{formatTokens(totals.output)}</td>
-              <td className="num figy-table-dim">
-                {Math.round((totals.output / all) * 100)}%
-              </td>
-            </tr>
+            {view.flow.map((one) => (
+              <tr key={one.key}>
+                <td>
+                  <span className={`figy-context-key ${one.key}`} /> {one.label}
+                </td>
+                <td className="num">{formatTokens(one.tokens)}</td>
+                <td className="num figy-table-dim">{Math.round(one.share * 100)}%</td>
+              </tr>
+            ))}
           </tbody>
         </table>
 
@@ -613,56 +589,35 @@ export function UsageDialog({ totals, onClose }: { totals: Totals; onClose: () =
           <div className="figy-dialog-section-head">Spend</div>
           <table className="figy-table figy-table-plain">
             <tbody>
-              <tr>
-                <td>The model</td>
-                <td className="num">{formatCost(totals.costUsd)}</td>
-              </tr>
-              {/*
-                Kept apart from the model's own cost. Folding them
-                together makes a search-heavy session read as an
-                expensive model, which sends somebody to change the
-                wrong setting.
-              */}
-              <tr>
-                <td>
-                  Tools
-                  <span className="figy-table-sub">Exa, and the tool picker</span>
-                </td>
-                <td className="num">{formatCost(totals.toolCostUsd)}</td>
-              </tr>
-              <tr className="figy-table-total">
-                <td>Total</td>
-                <td className="num">{formatCost(total)}</td>
-              </tr>
+              {view.spend.map((one) => (
+                <tr key={one.key} className={one.total ? "figy-table-total" : ""}>
+                  <td>
+                    {one.label}
+                    {one.note && <span className="figy-table-sub">{one.note}</span>}
+                  </td>
+                  <td className="num">{formatCost(one.cost)}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
 
-        {/*
-          The early warning this screen exists for. A result that was
-          expensive once is expensive on every turn after it, so a
-          spike here is a tool misbehaving and it shows up one turn
-          after it starts rather than twenty.
-        */}
-        {totals.largestToolResult > 0 && (
+        {view.largest && (
           <div className="figy-dialog-note muted">
-            Largest single tool result: <strong>{formatTokens(totals.largestToolResult)}</strong>{" "}
-            tokens — re-sent with every message after the one that fetched it.
+            Largest single tool result: <strong>{formatTokens(view.largest.tokens)}</strong> tokens
+            — {view.largest.note}.
           </div>
         )}
 
-        {totals.turns > 2 && (
-          <div className={`figy-card figy-notice ${healthy ? "info" : "warn"}`}>
+        {view.verdict && (
+          <div className={`figy-card figy-notice ${view.verdict.healthy ? "info" : "warn"}`}>
             <div className="figy-notice-main">
               <div className="figy-notice-title">
-                <span className="figy-notice-glyph">{healthy ? "◔" : "!"}</span>
-                {healthy ? "The cache is working" : "The cache is not being hit"}
+                <span className="figy-notice-glyph">{view.verdict.healthy ? "◔" : "!"}</span>
+                {view.verdict.value}{" "}
+                {view.verdict.healthy ? "read from cache" : "read from cache — too low"}
               </div>
-              <div className="figy-notice-body">
-                {healthy
-                  ? "Most of each turn's input is being read from cache rather than re-sent, which is where nearly all of the saving is."
-                  : "Below about 70% over a long conversation means something is changing the start of the request between turns — the tool list and the system prompt are the usual culprits."}
-              </div>
+              <div className="figy-notice-body">{view.verdict.text}</div>
             </div>
           </div>
         )}

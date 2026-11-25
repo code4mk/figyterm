@@ -14450,31 +14450,146 @@ body > .cm-api-completions .cm-completionDetail {
   }
 }
 
-.figy-bg-chip {
-  display: inline-flex;
+/* ─── What is running in the background ──────────────────────────────────── *
+
+  Its own row above the composer, not a chip inside the running line.
+
+  That is where it used to be, and it was the bug: a background job
+  exists precisely because it outlives the turn that started it, so a
+  chip drawn inside the turn's own spinner could only be seen while the
+  turn was still going. A five-minute build started by a ten-second
+  turn was invisible for four minutes and fifty seconds.
+*/
+
+.figy-bg-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.figy-bg-job {
+  border: 1px solid var(--ft-border-subtle);
+  border-radius: 8px;
+  background: rgba(39, 194, 160, 0.06);
+  overflow: hidden;
+}
+
+.figy-bg-row {
+  display: flex;
   align-items: center;
-  gap: 7px;
-  height: 24px;
-  padding: 0 11px;
-  border: 1px solid var(--ft-border);
-  border-radius: 999px;
-  background: var(--ft-elevated);
-  color: var(--ft-text-secondary);
+  gap: 8px;
+  padding: 4px 9px;
   font-family: var(--figy-mono);
-  font-size: 11px;
+  font-size: 10.5px;
+}
+
+/*
+  The row is the control.
+
+  A separate disclosure triangle beside a command, a clock and a Stop
+  button is a fourth thing to aim at in a row 24px tall.
+*/
+.figy-bg-open {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  text-align: left;
   cursor: pointer;
 }
 
-.figy-bg-chip:hover {
-  color: var(--ft-text);
-  border-color: var(--ft-text-muted);
-}
-
+/*
+  Pulsing, because the one thing this row has to say is *still going*.
+  A static dot beside a time that only changes once a second reads as
+  a record of something rather than something happening.
+*/
 .figy-bg-dot {
+  flex-shrink: 0;
   width: 5px;
   height: 5px;
   border-radius: 50%;
   background: var(--figy-teal);
+  animation: figy-bg-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes figy-bg-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* The command, which is what the person started — `bg_1` is the
+   agent's handle for it and means nothing to them. */
+.figy-bg-cmd {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ft-text-secondary);
+}
+
+.figy-bg-time {
+  flex-shrink: 0;
+  color: var(--ft-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.figy-bg-stop {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border-radius: 5px;
+  border: 1px solid var(--ft-border);
+  color: var(--ft-text-muted);
+  font-family: var(--figy-sans, inherit);
+  font-size: 10px;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.figy-bg-stop:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--ft-text);
+}
+
+/*
+  What it is doing, live.
+
+  Capped in height and scrolled rather than allowed to grow: this sits
+  directly above the composer, and a build log that pushed the text box
+  off the bottom of the window would be a feature that broke the one
+  thing underneath it.
+*/
+.figy-bg-log {
+  padding: 0 7px 7px;
+}
+
+.figy-bg-out {
+  max-height: 180px;
+  overflow: auto;
+  font-size: 10.5px;
+  line-height: 1.5;
+  /* Long build lines are read at their start, and wrapping a thousand
+     of them is a tall box of soft-wrapped noise. */
+  white-space: pre;
+}
+
+.figy-bg-quiet {
+  padding: 4px 4px 2px;
+  color: var(--ft-text-muted);
+  font-size: 10.5px;
+}
+
+.figy-bg-open:hover .figy-bg-cmd {
+  color: var(--ft-text);
+}
+
+.light .figy-bg-stop:hover {
+  background: rgba(15, 17, 23, 0.06);
 }
 
 /* ─── Completion ─────────────────────────────────────────────────────────── */
@@ -15111,32 +15226,44 @@ body > .cm-api-completions .cm-completionDetail {
    colour is a second signal rather than the only one, so the list
    reads the same for anybody who cannot separate two of them. */
 .figy-context-slice.tools,
-.figy-context-key.tools {
+.figy-context-key.tools,
+.figy-sheet-bar-slice.tools,
+.figy-sheet-row-fill.tools {
   background: #7c5cff;
 }
 
 .figy-context-slice.system,
-.figy-context-key.system {
+.figy-context-key.system,
+.figy-sheet-bar-slice.system,
+.figy-sheet-row-fill.system {
   background: #3f8cff;
 }
 
 .figy-context-slice.user,
-.figy-context-key.user {
+.figy-context-key.user,
+.figy-sheet-bar-slice.user,
+.figy-sheet-row-fill.user {
   background: #27c2a0;
 }
 
 .figy-context-slice.assistant,
-.figy-context-key.assistant {
+.figy-context-key.assistant,
+.figy-sheet-bar-slice.assistant,
+.figy-sheet-row-fill.assistant {
   background: #e0a33a;
 }
 
 .figy-context-slice.toolResults,
-.figy-context-key.toolResults {
+.figy-context-key.toolResults,
+.figy-sheet-bar-slice.toolResults,
+.figy-sheet-row-fill.toolResults {
   background: #e06c9a;
 }
 
 .figy-context-slice.imageTokens,
-.figy-context-key.imageTokens {
+.figy-context-key.imageTokens,
+.figy-sheet-bar-slice.imageTokens,
+.figy-sheet-row-fill.imageTokens {
   background: #9b6cff;
 }
 
@@ -16312,4 +16439,852 @@ body > .cm-api-completions .cm-completionDetail {
 
 .light .figy-copy {
   background: var(--ft-surface);
+}
+
+/* ─── The editor's agent panel ────────────────────────────────────────────── *
+
+  The FigyCode transcript in a 320px column.
+
+  Everything here is layout and scale: the blocks, cards and composer
+  are the window's own components and keep the window's rules. What a
+  sidebar needs on top of that is a frame that holds its height, a
+  scroller that does not push the composer off the bottom, and prose
+  that gives up the window's comfortable measure — `figy-transcript`
+  caps itself at 980px, which is four times this column and so has no
+  effect here at all.
+*/
+
+.figy-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  /* The positioned ancestor the sheets fill. Without it they would
+     size themselves against the editor modal and cover the buffer. */
+  position: relative;
+  /* `min-height: 0` on a flex child is the whole reason the scroller
+     below can scroll rather than growing the column past its parent. */
+  min-height: 0;
+  background: var(--ft-bg);
+  border-left: 1px solid var(--ft-border-subtle);
+}
+
+.figy-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  height: 30px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--ft-border-subtle);
+  color: var(--ft-text-muted);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.figy-panel-title {
+  font-weight: 600;
+}
+
+.figy-panel-spacer {
+  flex: 1;
+}
+
+.figy-panel-act {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  color: var(--ft-text-muted);
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.figy-panel-act:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ft-text);
+}
+
+.figy-panel-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 10px 10px 0;
+}
+
+/*
+  The same transcript, with the window's padding taken back out.
+
+  A 22px gutter is right in a 960px window and is a seventh of this
+  column, so the rows are given the width and the column's own padding
+  does the breathing.
+*/
+.figy-panel-transcript {
+  max-width: none;
+  gap: 8px;
+}
+
+.figy-panel-bottom {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  flex-shrink: 0;
+  padding: 8px;
+  border-top: 1px solid var(--ft-border-subtle);
+  background: var(--ft-bg);
+}
+
+/*
+  Which model is answering — a label, not a picker.
+
+  The settings are one file for both surfaces, so a picker here would
+  change the FigyCode window's model from a control the window cannot
+  see. It truncates rather than wrapping: the send button beside it is
+  the part that has to stay where it is.
+*/
+.figy-panel-model {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ft-text-muted);
+  font-family: var(--figy-mono);
+  font-size: 10px;
+}
+
+.figy-panel-welcome {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 22px 6px;
+  color: var(--ft-text-muted);
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+
+.figy-panel-welcome-note {
+  padding-top: 2px;
+  border-top: 1px solid var(--ft-border-subtle);
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+/* ─── /tools ──────────────────────────────────────────────────────────────── *
+
+  One tool's definition, as a row in the dialog.
+
+  Deliberately not `figy-tool-*`, which is the *transcript's* row — mono,
+  a negative margin and a glyph rail, all of which are right there and
+  wrong in a table.
+*/
+
+.figy-tooldef {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 1px 0;
+  text-align: left;
+  color: var(--ft-text);
+  cursor: pointer;
+}
+
+.figy-tooldef-caret {
+  color: var(--ft-text-muted);
+  transition: transform 0.12s ease;
+}
+
+.figy-tooldef.on .figy-tooldef-caret {
+  transform: rotate(90deg);
+}
+
+.figy-tooldef-name {
+  font-family: var(--figy-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+/*
+  The class, as a word rather than a colour alone.
+
+  It is the whole of what a permission card will do about this tool, so
+  it reads as text — a tint that has to be learned is a legend nobody
+  opens a dialog to study.
+*/
+.figy-tooldef-class {
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.055);
+  color: var(--ft-text-muted);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.figy-tooldef-class.write {
+  background: rgb(var(--ft-accent-rgb) / 0.14);
+  color: var(--ft-accent);
+}
+
+.figy-tooldef-class.exec,
+.figy-tooldef-class.net {
+  background: rgba(227, 179, 65, 0.16);
+  color: var(--figy-amber);
+}
+
+/*
+  The description the *model* reads.
+
+  Indented under its row and in prose rather than mono: it is a
+  paragraph written for a reader, and it is the most useful thing on
+  the row — which is also why only one is open at a time.
+*/
+.figy-tooldef-body {
+  padding: 4px 0 6px 17px;
+  color: var(--ft-text-secondary);
+  font-size: 11.5px;
+  line-height: 1.5;
+  max-width: 62ch;
+}
+
+.figy-tooldef-note {
+  margin-top: 3px;
+  color: var(--ft-text-muted);
+  font-size: 10.5px;
+}
+
+/*
+  The bar above the table, in the pills' own colours.
+
+  `figy-context-slice` gives it the geometry every bar in this window
+  has; these four give it the one meaning worth encoding here. The
+  modifiers are the class names, so the bar and the pill on each row
+  cannot drift apart.
+*/
+.figy-tooldef-slice.read {
+  background: var(--ft-text-muted);
+  opacity: 0.45;
+}
+
+.figy-tooldef-slice.write {
+  background: var(--ft-accent);
+}
+
+.figy-tooldef-slice.exec,
+.figy-tooldef-slice.net {
+  background: var(--figy-amber);
+}
+
+/* Two amber neighbours would read as one slice, so the second is
+   stepped down rather than given a colour of its own. */
+.figy-tooldef-slice.net {
+  opacity: 0.6;
+}
+
+.light .figy-tooldef-class {
+  background: rgba(15, 17, 23, 0.06);
+}
+
+/* ─── Typed ahead ─────────────────────────────────────────────────────────── *
+
+  One message, held until the turn ends.
+
+  A conversation runs one turn at a time, and a turn can now sit for
+  five minutes waiting on a build — which is exactly when somebody
+  types the next thing. It is shown rather than silently held, because
+  a message that was typed and did not appear is a message somebody
+  thinks was lost: they type it again, and then both go.
+
+  Deliberately quiet: it is not a notice, nothing went wrong, and it
+  will take care of itself.
+*/
+.figy-queued {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 5px 9px;
+  border: 1px dashed var(--ft-border);
+  border-radius: 8px;
+  color: var(--ft-text-muted);
+  font-size: 11px;
+}
+
+.figy-queued-mark {
+  flex-shrink: 0;
+  font-family: var(--figy-mono);
+  opacity: 0.6;
+}
+
+.figy-queued-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ft-text-secondary);
+}
+
+.figy-queued-note {
+  flex-shrink: 0;
+  font-size: 10px;
+  opacity: 0.75;
+}
+
+.figy-queued-drop {
+  flex-shrink: 0;
+  padding: 0 3px;
+  border-radius: 4px;
+  color: var(--ft-text-muted);
+  font-size: 10px;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.figy-queued-drop:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--ft-text);
+}
+
+.light .figy-queued-drop:hover {
+  background: rgba(15, 17, 23, 0.06);
+}
+
+/* ─── The agent panel's sheet ─────────────────────────────────────────────── *
+
+  One sheet, five views, over the whole column.
+
+  Absolutely positioned rather than floated: a dialog floats over
+  something you can still read, and at 320px there is nothing behind it
+  to read. The sheet *is* the column while it is open.
+
+  The idea that makes the views readable at this width is that no
+  proportion is ever a column. Label, number and share would be three
+  columns in 300px, and the labels truncate to nothing long before the
+  numbers do — so every share is a bar *under* its own row.
+*/
+
+.figy-sheet {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--ft-bg);
+}
+
+.figy-sheet-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 7px 6px 6px;
+}
+
+.figy-sheet-heading {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.figy-sheet-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ft-text);
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+/* The model every figure on the sheet is about, said once. */
+.figy-sheet-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ft-text-muted);
+  font-family: var(--figy-mono);
+  font-size: 9.5px;
+}
+
+.figy-sheet-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  color: var(--ft-text-muted);
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.figy-sheet-icon:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ft-text);
+}
+
+/* The switcher spans the column, so its five segments are equal and
+   wide enough to hit. */
+.figy-sheet-tabs {
+  flex-shrink: 0;
+  padding: 0 8px 8px;
+}
+
+.figy-sheet-tabs .seg-tabs {
+  width: 100%;
+}
+
+.figy-sheet-body {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden auto;
+  padding: 2px 10px 12px;
+}
+
+/* ─── The figure a view opens with ────────────────────────────────────────── */
+
+.figy-sheet-figure {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-bottom: 9px;
+  margin-bottom: 9px;
+  border-bottom: 1px solid var(--ft-border-subtle);
+}
+
+.figy-sheet-figure-line {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+}
+
+.figy-sheet-figure-value {
+  color: var(--ft-text);
+  font-family: var(--figy-mono);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  /* Tabular, so the figure does not shuffle sideways as it climbs. */
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.figy-sheet-figure.warn .figy-sheet-figure-value {
+  color: var(--figy-amber);
+}
+
+.figy-sheet-figure-unit {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ft-text-muted);
+  font-size: 10.5px;
+}
+
+.figy-sheet-figure-note {
+  color: var(--ft-text-muted);
+  font-size: 10px;
+  opacity: 0.85;
+}
+
+/* ─── The composition bar ─────────────────────────────────────────────────── */
+
+.figy-sheet-bar {
+  display: flex;
+  gap: 1.5px;
+  height: 5px;
+  margin-bottom: 11px;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.figy-sheet-bar-slice {
+  min-width: 2px;
+  border-radius: 1px;
+}
+
+/*
+  The slices take their colours from the window's context dialog, which
+  already has a hue per part under these same class names — see
+  `.figy-context-slice` above, where both are defined together.
+
+  One palette on purpose: the sheet and the dialog are the same
+  quantities seen in two places, and "tool results" changing from pink
+  to amber between them would make them two different pictures.
+*/
+
+/* ─── A row, with its share under it ──────────────────────────────────────── */
+
+.figy-sheet-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.figy-sheet-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.figy-sheet-row-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.figy-sheet-row-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ft-text);
+  font-size: 11.5px;
+}
+
+.figy-sheet-row-value {
+  flex-shrink: 0;
+  color: var(--ft-text-secondary);
+  font-family: var(--figy-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.figy-sheet-row-note {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ft-text-muted);
+  font-size: 9.5px;
+  line-height: 1.3;
+}
+
+/*
+  The share, as 3px of colour rather than a percentage column.
+
+  The track stays visible at zero so a row with nothing in it still
+  reads as a row rather than as a gap in the list.
+*/
+.figy-sheet-row-track {
+  display: block;
+  height: 3px;
+  margin-top: 2px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.055);
+  overflow: hidden;
+}
+
+.figy-sheet-row-fill {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--ft-text-muted);
+  transition: width 240ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* ─── Sections, notes and verdicts ────────────────────────────────────────── */
+
+.figy-sheet-section {
+  margin-top: 14px;
+}
+
+.figy-sheet-section-head {
+  margin-bottom: 7px;
+  color: var(--ft-text-muted);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/*
+  The sentence that introduces a section, above its rows.
+
+  The window puts this in a `figy-dialog-note`, which is a boxed aside.
+  At this width a box inside a section inside a sheet is three nested
+  frames, so it is just the text, set quieter than the rows it explains.
+*/
+.figy-sheet-lede {
+  margin: -2px 0 8px;
+  color: var(--ft-text-muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+/*
+  The lines of fact at the foot of the context view.
+
+  The same three the window's dialog ends with, which is why they are a
+  list here rather than three hand-written lines — writing them out
+  twice is how the panel came to be missing two of them.
+*/
+.figy-sheet-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 12px;
+  padding-top: 9px;
+  border-top: 1px solid var(--ft-border-subtle);
+  color: var(--ft-text-muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+/* The row that is the sum of the ones above it. */
+.figy-sheet-row.total {
+  margin-top: 1px;
+  padding-top: 6px;
+  border-top: 1px solid var(--ft-border-subtle);
+}
+
+.figy-sheet-row.total .figy-sheet-row-label,
+.figy-sheet-row.total .figy-sheet-row-value {
+  color: var(--ft-text);
+  font-weight: 600;
+}
+
+/* Whatever is left of the window, which is not one of the parts. */
+.figy-sheet-bar-slice.free,
+.figy-sheet-row-fill.free {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.light .figy-sheet-bar-slice.free,
+.light .figy-sheet-row-fill.free {
+  background: rgba(15, 17, 23, 0.1);
+}
+
+.figy-sheet-empty {
+  padding: 18px 2px;
+  color: var(--ft-text-muted);
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+
+.figy-sheet-note {
+  margin-top: 12px;
+  padding-top: 9px;
+  border-top: 1px solid var(--ft-border-subtle);
+  color: var(--ft-text-muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.figy-sheet-note strong {
+  color: var(--ft-text-secondary);
+  font-family: var(--figy-mono);
+  font-weight: 600;
+}
+
+/*
+  The one number on these screens that is a verdict rather than a
+  measurement, so it is the one thing drawn as a judgement.
+*/
+.figy-sheet-verdict {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  margin-top: 12px;
+  padding: 8px 9px;
+  border-radius: 7px;
+  border: 1px solid var(--ft-border-subtle);
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+.figy-sheet-verdict.good {
+  border-color: rgb(var(--ft-accent-rgb) / 0.3);
+  background: rgb(var(--ft-accent-rgb) / 0.07);
+}
+
+.figy-sheet-verdict.warn {
+  border-color: rgba(227, 179, 65, 0.35);
+  background: rgba(227, 179, 65, 0.08);
+}
+
+.figy-sheet-verdict-value {
+  flex-shrink: 0;
+  font-family: var(--figy-mono);
+  font-size: 15px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.figy-sheet-verdict.good .figy-sheet-verdict-value {
+  color: var(--ft-accent);
+}
+
+.figy-sheet-verdict.warn .figy-sheet-verdict-value {
+  color: var(--figy-amber);
+}
+
+.figy-sheet-verdict-text {
+  color: var(--ft-text-secondary);
+}
+
+.figy-sheet-action {
+  width: 100%;
+  margin-top: 12px;
+  padding: 7px 9px;
+  border: 1px solid var(--ft-border);
+  border-radius: 7px;
+  color: var(--ft-text-secondary);
+  font-size: 11px;
+  text-align: left;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.figy-sheet-action:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ft-text);
+}
+
+/* ─── Lists: earlier conversations, and the models ────────────────────────── */
+
+.figy-sheet-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.figy-sheet-list li {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.figy-sheet-list-row {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+  padding: 7px 8px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  text-align: left;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.figy-sheet-list-row:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/*
+  The current model, marked by the row itself rather than a tick.
+
+  A tick is 11px of glyph that shifts the label sideways on the one row
+  that matters; a tinted row with a left edge reads from across the
+  column and moves nothing.
+*/
+.figy-sheet-list-row.on {
+  border-color: rgb(var(--ft-accent-rgb) / 0.35);
+  background: rgb(var(--ft-accent-rgb) / 0.09);
+}
+
+.figy-sheet-list-title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--ft-text);
+  font-size: 11.5px;
+  font-weight: 550;
+}
+
+.figy-sheet-list-title > :first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.figy-sheet-list-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ft-text-muted);
+  font-family: var(--figy-mono);
+  font-size: 9.5px;
+}
+
+.figy-sheet-tag {
+  flex-shrink: 0;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--ft-text-muted);
+  font-size: 8.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.light .figy-sheet-icon:hover,
+.light .figy-sheet-action:hover,
+.light .figy-sheet-list-row:hover {
+  background: rgba(15, 17, 23, 0.05);
+}
+
+.light .figy-sheet-row-track,
+.light .figy-sheet-tag {
+  background: rgba(15, 17, 23, 0.07);
+}
+
+/*
+  The spend and the context percentage, in the header.
+
+  The window puts these in a status bar and a column this narrow has
+  no room for one — but they are the numbers worth watching while they
+  climb, so they ride in the header and open the same breakdowns.
+*/
+.figy-panel-spend {
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--ft-text-muted);
+  font-family: var(--figy-mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  text-transform: none;
+  letter-spacing: 0;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.figy-panel-spend:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ft-text);
+}
+
+/* Which model is answering, under the box. */
+.figy-panel-foot {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  flex-shrink: 0;
+  padding: 0 10px 7px;
+  overflow: hidden;
+}
+
+.figy-panel-foot-dim {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ft-text-muted);
+  font-family: var(--figy-mono);
+  font-size: 9.5px;
+  opacity: 0.6;
+}
+
+/* The sheet's own light-mode hovers are with its rules; these two are
+   the panel chrome around it. */
+.light .figy-panel-act:hover,
+.light .figy-panel-spend:hover {
+  background: rgba(15, 17, 23, 0.05);
 }
