@@ -186,6 +186,8 @@ const SURFACE = "window" as const;
 const NOTHING_YET: AgentStatus = {
   hasKey: false,
   hasExaKey: false,
+  router: false,
+  hasRouterKey: false,
   active: null,
   model: "",
   models: [],

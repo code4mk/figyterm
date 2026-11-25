@@ -39,7 +39,8 @@
 //! the cache saving it is competing with is larger than the routing saving
 //! it is buying. Measure it with the ledger before believing otherwise.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
+use std::mem::take;
 use std::time::Instant;
 
 use serde::Serialize;
@@ -119,11 +120,37 @@ pub fn compaction_split(history: &[Message], keep_turns: usize) -> Option<usize>
 /// far intact.
 const MAX_STEPS: usize = 40;
 
-/// Decides which tools the model is offered for a turn.
+/// What a picker answers with.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Pick {
+    /// Tool names. The session turns these into the schema, which is
+    /// what lets it tell "the same set" from "a different set" — the
+    /// distinction the whole cache depends on.
+    pub names: Vec<String>,
+    /// What the picking itself cost, if it cost anything. Goes into
+    /// the turn's row the same way Exa's does: a router nobody can see
+    /// the price of is exactly what the ledger exists to prevent.
+    pub cost_usd: f64,
+}
+
+impl Pick {
+    pub fn free(names: Vec<String>) -> Self {
+        Self {
+            names,
+            cost_usd: 0.0,
+        }
+    }
+}
+
+/// Decides which tools the model is offered.
+///
+/// Blocking, because the only implementation that is not a constant is
+/// an HTTP call, and a turn is dispatched on a blocking thread anyway.
 pub trait Picker: Send + Sync {
-    /// The tool definitions to send. See the warning in the module docs
-    /// about narrowing this per turn.
-    fn tools_for(&self, prompt: &str) -> Value;
+    /// See the warning in the module docs about narrowing this per
+    /// turn, and [`Session::offer`] for what the session does with an
+    /// answer that changes.
+    fn tools_for(&self, prompt: &str) -> Pick;
 }
 
 /// Every tool this surface has, every turn. The cache-stable default.
@@ -135,8 +162,13 @@ pub trait Picker: Send + Sync {
 pub struct OfferEverything(pub Surface);
 
 impl Picker for OfferEverything {
-    fn tools_for(&self, _prompt: &str) -> Value {
-        tools::openai_tools_for(self.0)
+    fn tools_for(&self, _prompt: &str) -> Pick {
+        Pick::free(
+            tools::specs_for(self.0)
+                .into_iter()
+                .map(|spec| spec.name.to_string())
+                .collect(),
+        )
     }
 }
 
@@ -249,7 +281,12 @@ pub trait Approver: Send + Sync {
 /// — where the model is, which tools it may see, who answers for the user,
 /// and which folder it all happens in. Swapping any of them is how this is
 /// tested.
-pub struct Turn<'a, P: Provider, K: Picker, A: Approver> {
+/// `K` is `?Sized` so a caller can hold `&dyn Picker` and decide
+/// between two implementations at runtime, which is what a router that
+/// is a *setting* requires. The other two stay monomorphised: there is
+/// only ever one provider and one approver per turn, and they are on
+/// the hot path.
+pub struct Turn<'a, P: Provider, K: Picker + ?Sized, A: Approver> {
     pub provider: &'a P,
     pub picker: &'a K,
     pub approver: &'a A,
@@ -274,6 +311,10 @@ pub struct Breakdown {
     pub tool_results: usize,
     pub messages: u32,
     pub turns: u32,
+    /// Tools on the table, and how many this surface has. They differ
+    /// only when a router has narrowed the set.
+    pub tools_offered: usize,
+    pub tools_total: usize,
     /// The five largest tool results, which is where a window usually
     /// goes. Each one is re-sent on every later turn of the session.
     pub heaviest: Vec<ToolWeight>,
@@ -324,6 +365,13 @@ pub struct Session {
     /// "allow all edits this session" both change what the rest of
     /// *this* turn may do.
     mode: ModeCell,
+    /// Every tool this session has offered, ever. See [`Session::offer`]
+    /// for why it never shrinks.
+    offered: BTreeSet<String>,
+    /// The schema built from it, rebuilt only when the names change —
+    /// which is the difference between a cached prefix and a rewritten
+    /// one.
+    tools: Option<Value>,
     /// What this session has spent, against `budget_usd`.
     spent: f64,
     /// The last turn's input count, which is the best estimate of how
@@ -345,6 +393,8 @@ impl Session {
             config,
             system: system.into(),
             history: Vec::new(),
+            offered: BTreeSet::new(),
+            tools: None,
             spent: 0.0,
             context_used: 0,
             turn: 0,
@@ -388,6 +438,8 @@ impl Session {
         Self {
             mode: ModeCell::new(config.mode),
             config,
+            offered: BTreeSet::new(),
+            tools: None,
             system: snapshot.system,
             history: snapshot.history,
             spent: snapshot.spent,
@@ -503,6 +555,8 @@ impl Session {
             system: approx_tokens(&self.system),
             tools: tool_tokens,
             messages: self.history.len() as u32,
+            tools_offered: self.offered.len(),
+            tools_total: tools::specs_for(self.config.surface).len(),
             ..Breakdown::default()
         };
 
@@ -627,6 +681,67 @@ impl Session {
         &self.config.session_id
     }
 
+    /// The tool schema for this message, given what the picker chose.
+    ///
+    /// **The offered set only ever grows.** Three things fall out of
+    /// that one rule, and all three are the cache:
+    ///
+    /// - A pick that matches what is already offered rebuilds nothing.
+    ///   The bytes are identical, so the prefix is identical, so the
+    ///   whole conversation behind it is still cached. A router whose
+    ///   answers are stable costs one round trip and nothing else.
+    /// - A pick that adds something — `bash`, on message five of a
+    ///   session that started by reading — rewrites the prefix once.
+    ///   Once, because it is in the set from then on.
+    /// - A pick that *drops* something changes nothing. Shrinking would
+    ///   thrash the cache, and worse, would take away a tool the model
+    ///   has already seen and may be mid-way through reasoning about.
+    ///
+    /// The floor is **not** applied here. It belongs to the thing that
+    /// narrows — `tools::FLOOR` is unioned into a router's answer by
+    /// the router — because a picker that states its set exactly, like
+    /// the sub-agent's, means it exactly. A sub-agent handed `ask_user`
+    /// because a constant in this function said so would be a
+    /// conversation nobody can see, waiting on a card nobody can
+    /// answer.
+    fn offer(&mut self, picked: Vec<String>) -> Value {
+        let available: Vec<String> = tools::specs_for(self.config.surface)
+            .into_iter()
+            .map(|spec| spec.name.to_string())
+            .collect();
+
+        let mut grew = false;
+        for name in picked {
+            // A name the surface does not have is a router answering
+            // about a tool that is not on the table. Ignored rather
+            // than passed on: the schema is built from the registry.
+            if !available.contains(&name) || self.offered.contains(&name) {
+                continue;
+            }
+            self.offered.insert(name);
+            grew = true;
+        }
+
+        if grew || self.tools.is_none() {
+            let names: Vec<&str> = available
+                .iter()
+                .filter(|name| self.offered.contains(*name))
+                .map(String::as_str)
+                .collect();
+            self.tools = Some(tools::openai_tools_named(&names));
+        }
+        self.tools.clone().unwrap_or_else(|| Value::Array(Vec::new()))
+    }
+
+    /// How many tools are on the table, out of how many this surface
+    /// has. What `/context` shows, so a narrowed session says so.
+    pub fn offered(&self) -> (usize, usize) {
+        (
+            self.offered.len(),
+            tools::specs_for(self.config.surface).len(),
+        )
+    }
+
     /// The messages for a request: the frozen system prompt, then everything
     /// that has happened, in order, unmodified.
     fn messages(&self) -> Vec<Message> {
@@ -642,16 +757,18 @@ impl Session {
     /// reached, the user cancels, or the provider fails. Every exit leaves
     /// the history consistent: a tool call in it always has its result after
     /// it, because a dangling call is a request every later turn rejects.
-    pub async fn send(
+    pub async fn send<P: Provider, K: Picker + ?Sized, A: Approver>(
         &mut self,
         prompt: &str,
-        turn: Turn<'_, impl Provider, impl Picker, impl Approver>,
+        turn: Turn<'_, P, K, A>,
         events: UnboundedSender<TurnEvent>,
         mut cancel: oneshot::Receiver<()>,
     ) -> Result<(), String> {
         let Turn { provider, picker, approver, ctx, ledger } = turn;
         self.history.push(Message::user(prompt));
-        let tools = picker.tools_for(prompt);
+        let pick = picker.tools_for(prompt);
+        let mut picker_cost = pick.cost_usd;
+        let tools = self.offer(pick.names);
 
         let max_steps = self.max_steps();
         for step in 0..max_steps {
@@ -742,7 +859,10 @@ impl Session {
             let model_ms = started.elapsed().as_millis() as u32;
 
             if completion.tool_calls.is_empty() {
-                self.record(ledger, &completion, model_ms, 0, 0.0, &events);
+                // The router's bill, if there was one, goes on the
+                // first turn it paid for and then stops — it is
+                // charged once per message, not once per step.
+                self.record(ledger, &completion, model_ms, 0, take(&mut picker_cost), &events);
                 self.history.push(Message::assistant(completion.content));
 
                 /*
@@ -776,9 +896,10 @@ impl Session {
             ));
 
             let mut biggest = 0u32;
-            // Exa bills per call. Summed here because this is the only
-            // place that sees every tool's result in a turn.
-            let mut tool_cost = 0f64;
+            // Exa bills per call, and so does the router. Summed here
+            // because this is the only place that sees every charge in
+            // a turn.
+            let mut tool_cost = take(&mut picker_cost);
             /*
               Escape has to land during a tool, not only between two.
 
@@ -1774,6 +1895,71 @@ mod tests {
         assert!(out.heaviest.is_empty());
     }
 
+    /*
+      The rule the whole router rests on.
+
+      Tools are the first bytes of the request, so a set that changes
+      rewrites every byte after it. Growing-only turns that from a cost
+      per message into a cost per *new tool*: a stable answer produces
+      identical bytes and the cache holds, and a turn that needs `bash`
+      on message five pays once and never again.
+    */
+    #[test]
+    fn the_offered_set_grows_and_never_shrinks() {
+        let mut session = session(Mode::Ask);
+
+        let first = session.offer(vec!["read".into(), "grep".into()]);
+        assert_eq!(names_in(&first), vec!["read", "grep"]);
+        assert_eq!(session.offered(), (2, tools::specs().len()));
+
+        // The same answer again is the same bytes, which is the whole
+        // point: an unchanged prefix is a cached one.
+        let again = session.offer(vec!["grep".into(), "read".into()]);
+        assert_eq!(first, again);
+
+        // A narrower answer takes nothing away. The model has already
+        // seen these, and shrinking would thrash the cache for nothing.
+        let narrower = session.offer(vec!["read".into()]);
+        assert_eq!(first, narrower);
+
+        // A wider one grows, once.
+        let wider = session.offer(vec!["bash".into()]);
+        assert_eq!(names_in(&wider), vec!["read", "grep", "bash"]);
+        assert_eq!(session.offered().0, 3);
+    }
+
+    #[test]
+    fn a_name_the_surface_does_not_have_is_ignored() {
+        // A router answering about a tool that is not on the table, or
+        // about one this surface is not given. The schema is built
+        // from the registry, so there is nothing to put in it.
+        let mut session = session(Mode::Ask);
+        let offered = session.offer(vec!["read".into(), "summon".into()]);
+        assert_eq!(names_in(&offered), vec!["read"]);
+    }
+
+    /// In registry order, which is what keeps two sessions sharing a
+    /// prefix: a set assembled in the order a router happened to
+    /// mention things would be different bytes for the same tools.
+    #[test]
+    fn the_schema_is_in_registry_order_whatever_order_it_was_picked_in() {
+        let mut backwards = session(Mode::Ask);
+        let mut forwards = session(Mode::Ask);
+        assert_eq!(
+            backwards.offer(vec!["bash".into(), "edit".into(), "read".into()]),
+            forwards.offer(vec!["read".into(), "edit".into(), "bash".into()])
+        );
+    }
+
+    fn names_in(schema: &Value) -> Vec<String> {
+        schema
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|tool| tool["function"]["name"].as_str().map(str::to_string))
+            .collect()
+    }
+
     #[test]
     fn the_default_picker_offers_the_whole_registry_unchanged() {
         // Narrowing per turn would change the first bytes of the request,
@@ -1782,15 +1968,16 @@ mod tests {
         let first = picker.tools_for("anything");
         let second = picker.tools_for("something else");
         assert_eq!(first, second);
-        assert_eq!(first, tools::openai_tools());
+        assert_eq!(first.names.len(), tools::specs().len());
+        assert_eq!(first.cost_usd, 0.0, "the default picker is a constant");
     }
 
     #[test]
     fn a_panel_session_is_offered_the_panel_s_tools() {
         let offered = OfferEverything(Surface::Panel).tools_for("fix this");
-        assert_eq!(offered, tools::openai_tools_for(Surface::Panel));
+        assert_eq!(offered.names, tools::PANEL_TOOLS);
         assert!(
-            offered.as_array().unwrap().len() < tools::specs().len(),
+            offered.names.len() < tools::specs().len(),
             "the panel's set is the smaller one"
         );
     }

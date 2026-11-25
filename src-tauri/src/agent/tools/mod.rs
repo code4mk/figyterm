@@ -271,7 +271,7 @@ pub trait Tool: Send + Sync {
 /// The list is here rather than a flag on each tool because this *is* the
 /// argument — it should be readable in one place and checkable against the
 /// table in `TOOLS.md`, which is where it came from.
-const PANEL_TOOLS: &[&str] = &[
+pub const PANEL_TOOLS: &[&str] = &[
     "read",
     "grep",
     "edit",
@@ -283,6 +283,20 @@ const PANEL_TOOLS: &[&str] = &[
     // the same wrong guess, made faster.
     "ask_user",
 ];
+
+/// The tools a session is always offered, however it was narrowed.
+///
+/// A router answers about the message in front of it, and a session is
+/// longer than one message. Somebody who opens with "explain this
+/// file" will ask a second question, and a set picked from the first
+/// one that could not read a second file would be a cage rather than a
+/// saving.
+///
+/// So: reading, searching, and the two that are about the conversation
+/// rather than the project. They are also the cheap ones — the floor
+/// is about a third of the registry's tokens, not a third of its
+/// power.
+pub const FLOOR: &[&str] = &["read", "grep", "ls", "todo_write", "ask_user"];
 
 /// What a sub-agent may use.
 ///

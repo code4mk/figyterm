@@ -39,6 +39,8 @@
 //!   the run stops on, answered with a number rather than a paragraph.
 //! - [`delegate`] — a whole conversation inside one tool call, whose
 //!   context is thrown away and whose answer is a paragraph.
+//! - [`picker`] — an optional router that narrows the tool list before
+//!   the model sees it. Off by default, and the reasons are in it.
 //! - [`web`] — Exa, for the questions whose answer is not in the project.
 //! - [`store`] — the conversation on disk, so a restart is an
 //!   interruption rather than an ending.
@@ -54,6 +56,7 @@ pub mod code;
 pub mod delegate;
 pub mod ledger;
 pub mod message;
+pub mod picker;
 pub mod policy;
 pub mod provider;
 pub mod rules;

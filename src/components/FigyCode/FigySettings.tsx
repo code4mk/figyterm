@@ -167,6 +167,8 @@ export function SettingsDialog({
   const [active, setActive] = useState<string | null>(status.active);
   const [budget, setBudget] = useState<number | undefined>(status.budgetUsd);
   const [exa, setExa] = useState("");
+  const [router, setRouter] = useState(status.router);
+  const [routerKey, setRouterKey] = useState("");
   /**
    * Which row is open for editing. A new one opens itself.
    *
@@ -206,6 +208,8 @@ export function SettingsDialog({
       active,
       budgetUsd: budget,
       exaKey: exa.trim() || undefined,
+      router,
+      routerKey: routerKey.trim() || undefined,
     });
 
   /* ─── Small field helpers ──────────────────────────────────────────────── */
@@ -451,6 +455,54 @@ export function SettingsDialog({
             <span className="figy-settings-value dim">{MODE_NOTE[one]}</span>
           </button>
         ))}
+      </div>
+
+      {/*
+        The router, with what it trades said on the same screen as the
+        switch. Somebody turning this on is making a bet about their
+        own tool set, and the window owes them the numbers to make it
+        with rather than a word and a toggle.
+      */}
+      <div className="figy-dialog-section">
+        <div className="figy-dialog-section-head">Tool picking</div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={router}
+          className={`figy-settings-row ${router ? "on" : ""}`}
+          onClick={() => setRouter((on) => !on)}
+        >
+          <span className="figy-settings-icon">{router ? <Check size={12} /> : null}</span>
+          <span className="figy-settings-label">Let Jev choose the tools</span>
+          <span className="figy-settings-value dim">
+            {router ? (status.hasRouterKey || routerKey ? "on" : "needs a key") : "off"}
+          </span>
+        </button>
+
+        <div className="figy-dialog-note muted">
+          Off, the model is handed every tool and picks for itself — about{" "}
+          <strong>3.8k tokens</strong> in the prefix, read from cache at a tenth of the
+          price after the first turn. On, typesafe.ai&rsquo;s Jev is asked which tools
+          the message needs and only those are sent. That is a round trip and a small
+          bill per message, and a prefix rewrite each time the set grows — so it pays
+          at a hundred tools and probably not at two dozen. The set only ever grows,
+          reading and searching are always offered, and if Jev cannot be reached the
+          turn gets everything.
+        </div>
+
+        {router && (
+          <div className="figy-form">
+            {field(
+              "typesafe.ai API key",
+              routerKey,
+              setRouterKey,
+              status.hasRouterKey ? "•••••••• — stored. Type to replace it." : "ts-…",
+              status.hasRouterKey
+                ? "A key is stored."
+                : "From console.typesafe.ai/keys. Without one the model picks for itself."
+            )}
+          </div>
+        )}
       </div>
 
       <div className="figy-dialog-section">

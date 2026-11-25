@@ -72,7 +72,7 @@ The shape of the thing being built, decided and not re-opened here:
       largest tool result, into SQLite
 - [x] `commands/agent.rs` — configure, send, approve, cancel, usage, with
       the turn narrated over one `agent://event` stream
-- [ ] **Jev (typesafe.ai) as an optional tool picker.** Off by default,
+- [x] **Jev (typesafe.ai) as an optional tool picker.** Off by default,
       switched on from the settings with its own key. The arguments
       against making it the default are kept below rather than deleted,
       because they are the specification for how it has to be built: if
@@ -95,10 +95,10 @@ The shape of the thing being built, decided and not re-opened here:
 
       So the design that survives both:
 
-      - [ ] `Picker` answers with **names and a cost**, not a blob of
+      - [x] `Picker` answers with **names and a cost**, not a blob of
             JSON. The session builds the schema, which is what lets it
             tell "the same set" from "a different set"
-      - [ ] **The offered set only ever grows.** Picked per message,
+      - [x] **The offered set only ever grows.** Picked per message,
             unioned with everything offered so far, and the schema
             rebuilt *only when the names actually change*. A stable
             pick produces identical bytes and the cache holds; a turn
@@ -106,27 +106,29 @@ The shape of the thing being built, decided and not re-opened here:
             and never pays it again. A set that could shrink would
             thrash the cache and take away a tool the model had already
             seen
-      - [ ] **A floor of always-offered tools**, so a session that
+      - [x] **A floor of always-offered tools**, so a session that
             opened with "explain this" is not unable to read a second
             file. Narrowing is a saving, not a cage
-      - [ ] **Any failure offers everything.** A router that is down,
+      - [x] **Any failure offers everything.** A router that is down,
             slow, rate-limited or answering nonsense must cost a few
             hundred milliseconds and nothing else. It is on the hot
             path of a turn and it is not allowed to break one
-      - [ ] **Its bill is in the ledger**, under the turn that paid it,
+      - [x] **Its bill is in the ledger**, under the turn that paid it,
             the same way Exa's is. A router nobody can see the cost of
             is the thing this project refuses to ship
-      - [ ] `agent/picker.rs`: the Jev client. `POST
+      - [x] `agent/picker.rs`: the Jev client. `POST
             /v1/systemone`, one `choice` question whose criteria are
             `{tool name: description}`, the prompt as the state, and
             the probabilities above a threshold as the answer
-      - [ ] Settings: a switch and a key, off until both are there.
+      - [x] Settings: a switch and a key, off until both are there.
             Said plainly in the dialog, including what it trades
-      - [ ] `/context` and `/tools` show *offered of total*, so the
+      - [x] `/context` and `/tools` show *offered of total*, so the
             saving is visible and so is the cage if it becomes one
       - [ ] And then measure it: `$ per completed task` with it on and
             off, which is section 4's open item and the only thing that
-            will settle whether it stays
+            will settle whether it stays. Nothing has been measured
+            yet — what exists is the switch and the discipline around
+            it, not evidence that it wins
 - [ ] Explicit cache breakpoints for endpoints that take them (Anthropic's
       `cache_control`). Prefix stability is done; breakpoints are an
       Anthropic-shaped extra

@@ -150,6 +150,15 @@ export function ContextDialog({
             {context.messages} message{context.messages === 1 ? "" : "s"} · {context.turns} from
             you · {context.model || "no model"}
           </span>
+          {/*
+            Said whenever a router has narrowed the set, because a
+            session that cannot do something it could do yesterday
+            should be able to find out why here.
+          */}
+          <span>
+            {context.toolsOffered} of {context.toolsTotal} tools offered
+            {context.toolsOffered < context.toolsTotal && " — narrowed by the tool picker"}
+          </span>
           <span>
             {/*
               Said rather than hidden. The parts are an estimate at

@@ -131,6 +131,20 @@ export interface ProviderModel {
 export interface AgentSettings {
   /** Every model set up, in the order they are shown. */
   models: ProviderModel[];
+  /**
+   * Whether typesafe.ai's Jev narrows the tool list before the model
+   * sees it. Off unless this is on *and* there is a key.
+   *
+   * It trades: fewer tool definitions in the prefix against a round
+   * trip per message and a prefix rewrite whenever the set grows. At
+   * our size the default is off, and `agent/picker.rs` has the
+   * arithmetic.
+   */
+  router?: boolean;
+  routerKey?: string;
+  routerModel?: string;
+  /** Dollars per million input tokens, as data rather than a guess. */
+  routerPrice?: number;
   /** Which one is used, by id. */
   active?: string | null;
   /** What one conversation may spend before it stops and says so. */
@@ -174,6 +188,11 @@ export interface AgentStatus {
   hasKey: boolean;
   /** Whether the web tools will work. The key itself never comes back. */
   hasExaKey: boolean;
+  /** Whether the tool router is on, and whether it could be. */
+  router: boolean;
+  hasRouterKey: boolean;
+  routerModel?: string | null;
+  routerPrice?: number | null;
   /** The model a turn would use, by id. */
   active: string | null;
   /** Its name, for the footer. Empty when nothing is set up. */
@@ -333,6 +352,9 @@ export interface ContextBreakdown {
   toolResults: number;
   messages: number;
   turns: number;
+  /** Tools on the table, and how many this surface has. */
+  toolsOffered: number;
+  toolsTotal: number;
   /** The five largest tool results — where a window usually goes. */
   heaviest: { name: string; tokens: number }[];
 }

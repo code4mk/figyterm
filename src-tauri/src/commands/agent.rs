@@ -30,12 +30,13 @@ use crate::agent::delegate::{Delegate, SubAgent};
 use crate::agent::ledger::{Ledger, Price, Surface, Totals};
 use crate::agent::message::ToolCall;
 use crate::agent::policy::{Mode, ModeCell};
+use crate::agent::picker::Jev;
 use crate::agent::provider::{OpenAiProvider, ProviderConfig};
 use crate::agent::rules;
 use crate::agent::shell::{Shell, SystemShell};
 use crate::agent::web::{Exa, Web};
 use crate::agent::session::{
-    Approver, Breakdown, OfferEverything, Session, SessionConfig, Turn, TurnEvent,
+    Approver, Breakdown, OfferEverything, Picker, Session, SessionConfig, Turn, TurnEvent,
 };
 use crate::agent::store::{Conversation, Store};
 use crate::agent::tools::{self, ToolContext};
@@ -142,6 +143,14 @@ pub struct AgentSettings {
     /// Exa, for `search_web` and `fetch_url`. Absent means the agent has
     /// no web tools — which is a configuration, not a failure.
     pub exa_key: Option<String>,
+    /// Whether typesafe.ai's Jev picks the tool list before the model
+    /// sees it. Off unless this is on *and* there is a key.
+    pub router: bool,
+    pub router_key: Option<String>,
+    /// Its model and price, as data for the same reason the chat
+    /// model's are: a price in a binary is out of date on release.
+    pub router_model: Option<String>,
+    pub router_price: Option<f64>,
 }
 
 impl AgentSettings {
@@ -198,6 +207,7 @@ impl LegacySettings {
             models: vec![one],
             budget_usd: self.budget_usd,
             exa_key: self.exa_key,
+            ..AgentSettings::default()
         })
     }
 }
@@ -377,6 +387,7 @@ pub fn agent_configure(
         model.api_key = keep(model.api_key.take(), stored);
     }
     next.exa_key = keep(next.exa_key, old.exa_key);
+    next.router_key = keep(next.router_key, old.router_key);
 
     // A list with nothing chosen, or pointing at a model that has been
     // deleted, picks the first that could work. The alternative is a
@@ -405,6 +416,11 @@ pub struct AgentStatus {
     pub has_key: bool,
     /// Whether the web tools will work. Shown, never the key itself.
     pub has_exa_key: bool,
+    /// Whether the tool router is on, and whether it could be.
+    pub router: bool,
+    pub has_router_key: bool,
+    pub router_model: Option<String>,
+    pub router_price: Option<f64>,
     /// The model a turn would use, by `id`, or none.
     pub active: Option<String>,
     /// Its name, for the footer. Empty when nothing is set up.
@@ -446,6 +462,10 @@ fn status_of(app: &AppHandle, settings: &AgentSettings) -> AgentStatus {
     AgentStatus {
         has_key: chosen.map(|m| present(&m.api_key)).unwrap_or(false),
         has_exa_key: present(&settings.exa_key),
+        router: settings.router && present(&settings.router_key),
+        has_router_key: present(&settings.router_key),
+        router_model: settings.router_model.clone(),
+        router_price: settings.router_price,
         active: chosen.map(|m| m.id.clone()),
         model: chosen.map(|m| m.name().to_string()).unwrap_or_default(),
         models: settings
@@ -982,6 +1002,29 @@ pub async fn agent_send(
         .clone()
         .filter(|k| !k.trim().is_empty())
         .map(|key| Arc::new(Exa::new(key, tokio::runtime::Handle::current())) as Arc<dyn Web>);
+    /*
+      The tool picker, which is the model's own unless one is set up.
+
+      Off is the default and the right default: the whole tool set is
+      about 3.8K tokens read from cache at a tenth of a cent, and tools
+      are the first bytes of the request, so a router that changes the
+      set rewrites everything after it. `agent/picker.rs` has the full
+      argument and the three rules that make it safe to switch on
+      anyway — the most important being that a router which fails
+      offers everything, so a third-party outage costs a few hundred
+      milliseconds rather than a turn.
+    */
+    let router: Option<Jev> = settings
+        .router
+        .then(|| settings.router_key.clone())
+        .flatten()
+        .filter(|key| !key.trim().is_empty())
+        .map(|key| {
+            Jev::new(key, tokio::runtime::Handle::current(), surface)
+                .with_model(settings.router_model.clone())
+                .with_price(settings.router_price)
+        });
+
     let ledger = ledger(&app, &state);
     // Kept, because `root` itself goes into the tool context below and the
     // snapshot after the turn needs to say where all this happened.
@@ -1012,12 +1055,17 @@ pub async fn agent_send(
         .with_ledger(ledger.clone())
         .with_lsp(Arc::clone(&lsp)),
     );
+    let everything = OfferEverything(surface);
+    let picker: &dyn Picker = match &router {
+        Some(jev) => jev,
+        None => &everything,
+    };
     let result = session
         .send(
             &prompt,
             Turn {
                 provider: &provider,
-                picker: &OfferEverything(surface),
+                picker,
                 approver: &WindowApprover { state: &state },
                 ctx: &{
                     let ctx = ToolContext::new(root)
@@ -1508,6 +1556,7 @@ mod tests {
             active: Some("m1".into()),
             budget_usd: Some(2.5),
             exa_key: Some("exa".into()),
+            ..AgentSettings::default()
         };
         let json = serde_json::to_string(&settings).unwrap();
         let back: AgentSettings = serde_json::from_str(&json).unwrap();
