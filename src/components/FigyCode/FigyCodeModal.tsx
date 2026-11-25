@@ -1288,9 +1288,12 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
 
         <div className="flex items-center gap-0.5 shrink-0" onPointerDown={(e) => e.stopPropagation()}>
           {session.running && (
-            <span className="figy-live-count mr-1.5" title="A turn is in progress">
-              <span className="figy-dot live" />
-              running
+            <span
+              className="figy-live-count mr-1.5"
+              title={session.live ? "Waiting for your answer" : "A turn is in progress"}
+            >
+              <span className={`figy-dot ${session.live ? "" : "live"}`} />
+              {session.live ? "waiting for you" : "running"}
             </span>
           )}
 
@@ -1382,7 +1385,16 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
           />
         )}
 
-        {session.running && (
+        {/*
+          Not while it is waiting on you.
+
+          The line said "Bash… 45s · 327 tokens · esc to interrupt"
+          under a card asking whether Bash may run at all. Nothing
+          was running, the seconds were counting the time somebody
+          spent reading, and the one key the line offered meant
+          something different from the key the card offered.
+        */}
+        {session.running && !session.live && (
           <RunningLine
             label={session.status}
             elapsed={formatElapsed(elapsed)}

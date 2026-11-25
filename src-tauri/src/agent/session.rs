@@ -271,6 +271,10 @@ pub enum TurnEvent {
     /// for one, why.
     ToolRunning {
         id: String,
+        /// Carried again because the row may have to be rebuilt: an
+        /// approved call had its row taken away while the permission
+        /// card stood in its place.
+        name: String,
         target: String,
         why: String,
     },
@@ -1205,6 +1209,7 @@ impl Session {
         */
         let _ = events.send(TurnEvent::ToolRunning {
             id: call.id.clone(),
+            name: call.name.clone(),
             target: subject_of(&arguments),
             why: arguments
                 .get("why")

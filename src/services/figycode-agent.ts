@@ -66,7 +66,7 @@ export type TurnEvent =
    * tool, before it has said what to do with it — so the row appears
    * with a verb and nothing else, and this is what fills it in.
    */
-  | { kind: "toolRunning"; id: string; target: string; why: string }
+  | { kind: "toolRunning"; id: string; name: string; target: string; why: string }
   /**
    * A line from a tool that is still running.
    *

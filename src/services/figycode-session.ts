@@ -388,12 +388,40 @@ export function applyEvent(state: SessionState, event: TurnEvent): SessionState 
       worth looking at: what it is acting on, and — for the two
       tools whose row says least — why.
     */
-    case "toolRunning":
+    case "toolRunning": {
+      /*
+        The row may not exist: an approved call had its row removed
+        while the card was up, and this is the event that follows a
+        yes. Re-made here rather than restored, because what it needs
+        is exactly what this event carries.
+      */
+      if (!state.blocks.some((b) => b.kind === "tool" && b.callId === event.id)) {
+        return {
+          ...state,
+          blocks: [
+            ...state.blocks,
+            {
+              id: state.nextId,
+              kind: "tool",
+              callId: event.id,
+              tool: {
+                kind: kindOf(event.name),
+                name: title(event.name),
+                target: event.target,
+                why: event.why || undefined,
+                running: true,
+              },
+            },
+          ],
+          nextId: state.nextId + 1,
+        };
+      }
       return patchTool(state, event.id, (tool) => ({
         ...tool,
         target: event.target || tool.target,
         why: event.why || tool.why,
       }));
+    }
 
     /*
       A line from a build that is still going.
@@ -433,8 +461,23 @@ export function applyEvent(state: SessionState, event: TurnEvent): SessionState 
         meta: event.reason,
       }));
 
+    /*
+      The row for this call goes while the card is up.
+
+      It is the same call said twice: a spinner labelled `Bash` with
+      nothing beside it, and immediately under it a card naming the
+      command, the folder and the question. The card is the better of
+      the two and the row comes back the moment it is answered —
+      running if it was allowed, refused if it was not.
+    */
     case "needsApproval":
-      return { ...state, live: promptFor(event.id, event.name, event.arguments) };
+      return {
+        ...state,
+        live: promptFor(event.id, event.name, event.arguments),
+        blocks: state.blocks.filter(
+          (block) => !(block.kind === "tool" && block.callId === event.id)
+        ),
+      };
 
     /*
       A question of the model's own, drawn as the card a permission

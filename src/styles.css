@@ -13754,18 +13754,29 @@ body > .cm-api-completions .cm-completionDetail {
    object, and the only difference is that this one has not happened yet.
    ──────────────────────────────────────────────────────────────────────────── */
 
+/* One card for both halves. They were two, which read as two things
+   happening when it is one: *this is about to run, do you want it
+   to*. The separation that mattered is kept — a hairline, and a
+   proposal that scrolls on its own so a long diff cannot push the
+   question off the screen. */
+.figy-prompt {
+  border-color: rgb(var(--ft-accent-rgb) / 0.4);
+  background: var(--ft-surface);
+  overflow: hidden;
+}
+
+/* A command is the one proposal worth a second look before saying
+   yes, and the card says so on its edge. */
+.figy-prompt.bash {
+  border-color: rgba(227, 179, 65, 0.45);
+}
+
 .figy-proposal {
   padding: 10px 14px;
-  border-color: var(--ft-border);
   background: var(--ft-elevated);
   /* It can be long; the decision under it must not be pushed off screen. */
   max-height: 34vh;
   overflow-y: auto;
-}
-
-/* A command is the one proposal worth a second look before saying yes. */
-.figy-proposal.bash {
-  border-color: rgba(227, 179, 65, 0.4);
 }
 
 .figy-proposal-head {
@@ -13865,8 +13876,11 @@ body > .cm-api-completions .cm-completionDetail {
 
 .figy-ask {
   padding: 11px 14px 9px;
-  border-color: rgb(var(--ft-accent-rgb) / 0.4);
-  background: var(--ft-surface);
+}
+
+/* The hairline that used to be two borders and a gap. */
+.figy-ask.under {
+  border-top: 1px solid var(--ft-border);
 }
 
 .figy-ask-question {

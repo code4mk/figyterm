@@ -79,14 +79,31 @@ export function PromptCard({
 }) {
   const hasProposal = !!(prompt.command || prompt.diff || prompt.facts || prompt.steps?.length);
 
+  /*
+    One card, with a line through it.
+
+    These were two — a proposal and a decision, stacked — and the
+    reason was sound: welding them together had made the diff part of
+    the dialog, so a four-line edit produced something nobody could
+    take in at a glance. The fix went one step too far. Two bordered
+    boxes, two background tints and a gap between them read as two
+    things happening, and they are one: *this is about to run, do you
+    want it to*.
+
+    So the separation stays and the border does not. One card, the
+    proposal above a hairline, the question below it. The diff is
+    still outside the dialog in the sense that mattered — it is
+    scrollable, it is not squeezed into the option list, and the
+    question stays on screen under it.
+  */
   return (
-    <>
+    <div
+      className={`figy-card figy-prompt ${prompt.variant}`}
+      role="group"
+      aria-label={prompt.question}
+    >
       {hasProposal && (
-        <div
-          className={`figy-card figy-proposal ${prompt.variant}`}
-          role="group"
-          aria-label={prompt.title}
-        >
+        <div className="figy-proposal">
           {/*
             Deliberately the transcript's own row, not a dialog heading:
             the same glyph and the same verb-bold-path-not weight the row
@@ -145,7 +162,7 @@ export function PromptCard({
       )}
 
       {/* The decision. Short, and the same shape whatever is above it. */}
-      <div className="figy-card figy-ask" role="group" aria-label={prompt.question}>
+      <div className={`figy-ask ${hasProposal ? "under" : ""}`}>
         <div className="figy-ask-question">{prompt.question}</div>
         <ChoiceList
           options={prompt.options}
@@ -155,6 +172,6 @@ export function PromptCard({
         />
         <div className="figy-prompt-footer">{prompt.footer}</div>
       </div>
-    </>
+    </div>
   );
 }

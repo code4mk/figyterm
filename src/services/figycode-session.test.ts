@@ -449,6 +449,34 @@ test("approving a plan is what lifts plan mode, and only approving it", () => {
   assert.equal(modeAfterPlan(NONE_OF_THESE), null);
 });
 
+test("the row makes way for the card, and comes back when it is answered", () => {
+  // A spinner labelled `Bash` with nothing beside it, directly above
+  // a card naming the command, the folder and the question: the same
+  // call said twice, and the card is the better of the two.
+  let state = play(
+    { kind: "toolStarted", id: "t1", name: "bash" },
+    { kind: "needsApproval", id: "t1", name: "bash", arguments: { cmd: "tree -a" } }
+  );
+  assert.equal(
+    state.blocks.filter((block) => block.kind === "tool").length,
+    0,
+    "the card is standing in its place"
+  );
+  assert.ok(state.live);
+
+  state = applyEvent(state, {
+    kind: "toolRunning",
+    id: "t1",
+    name: "bash",
+    target: "tree -a",
+    why: "listing the tree",
+  });
+  const row = state.blocks.find((block) => block.kind === "tool");
+  assert.ok(row && row.kind === "tool", "and it is back the moment it is allowed");
+  assert.equal(row.tool.target, "tree -a");
+  assert.equal(row.tool.running, true);
+});
+
 /* ─── A tool that takes two minutes ────────────────────────────────────────── */
 
 test("every tool carries a reason, not only the slow ones", () => {
@@ -456,7 +484,7 @@ test("every tool carries a reason, not only the slow ones", () => {
   // nothing about what any of it was for.
   const state = play(
     { kind: "toolStarted", id: "t1", name: "read" },
-    { kind: "toolRunning", id: "t1", target: "src/net/api.rs", why: "checking the retry path" }
+    { kind: "toolRunning", id: "t1", name: "read", target: "src/net/api.rs", why: "checking the retry path" }
   );
   const row = state.blocks[0];
   assert.ok(row.kind === "tool");
@@ -470,7 +498,7 @@ test("a call with no reason still runs and still reads", () => {
   // gets the row it would have had before any of this existed.
   const state = play(
     { kind: "toolStarted", id: "t1", name: "ls" },
-    { kind: "toolRunning", id: "t1", target: ".", why: "" }
+    { kind: "toolRunning", id: "t1", name: "ls", target: ".", why: "" }
   );
   const row = state.blocks[0];
   assert.ok(row.kind === "tool");
@@ -484,7 +512,7 @@ test("a row fills in when the arguments land, not when the tool is named", () =>
   // nothing else until this.
   const state = play(
     { kind: "toolStarted", id: "t1", name: "bash" },
-    { kind: "toolRunning", id: "t1", target: "npm run build", why: "checking it compiles" }
+    { kind: "toolRunning", id: "t1", name: "bash", target: "npm run build", why: "checking it compiles" }
   );
   const row = state.blocks[0];
   assert.ok(row.kind === "tool");
@@ -514,7 +542,7 @@ test("the command is in the body, not said three times on the way there", () => 
   // the row spending its width on a string already read.
   const state = play(
     { kind: "toolStarted", id: "t1", name: "bash" },
-    { kind: "toolRunning", id: "t1", target: "docker build -t app .", why: "building the image" },
+    { kind: "toolRunning", id: "t1", name: "bash", target: "docker build -t app .", why: "building the image" },
     {
       kind: "toolFinished",
       id: "t1",
