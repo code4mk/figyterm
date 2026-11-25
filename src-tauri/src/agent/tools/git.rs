@@ -499,7 +499,7 @@ impl Tool for Commit {
                              every change."
                     }
                 },
-                "required": ["message"],
+                "required": ["subject"],
                 "additionalProperties": false
             }),
             class: Class::Write,
@@ -571,9 +571,12 @@ impl Tool for Commit {
 /// commit whose whole message is a subject six hundred characters
 /// long, and `git log --oneline` is unreadable for ever after.
 ///
-/// `message` is still accepted. A model that has seen a thousand
-/// commit tools will reach for it, and refusing would cost a turn to
-/// teach it something this can simply understand.
+/// `message` is still read, as a net rather than as a route. The
+/// schema does not offer it — `additionalProperties: false` means a
+/// strict endpoint will not even let it through — but not every
+/// endpoint is strict, and a model that has seen a thousand commit
+/// tools will try. Taking it costs four lines; refusing it costs a
+/// turn.
 fn message_from(args: &Value) -> Result<String, ToolError> {
     if let Ok(whole) = arg_str(args, "message", "git_commit") {
         if !whole.trim().is_empty() {

@@ -735,6 +735,63 @@ mod prefix_cost {
     /// The ceiling is a regression guard rather than a target. A tool
     /// whose description grows by three paragraphs is a bill nobody
     /// traces back to the commit that wrote them.
+    /*
+      Every schema is one a provider will accept.
+
+      This exists because of a 400 that reached a user: `git_commit`
+      had its `message` field renamed to `subject` and `required`
+      was left pointing at the old name. The schema was then a
+      contract demanding a key it did not define, which a strict
+      endpoint rejects for the whole request — so the tool was not
+      merely broken, *every* turn was, with an error naming
+      `oneOf`/`anyOf` and nothing that was actually wrong.
+
+      Nothing in Rust was going to catch it: the schemas are
+      `json!` literals, and a `required` list is a list of strings
+      that match nothing in particular. So they are checked here,
+      where a rename is cheap to notice.
+    */
+    #[test]
+    fn every_required_argument_is_one_the_schema_defines() {
+        for spec in specs() {
+            let parameters = spec.as_openai()["function"]["parameters"].clone();
+            let properties = parameters["properties"]
+                .as_object()
+                .unwrap_or_else(|| panic!("{}: parameters have no properties", spec.name))
+                .clone();
+
+            for required in parameters["required"].as_array().unwrap_or(&Vec::new()) {
+                let name = required.as_str().unwrap_or_default();
+                assert!(
+                    properties.contains_key(name),
+                    "{}: `{name}` is required and not defined — a strict endpoint \
+                     refuses the whole request for this, not just the tool",
+                    spec.name
+                );
+            }
+        }
+    }
+
+    /// The shape OpenAI-compatible endpoints insist on at the top.
+    #[test]
+    fn every_schema_is_a_plain_object_at_the_top_level() {
+        for spec in specs() {
+            let parameters = spec.as_openai()["function"]["parameters"].clone();
+            assert_eq!(
+                parameters["type"], "object",
+                "{}: the top level must be an object",
+                spec.name
+            );
+            for forbidden in ["oneOf", "anyOf", "allOf", "not", "enum", "const"] {
+                assert!(
+                    parameters.get(forbidden).is_none(),
+                    "{}: `{forbidden}` at the top level is refused",
+                    spec.name
+                );
+            }
+        }
+    }
+
     #[test]
     fn the_tool_definitions_stay_small_enough_to_offer_all_of_them() {
         let window = output::approx_tokens(&openai_tools().to_string());
