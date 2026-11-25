@@ -14587,31 +14587,6 @@ body > .cm-api-completions .cm-completionDetail {
 
 /* ─── The usage table ────────────────────────────────────────────────────── */
 
-.figy-usage {
-  display: flex;
-  flex-direction: column;
-  max-width: 420px;
-  margin-bottom: 14px;
-}
-
-.figy-usage-row {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  padding: 5px 0;
-  border-bottom: 1px solid var(--ft-border-subtle);
-}
-
-.figy-usage-label {
-  flex: 1;
-  color: var(--ft-text-muted);
-}
-
-.figy-usage-value {
-  color: var(--ft-text);
-  font-variant-numeric: tabular-nums;
-}
-
 /* ─── The settings dialog ────────────────────────────────────────────────── */
 
 /* Over the window, not over the app: a child of the FigyCode window, so
@@ -14661,7 +14636,10 @@ body > .cm-api-completions .cm-completionDetail {
 }
 
 .figy-dialog.wide {
-  width: min(720px, 100%);
+  /* Seven columns and a tab rail. Below this the model table starts
+     eating its own names, and the comparison it exists for is the
+     first thing to go. */
+  width: min(800px, 100%);
 }
 
 /* A column of sections beside the one being edited. A tab strip across
@@ -14927,7 +14905,7 @@ body > .cm-api-completions .cm-completionDetail {
   color: var(--ft-warning);
 }
 
-/* ─── The model list ─────────────────────────────────────────────────────── */
+/* ─── Tables ─────────────────────────────────────────────────────────────── */
 
 .figy-empty {
   padding: 16px 12px;
@@ -14939,40 +14917,173 @@ body > .cm-api-completions .cm-completionDetail {
   text-align: center;
 }
 
-.figy-models {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
+/* One table for the models and for the ledger, because they are the
+   same object: rows of the same few facts, where a column is how you
+   compare two of them. */
+.figy-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--figy-mono);
+  font-size: 12px;
 }
 
-.figy-model {
-  border: 1px solid var(--ft-border-subtle);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.016);
-  overflow: hidden;
+.figy-table th {
+  padding: 0 8px 5px;
+  color: var(--ft-text-muted);
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
-.figy-model.open {
-  border-color: var(--ft-border);
+.figy-table td {
+  max-width: 0;
+  padding: 7px 8px;
+  border-top: 1px solid var(--ft-border-subtle);
+  color: var(--ft-text-secondary);
+  vertical-align: top;
+}
+
+/* Numbers line up under each other or they are not worth tabulating. */
+.figy-table .num {
+  width: 1%;
+  color: var(--ft-text);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.figy-table .pick,
+.figy-table .act {
+  width: 1%;
+  padding-left: 2px;
+  padding-right: 2px;
+}
+
+.figy-table tbody tr:hover > td {
   background: rgba(255, 255, 255, 0.03);
 }
 
-.figy-model-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 8px 7px 9px;
+/* The row that answers. A tint rather than a border, so the table
+   keeps its grid. */
+.figy-table tbody tr.on > td {
+  background: rgba(var(--ft-accent-rgb), 0.08);
 }
 
-/* The dot is the choice, the row is the editor. Picking which model
-   answers is the thing done most often here, and it should not mean
-   opening a form and finding somewhere to click out of it. */
-.figy-model-pick {
+.figy-table tbody tr.on:hover > td {
+  background: rgba(var(--ft-accent-rgb), 0.12);
+}
+
+.figy-table-name {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--ft-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.figy-table-name > span {
+  min-width: 0;
+}
+
+.figy-table-caret {
   flex: none;
+  color: var(--ft-text-muted);
+  transition: transform 0.12s ease;
+}
+
+.figy-table-caret.on {
+  transform: rotate(90deg);
+}
+
+.figy-table-sub {
+  display: block;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ft-text-muted);
+  font-size: 10.5px;
+}
+
+.figy-table-dim {
+  color: var(--ft-text-muted);
+}
+
+/* The editor, inside the table rather than beside it: the row it
+   belongs to is directly above, and a form that opened elsewhere
+   would make you find your place again. */
+.figy-table-editor > td {
+  padding: 2px 10px 14px 28px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+/* A table of two or three columns with no header, for the ledger. */
+.figy-table-plain td:first-child {
+  color: var(--ft-text-secondary);
+}
+
+.figy-table-plain .figy-context-key {
+  display: inline-block;
+  margin-right: 7px;
+}
+
+.figy-table-total > td {
+  border-top-color: var(--ft-border);
+  color: var(--ft-text);
+}
+
+/* Present or missing, in a word. A model with no key is the commonest
+   reason a window will not send. */
+.figy-pip {
+  font-size: 10.5px;
+}
+
+.figy-pip.ok {
+  color: var(--ft-text-muted);
+}
+
+.figy-pip.bad {
+  color: var(--ft-warning);
+}
+
+.figy-add-model {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  margin-top: 9px;
+  padding: 7px 9px;
+  border: 1px dashed var(--ft-border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ft-text-secondary);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.figy-add-model:hover {
+  border-color: var(--ft-accent);
+  color: var(--ft-text);
+}
+
+/* The dot that says which model answers. Kept apart from the name,
+   which opens the editor: choosing is done far more often than
+   editing and should not go through a form. */
+.figy-model-pick {
   display: grid;
   place-items: center;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   padding: 0;
   border: none;
   background: transparent;
@@ -14991,476 +15102,73 @@ body > .cm-api-completions .cm-completionDetail {
   box-shadow: inset 0 0 0 2.5px var(--ft-accent);
 }
 
-.figy-model-main {
+/* ─── The headline figures ───────────────────────────────────────────────── */
+
+/* Two or three numbers, before any of the detail. What it has cost
+   and whether the cache is working are the questions; everything
+   under them explains one or the other. */
+.figy-figures {
   display: flex;
-  flex-direction: column;
-  gap: 1px;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.figy-figure {
+  display: flex;
   flex: 1;
   min-width: 0;
-  padding: 0;
-  border: none;
-  background: transparent;
-  font-family: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.figy-model-name {
-  color: var(--ft-text);
-  font-size: 12px;
-}
-
-.figy-model-sub {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--ft-text-muted);
-  font-size: 11px;
-}
-
-/* Said on the row rather than inside the editor: a model with no key is
-   the commonest reason a window will not send, and finding that out
-   means opening each one in turn. */
-.figy-model-key {
-  flex: none;
-  color: var(--ft-text-muted);
-  font-size: 10.5px;
-}
-
-.figy-model-key.missing {
-  color: var(--ft-warning);
-}
-
-.figy-model-body {
-  padding: 4px 10px 12px;
-  border-top: 1px solid var(--ft-border-subtle);
-}
-
-.figy-add-model {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  width: 100%;
-  margin-top: 7px;
-  padding: 7px 9px;
-  border: 1px dashed var(--ft-border);
-  border-radius: 8px;
-  background: transparent;
-  color: var(--ft-text-secondary);
-  font-family: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.figy-add-model:hover {
-  border-color: var(--ft-accent);
-  color: var(--ft-text);
-}
-
-.light .figy-model {
-  background: rgba(15, 17, 23, 0.02);
-}
-
-.light .figy-model.open {
-  background: rgba(15, 17, 23, 0.04);
-}
-
-.light .figy-tab:hover {
-  background: rgba(15, 17, 23, 0.05);
-}
-
-.light .figy-tab-count {
-  background: rgba(15, 17, 23, 0.07);
-}
-
-.figy-dialog-foot {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 13px;
-  border-top: 1px solid var(--ft-border-subtle);
-}
-
-.figy-dialog-foot .figy-field-hint {
-  min-width: 0;
-}
-
-.figy-dialog-foot code {
-  color: var(--ft-text-secondary);
-  word-break: break-all;
-}
-
-/* A path in a sentence: long, meant to be copied, and not allowed to
-   push the card wide. */
-.figy-dialog-note code,
-.figy-dialog-foot code {
-  font-family: var(--figy-mono);
-  font-size: 11.5px;
-}
-
-/* A view of the session rather than a setting: one line, and it opens in
-   the body where there is room to read it. */
-.figy-settings-link {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  width: 100%;
-  padding: 5px 7px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--ft-text-secondary);
-  font-family: inherit;
-  font-size: 12px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.figy-settings-link:hover,
-.figy-settings-link:focus-visible {
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--ft-text);
-  outline: none;
-}
-
-.figy-settings-link-label::after {
-  content: " →";
-  color: var(--ft-text-muted);
-}
-
-.figy-settings-link-value {
-  min-width: 0;
-  margin-left: auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--ft-text-muted);
-  font-size: 11px;
-}
-
-.figy-settings-row {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  width: 100%;
-  padding: 5px 8px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--ft-text-secondary);
-  font-family: inherit;
-  font-size: 12px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.figy-settings-row:hover,
-.figy-settings-row:focus-visible {
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--ft-text);
-  outline: none;
-}
-
-.figy-settings-row.on {
-  color: var(--ft-text);
-}
-
-.figy-settings-icon {
-  flex: none;
-  width: 13px;
-  color: var(--ft-text-muted);
-  /* Icons sit on the cap line, not the baseline the text uses. */
-  transform: translateY(2px);
-}
-
-.figy-settings-row.on .figy-settings-icon {
-  color: var(--ft-accent);
-}
-
-.figy-settings-label {
-  flex: none;
-}
-
-/* The current value, right-aligned and quiet: the row says what the
-   setting is, this says where it stands. */
-.figy-settings-value {
-  min-width: 0;
-  margin-left: auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--ft-text-secondary);
-  font-size: 11px;
-}
-
-.figy-settings-value.dim {
-  color: var(--ft-text-muted);
-}
-
-/* The one state worth a colour: nothing can be sent without a model. */
-.figy-settings-value.warn,
-.figy-status-right.warn {
-  color: var(--ft-warning, #d29922);
-}
-
-/* Named, not just a gear. An icon alone is a guess, and the one thing
-   a window nobody has configured needs is the way to configure it. */
-.figy-status-settings {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-/* ─── The model picker ───────────────────────────────────────────────────── */
-
-.figy-picker {
-  position: relative;
-  flex: none;
-}
-
-/* A pill, like the mode beside it: these two are one row of controls
-   on the composer and the model is not the odd one out. A model name
-   can be anything from `gpt-5.6` to a self-hosted path, so it is given
-   a width and an ellipsis rather than pushing the send button around. */
-.figy-picker-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 24px;
-  max-width: 190px;
-  padding: 0 8px 0 9px;
+  flex-direction: column;
+  gap: 1px;
+  padding: 10px 11px;
   border: 1px solid var(--ft-border-subtle);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--ft-text-secondary);
-  font-family: var(--figy-mono);
-  font-size: 10.5px;
-  white-space: nowrap;
-  cursor: pointer;
-  transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
-}
-
-.figy-picker-button:hover {
-  color: var(--ft-text);
-  border-color: var(--ft-text-muted);
-}
-
-.figy-picker-button.on {
-  color: var(--ft-text);
-  border-color: var(--ft-accent);
-}
-
-.figy-picker-button.warn {
-  color: var(--ft-warning);
-}
-
-.figy-picker-caret {
-  color: var(--ft-text-muted);
-}
-
-/* Opens upwards, right-aligned: it is a control on a bar at the bottom
-   of the window, and a list that dropped would be off the screen. */
-.figy-picker-list {
-  position: absolute;
-  bottom: calc(100% + 6px);
-  right: 0;
-  z-index: 15;
-  min-width: 280px;
-  max-width: min(380px, 80vw);
-  max-height: 320px;
-  overflow-y: auto;
-  padding: 4px;
-  border: 1px solid var(--ft-border);
   border-radius: 9px;
-  background: var(--ft-surface);
-  box-shadow: 0 14px 30px -12px rgba(0, 0, 0, 0.6);
+  background: rgba(255, 255, 255, 0.02);
 }
 
-.figy-picker-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 7px;
-  width: 100%;
-  padding: 6px 7px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--ft-text-secondary);
+.figy-figure-value {
+  color: var(--ft-text);
   font-family: var(--figy-mono);
-  font-size: 12px;
-  text-align: left;
-  cursor: pointer;
-}
-
-/* Hover and the arrow keys share one notion of "the current row",
-   rather than lighting two. */
-.figy-picker-row.at {
-  background: rgba(255, 255, 255, 0.07);
-  color: var(--ft-text);
-}
-
-.figy-picker-tick {
-  flex: none;
-  width: 12px;
-  padding-top: 1px;
-  color: var(--ft-accent);
-}
-
-.figy-picker-text {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-  flex: 1;
-}
-
-.figy-picker-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--ft-text);
-}
-
-/* The host and the price. The price is why anybody switches: an agent
-   about to read forty files has a right answer and it is not the
-   expensive model. */
-.figy-picker-meta {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--ft-text-muted);
-  font-size: 10.5px;
-}
-
-.figy-picker-flag {
-  flex: none;
-  padding-top: 1px;
-  color: var(--ft-warning);
-  font-size: 10px;
-}
-
-.figy-picker-manage {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  width: 100%;
-  margin-top: 3px;
-  padding: 6px 7px;
-  border: none;
-  border-top: 1px solid var(--ft-border-subtle);
-  border-radius: 0 0 6px 6px;
-  background: transparent;
-  color: var(--ft-text-muted);
-  font-family: var(--figy-mono);
-  font-size: 11.5px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.figy-picker-manage:hover {
-  color: var(--ft-text);
-}
-
-.light .figy-picker-button:hover,
-.light .figy-picker-button.on,
-.light .figy-picker-row.at {
-  background: rgba(15, 17, 23, 0.06);
-}
-
-.figy-status-right.on {
-  color: var(--ft-text);
-  background: rgba(255, 255, 255, 0.07);
-}
-
-.light .figy-settings-row:hover,
-.light .figy-settings-row:focus-visible,
-.light .figy-settings-link:hover,
-.light .figy-settings-link:focus-visible,
-.light .figy-status-right.on {
-  background: rgba(15, 17, 23, 0.06);
-}
-
-/* A dark scrim over a light window is still the right way round — it is
-   the dialog that should be bright — but it can be gentler. */
-.light .figy-dialog-layer {
-  background: rgba(15, 17, 23, 0.3);
-}
-
-/* ─── The plan ───────────────────────────────────────────────────────────── */
-
-.figy-todos {
-  margin: 8px 0 10px;
-  padding: 8px 10px 9px;
-  border: 1px solid var(--ft-border-subtle);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.022);
-  font-family: var(--figy-mono);
-  font-size: 12px;
-}
-
-.figy-todos-head {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin-bottom: 5px;
-}
-
-.figy-todos-title {
-  color: var(--ft-text-secondary);
-  font-size: 11px;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-}
-
-.figy-todos-count {
-  margin-left: auto;
-  color: var(--ft-text-muted);
-  font-size: 11px;
+  font-size: 20px;
   font-variant-numeric: tabular-nums;
+  line-height: 1.1;
 }
 
-.figy-todo {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 2px 0;
-  color: var(--ft-text-secondary);
-}
-
-.figy-todo-mark {
-  flex: none;
-  width: 10px;
-  color: var(--ft-text-muted);
-  text-align: center;
-}
-
-.figy-todo-text {
-  min-width: 0;
-}
-
-/* Done recedes: it is context for what is left, not the thing being
-   read. Struck through as well as dimmed, so the state survives a
-   screenshot and anybody who cannot see the colour difference. */
-.figy-todo.done .figy-todo-text {
-  color: var(--ft-text-muted);
-  text-decoration: line-through;
-  text-decoration-thickness: 1px;
-}
-
-.figy-todo.done .figy-todo-mark {
+.figy-figure.good .figy-figure-value {
   color: var(--ft-success);
 }
 
-/* The one line anybody is actually looking at. */
-.figy-todo.running .figy-todo-text {
-  color: var(--ft-text);
+.figy-figure.warn .figy-figure-value {
+  color: var(--ft-warning);
 }
 
-.figy-todo.running .figy-todo-mark {
-  color: var(--ft-accent);
+.figy-figure-label {
+  margin-top: 3px;
+  color: var(--ft-text-secondary);
+  font-size: 11px;
 }
 
-.light .figy-todos {
+.figy-figure-note {
+  color: var(--ft-text-muted);
+  font-size: 10.5px;
+}
+
+/* Visually hidden, still read aloud: a column of radio buttons and a
+   column of delete buttons both need a name they do not show. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.light .figy-table tbody tr:hover > td {
+  background: rgba(15, 17, 23, 0.04);
+}
+
+.light .figy-table-editor > td,
+.light .figy-figure {
   background: rgba(15, 17, 23, 0.025);
 }
 

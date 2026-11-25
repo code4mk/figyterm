@@ -31,12 +31,13 @@
  * would have bought nothing.
  */
 
-import { useState } from "react";
-import { Check, Cpu, Globe, History, Plus, Sliders, Trash2 } from "lucide-react";
+import { Fragment, useState } from "react";
+import { Check, ChevronRight, Cpu, Globe, History, Plus, Sliders, Trash2 } from "lucide-react";
 import { Dialog } from "./FigyDialog";
 import {
   MODE_LABEL,
   formatCost,
+  formatTokens,
   typedNumber,
   type PermissionMode,
 } from "../../services/figycode-blocks";
@@ -79,22 +80,13 @@ function mintId(): string {
   return `m${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 }
 
-/** What is shown on a collapsed row, under the name. */
-function summarise(model: ProviderModel): string {
-  const host = (() => {
-    try {
-      return new URL(model.baseUrl).host;
-    } catch {
-      return model.baseUrl.replace(/^https?:\/\//, "").split("/")[0];
-    }
-  })();
-  const price =
-    model.inputPrice || model.outputPrice
-      ? `${formatCost(model.inputPrice ?? 0)} in · ${formatCost(model.outputPrice ?? 0)} out`
-      : "no prices set";
-  return [host || "no address", model.model || "no model name", price]
-    .filter(Boolean)
-    .join(" · ");
+/** `api.openai.com`, from whatever was typed. */
+function host(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url.replace(/^https?:\/\//, "").split("/")[0];
+  }
 }
 
 /* ─── A number you can actually type ──────────────────────────────────────── */
@@ -288,130 +280,218 @@ export function SettingsDialog({
   const modelsPanel = (
     <>
       <div className="figy-dialog-note">
-        Anything that speaks the OpenAI chat API. Add as many as you like — the one with
-        the dot is the one that answers, and each carries its own prices, so the status
-        bar is right whichever is in use.
+        Anything that speaks the OpenAI chat API. The one with the dot answers; each
+        carries its own prices, so the status bar is right whichever is in use.
       </div>
 
-      {models.length === 0 && (
+      {models.length === 0 ? (
         <div className="figy-empty">
           No models yet. Add one and FigyCode can answer — base URL, model name and a
           key is the whole of it.
         </div>
+      ) : (
+        /*
+          A table, because these are rows of the same four facts and a
+          column is how you compare them. The thing somebody comes here
+          to do with two models is decide which to use, and that is a
+          question about price and context window side by side — a
+          stack of cards makes you hold one in your head while you
+          read the next.
+        */
+        <table className="figy-table">
+          <thead>
+            <tr>
+              <th className="pick" scope="col">
+                <span className="sr-only">In use</span>
+              </th>
+              <th scope="col">Model</th>
+              <th scope="col">Endpoint</th>
+              <th className="num" scope="col">
+                In / Out
+              </th>
+              <th className="num" scope="col">
+                Window
+              </th>
+              <th scope="col">Key</th>
+              <th className="act" scope="col">
+                <span className="sr-only">Actions</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {models.map((one) => {
+              const open = editing === one.id;
+              const chosen = active === one.id;
+              return (
+                <Fragment key={one.id}>
+                  <tr className={`${chosen ? "on" : ""} ${open ? "open" : ""}`}>
+                    {/*
+                      The dot is the choice and the name is the editor,
+                      kept apart: picking which model answers is the
+                      thing done most often here, and it should not
+                      mean opening a form and finding somewhere to
+                      click out of it.
+                    */}
+                    <td className="pick">
+                      <button
+                        type="button"
+                        className={`figy-model-pick ${chosen ? "on" : ""}`}
+                        onClick={() => setActive(one.id)}
+                        title={chosen ? "This model answers" : "Use this model"}
+                        aria-pressed={chosen}
+                      >
+                        <span className="figy-model-dot" />
+                      </button>
+                    </td>
+
+                    <td>
+                      <button
+                        type="button"
+                        className="figy-table-name"
+                        onClick={() => setEditing(open ? null : one.id)}
+                        aria-expanded={open}
+                      >
+                        <ChevronRight size={11} className={`figy-table-caret ${open ? "on" : ""}`} />
+                        <span className="truncate">
+                          {one.label.trim() || one.model || "Untitled model"}
+                        </span>
+                      </button>
+                      {/* The id under the name, when the name is not it. */}
+                      {one.label.trim() && one.model && (
+                        <span className="figy-table-sub truncate">{one.model}</span>
+                      )}
+                    </td>
+
+                    <td className="figy-table-dim truncate" title={one.baseUrl}>
+                      {host(one.baseUrl) || "—"}
+                    </td>
+
+                    <td className="num">
+                      {one.inputPrice || one.outputPrice ? (
+                        <>
+                          {formatCost(one.inputPrice ?? 0)}
+                          <span className="figy-table-dim"> / </span>
+                          {formatCost(one.outputPrice ?? 0)}
+                        </>
+                      ) : (
+                        <span className="figy-table-dim">not set</span>
+                      )}
+                    </td>
+
+                    <td className="num">
+                      {one.contextWindow ? (
+                        formatTokens(one.contextWindow)
+                      ) : (
+                        <span className="figy-table-dim">—</span>
+                      )}
+                    </td>
+
+                    <td>
+                      {/*
+                        Said on the row rather than inside the editor:
+                        a model with no key is the commonest reason a
+                        window will not send, and finding that out
+                        should not mean opening each one in turn.
+                      */}
+                      <span className={`figy-pip ${one.hasKey || one.apiKey ? "ok" : "bad"}`}>
+                        {one.hasKey || one.apiKey ? "stored" : "missing"}
+                      </span>
+                    </td>
+
+                    <td className="act">
+                      <button
+                        type="button"
+                        className="figy-iconbtn"
+                        onClick={() => remove(one.id)}
+                        title="Remove this model"
+                        aria-label={`Remove ${one.label || one.model || "this model"}`}
+                      >
+                        <Trash2 size={11} />
+                      </button>
+                    </td>
+                  </tr>
+
+                  {open && (
+                    <tr className="figy-table-editor">
+                      <td colSpan={7}>
+                        <div className="figy-form">
+                          {field(
+                            "Name",
+                            one.label,
+                            (label) => change(one.id, { label }),
+                            one.model || "optional",
+                            "What to call it here"
+                          )}
+                          {field(
+                            "Base URL",
+                            one.baseUrl,
+                            (baseUrl) => change(one.id, { baseUrl }),
+                            "https://api.openai.com/v1",
+                            "The part before /chat/completions"
+                          )}
+                          {field("Model", one.model, (model) => change(one.id, { model }), "gpt-5.6")}
+                          {field(
+                            "API key",
+                            one.apiKey ?? "",
+                            (apiKey) => change(one.id, { apiKey }),
+                            one.hasKey ? "•••••••• — stored. Type to replace it." : "sk-…",
+                            one.hasKey
+                              ? "A key is stored for this model."
+                              : "Required before this model can be used."
+                          )}
+
+                          <div className="figy-field-row">
+                            <span className="figy-field-label">Price per million tokens</span>
+                            <div className="figy-field-group">
+                              {number("input", one.inputPrice, (n) =>
+                                change(one.id, { inputPrice: n })
+                              )}
+                              {number("cached", one.cachedPrice, (n) =>
+                                change(one.id, { cachedPrice: n })
+                              )}
+                              {number("output", one.outputPrice, (n) =>
+                                change(one.id, { outputPrice: n })
+                              )}
+                            </div>
+                            <span className="figy-field-hint">
+                              What the status bar will claim a turn cost. Nobody is charged
+                              from here — and cached input is usually a tenth of input,
+                              which is the whole reason the hit rate is worth watching.
+                            </span>
+                          </div>
+
+                          <div className="figy-field-row">
+                            <span className="figy-field-label">Window and temperature</span>
+                            <div className="figy-field-group">
+                              {number(
+                                "context, tokens",
+                                one.contextWindow,
+                                (n) => change(one.id, { contextWindow: n }),
+                                "200000"
+                              )}
+                              {number(
+                                "temperature",
+                                one.temperature,
+                                (n) => change(one.id, { temperature: n }),
+                                "default"
+                              )}
+                            </div>
+                            <span className="figy-field-hint">
+                              Nothing on the wire reports the window, so without it nothing
+                              can say how close a conversation is to its limit — or when to
+                              compact.
+                            </span>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
       )}
-
-      <div className="figy-models">
-        {models.map((one) => {
-          const open = editing === one.id;
-          const chosen = active === one.id;
-          return (
-            <div className={`figy-model ${open ? "open" : ""}`} key={one.id}>
-              <div className="figy-model-head">
-                {/*
-                  The dot is the choice and the row is the editor, kept
-                  apart: picking which model answers is the thing done
-                  most often here, and it should not mean opening a form
-                  and finding somewhere to click out of it.
-                */}
-                <button
-                  type="button"
-                  className={`figy-model-pick ${chosen ? "on" : ""}`}
-                  onClick={() => setActive(one.id)}
-                  title={chosen ? "This model answers" : "Use this model"}
-                  aria-pressed={chosen}
-                >
-                  <span className="figy-model-dot" />
-                </button>
-
-                <button
-                  type="button"
-                  className="figy-model-main"
-                  onClick={() => setEditing(open ? null : one.id)}
-                  aria-expanded={open}
-                >
-                  <span className="figy-model-name">
-                    {one.label.trim() || one.model || "Untitled model"}
-                  </span>
-                  <span className="figy-model-sub">{summarise(one)}</span>
-                </button>
-
-                <span className={`figy-model-key ${one.hasKey ? "" : "missing"}`}>
-                  {one.hasKey ? "key stored" : "no key"}
-                </span>
-
-                <button
-                  type="button"
-                  className="figy-iconbtn"
-                  onClick={() => remove(one.id)}
-                  title="Remove this model"
-                  aria-label={`Remove ${one.label || one.model}`}
-                >
-                  <Trash2 size={11} />
-                </button>
-              </div>
-
-              {open && (
-                <div className="figy-model-body figy-form">
-                  {field("Name", one.label, (label) => change(one.id, { label }), one.model || "optional", "What to call it here")}
-                  {field(
-                    "Base URL",
-                    one.baseUrl,
-                    (baseUrl) => change(one.id, { baseUrl }),
-                    "https://api.openai.com/v1",
-                    "The part before /chat/completions"
-                  )}
-                  {field("Model", one.model, (model) => change(one.id, { model }), "gpt-5.6")}
-                  {field(
-                    "API key",
-                    one.apiKey ?? "",
-                    (apiKey) => change(one.id, { apiKey }),
-                    one.hasKey ? "•••••••• — stored. Type to replace it." : "sk-…",
-                    one.hasKey
-                      ? "A key is stored for this model."
-                      : "Required before this model can be used."
-                  )}
-
-                  <div className="figy-field-row">
-                    <span className="figy-field-label">Price per million tokens</span>
-                    <div className="figy-field-group">
-                      {number("input", one.inputPrice, (n) => change(one.id, { inputPrice: n }))}
-                      {number("cached", one.cachedPrice, (n) => change(one.id, { cachedPrice: n }))}
-                      {number("output", one.outputPrice, (n) => change(one.id, { outputPrice: n }))}
-                    </div>
-                    <span className="figy-field-hint">
-                      What the status bar will claim a turn cost. Nobody is charged from
-                      here — and cached input is usually a tenth of input, which is the
-                      whole reason the hit rate is worth watching.
-                    </span>
-                  </div>
-
-                  <div className="figy-field-row">
-                    <span className="figy-field-label">Window and temperature</span>
-                    <div className="figy-field-group">
-                      {number(
-                        "context, tokens",
-                        one.contextWindow,
-                        (n) => change(one.id, { contextWindow: n }),
-                        "200000"
-                      )}
-                      {number(
-                        "temperature",
-                        one.temperature,
-                        (n) => change(one.id, { temperature: n }),
-                        "default"
-                      )}
-                    </div>
-                    <span className="figy-field-hint">
-                      Nothing on the wire reports the window, so without it nothing can
-                      say how close a conversation is to its limit — or when to compact.
-                    </span>
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
 
       <button type="button" className="figy-add-model" onClick={add}>
         <Plus size={12} />

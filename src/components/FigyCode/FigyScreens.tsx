@@ -302,34 +302,144 @@ export function ResumeDialog({
  */
 export function UsageDialog({ totals, onClose }: { totals: Totals; onClose: () => void }) {
   const healthy = totals.hitRate >= 70;
-  const rows: [string, string][] = [
-    ["turns", String(totals.turns)],
-    ["input", `${formatTokens(totals.input)} tokens`],
-    ["from cache", `${formatTokens(totals.cached)} tokens · ${totals.hitRate}%`],
-    ["output", `${formatTokens(totals.output)} tokens`],
-    ["spent on the model", formatCost(totals.costUsd)],
-    // Kept apart from the model's own cost: folding them together makes a
-    // search-heavy session look like an expensive model.
-    ["spent on tools", formatCost(totals.toolCostUsd)],
-    ["largest tool result", `${formatTokens(totals.largestToolResult)} tokens`],
-  ];
+  const fresh = Math.max(0, totals.input - totals.cached);
+  const all = Math.max(1, totals.input + totals.output);
+  const total = totals.costUsd + totals.toolCostUsd;
+  const perTurn = totals.turns > 0 ? total / totals.turns : 0;
 
   return (
     <Dialog title="Tokens and spend" onClose={onClose}>
       <div className="figy-dialog-body">
-        <div className="figy-dialog-note">
-          Every turn re-sends the whole conversation, so input is nearly all of the cost
-          and the cache is nearly all of the saving.
+        {/*
+          The two numbers somebody opened this for, before any of the
+          detail: what it has cost, and whether the cache is working.
+          Everything under them explains one or the other.
+        */}
+        <div className="figy-figures">
+          <div className="figy-figure">
+            <span className="figy-figure-value">{formatCost(total)}</span>
+            <span className="figy-figure-label">this session</span>
+            {totals.turns > 0 && (
+              <span className="figy-figure-note">{formatCost(perTurn)} a turn</span>
+            )}
+          </div>
+          <div className={`figy-figure ${healthy ? "good" : "warn"}`}>
+            <span className="figy-figure-value">{totals.hitRate}%</span>
+            <span className="figy-figure-label">read from cache</span>
+            <span className="figy-figure-note">
+              {healthy ? "healthy" : totals.turns > 2 ? "too low" : "early days"}
+            </span>
+          </div>
+          <div className="figy-figure">
+            <span className="figy-figure-value">{totals.turns}</span>
+            <span className="figy-figure-label">turns</span>
+            <span className="figy-figure-note">{formatTokens(totals.input)} in</span>
+          </div>
         </div>
 
-        <div className="figy-usage">
-          {rows.map(([label, value]) => (
-            <div className="figy-usage-row" key={label}>
-              <span className="figy-usage-label">{label}</span>
-              <span className="figy-usage-value">{value}</span>
-            </div>
-          ))}
+        {/*
+          Input against output, to scale. The point it makes in one
+          glance is the one the note used to make in a sentence:
+          output is a rounding error, and almost all of what you pay
+          for is the conversation being re-sent.
+        */}
+        <div className="figy-context-bar" role="img" aria-label="Where the tokens went">
+          {totals.cached > 0 && (
+            <span
+              className="figy-context-slice user"
+              style={{ flexGrow: totals.cached / all }}
+              title={`${formatTokens(totals.cached)} read from cache`}
+            />
+          )}
+          {fresh > 0 && (
+            <span
+              className="figy-context-slice toolResults"
+              style={{ flexGrow: fresh / all }}
+              title={`${formatTokens(fresh)} sent fresh`}
+            />
+          )}
+          {totals.output > 0 && (
+            <span
+              className="figy-context-slice assistant"
+              style={{ flexGrow: totals.output / all }}
+              title={`${formatTokens(totals.output)} written`}
+            />
+          )}
         </div>
+
+        <table className="figy-table figy-table-plain">
+          <tbody>
+            <tr>
+              <td>
+                <span className="figy-context-key user" /> Read from cache
+              </td>
+              <td className="num">{formatTokens(totals.cached)}</td>
+              <td className="num figy-table-dim">
+                {totals.input > 0 ? `${Math.round((totals.cached / totals.input) * 100)}%` : "—"}
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <span className="figy-context-key toolResults" /> Sent fresh
+              </td>
+              <td className="num">{formatTokens(fresh)}</td>
+              <td className="num figy-table-dim">
+                {totals.input > 0 ? `${Math.round((fresh / totals.input) * 100)}%` : "—"}
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <span className="figy-context-key assistant" /> Written back
+              </td>
+              <td className="num">{formatTokens(totals.output)}</td>
+              <td className="num figy-table-dim">
+                {Math.round((totals.output / all) * 100)}%
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div className="figy-dialog-section">
+          <div className="figy-dialog-section-head">Spend</div>
+          <table className="figy-table figy-table-plain">
+            <tbody>
+              <tr>
+                <td>The model</td>
+                <td className="num">{formatCost(totals.costUsd)}</td>
+              </tr>
+              {/*
+                Kept apart from the model's own cost. Folding them
+                together makes a search-heavy session read as an
+                expensive model, which sends somebody to change the
+                wrong setting.
+              */}
+              <tr>
+                <td>
+                  Tools
+                  <span className="figy-table-sub">Exa, and the tool picker</span>
+                </td>
+                <td className="num">{formatCost(totals.toolCostUsd)}</td>
+              </tr>
+              <tr className="figy-table-total">
+                <td>Total</td>
+                <td className="num">{formatCost(total)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/*
+          The early warning this screen exists for. A result that was
+          expensive once is expensive on every turn after it, so a
+          spike here is a tool misbehaving and it shows up one turn
+          after it starts rather than twenty.
+        */}
+        {totals.largestToolResult > 0 && (
+          <div className="figy-dialog-note muted">
+            Largest single tool result: <strong>{formatTokens(totals.largestToolResult)}</strong>{" "}
+            tokens — re-sent with every message after the one that fetched it.
+          </div>
+        )}
 
         {totals.turns > 2 && (
           <div className={`figy-card figy-notice ${healthy ? "info" : "warn"}`}>
@@ -340,8 +450,8 @@ export function UsageDialog({ totals, onClose }: { totals: Totals; onClose: () =
               </div>
               <div className="figy-notice-body">
                 {healthy
-                  ? "Most of each turn's input is being read from cache rather than re-sent."
-                  : "Below about 70% over a long conversation means something is changing the start of the request between turns."}
+                  ? "Most of each turn's input is being read from cache rather than re-sent, which is where nearly all of the saving is."
+                  : "Below about 70% over a long conversation means something is changing the start of the request between turns — the tool list and the system prompt are the usual culprits."}
               </div>
             </div>
           </div>
