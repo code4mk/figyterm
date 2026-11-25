@@ -169,6 +169,10 @@ export function SettingsDialog({
   const [exa, setExa] = useState("");
   const [router, setRouter] = useState(status.router);
   const [routerKey, setRouterKey] = useState("");
+  const [routerModel, setRouterModel] = useState(status.routerModel ?? "");
+  const [routerPrice, setRouterPrice] = useState<number | undefined>(
+    status.routerPrice ?? undefined
+  );
   /**
    * Which row is open for editing. A new one opens itself.
    *
@@ -210,6 +214,8 @@ export function SettingsDialog({
       exaKey: exa.trim() || undefined,
       router,
       routerKey: routerKey.trim() || undefined,
+      routerModel: routerModel.trim() || undefined,
+      routerPrice,
     });
 
   /* ─── Small field helpers ──────────────────────────────────────────────── */
@@ -501,6 +507,30 @@ export function SettingsDialog({
                 ? "A key is stored."
                 : "From console.typesafe.ai/keys. Without one the model picks for itself."
             )}
+
+            {/*
+              Its model and its price, for the same reason the chat
+              model's are fields: the one certain thing about a price
+              in a binary is that it is out of date. Blank means the
+              default, which is what shipped as true on the day it
+              was written down.
+            */}
+            <div className="figy-field-row">
+              <div className="figy-field-group">
+                {field(
+                  "Jev model",
+                  routerModel,
+                  setRouterModel,
+                  "jev-latest",
+                  undefined
+                )}
+                {number("$ per Mtok in", routerPrice, setRouterPrice, "0.042")}
+              </div>
+              <span className="figy-field-hint">
+                What the picker charges, so its share lands in the ledger under the turn
+                that paid it. Blank uses the published figures.
+              </span>
+            </div>
           </div>
         )}
       </div>

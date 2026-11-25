@@ -14554,6 +14554,14 @@ body > .cm-api-completions .cm-completionDetail {
   gap: 8px;
 }
 
+/* A full-width field put in a row shares it. Without this the text
+   box takes its content width and the number beside it is squeezed
+   into whatever is left. */
+.figy-field-group > .figy-field {
+  flex: 1;
+  min-width: 0;
+}
+
 .figy-field.narrow {
   flex: 1;
   min-width: 0;
