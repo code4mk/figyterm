@@ -142,6 +142,14 @@ export interface ProviderModel {
   outputPrice?: number;
   /** Its context window in tokens. Nothing on the wire reports it. */
   contextWindow?: number;
+  /**
+   * Whether it can be sent pictures.
+   *
+   * A setting rather than something to discover, because discovering
+   * it means sending one and reading a 400 — after somebody has
+   * attached a screenshot and typed a question. Off by default.
+   */
+  vision?: boolean;
 }
 
 export interface AgentSettings {
@@ -236,13 +244,27 @@ export function agentStatus(): Promise<AgentStatus> {
  * arrived as events by then — this resolving is the signal that the
  * composer can be re-enabled, not where the answer is.
  */
+/**
+ * A picture on a message.
+ *
+ * Base64 without the `data:` prefix, which the backend adds when it
+ * serialises. Images ride on *user* messages and nowhere else: the
+ * OpenAI wire format has no shape for one in a tool result, which is
+ * the reason there is no tool that opens an image.
+ */
+export interface AgentImage {
+  mime: string;
+  data: string;
+}
+
 export function agentSend(
   prompt: string,
   mode: string,
   system: string,
-  surface: Surface
+  surface: Surface,
+  images: AgentImage[] = []
 ): Promise<void> {
-  return invoke("agent_send", { request: { prompt, mode, system, surface } });
+  return invoke("agent_send", { request: { prompt, images, mode, system, surface } });
 }
 
 /**
@@ -368,6 +390,15 @@ export interface ContextBreakdown {
   toolResults: number;
   messages: number;
   turns: number;
+  /**
+   * Pictures in the conversation, and roughly what they cost.
+   *
+   * Counted apart because they are the one thing in the window that
+   * cannot be trimmed: a long tool result can be re-run smaller, and
+   * an image is the size it is for the rest of the session.
+   */
+  images: number;
+  imageTokens: number;
   /** Tools on the table, and how many this surface has. */
   toolsOffered: number;
   toolsTotal: number;

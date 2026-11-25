@@ -20,9 +20,11 @@ import {
   useEffect,
   useImperativeHandle,
   useRef,
+  useState,
   type ReactNode,
 } from "react";
-import { ArrowUp, AtSign, Slash, Square, Terminal } from "lucide-react";
+import { ArrowUp, AtSign, Slash, Square, Terminal, X } from "lucide-react";
+import { formatBytes, type Attachment } from "../../services/figycode-attach";
 
 /* ─── The running line ────────────────────────────────────────────────────── */
 
@@ -155,6 +157,11 @@ interface ComposerProps {
    * it owns.
    */
   modelPicker: ReactNode;
+  /** Pictures attached to the message being written. */
+  attachments: Attachment[];
+  /** Files pasted or dropped on the composer. */
+  onFiles: (files: File[]) => void;
+  onRemoveFile: (id: string) => void;
   onChange: (value: string) => void;
   onCaret: () => void;
   onInsert: (token: "@" | "/" | "!") => void;
@@ -175,6 +182,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     modeLabel,
     modeTone,
     modelPicker,
+    attachments,
+    onFiles,
+    onRemoveFile,
     onChange,
     onCaret,
     onInsert,
@@ -244,10 +254,67 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     return () => observer.disconnect();
   }, [fit]);
 
-  const empty = !value.trim();
+  const empty = !value.trim() && attachments.length === 0;
+  const [over, setOver] = useState(false);
+
+  /** Whatever a drop or a paste is actually carrying. */
+  const filesIn = (data: DataTransfer | null): File[] =>
+    data ? Array.from(data.files) : [];
 
   return (
-    <div className={`figy-composer ${shell ? "shell" : ""}`}>
+    <div
+      className={`figy-composer ${shell ? "shell" : ""} ${over ? "over" : ""}`}
+      /*
+        A drop anywhere on the box, not only on the text.
+
+        `dragover` has to be prevented for a drop to fire at all,
+        which is the web's oldest trap: without it the browser
+        navigates to the file and the window is gone.
+      */
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes("Files")) return;
+        e.preventDefault();
+        setOver(true);
+      }}
+      onDragLeave={(e) => {
+        if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+        setOver(false);
+      }}
+      onDrop={(e) => {
+        const files = filesIn(e.dataTransfer);
+        if (files.length === 0) return;
+        e.preventDefault();
+        setOver(false);
+        onFiles(files);
+      }}
+    >
+      {/*
+        What is attached, above the text rather than below it: it was
+        attached before the sentence was written, and it is the thing
+        the sentence is about.
+      */}
+      {attachments.length > 0 && (
+        <div className="figy-attachments">
+          {attachments.map((one) => (
+            <div className="figy-attachment" key={one.id}>
+              <img className="figy-attachment-thumb" src={one.url} alt="" />
+              <span className="figy-attachment-name truncate" title={one.name}>
+                {one.name}
+              </span>
+              <span className="figy-attachment-size">{formatBytes(one.bytes)}</span>
+              <button
+                type="button"
+                className="figy-iconbtn"
+                onClick={() => onRemoveFile(one.id)}
+                title="Remove"
+                aria-label={`Remove ${one.name}`}
+              >
+                <X size={10} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="figy-composer-top">
         <span className={`figy-composer-glyph ${shell ? "shell" : ""}`}>{shell ? "!" : "›"}</span>
         <textarea
@@ -263,6 +330,17 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
              depending on where the focus happens to be. */
           onKeyUp={onCaret}
           onClick={onCaret}
+          /*
+            A pasted screenshot has no text to insert, so the default
+            paste does nothing at all and it looks like the window
+            ignored you. Text pastes are left alone.
+          */
+          onPaste={(e) => {
+            const files = filesIn(e.clipboardData);
+            if (files.length === 0) return;
+            e.preventDefault();
+            onFiles(files);
+          }}
           aria-label="Message FigyCode"
         />
       </div>

@@ -253,7 +253,13 @@ export interface Prompt {
 
 /** Everything that can appear in the scroll. */
 export type Block =
-  | { id: number; kind: "user"; text: string }
+  | {
+      id: number;
+      kind: "user";
+      text: string;
+      /** Pictures sent with it, for the transcript's own record. */
+      images?: { url: string; name: string }[];
+    }
   | { id: number; kind: "assistant"; text: string }
   | { id: number; kind: "tool"; callId: string; tool: ToolRow }
   | { id: number; kind: "notice"; notice: Notice }

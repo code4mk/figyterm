@@ -387,6 +387,21 @@ pub struct Turn<'a, P: Provider, K: Picker + ?Sized, A: Approver> {
     pub ledger: Option<&'a Ledger>,
 }
 
+/// Roughly what one picture costs a request.
+///
+/// A flat figure, and flat is the only honest option: providers
+/// charge by tile and the tiling depends on the dimensions, which
+/// are inside the base64 and not worth decoding for a number the
+/// breakdown already calls an estimate. A screenshot lands near
+/// enough to this.
+///
+/// What it must *not* be is `approx_tokens` of the data. That is
+/// characters over four over a megabyte of base64 — about 250,000
+/// tokens for one screenshot, which would read as a full window,
+/// fire compaction on the next message and summarise a conversation
+/// that had barely started.
+pub const IMAGE_TOKENS: usize = 1_100;
+
 /// Where the context window is going, as `/context` draws it.
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -404,6 +419,12 @@ pub struct Breakdown {
     pub tool_results: usize,
     pub messages: u32,
     pub turns: u32,
+    /// Pictures in the conversation, and roughly what they cost.
+    /// Counted apart because they are the one thing in here that
+    /// cannot be trimmed: a long tool result can be re-run smaller,
+    /// and an image is the size it is for the rest of the session.
+    pub images: u32,
+    pub image_tokens: usize,
     /// Tools on the table, and how many this surface has. They differ
     /// only when a router has narrowed the set.
     pub tools_offered: usize,
@@ -669,6 +690,8 @@ impl Session {
                 Role::User => {
                     out.user += tokens;
                     out.turns += 1;
+                    out.images += message.images.len() as u32;
+                    out.image_tokens += message.images.len() * IMAGE_TOKENS;
                 }
                 Role::Assistant => {
                     out.assistant += tokens;

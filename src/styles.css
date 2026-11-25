@@ -13226,6 +13226,32 @@ body > .cm-api-completions .cm-completionDetail {
   margin-top: 18px;
 }
 
+.figy-user-said {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+}
+
+/* Small, and side by side. A screenshot at full width would be the
+   loudest thing in the transcript and it is a question's footnote,
+   not the question. Clicking is not wired up: the file is on disk
+   where it came from, and a lightbox inside a modal inside a window
+   is three Escape keys deep. */
+.figy-user-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.figy-user-image {
+  max-width: 180px;
+  max-height: 120px;
+  border: 1px solid var(--ft-border);
+  border-radius: 7px;
+  object-fit: cover;
+}
+
 .figy-user-text {
   min-width: 0;
   color: var(--ft-text);
@@ -13307,6 +13333,59 @@ body > .cm-api-completions .cm-completionDetail {
 .figy-assistant-text code {
   font-family: var(--figy-mono);
   font-size: 0.92em;
+}
+
+/* ─── Pictures on the way out ────────────────────────────────────────────── */
+
+/* Above the text, because they were attached before the sentence was
+   written and the sentence is about them. */
+.figy-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 9px 12px 0;
+}
+
+.figy-attachment {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 230px;
+  padding: 3px 4px 3px 3px;
+  border: 1px solid var(--ft-border-subtle);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 11px;
+}
+
+.figy-attachment-thumb {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  object-fit: cover;
+}
+
+.figy-attachment-name {
+  min-width: 0;
+  color: var(--ft-text-secondary);
+}
+
+.figy-attachment-size {
+  flex: none;
+  color: var(--ft-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Something is being dragged over the box. The whole composer, not a
+   zone inside it: a target you have to aim at is one you miss. */
+.figy-composer.over {
+  border-color: var(--ft-accent);
+  background: rgb(var(--ft-accent-rgb) / 0.05);
+}
+
+.light .figy-attachment {
+  background: rgba(15, 17, 23, 0.04);
 }
 
 /* ─── A tool call ────────────────────────────────────────────────────────── */
@@ -14997,6 +15076,11 @@ body > .cm-api-completions .cm-completionDetail {
 .figy-context-slice.toolResults,
 .figy-context-key.toolResults {
   background: #e06c9a;
+}
+
+.figy-context-slice.imageTokens,
+.figy-context-key.imageTokens {
+  background: #9b6cff;
 }
 
 .figy-context-slice.free,

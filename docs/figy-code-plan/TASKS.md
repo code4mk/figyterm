@@ -456,6 +456,37 @@ entirely.
       provider configured. Until then, a clear message beats a silent
       switch
 
+## 11b · Pictures
+
+- [x] **A screenshot can be attached to a message.** Paste or drop on
+      the composer, a chip with a thumbnail before it is sent, and the
+      picture kept in the transcript afterwards — a conversation that
+      does not include the image is one where half the question is
+      missing
+- [x] `Message` carries them and `as_openai` emits the parts array
+      **only when there are any**, so a conversation without pictures
+      produces byte-identical requests to the ones it produced before
+      the field existed. Pinned by a test, because an accidental change
+      there invalidates every cached prefix in every open session and
+      says nothing
+- [x] A `vision` flag per model, refused in the window *and* in the
+      backend. Finding out by sending one means reading a 400 after the
+      screenshot is attached and the question typed
+- [x] Counted properly in `/context`: a flat ~1,100 per image, never
+      `approx_tokens` of the base64 — which is a quarter of a million
+      tokens for one screenshot, reads as a full window, and would fire
+      compaction on the next message
+- [x] Capped at 4 MB and four per message, refused with a sentence
+      rather than silently downscaled. An image is the one thing in a
+      conversation that cannot be trimmed: a long tool result can be
+      re-run smaller, and a picture is its size for good
+- [ ] **No tool opens one**, and that is the format rather than a
+      decision: `role: "tool"` content is a string on every
+      OpenAI-compatible endpoint, so a tool cannot hand the model a
+      picture. The loop would have to append a user message carrying
+      it. Worth doing when `screenshot` arrives (section G) and the
+      awkwardness buys the loop nothing else can
+
 ## 11 · The agent's own mind
 
 `TOOLS.md` group E. These are the tools with no side effect outside the

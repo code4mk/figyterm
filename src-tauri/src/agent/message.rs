@@ -56,10 +56,38 @@ impl ToolCall {
     }
 }
 
+/// A picture, as the wire wants it.
+///
+/// Base64 without the `data:` prefix, which is added when the message
+/// is serialised — storing the whole data URL would mean the prefix
+/// is in the conversation, in the snapshot and in every later
+/// request, which is sixty bytes to say what `mime` already says.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Image {
+    /// `image/png`, `image/jpeg`, `image/webp`, `image/gif`.
+    pub mime: String,
+    pub data: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Message {
     pub role: Role,
     pub content: String,
+    /// Pictures sent with this message.
+    ///
+    /// User messages only, and in practice only ones a person
+    /// attached: the OpenAI wire format carries images on `user` and
+    /// nowhere else, so a tool cannot hand the model one. That is a
+    /// format constraint rather than a decision, and it is the
+    /// reason there is no `view_image` tool.
+    ///
+    /// Skipped when empty, which is the whole of the compatibility
+    /// story: a conversation with no pictures in it serialises to
+    /// exactly the bytes it did before this field existed, so no
+    /// cached prefix and no stored snapshot is disturbed by its
+    /// arrival.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<Image>,
     /// Assistant turns only.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tool_calls: Vec<ToolCall>,
@@ -77,6 +105,17 @@ impl Message {
         Self::plain(Role::User, content)
     }
 
+    /// What somebody typed, and what they attached to it.
+    pub fn user_seeing(content: impl Into<String>, images: Vec<Image>) -> Self {
+        Self {
+            role: Role::User,
+            content: content.into(),
+            images,
+            tool_calls: Vec::new(),
+            tool_call_id: None,
+        }
+    }
+
     pub fn assistant(content: impl Into<String>) -> Self {
         Self::plain(Role::Assistant, content)
     }
@@ -86,6 +125,7 @@ impl Message {
         Self {
             role: Role::Assistant,
             content: content.into(),
+            images: Vec::new(),
             tool_calls,
             tool_call_id: None,
         }
@@ -96,6 +136,7 @@ impl Message {
         Self {
             role: Role::Tool,
             content: content.into(),
+            images: Vec::new(),
             tool_calls: Vec::new(),
             tool_call_id: Some(id.into()),
         }
@@ -105,6 +146,7 @@ impl Message {
         Self {
             role,
             content: content.into(),
+            images: Vec::new(),
             tool_calls: Vec::new(),
             tool_call_id: None,
         }
@@ -128,7 +170,34 @@ impl Message {
         let mut out = json!({ "role": role });
         let object = out.as_object_mut().expect("just built");
 
-        if self.role == Role::Assistant && self.content.is_empty() && !self.tool_calls.is_empty() {
+        /*
+          Three shapes for `content`, and only the last of them is new.
+
+          A message with pictures sends the parts array the format
+          wants; everything else sends exactly what it sent before.
+          That ordering is deliberate: a conversation with no images
+          in it produces byte-identical requests to the ones it
+          produced before this existed, so no cached prefix is
+          disturbed by a feature nobody used.
+        */
+        if !self.images.is_empty() {
+            let mut parts: Vec<Value> = Vec::with_capacity(self.images.len() + 1);
+            if !self.content.is_empty() {
+                parts.push(json!({ "type": "text", "text": self.content }));
+            }
+            for image in &self.images {
+                parts.push(json!({
+                    "type": "image_url",
+                    "image_url": {
+                        "url": format!("data:{};base64,{}", image.mime, image.data)
+                    }
+                }));
+            }
+            object.insert("content".into(), Value::Array(parts));
+        } else if self.role == Role::Assistant
+            && self.content.is_empty()
+            && !self.tool_calls.is_empty()
+        {
             object.insert("content".into(), Value::Null);
         } else {
             object.insert("content".into(), Value::String(self.content.clone()));
@@ -221,6 +290,62 @@ impl Usage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /*
+      The compatibility story, as an assertion.
+
+      Images arrived as a field on every message. If a message
+      without any serialised differently afterwards, every cached
+      prefix in every open session would have been invalidated by a
+      feature nobody had used yet — and nothing would have said so.
+    */
+    #[test]
+    fn a_message_with_no_pictures_is_the_bytes_it_always_was() {
+        let plain = Message::user("fix the test");
+        assert_eq!(
+            plain.as_openai(),
+            json!({ "role": "user", "content": "fix the test" })
+        );
+
+        // And in the stored shape too, which the snapshots hold.
+        assert_eq!(
+            serde_json::to_string(&plain).unwrap(),
+            r#"{"role":"user","content":"fix the test"}"#
+        );
+    }
+
+    #[test]
+    fn a_message_with_a_picture_sends_the_parts_the_format_wants() {
+        let message = Message::user_seeing(
+            "why is this misaligned?",
+            vec![Image {
+                mime: "image/png".into(),
+                data: "iVBORw0KGgo=".into(),
+            }],
+        );
+        let wire = message.as_openai();
+        let parts = wire["content"].as_array().expect("an array, not a string");
+
+        assert_eq!(parts[0], json!({ "type": "text", "text": "why is this misaligned?" }));
+        assert_eq!(parts[1]["type"], "image_url");
+        // The `data:` prefix is built here rather than stored, so the
+        // conversation carries the bytes and not the ceremony.
+        assert_eq!(
+            parts[1]["image_url"]["url"],
+            "data:image/png;base64,iVBORw0KGgo="
+        );
+    }
+
+    #[test]
+    fn a_picture_with_no_words_sends_the_picture_alone() {
+        let message = Message::user_seeing(
+            "",
+            vec![Image { mime: "image/jpeg".into(), data: "/9j/".into() }],
+        );
+        let parts = message.as_openai()["content"].as_array().unwrap().clone();
+        assert_eq!(parts.len(), 1, "no empty text part");
+        assert_eq!(parts[0]["type"], "image_url");
+    }
 
     #[test]
     fn an_assistant_turn_that_only_calls_tools_sends_a_null_content() {

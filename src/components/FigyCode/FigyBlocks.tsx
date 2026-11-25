@@ -335,13 +335,42 @@ export const Todos = memo(function Todos({ items }: { items: TodoItem[] }) {
  * conversation are told apart by their marks rather than by one of
  * them being in a box.
  */
-export function UserTurn({ text }: { text: string }) {
+export function UserTurn({
+  text,
+  images,
+}: {
+  text: string;
+  images?: { url: string; name: string }[];
+}) {
   return (
     <div className="figy-user">
       <span className="figy-user-mark" aria-hidden>
         ›
       </span>
-      <div className="figy-user-text">{text}</div>
+      <div className="figy-user-said">
+        {text && <div className="figy-user-text">{text}</div>}
+        {/*
+          What was sent with it, at the size of a thumbnail.
+
+          Shown at all because a transcript that does not include
+          the picture is a transcript where half the question is
+          missing — scroll back to "why is this misaligned?" and
+          there is nothing to see.
+        */}
+        {images && images.length > 0 && (
+          <div className="figy-user-images">
+            {images.map((one, i) => (
+              <img
+                className="figy-user-image"
+                key={`${i}-${one.name}`}
+                src={one.url}
+                alt={one.name}
+                title={one.name}
+              />
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -405,7 +434,7 @@ export function BlockView({
 }) {
   switch (block.kind) {
     case "user":
-      return <UserTurn text={block.text} />;
+      return <UserTurn text={block.text} images={block.images} />;
     case "assistant":
       return <AssistantTurn text={block.text} />;
     case "tool":

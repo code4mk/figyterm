@@ -31,7 +31,7 @@ use crate::agent::ask::{Asker, Desk, Question};
 use crate::agent::code::{Ask, Bridge, Lsp};
 use crate::agent::delegate::{Delegate, SubAgent};
 use crate::agent::ledger::{Ledger, Price, Surface, Totals};
-use crate::agent::message::ToolCall;
+use crate::agent::message::{Image, ToolCall};
 use crate::agent::policy::{Mode, ModeCell};
 use crate::agent::picker::Jev;
 use crate::agent::provider::{OpenAiProvider, ProviderConfig};
@@ -112,6 +112,15 @@ pub struct ProviderModel {
     /// it belongs to the model rather than to the session — which is
     /// why it moved here when there was more than one model.
     pub context_window: Option<u32>,
+    /// Whether it can be sent pictures.
+    ///
+    /// A setting rather than something to find out, because finding
+    /// out means sending one and reading a 400 — and the 400 arrives
+    /// as "the turn failed" after somebody has attached a screenshot
+    /// and typed a question. Off by default: a model that cannot see
+    /// is the safe assumption, and the window can say so at the
+    /// moment an image is attached rather than after it is sent.
+    pub vision: bool,
 }
 
 impl ProviderModel {
@@ -204,6 +213,9 @@ impl LegacySettings {
             cached_price: self.cached_price,
             output_price: self.output_price,
             context_window: self.context_window,
+            // The old shape predates it, and a model nobody told us
+            // about cannot be assumed to see.
+            vision: false,
         };
         Some(AgentSettings {
             active: Some(one.id.clone()),
@@ -451,6 +463,7 @@ pub struct PublicModel {
     pub cached_price: Option<f64>,
     pub output_price: Option<f64>,
     pub context_window: Option<u32>,
+    pub vision: bool,
 }
 
 #[tauri::command]
@@ -485,6 +498,7 @@ fn status_of(app: &AppHandle, settings: &AgentSettings) -> AgentStatus {
                 cached_price: m.cached_price,
                 output_price: m.output_price,
                 context_window: m.context_window,
+                vision: m.vision,
             })
             .collect(),
         budget_usd: settings.budget_usd,
@@ -767,6 +781,9 @@ fn set_mode(state: &AgentState, session_key: &str, mode: Mode) {
 #[serde(rename_all = "camelCase")]
 pub struct SendRequest {
     pub prompt: String,
+    /// Pictures attached to this message, if any.
+    #[serde(default)]
+    pub images: Vec<Image>,
     pub mode: Mode,
     /// The preamble, which the surface owns: a different one is a
     /// different cache prefix, so the window's and the panel's must not
@@ -790,6 +807,7 @@ pub async fn agent_send(
 ) -> Result<(), String> {
     let SendRequest {
         prompt,
+        images,
         mode,
         system,
         surface,
@@ -826,6 +844,21 @@ pub async fn agent_send(
             .ok_or_else(|| {
                 format!("No API key is stored for {} — add one in /model.", chosen.name())
             })?;
+        /*
+          Refused here rather than by the provider.
+
+          Sending a picture to a model that cannot see one comes back
+          as a 400 with somebody's screenshot and question already
+          spent. This is the same answer two seconds earlier and in a
+          sentence that says what to do about it.
+        */
+        if !images.is_empty() && !chosen.vision {
+            return Err(format!(
+                "{} is not set up to read images. Tick \"reads images\" for it in \
+                 /model if it can, or switch to a model that does.",
+                chosen.name()
+            ));
+        }
         Ok((root, settings, chosen, key))
     })();
 
@@ -1692,6 +1725,7 @@ mod tests {
                 cached_price: Some(0.03),
                 output_price: Some(2.0),
                 context_window: Some(128_000),
+                vision: true,
             }],
             active: Some("m1".into()),
             budget_usd: Some(2.5),

@@ -477,6 +477,32 @@ export function SettingsDialog({
                             </span>
                           </div>
 
+                          {/*
+                            A claim about the model, not a preference.
+
+                            Off is the safe default: sending a picture
+                            to a model that cannot read one comes back
+                            as a 400 after the screenshot has been
+                            attached and the question typed.
+                          */}
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={!!one.vision}
+                            className={`figy-settings-row ${one.vision ? "on" : ""}`}
+                            onClick={() => change(one.id, { vision: !one.vision })}
+                          >
+                            <span className="figy-settings-icon">
+                              {one.vision ? <Check size={12} /> : null}
+                            </span>
+                            <span className="figy-settings-label">Reads images</span>
+                            <span className="figy-settings-value dim">
+                              {one.vision
+                                ? "screenshots can be attached to a message"
+                                : "attaching one will be refused"}
+                            </span>
+                          </button>
+
                           <div className="figy-field-row">
                             <span className="figy-field-label">Window and temperature</span>
                             <div className="figy-field-group">

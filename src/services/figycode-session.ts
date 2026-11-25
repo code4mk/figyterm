@@ -96,10 +96,25 @@ export function emptySession(): SessionState {
 }
 
 /** The user's own turn, which the window adds rather than the backend. */
-export function pushUser(state: SessionState, text: string): SessionState {
+export function pushUser(
+  state: SessionState,
+  text: string,
+  images: { id: string; url: string; name: string }[] = []
+): SessionState {
   return {
     ...state,
-    blocks: [...state.blocks, { id: state.nextId, kind: "user", text }],
+    blocks: [
+      ...state.blocks,
+      {
+        id: state.nextId,
+        kind: "user",
+        text,
+        // Kept as the data URLs they already are: the picture is in
+        // the conversation either way, and a second copy fetched
+        // from disk would be a second thing to keep in step.
+        images: images.map((one) => ({ url: one.url, name: one.name })),
+      },
+    ],
     nextId: state.nextId + 1,
     running: true,
     status: "Working…",

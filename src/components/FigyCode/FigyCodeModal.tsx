@@ -41,6 +41,7 @@ import { useOverlayRect } from "../../hooks/useOverlayRect";
 import { useOverlayZSync } from "../../hooks/useOverlayZSync";
 import { fullscreenRect, useDraggableModal } from "../../hooks/useDraggableModal";
 import { collapseHome, normalizeDir, recentDirs } from "../../services/recent-dirs";
+import { attach, type Attachment } from "../../services/figycode-attach";
 import {
   findFiles,
   countDir,
@@ -298,6 +299,8 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
   /* ─── The composer ─────────────────────────────────────────────────────── */
 
   const [text, setText] = useState("");
+  /** Pictures attached to the message being written. */
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [caret, setCaret] = useState(0);
   const [shell, setShell] = useState(false);
   const [popupIndex, setPopupIndex] = useState(0);
@@ -489,6 +492,33 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
     return () => window.clearInterval(tick);
   }, [session.running, startedAt]);
 
+  /*
+    A pasted or dropped file, on its way to becoming an attachment.
+
+    Refusals are notices rather than thrown errors, and partial: three
+    files where one is a PDF attach the two and say so about the
+    third. Failing the whole drop because one item was wrong is the
+    kind of strictness that makes people stop using a feature.
+  */
+  const addFiles = useCallback(
+    (files: File[]) => {
+      void attach(files, attachments).then(({ added, refused }) => {
+        if (added.length > 0) setAttachments((all) => [...all, ...added]);
+        if (refused.length > 0) {
+          notice({
+            tone: "warn",
+            title: refused.length === 1 ? "That file was not attached" : "Some files were not attached",
+            body: refused.join(" · "),
+          });
+        }
+      });
+    },
+    // `notice` is defined below and is stable; `attachments` is read
+    // to know how much room is left.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [attachments]
+  );
+
   const notice = useCallback((notice: Notice) => {
     setSession((state) => ({
       ...state,
@@ -620,7 +650,9 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
   const send = useCallback(
     (raw: string) => {
       const value = raw.trim();
-      if (!value) return;
+      // A picture on its own is a message: "what is wrong with this?"
+      // is in the screenshot, not in the words.
+      if (!value && attachments.length === 0) return;
 
       /*
         `!` runs one tool with no model and no permission prompt — the user
@@ -674,19 +706,41 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
         });
         return;
       }
-      setSession((state) => pushUser(state, value));
+      /*
+        Said here rather than discovered by the provider.
+
+        A model that cannot see answers a picture with a 400, which
+        arrives as "the turn failed" after the screenshot has been
+        attached, the question typed and the message sent. This is
+        the same answer before any of that is spent, and the
+        attachments survive it — so switching model and pressing
+        enter again is the whole of the fix.
+      */
+      if (attachments.length > 0 && !status.models.find((m) => m.id === status.active)?.vision) {
+        notice({
+          tone: "warn",
+          title: `${status.model || "This model"} does not read images`,
+          body: 'Tick "reads images" for it in Settings → Models if it can, or pick one that does. What you attached is still here.',
+        });
+        setText(value);
+        return;
+      }
+
+      const sending = attachments;
+      setAttachments([]);
+      setSession((state) => pushUser(state, value, sending));
       setStartedAt(Date.now());
       setElapsed(0);
 
       // The promise resolves when the turn is over; everything worth
       // showing has already arrived as events by then.
-      void agentSend(value, mode, SYSTEM_PROMPT, SURFACE)
+      void agentSend(value, mode, SYSTEM_PROMPT, SURFACE, sending)
         .catch(() => {
           /* The `failed` event already said so, in the transcript. */
         })
         .finally(() => void agentUsage(SURFACE).then(setTotals));
     },
-    [activeRoot, command, mode, notice, shell]
+    [activeRoot, attachments, command, mode, notice, shell, status]
   );
 
   /* ─── Answering a permission question ──────────────────────────────────── */
@@ -1433,6 +1487,9 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
             Setting a model *up* is still the dialog's job; this is for
             choosing between ones that are.
           */
+          attachments={attachments}
+          onFiles={addFiles}
+          onRemoveFile={(id) => setAttachments((all) => all.filter((one) => one.id !== id))}
           modelPicker={
             <ModelPicker
               models={status.models}

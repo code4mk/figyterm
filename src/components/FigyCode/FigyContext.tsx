@@ -42,6 +42,11 @@ const PARTS = [
     label: "Tool results",
     note: "Each one re-sent on every later turn — usually the largest part",
   },
+  {
+    key: "imageTokens",
+    label: "Pictures",
+    note: "The one part that cannot be trimmed — an image is its size for good",
+  },
 ] as const;
 
 export function ContextDialog({
@@ -148,7 +153,10 @@ export function ContextDialog({
         <div className="figy-context-foot">
           <span>
             {context.messages} message{context.messages === 1 ? "" : "s"} · {context.turns} from
-            you · {context.model || "no model"}
+            you
+            {context.images > 0 &&
+              ` · ${context.images} picture${context.images === 1 ? "" : "s"}`}{" "}
+            · {context.model || "no model"}
           </span>
           {/*
             Said whenever a router has narrowed the set, because a
