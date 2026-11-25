@@ -28,13 +28,14 @@
 //! ## Where tool picking plugs in
 //!
 //! [`Picker`] is the seam. The default hands the model every tool and lets
-//! it choose, which is what an OpenAI-compatible endpoint does natively.
-//! A router — typesafe.ai — implements the same trait and chooses on the
-//! model's behalf.
+//! it choose, which is what an OpenAI-compatible endpoint does natively,
+//! and it is what ships. A router that chose on the model's behalf would
+//! implement the same trait.
 //!
-//! **The warning that belongs with that:** a picker that narrows the tool
-//! list per turn changes the first bytes of the request, which is the worst
-//! possible place to change bytes. Either it narrows once per session, or
+//! **The warning that belongs with that, and the reason there is no
+//! router:** a picker that narrows the tool list per turn changes the
+//! first bytes of the request, which is the worst possible place to
+//! change bytes. Either it narrows once per session, or
 //! the cache saving it is competing with is larger than the routing saving
 //! it is buying. Measure it with the ledger before believing otherwise.
 

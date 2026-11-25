@@ -14,10 +14,12 @@
 //! ```
 //!
 //! Not because it is the best shape, but because it is the one every provider
-//! and every router speaks. Tool *picking* goes through typesafe.ai, which
-//! consumes the same schema — so the model choosing directly and a router
-//! choosing on its behalf are the same code path, and swapping one for the
-//! other is a change of transport rather than of tool.
+//! and every router speaks. **The model does its own tool picking**, which
+//! is what this format is for; a router choosing on its behalf would consume
+//! the same schema through the same seam, and `TASKS.md` section 3 has the
+//! arithmetic for why none does. The short version is that this whole block
+//! is 3.8K tokens read from cache at a tenth of a cent, and anything that
+//! varies it per turn pays full price for it and for every byte after it.
 //!
 //! ## Two things about the spec that are easy to get wrong
 //!

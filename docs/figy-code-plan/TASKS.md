@@ -21,10 +21,14 @@ The shape of the thing being built, decided and not re-opened here:
   is the insurance: a second implementation is a day's work the moment a
   wire format appears that we do not speak. See 3b for the two
   conditions that would make it one.
-- **Tool picking goes through typesafe.ai.** The registry below emits the
-  schema it needs and dispatches whatever comes back by name; the picker is
-  behind a trait so the model choosing directly and a router choosing for it
-  are the same code path.
+- **The model picks its own tools** — *settled: no external router.* The
+  picker is behind a trait, so a router choosing on the model's behalf stays
+  a drop-in rather than a rewrite, and typesafe.ai's Jev was the candidate.
+  Section 3 has the measurement that settled it: twenty-four definitions are
+  3.8K tokens read from cache at a tenth of a cent, a per-turn router pays
+  full price for them *and* for every byte after them, and the vendor's own
+  recipe narrows nothing anyway. Worth reopening if the set ever reaches a
+  hundred tools, and not before.
 - **Exa is the search provider**, behind the `search_web` tool.
 
 ---
@@ -69,10 +73,10 @@ The shape of the thing being built, decided and not re-opened here:
       largest tool result, into SQLite
 - [x] `commands/agent.rs` — configure, send, approve, cancel, usage, with
       the turn narrated over one `agent://event` stream
-- [ ] **typesafe.ai as the tool picker — not built, and the case for it
-      is weaker than it looked.** The `Picker` seam is in and the
-      default offers the whole registry. What the seam is waiting for is
-      a reason, and three things have to be said before one exists.
+- [x] **No external tool picker.** *Settled.* The `Picker` seam stays —
+      it costs nothing and it is where one would go — but typesafe.ai's
+      Jev is not being wired in, for three reasons that are worth
+      keeping written down.
 
       *It is a model call.* `api.typesafe.ai/v1/systemone` is hosted and
       billed per input token. It answers with typed choices rather than
@@ -93,12 +97,14 @@ The shape of the thing being built, decided and not re-opened here:
       at 1.25× to save part of 3.8K that was being read from cache at
       0.1×. The arithmetic is negative by an order of magnitude.
 
-      The version that could win is narrowing **once per session**,
-      before the first message, when the whole prefix is being written
-      anyway. That is a real use for the seam, and it needs the measured
-      `$ per completed task` either side of it before anybody believes
-      it — which is section 4's open item and the reason the ledger
-      exists
+      What would reopen it: a tool set several times this size, where
+      narrowing **once per session** — before the first message, while
+      the prefix is being written anyway — saves something worth the
+      round trip. At a hundred tools that is 15K a turn and a different
+      conversation. At twenty-four it is not, and the accuracy problem
+      the vendor's numbers describe is one we have no evidence of
+      having: the ledger would show it, and `$ per completed task`
+      either side is how it would be shown (section 4)
 - [ ] Explicit cache breakpoints for endpoints that take them (Anthropic's
       `cache_control`). Prefix stability is done; breakpoints are an
       Anthropic-shaped extra
