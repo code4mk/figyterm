@@ -38,6 +38,40 @@ export function openProjectIndex(path: string): Promise<ProjectInfo> {
   return invoke<ProjectInfo>("figy_open_project", { path });
 }
 
+/**
+ * Tells the backend which folders this window may reach beyond its
+ * project, replacing whatever it had.
+ *
+ * Until this existed, the extra folders were a line in
+ * `localStorage` and nothing else: the settings said the agent could
+ * read `~/acme-mcp` and every tool refused it, because the only
+ * folder the backend had been told about was the root. Answers with
+ * the ones that resolved.
+ */
+export function setExtraDirs(dirs: string[]): Promise<string[]> {
+  return invoke<string[]>("figy_set_extra_dirs", { dirs });
+}
+
+/** What is in a folder, as `/project` lists it beside each one. */
+export interface DirCount {
+  files: number;
+  folders: number;
+  /** The walk stopped at the limit, so these are a floor. */
+  truncated: boolean;
+}
+
+/**
+ * Counts a folder without adopting it.
+ *
+ * Deliberately not `openProjectIndex`, which is the obvious reuse and
+ * the wrong one: that points the whole window at the folder and
+ * replaces the `@` index with it, so counting an extra folder would
+ * move the project out from under the conversation.
+ */
+export function countDir(path: string): Promise<DirCount> {
+  return invoke<DirCount>("figy_count_dir", { path });
+}
+
 /** The best matches for what has been typed after an `@`. */
 export function findFiles(query: string, limit = 12): Promise<FileHit[]> {
   return invoke<FileHit[]>("figy_find_files", { query, limit });

@@ -15,12 +15,14 @@
  * nothing here takes one, so the screen went with the rest of the fiction.
  */
 
-import { FolderOpen, FolderSearch, MessageSquare, Trash2 } from "lucide-react";
+import { useState } from "react";
+import { FolderOpen, FolderPlus, FolderSearch, MessageSquare, Trash2 } from "lucide-react";
 import { collapseHome } from "../../services/recent-dirs";
 import { Dialog } from "./FigyDialog";
 import { projectLabel, type FigyProject } from "../../services/figycode-projects";
 import { formatCost, formatTokens } from "../../services/figycode-blocks";
 import type { Conversation, ProjectRules, Totals } from "../../services/figycode-agent";
+import type { DirCount } from "../../services/figycode-files";
 
 /* ─── Start ───────────────────────────────────────────────────────────────── */
 
@@ -42,6 +44,7 @@ export function Welcome({
   others,
   earlier,
   onPick,
+  inDialog,
   onBrowse,
   onConfigure,
   onResume,
@@ -55,13 +58,22 @@ export function Welcome({
   others: FigyProject[];
   /** How many conversations this folder has had, for the one line about them. */
   earlier: number;
+  /**
+   * Inside the project dialog rather than on the empty transcript.
+   *
+   * The card is the same — that is the point of `/project`, which is
+   * "show me what the window said when it opened" — but the keyboard
+   * hints under it are not. They teach the composer, and in a dialog
+   * the composer is behind you.
+   */
+  inDialog?: boolean;
   onPick: (root: string) => void;
   onBrowse: () => void;
   onConfigure: () => void;
   onResume: () => void;
 }) {
   return (
-    <div className="figy-welcome">
+    <div className={`figy-welcome ${inDialog ? "in-dialog" : ""}`}>
       <div className="figy-card figy-welcome-card">
         <div className="figy-welcome-left">
           <div className="figy-welcome-mark">ƒ</div>
@@ -194,6 +206,7 @@ export function Welcome({
         </div>
       </div>
 
+      {!inDialog && (
       <div className="figy-welcome-hints">
         <span className="figy-key">@</span> mention files
         <span className="figy-sub">·</span>
@@ -203,7 +216,204 @@ export function Welcome({
         <span className="figy-sub">·</span>
         <span className="figy-key accent">esc</span> interrupt
       </div>
+      )}
     </div>
+  );
+}
+
+/* ─── /project ────────────────────────────────────────────────────────────── */
+
+/**
+ * Everything about the folder, on demand.
+ *
+ * It is the first screen, reopened. That window said four true things
+ * — which folder, how much of it is indexed, which model, what rules
+ * it carries — and then the first message replaced it for ever. They
+ * do not stop being the things you need to check; they stop being
+ * visible.
+ *
+ * And one thing the first screen cannot say, because it is about a
+ * decision made later: the folders this project may **also** reach.
+ * Those were chips in the status bar, which is a bar for reporting
+ * and not for granting — nine grey pixels to say "the agent may write
+ * here too", with no room to explain it and no way to take it back.
+ */
+export function ProjectDialog({
+  root,
+  index,
+  model,
+  configured,
+  rules,
+  others,
+  earlier,
+  extraDirs,
+  counts,
+  onPick,
+  onBrowse,
+  onConfigure,
+  onResume,
+  onAddDir,
+  onRemoveDir,
+  onClose,
+}: {
+  root: string | null;
+  index: { files: number; folders: number; truncated: boolean } | null;
+  model: string;
+  configured: boolean;
+  rules: ProjectRules | null;
+  others: FigyProject[];
+  earlier: number;
+  /** Folders this project may also reach. */
+  extraDirs: string[];
+  /**
+   * How much is in each, by path. Absent while it is being counted,
+   * which a large folder takes a second or two to do.
+   */
+  counts: Record<string, DirCount | null>;
+  onPick: (root: string) => void;
+  onBrowse: () => void;
+  onConfigure: () => void;
+  onResume: () => void;
+  onAddDir: () => void;
+  onRemoveDir: (dir: string) => void;
+  onClose: () => void;
+}) {
+  /*
+    Which folder is being asked about, if any.
+
+    Removing one is not dangerous and it is not nothing: it takes away
+    an access the agent currently has, and the row it lives on is two
+    pixels from a count that changes under it. One click is how you
+    revoke the wrong folder and only find out when the next turn says
+    it cannot read something.
+
+    Asked inline rather than in a dialog of its own. A modal inside a
+    modal is two Escape keys deep, and this window already has a rule
+    about Escape that somebody has just learned.
+  */
+  const [confirming, setConfirming] = useState<string | null>(null);
+
+  return (
+    <Dialog title="Project" onClose={onClose}>
+      <div className="figy-dialog-body">
+        <Welcome
+          inDialog
+          root={root}
+          index={index}
+          model={model}
+          configured={configured}
+          rules={rules}
+          others={others}
+          earlier={earlier}
+          onPick={(picked) => {
+            onClose();
+            onPick(picked);
+          }}
+          onBrowse={() => {
+            onClose();
+            onBrowse();
+          }}
+          onConfigure={() => {
+            onClose();
+            onConfigure();
+          }}
+          onResume={() => {
+            onClose();
+            onResume();
+          }}
+        />
+
+        {root && (
+          <div className="figy-extra">
+            <div className="figy-extra-head">
+              <span>Also reachable</span>
+              <button className="figy-extra-add" onClick={onAddDir}>
+                <FolderPlus size={11} />
+                Add a folder
+              </button>
+            </div>
+
+            {extraDirs.length === 0 ? (
+              <div className="figy-extra-empty">
+                Only this folder. The agent cannot read or write outside it.
+              </div>
+            ) : (
+              extraDirs.map((dir) => {
+                const count = counts[dir];
+                if (confirming === dir) {
+                  return (
+                    <div className="figy-extra-row confirming" key={dir}>
+                      <span className="figy-extra-ask truncate">
+                        {/*
+                          What it does, and — just as important —
+                          what it does not. "Remove folder" reads as
+                          "delete folder" to anybody who has not
+                          written this code.
+                        */}
+                        Stop the agent reading and writing{" "}
+                        <strong>{collapseHome(dir)}</strong>? Nothing on disk is touched.
+                      </span>
+                      <button
+                        type="button"
+                        className="figy-extra-no"
+                        onClick={() => setConfirming(null)}
+                      >
+                        Keep
+                      </button>
+                      <button
+                        type="button"
+                        className="figy-extra-yes"
+                        onClick={() => {
+                          setConfirming(null);
+                          onRemoveDir(dir);
+                        }}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  );
+                }
+                return (
+                  <div className="figy-extra-row" key={dir}>
+                    <FolderOpen size={11} className="figy-extra-icon" />
+                    <span className="figy-extra-path truncate" title={dir}>
+                      {collapseHome(dir)}
+                    </span>
+                    {/*
+                      The same two numbers the project itself shows.
+                      "The agent may also reach here" is a different
+                      sentence when here is four files and when it is
+                      forty thousand.
+                    */}
+                    <span className="figy-extra-count">
+                      {count === undefined ? (
+                        <span className="dim">counting…</span>
+                      ) : count === null ? (
+                        <span className="dim">unreadable</span>
+                      ) : (
+                        <>
+                          {count.files.toLocaleString()} files ·{" "}
+                          {count.folders.toLocaleString()} folders
+                          {count.truncated && "+"}
+                        </>
+                      )}
+                    </span>
+                    <button
+                      className="figy-iconbtn"
+                      onClick={() => setConfirming(dir)}
+                      title="Stop the agent reaching this folder"
+                      aria-label={`Remove ${collapseHome(dir)}`}
+                    >
+                      <Trash2 size={11} />
+                    </button>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        )}
+      </div>
+    </Dialog>
   );
 }
 

@@ -90,6 +90,29 @@ export function addExtraDir(
 }
 
 /**
+ * Takes one back.
+ *
+ * Add-only was defensible while these were chips in the footer that
+ * nothing could act on. Once they are a list in the picker with the
+ * folders written next to each other, a list you can only ever add to
+ * is a mistake you cannot undo — and the mistake here is granting an
+ * agent a folder you did not mean to.
+ */
+export function removeExtraDir(
+  projects: FigyProject[],
+  root: string,
+  dir: string
+): FigyProject[] {
+  const normalizedRoot = normalizeDir(root);
+  const normalizedDir = normalizeDir(dir);
+  return projects.map((project) =>
+    project.root === normalizedRoot
+      ? { ...project, extraDirs: project.extraDirs.filter((one) => one !== normalizedDir) }
+      : project
+  );
+}
+
+/**
  * The rows the picker offers: every known project, then every recent folder
  * that is not already one of them.
  *

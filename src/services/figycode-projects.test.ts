@@ -12,6 +12,7 @@
 import assert from "node:assert/strict";
 import {
   addExtraDir,
+  removeExtraDir,
   filterRows,
   forgetProject,
   pickerRows,
@@ -97,9 +98,23 @@ test("an extra folder is added once", () => {
 });
 
 test("the root is never also an extra", () => {
-  // A chip saying the agent may reach the folder it runs in explains nothing.
+  // A row saying the agent may reach the folder it runs in explains nothing.
   const list = addExtraDir([fig], fig.root, "/Users/me/code/fig");
   assert.deepEqual(list[0].extraDirs, []);
+});
+
+test("an extra folder can be taken back", () => {
+  // The mistake this undoes is granting an agent a folder you did not
+  // mean to, which is not a mistake to leave standing.
+  let list = addExtraDir([fig], fig.root, "/Users/me/shared");
+  list = addExtraDir(list, fig.root, "/Users/me/notes");
+  list = removeExtraDir(list, fig.root, "/Users/me/shared");
+  assert.deepEqual(list[0].extraDirs, ["/Users/me/notes"]);
+});
+
+test("removing a folder that was never granted changes nothing", () => {
+  const list = removeExtraDir([fig], fig.root, "/Users/me/elsewhere");
+  assert.deepEqual(list[0].extraDirs, fig.extraDirs);
 });
 
 test("granting one project a folder leaves the others alone", () => {

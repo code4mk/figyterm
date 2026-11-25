@@ -43,13 +43,17 @@ import { fullscreenRect, useDraggableModal } from "../../hooks/useDraggableModal
 import { collapseHome, normalizeDir, recentDirs } from "../../services/recent-dirs";
 import {
   findFiles,
+  countDir,
   hitMeta,
   openProjectIndex,
+  setExtraDirs,
+  type DirCount,
   type FileHit,
   type ProjectInfo,
 } from "../../services/figycode-files";
 import {
   addExtraDir,
+  removeExtraDir,
   forgetProject,
   loadProjects,
   projectLabel,
@@ -113,7 +117,7 @@ import {
   type ComposerHandle,
   type PopupItem,
 } from "./FigyComposer";
-import { ResumeDialog, UsageDialog, Welcome } from "./FigyScreens";
+import { ProjectDialog, ResumeDialog, UsageDialog, Welcome } from "./FigyScreens";
 import { FigyProjects } from "./FigyProjects";
 import { SettingsDialog } from "./FigySettings";
 import { ModelPicker } from "./FigyModelPicker";
@@ -138,7 +142,7 @@ const DEFAULT_SIZE = { w: 960, h: 680 };
  * two body screens, which meant two different ways to be somewhere
  * else and two different ways back.
  */
-type Dialog = "settings" | "resume" | "usage" | "context" | null;
+type Dialog = "settings" | "resume" | "usage" | "context" | "project" | null;
 
 /**
  * The prompt the agent is given, built once per session.
@@ -194,6 +198,33 @@ const NOTHING_YET: AgentStatus = {
   models: [],
   path: "",
 };
+
+/**
+ * The stored settings, as something that can be saved back.
+ *
+ * `agent_configure` takes the whole shape and writes what it is given,
+ * which means a partial save is a reset of everything left out. The
+ * model picker in the composer learned that the hard way: sending
+ * `{models, active}` to switch model turned the tool router off, every
+ * time, silently — `router` is a boolean and an absent boolean is
+ * false.
+ *
+ * So nothing builds that object by hand any more. This takes what the
+ * backend says is stored and changes only what was asked for. Keys are
+ * left out on purpose: they never come back from the backend, and an
+ * empty one means "keep the stored one".
+ */
+function settingsFrom(status: AgentStatus, change: Partial<AgentSettings>): AgentSettings {
+  return {
+    models: status.models,
+    active: status.active,
+    budgetUsd: status.budgetUsd,
+    router: status.router,
+    routerModel: status.routerModel ?? undefined,
+    routerPrice: status.routerPrice ?? undefined,
+    ...change,
+  };
+}
 
 /** The conversation's name: the first thing asked of it. */
 function conversationTitle(blocks: Block[]): string | null {
@@ -280,6 +311,48 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
 
   const project = projects.find((p) => p.root === activeRoot) ?? null;
   const extraDirs = project?.extraDirs ?? [];
+
+  /*
+    The grant itself, sent whenever the list changes.
+
+    The window owns these — they are in `localStorage` and edited in
+    `/project` — and for a while that was the only place they existed.
+    The backend enforces against what it has been told, so a folder it
+    has not been told about is a folder the settings claim and every
+    tool refuses. Sent on open and on every change, including the
+    change to none.
+  */
+  useEffect(() => {
+    if (!activeRoot) return;
+    void setExtraDirs(extraDirs).catch(() => {});
+  }, [activeRoot, extraDirs]);
+
+  /*
+    How much is in each extra folder, counted when `/project` opens.
+
+    Not on adoption: walking a folder is a second or two and these are
+    only ever looked at in one dialog. `null` is a folder that would
+    not read — renamed, unmounted, gone — which is worth showing
+    rather than hiding, because the agent has been granted it.
+  */
+  const [dirCounts, setDirCounts] = useState<Record<string, DirCount | null>>({});
+
+  useEffect(() => {
+    if (dialog !== "project") return;
+    let alive = true;
+    for (const dir of extraDirs) {
+      if (dir in dirCounts) continue;
+      countDir(dir)
+        .then((count) => alive && setDirCounts((all) => ({ ...all, [dir]: count })))
+        .catch(() => alive && setDirCounts((all) => ({ ...all, [dir]: null })));
+    }
+    return () => {
+      alive = false;
+    };
+    // `dirCounts` is read to skip what is already counted, and writing
+    // to it must not start the effect again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dialog, extraDirs]);
 
   /* ─── The file index behind @ ──────────────────────────────────────────── */
 
@@ -467,6 +540,21 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
             setDialog("usage");
           });
           return;
+        /*
+          The first screen, reopened.
+
+          It said which folder, how much of it is indexed, which model
+          and what rules it carries — and then the first message
+          replaced it for ever. Those do not stop being the things you
+          need to check; they stop being visible. The folders this
+          project may also reach are there too, because that is a
+          decision and the status bar is not a place to make one.
+        */
+        case "/project":
+        case "/folder":
+        case "/folders":
+          setDialog("project");
+          return;
         case "/resume":
           void agentConversations(SURFACE).then((conversations) => {
             setPast(conversations);
@@ -496,7 +584,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
           notice({
             tone: "info",
             title: `No command ${name}`,
-            body: "Try /model, /context, /usage, /tools, /resume or /clear.",
+            body: "Try /model, /project, /context, /usage, /tools, /resume or /clear.",
           });
       }
     },
@@ -651,6 +739,16 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
     [projects]
   );
 
+  const dropFolder = useCallback(
+    (dir: string) => {
+      if (!activeRoot) return;
+      const next = removeExtraDir(projects, activeRoot, dir);
+      setProjects(next);
+      saveProjects(next);
+    },
+    [activeRoot, projects]
+  );
+
   const addFolder = useCallback(async () => {
     if (!activeRoot) return;
     const picked = await openFolderDialog({
@@ -662,7 +760,24 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
     const next = addExtraDir(projects, activeRoot, picked);
     setProjects(next);
     saveProjects(next);
-  }, [activeRoot, projects]);
+
+    /*
+      Said once, because half of it is immediate and half is not.
+
+      The tools read the workspace per turn, so the folder is
+      readable from the next message. The *prompt* that names the
+      folders is frozen with the conversation, like the rules file —
+      so a model mid-conversation can use the folder when told about
+      it and will not volunteer that it exists.
+    */
+    if (session.blocks.length > 0) {
+      notice({
+        tone: "info",
+        title: `${collapseHome(picked)} is reachable now`,
+        body: "Tools can read and edit there from your next message. It is named in the prompt from the next conversation, so say so if you want it looked at.",
+      });
+    }
+  }, [activeRoot, notice, projects, session.blocks.length]);
 
   /* ─── Completion ───────────────────────────────────────────────────────── */
 
@@ -1286,12 +1401,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
             <ModelPicker
               models={status.models}
               active={status.active}
-              onPick={(id) =>
-                saveSettings(
-                  { models: status.models, active: id, budgetUsd: status.budgetUsd },
-                  true
-                )
-              }
+              onPick={(id) => saveSettings(settingsFrom(status, { active: id }), true)}
               onManage={() => setDialog("settings")}
             />
           }
@@ -1311,17 +1421,23 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
       <div className="figy-statusbar flex items-center gap-2 px-3 shrink-0">
         {activeRoot ? (
           <>
-            <FolderOpen size={10} className="figy-folder-icon shrink-0" />
-            <span className="figy-folder-primary truncate" title={activeRoot}>
-              {collapseHome(activeRoot)}
-            </span>
+            <button
+              className="figy-folder-button min-w-0"
+              onClick={() => setDialog("project")}
+              title={`${activeRoot}\nWhat this project is, and what else it can reach`}
+            >
+              <FolderOpen size={10} className="figy-folder-icon shrink-0" />
+              <span className="figy-folder-primary truncate">{collapseHome(activeRoot)}</span>
+            </button>
 
-            {extraDirs.map((dir) => (
-              <span key={dir} className="figy-chip-sm shrink-0" title={`${dir} — also reachable`}>
-                {collapseHome(dir)}
-              </span>
-            ))}
+            {/*
+              The paths themselves are not here any more.
 
+              A row of grey folder names was most of the bar's width,
+              said nothing about what they were for, and could not be
+              acted on. The count is in `/project`, beside everything
+              else about the folder, where taking one back is possible.
+            */}
             <button
               className="figy-chip-sm add shrink-0"
               onClick={() => void addFolder()}
@@ -1441,6 +1557,27 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
 
       {dialog === "context" && (
         <ContextDialog context={context} onClose={() => setDialog(null)} />
+      )}
+
+      {dialog === "project" && (
+        <ProjectDialog
+          root={activeRoot}
+          index={index}
+          model={status.model}
+          configured={configured}
+          rules={rules}
+          others={projects.filter((p) => p.root !== activeRoot).slice(0, 3)}
+          earlier={past.length}
+          extraDirs={extraDirs}
+          counts={dirCounts}
+          onPick={openProject}
+          onBrowse={() => setPickerOpen(true)}
+          onConfigure={() => setDialog("settings")}
+          onResume={() => command("/resume")}
+          onAddDir={() => void addFolder()}
+          onRemoveDir={dropFolder}
+          onClose={() => setDialog(null)}
+        />
       )}
 
       {pickerOpen && (
