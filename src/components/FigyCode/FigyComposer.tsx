@@ -14,7 +14,14 @@
  * and splitting them produced two versions of "is a run in progress".
  */
 
-import { forwardRef, useEffect, useImperativeHandle, useRef, type ReactNode } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  type ReactNode,
+} from "react";
 import { ArrowUp, AtSign, Slash, Square, Terminal } from "lucide-react";
 
 /* ─── The running line ────────────────────────────────────────────────────── */
@@ -192,12 +199,50 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     depending on how wide the window has been dragged, and only the layout
     knows which. Reset to `auto` first or the box can only ever get taller.
   */
-  useEffect(() => {
+  const fit = useCallback(() => {
     const el = area.current;
     if (!el) return;
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, MAX_HEIGHT)}px`;
-  }, [value]);
+  }, []);
+
+  useEffect(fit, [fit, value]);
+
+  /*
+    And again when the box changes width, which is the half that was
+    missing.
+
+    The same sentence is one line in a wide window and three in a
+    narrow one, and the only thing that knows is the layout. Measuring
+    on every keystroke and never on a resize meant dragging the window
+    in left the text wrapped inside a box still one line tall —
+    scrolling under its own placeholder while you typed.
+
+    A `ResizeObserver` rather than a window listener: this window is
+    dragged and resized by its own corner, and the viewport never
+    changes at all.
+
+    **Width only.** `fit` sets the height of the element being
+    observed, so reacting to every change is a loop that feeds itself
+    — the browser calls it "ResizeObserver loop completed with
+    undelivered notifications" and it runs until the layout happens to
+    settle. The width is the only thing that can make the text wrap
+    differently, and it is the only thing this reacts to.
+  */
+  const lastWidth = useRef(0);
+  useEffect(() => {
+    const el = area.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+
+    const observer = new ResizeObserver(([entry]) => {
+      const width = entry?.contentRect.width ?? 0;
+      if (Math.abs(width - lastWidth.current) < 1) return;
+      lastWidth.current = width;
+      fit();
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [fit]);
 
   const empty = !value.trim();
 

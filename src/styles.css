@@ -13967,6 +13967,13 @@ body > .cm-api-completions .cm-completionDetail {
   line-height: 1.6;
 }
 
+/* A grid child's minimum is its content, so the prose in this column
+   can push the card wider than the body it sits in. The same rule the
+   settings dialog needed, one layout down. */
+.figy-welcome-left {
+  min-width: 0;
+}
+
 .figy-welcome-right {
   min-width: 0;
   border-left: 1px solid var(--ft-border-subtle);
@@ -14405,15 +14412,33 @@ body > .cm-api-completions .cm-completionDetail {
   color: var(--ft-text-muted);
 }
 
+/*
+  The row under the box, which has to survive being narrow.
+
+  Everything in it was content-sized and `nowrap`: three icon buttons,
+  a mode pill, a model picker and the send button. Drag the window in
+  and there is nothing for the layout to give, so the row overflowed
+  its own rounded corner. The two pills shrink now — `min-width: 0`
+  and an ellipsis each — and the send button and the icons never do,
+  because a send button you cannot hit is worse than a model name you
+  cannot finish reading.
+*/
 .figy-composer-bar {
   display: flex;
   align-items: center;
   gap: 4px;
+  min-width: 0;
   padding: 6px 8px 7px;
 }
 
 .figy-composer-spacer {
   flex: 1;
+  min-width: 0;
+}
+
+.figy-composer-bar > .figy-tool-btn,
+.figy-composer-bar > .figy-send {
+  flex: none;
 }
 
 .figy-tool-btn {
@@ -14444,8 +14469,12 @@ body > .cm-api-completions .cm-completionDetail {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  flex-shrink: 1;
+  min-width: 0;
   height: 24px;
   padding: 0 9px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   border: 1px solid var(--ft-border-subtle);
   border-radius: 999px;
   background: transparent;
@@ -14962,6 +14991,548 @@ body > .cm-api-completions .cm-completionDetail {
   color: var(--ft-warning);
 }
 
+/* In a dialog the card is the content, not a hero: the body already
+   has the padding and there is no empty transcript to fill. */
+.figy-welcome.in-dialog {
+  padding: 0;
+  gap: 0;
+}
+
+.figy-welcome.in-dialog .figy-welcome-card {
+  /* One column. The two-column card is right across a window and
+     wrong across a dialog, where each side would be about thirty
+     characters — a paragraph set two words to the line. */
+  grid-template-columns: 1fr;
+  gap: 14px;
+  border: none;
+  padding: 0;
+  background: transparent;
+}
+
+.figy-welcome.in-dialog .figy-welcome-right {
+  padding-left: 0;
+  border-left: none;
+}
+
+/* The blurb is an introduction. Somebody opening `/project` on turn
+   forty has been introduced. */
+.figy-welcome.in-dialog .figy-welcome-copy {
+  display: none;
+}
+
+/* ─── Folders a project may also reach ──────────────────────────────────── */
+
+/* Under the picker's list rather than in it: these are not folders
+   you switch to, they are folders the one you are in may also touch.
+   The difference is the whole reason they are a separate block. */
+.figy-extra {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ft-border-subtle);
+  font-family: var(--figy-mono);
+}
+
+.figy-extra-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 5px;
+  color: var(--ft-text-muted);
+  font-size: 10px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.figy-extra-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding: 1px 7px;
+  border: 1px dashed var(--ft-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ft-text-muted);
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0;
+  text-transform: none;
+  cursor: pointer;
+}
+
+.figy-extra-add:hover {
+  border-color: var(--ft-accent);
+  color: var(--ft-text);
+}
+
+.figy-extra-empty {
+  padding: 3px 0;
+  color: var(--ft-text-muted);
+  font-size: 11px;
+}
+
+.figy-extra-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 11.5px;
+}
+
+.figy-extra-icon {
+  flex: none;
+  color: var(--ft-text-muted);
+}
+
+.figy-extra-path {
+  min-width: 0;
+  flex: 1;
+  color: var(--ft-text-secondary);
+}
+
+/* The row, asking. Tinted so it is clearly a question and not the
+   same row with different words in it. */
+.figy-extra-row.confirming {
+  gap: 7px;
+  margin: 1px -8px;
+  padding: 5px 8px;
+  border-radius: 7px;
+  background: rgba(var(--ft-warning-rgb), 0.1);
+}
+
+.figy-extra-ask {
+  min-width: 0;
+  flex: 1;
+  color: var(--ft-text-secondary);
+  font-size: 11px;
+}
+
+.figy-extra-ask strong {
+  color: var(--ft-text);
+  font-weight: 400;
+}
+
+.figy-extra-yes,
+.figy-extra-no {
+  flex: none;
+  padding: 2px 9px;
+  border: 1px solid var(--ft-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ft-text-secondary);
+  font: inherit;
+  font-size: 10.5px;
+  cursor: pointer;
+}
+
+.figy-extra-no:hover {
+  border-color: var(--ft-text-muted);
+  color: var(--ft-text);
+}
+
+/* The destructive one is the one that is coloured, and it is second:
+   the pointer lands on "Keep" on its way across. */
+.figy-extra-yes {
+  border-color: rgb(var(--ft-warning-rgb) / 0.5);
+  color: var(--ft-warning);
+}
+
+.figy-extra-yes:hover {
+  background: rgb(var(--ft-warning-rgb) / 0.14);
+}
+
+/* The same two numbers the project shows for itself. "The agent may
+   also reach here" is a different sentence when here is four files
+   and when it is forty thousand. */
+.figy-extra-count {
+  flex: none;
+  color: var(--ft-text-muted);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.light .figy-folder-button:hover {
+  background: rgba(15, 17, 23, 0.05);
+}
+
+/* ─── The model picker, the settings rows and the plan ──────────────────────
+
+   Restored wholesale after a careless edit: a block replacement that
+   was meant to swap the model *list* for a table took the picker, the
+   permission rows, the footer's Settings button and the whole to-do
+   renderer with it, because they happened to sit between the two
+   markers it matched on. Nothing complained — CSS has no compiler —
+   and the picker rendered as a column of run-together text.
+
+   `styles.test.ts` now fails when a class used in a component has no
+   rule, which is the check that would have caught it in a second.
+   ────────────────────────────────────────────────────────────────── */
+
+/* A view of the session rather than a setting: one line, and it opens in
+   the body where there is room to read it. */
+.figy-settings-link {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 5px 7px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ft-text-secondary);
+  font-family: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.figy-settings-link:hover,
+.figy-settings-link:focus-visible {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ft-text);
+  outline: none;
+}
+
+.figy-settings-link-label::after {
+  content: " →";
+  color: var(--ft-text-muted);
+}
+
+.figy-settings-link-value {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ft-text-muted);
+  font-size: 11px;
+}
+
+.figy-settings-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ft-text-secondary);
+  font-family: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.figy-settings-row:hover,
+.figy-settings-row:focus-visible {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ft-text);
+  outline: none;
+}
+
+.figy-settings-row.on {
+  color: var(--ft-text);
+}
+
+.figy-settings-icon {
+  flex: none;
+  width: 13px;
+  color: var(--ft-text-muted);
+  /* Icons sit on the cap line, not the baseline the text uses. */
+  transform: translateY(2px);
+}
+
+.figy-settings-row.on .figy-settings-icon {
+  color: var(--ft-accent);
+}
+
+.figy-settings-label {
+  flex: none;
+}
+
+/* The current value, right-aligned and quiet: the row says what the
+   setting is, this says where it stands. */
+.figy-settings-value {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ft-text-secondary);
+  font-size: 11px;
+}
+
+.figy-settings-value.dim {
+  color: var(--ft-text-muted);
+}
+
+/* The one state worth a colour: nothing can be sent without a model. */
+.figy-settings-value.warn,
+.figy-status-right.warn {
+  color: var(--ft-warning, #d29922);
+}
+
+/* Named, not just a gear. An icon alone is a guess, and the one thing
+   a window nobody has configured needs is the way to configure it. */
+.figy-status-settings {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.figy-picker {
+  position: relative;
+  display: flex;
+  /* Shrinks before the send button does, and never past the chevron. */
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+/* A pill, like the mode beside it: these two are one row of controls
+   on the composer and the model is not the odd one out. A model name
+   can be anything from `gpt-5.6` to a self-hosted path, so it is given
+   a width and an ellipsis rather than pushing the send button around. */
+.figy-picker-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 1 auto;
+  min-width: 0;
+  height: 24px;
+  max-width: 190px;
+  padding: 0 8px 0 9px;
+  border: 1px solid var(--ft-border-subtle);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ft-text-secondary);
+  font-family: var(--figy-mono);
+  font-size: 10.5px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+
+.figy-picker-button:hover {
+  color: var(--ft-text);
+  border-color: var(--ft-text-muted);
+}
+
+.figy-picker-button.on {
+  color: var(--ft-text);
+  border-color: var(--ft-accent);
+}
+
+.figy-picker-button.warn {
+  color: var(--ft-warning);
+}
+
+/* The label truncates; the chevron never does, or the control stops
+   looking like something that opens. */
+.figy-picker-button > span {
+  min-width: 0;
+}
+
+.figy-picker-caret {
+  flex: none;
+  color: var(--ft-text-muted);
+}
+
+/* Opens upwards, right-aligned: it is a control on a bar at the bottom
+   of the window, and a list that dropped would be off the screen. */
+.figy-picker-list {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 0;
+  z-index: 15;
+  width: max-content;
+  min-width: 240px;
+  max-width: min(360px, calc(100vw - 80px));
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--ft-border);
+  border-radius: 9px;
+  background: var(--ft-surface);
+  box-shadow: 0 14px 30px -12px rgba(0, 0, 0, 0.6);
+}
+
+.figy-picker-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  width: 100%;
+  padding: 6px 7px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ft-text-secondary);
+  font-family: var(--figy-mono);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Hover and the arrow keys share one notion of "the current row",
+   rather than lighting two. */
+.figy-picker-row.at {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--ft-text);
+}
+
+.figy-picker-tick {
+  flex: none;
+  width: 12px;
+  padding-top: 1px;
+  color: var(--ft-accent);
+}
+
+.figy-picker-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.figy-picker-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ft-text);
+}
+
+/* The host and the price. The price is why anybody switches: an agent
+   about to read forty files has a right answer and it is not the
+   expensive model. */
+.figy-picker-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ft-text-muted);
+  font-size: 10.5px;
+}
+
+.figy-picker-flag {
+  flex: none;
+  padding-top: 1px;
+  color: var(--ft-warning);
+  font-size: 10px;
+}
+
+.figy-picker-manage {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  margin-top: 3px;
+  padding: 6px 7px;
+  border: none;
+  border-top: 1px solid var(--ft-border-subtle);
+  border-radius: 0 0 6px 6px;
+  background: transparent;
+  color: var(--ft-text-muted);
+  font-family: var(--figy-mono);
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.figy-picker-manage:hover {
+  color: var(--ft-text);
+}
+
+.light .figy-picker-button:hover,
+.light .figy-picker-button.on,
+.light .figy-picker-row.at {
+  background: rgba(15, 17, 23, 0.06);
+}
+
+.light .figy-settings-row:hover,
+.light .figy-settings-row:focus-visible,
+.light .figy-settings-link:hover,
+.light .figy-settings-link:focus-visible,
+.light .figy-status-right.on {
+  background: rgba(15, 17, 23, 0.06);
+}
+
+.figy-todos {
+  margin: 8px 0 10px;
+  padding: 8px 10px 9px;
+  border: 1px solid var(--ft-border-subtle);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.022);
+  font-family: var(--figy-mono);
+  font-size: 12px;
+}
+
+.figy-todos-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+
+.figy-todos-title {
+  color: var(--ft-text-secondary);
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.figy-todos-count {
+  margin-left: auto;
+  color: var(--ft-text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.figy-todo {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0;
+  color: var(--ft-text-secondary);
+}
+
+.figy-todo-mark {
+  flex: none;
+  width: 10px;
+  color: var(--ft-text-muted);
+  text-align: center;
+}
+
+.figy-todo-text {
+  min-width: 0;
+}
+
+/* Done recedes: it is context for what is left, not the thing being
+   read. Struck through as well as dimmed, so the state survives a
+   screenshot and anybody who cannot see the colour difference. */
+.figy-todo.done .figy-todo-text {
+  color: var(--ft-text-muted);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.figy-todo.done .figy-todo-mark {
+  color: var(--ft-success);
+}
+
+/* The one line anybody is actually looking at. */
+.figy-todo.running .figy-todo-text {
+  color: var(--ft-text);
+}
+
+.figy-todo.running .figy-todo-mark {
+  color: var(--ft-accent);
+}
+
+.light .figy-todos {
+  background: rgba(15, 17, 23, 0.025);
+}
+
 /* ─── Tables ─────────────────────────────────────────────────────────────── */
 
 .figy-empty {
@@ -15339,13 +15910,39 @@ body > .cm-api-completions .cm-completionDetail {
   color: var(--ft-text-muted);
 }
 
-.figy-folder-primary {
-  color: var(--ft-text-secondary);
-  flex-shrink: 0;
+/* The folder is a button now: it is the thing you click to change
+   it, and it was the one piece of the bar that looked like a label
+   and behaved like nothing. */
+.figy-folder-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 6px 1px 4px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
 }
 
-/* A chip states what the agent can reach. Add-only, like the Claude window's:
-   a ✕ here would promise a revocation nothing can perform. */
+.figy-folder-button:hover {
+  border-color: var(--ft-border);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.figy-folder-primary {
+  min-width: 0;
+  color: var(--ft-text-secondary);
+}
+
+.figy-folder-button:hover .figy-folder-primary {
+  color: var(--ft-text);
+}
+
+/* A chip counts what else the agent can reach, and opens the place
+   that lists it. The paths themselves used to be here, which was most
+   of the bar's width spent on grey text that could not be acted on. */
 .figy-chip-sm {
   display: inline-flex;
   align-items: center;
@@ -15355,7 +15952,14 @@ body > .cm-api-completions .cm-completionDetail {
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.055);
   color: var(--ft-text-secondary);
+  font: inherit;
   white-space: nowrap;
+  cursor: pointer;
+}
+
+.figy-chip-sm:hover {
+  border-color: var(--ft-accent);
+  color: var(--ft-text);
 }
 
 .figy-chip-sm.add {
