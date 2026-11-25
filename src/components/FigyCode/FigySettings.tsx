@@ -299,13 +299,27 @@ export function SettingsDialog({
           read the next.
         */
         <table className="figy-table">
+          {/*
+            Fixed widths, declared once. `table-layout: auto` sizes to
+            content, which in a dialog means the longest base URL
+            anybody has pasted decides how wide the window is — and
+            since the body is a flex child, it pushed the dialog past
+            its own edge rather than truncating.
+          */}
+          <colgroup>
+            <col style={{ width: "26px" }} />
+            <col />
+            <col style={{ width: "116px" }} />
+            <col style={{ width: "74px" }} />
+            <col style={{ width: "64px" }} />
+            <col style={{ width: "30px" }} />
+          </colgroup>
           <thead>
             <tr>
               <th className="pick" scope="col">
                 <span className="sr-only">In use</span>
               </th>
               <th scope="col">Model</th>
-              <th scope="col">Endpoint</th>
               <th className="num" scope="col">
                 In / Out
               </th>
@@ -356,14 +370,17 @@ export function SettingsDialog({
                           {one.label.trim() || one.model || "Untitled model"}
                         </span>
                       </button>
-                      {/* The id under the name, when the name is not it. */}
-                      {one.label.trim() && one.model && (
-                        <span className="figy-table-sub truncate">{one.model}</span>
-                      )}
-                    </td>
-
-                    <td className="figy-table-dim truncate" title={one.baseUrl}>
-                      {host(one.baseUrl) || "—"}
+                      {/*
+                        The model id and where it lives, under the
+                        name. They were a column each, which is two
+                        columns of mostly-truncated text to say one
+                        thing: which model this row actually is.
+                      */}
+                      <span className="figy-table-sub truncate" title={one.baseUrl}>
+                        {[one.label.trim() ? one.model : "", host(one.baseUrl)]
+                          .filter(Boolean)
+                          .join(" · ") || "not set up"}
+                      </span>
                     </td>
 
                     <td className="num">
@@ -413,7 +430,7 @@ export function SettingsDialog({
 
                   {open && (
                     <tr className="figy-table-editor">
-                      <td colSpan={7}>
+                      <td colSpan={6}>
                         <div className="figy-form">
                           {field(
                             "Name",

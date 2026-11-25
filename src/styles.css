@@ -14528,8 +14528,15 @@ body > .cm-api-completions .cm-completionDetail {
 .figy-form {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 13px;
   max-width: 560px;
+}
+
+/* Inside a dialog the pane is already the measure. A second one set
+   in pixels leaves a column of empty space at one width and crops at
+   another. */
+.figy-dialog-body .figy-form {
+  max-width: none;
 }
 
 .figy-field,
@@ -14568,7 +14575,8 @@ body > .cm-api-completions .cm-completionDetail {
 }
 
 .figy-input {
-  height: 28px;
+  width: 100%;
+  height: 29px;
   padding: 0 9px;
   border: 1px solid var(--ft-border);
   border-radius: 8px;
@@ -14580,12 +14588,14 @@ body > .cm-api-completions .cm-completionDetail {
   transition: border-color 0.12s ease, box-shadow 0.12s ease;
 }
 
+.figy-input::placeholder {
+  color: var(--ft-text-muted);
+}
+
 .figy-input:focus {
   border-color: rgb(var(--ft-accent-rgb) / 0.6);
   box-shadow: 0 0 0 3px rgb(var(--ft-accent-rgb) / 0.12);
 }
-
-/* ─── The usage table ────────────────────────────────────────────────────── */
 
 /* ─── The settings dialog ────────────────────────────────────────────────── */
 
@@ -14612,6 +14622,9 @@ body > .cm-api-completions .cm-completionDetail {
   display: flex;
   flex-direction: column;
   width: min(560px, 100%);
+  /* It is a flex item too: without this its content can push it
+     wider than the layer, which is the same bug as the body's. */
+  min-width: 0;
   max-height: 100%;
   overflow: hidden;
   border: 1px solid var(--ft-border);
@@ -14625,21 +14638,37 @@ body > .cm-api-completions .cm-completionDetail {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 9px 10px 9px 13px;
+  flex: none;
+  padding: 10px 10px 10px 14px;
   border-bottom: 1px solid var(--ft-border-subtle);
+  background: rgba(255, 255, 255, 0.015);
 }
 
 .figy-dialog-title {
   flex: 1;
   color: var(--ft-text);
   font-size: 12.5px;
+  letter-spacing: 0.01em;
 }
 
 .figy-dialog.wide {
-  /* Seven columns and a tab rail. Below this the model table starts
-     eating its own names, and the comparison it exists for is the
-     first thing to go. */
-  width: min(800px, 100%);
+  /* Six columns and a tab rail. The table truncates rather than
+     pushing past this now, but below it the model names go first and
+     the comparison the table exists for goes with them. */
+  width: min(760px, 100%);
+
+  /*
+    A fixed height, capped at what there is.
+
+    Tabs hold different amounts, and a dialog that resized every time
+    you clicked one read as something coming loose. A `min-height`
+    would have fixed the jumping and broken the other end — the
+    window can be 480px tall, and a minimum taller than the space
+    available pushes the footer out through the bottom. `min()` takes
+    whichever is smaller, so it is stable when there is room and it
+    still fits when there is not.
+  */
+  height: min(540px, 100%);
 }
 
 /* A column of sections beside the one being edited. A tab strip across
@@ -14650,6 +14679,8 @@ body > .cm-api-completions .cm-completionDetail {
   flex: 1;
   min-height: 0;
 }
+
+
 
 .figy-tabs {
   display: flex;
@@ -14662,10 +14693,11 @@ body > .cm-api-completions .cm-completionDetail {
 }
 
 .figy-tab {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 8px;
+  padding: 7px 9px;
   border: none;
   border-radius: 6px;
   background: transparent;
@@ -14674,6 +14706,21 @@ body > .cm-api-completions .cm-completionDetail {
   font-size: 12px;
   text-align: left;
   cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+/* A bar on the edge as well as a tint. The tint alone is a few per
+   cent of lightness, which is not a difference somebody can find at a
+   glance or in a screenshot. */
+.figy-tab.on::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 7px;
+  bottom: 7px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--ft-accent);
 }
 
 .figy-tab:hover {
@@ -14708,8 +14755,18 @@ body > .cm-api-completions .cm-completionDetail {
 
 .figy-dialog-body {
   flex: 1;
+  /*
+    `min-width: 0` is the whole of a bug worth remembering.
+
+    A flex item's minimum is its content by default, so a table as
+    wide as the longest base URL pushed this pane wider than the
+    dialog that contains it — the dialog grew past its own edge
+    instead of the table truncating. Height had the same rule and
+    already had the same fix.
+  */
+  min-width: 0;
   min-height: 0;
-  overflow-y: auto;
+  overflow: hidden auto;
   padding: 12px 14px 14px;
 }
 
@@ -14922,9 +14979,16 @@ body > .cm-api-completions .cm-completionDetail {
    compare two of them. */
 .figy-table {
   width: 100%;
+  /* Declared widths win over content. Without this the longest
+     endpoint anybody pastes decides the width of the dialog. */
+  table-layout: fixed;
   border-collapse: collapse;
   font-family: var(--figy-mono);
   font-size: 12px;
+}
+
+.figy-table-plain {
+  table-layout: auto;
 }
 
 .figy-table th {
@@ -14939,7 +15003,7 @@ body > .cm-api-completions .cm-completionDetail {
 }
 
 .figy-table td {
-  max-width: 0;
+  overflow: hidden;
   padding: 7px 8px;
   border-top: 1px solid var(--ft-border-subtle);
   color: var(--ft-text-secondary);
@@ -15161,6 +15225,11 @@ body > .cm-api-completions .cm-completionDetail {
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
+}
+
+.light .figy-dialog-head,
+.light .figy-dialog-foot {
+  background: rgba(15, 17, 23, 0.02);
 }
 
 .light .figy-table tbody tr:hover > td {
