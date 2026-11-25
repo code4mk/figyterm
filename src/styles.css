@@ -4203,7 +4203,8 @@
   window's — square corners and no outer border while fullscreen.
 */
 .editor-modal.editor-fullscreen,
-.browser-modal.browser-fullscreen {
+.browser-modal.browser-fullscreen,
+.figy-modal.rounded-none {
   border-radius: 0;
   border-color: transparent;
   box-shadow: none;
@@ -13157,6 +13158,10 @@ body > .cm-api-completions .cm-completionDetail {
   /* Prose stops being readable past about ninety characters however wide
      the window is dragged. Code is free to use the rest. */
   max-width: 980px;
+}
+
+.figy-modal.rounded-none .figy-transcript {
+  max-width: none;
 }
 
 /* A symbol name inside a sentence, as the markdown renderer emits it:

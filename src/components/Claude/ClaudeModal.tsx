@@ -853,6 +853,16 @@ export function ClaudeModal({
     place({ x: rect.x, y: rect.y }, { w: rect.w, h: rect.h });
   }, [fullscreen, place, reset]);
 
+  useEffect(() => {
+    if (!fullscreen) return;
+    const follow = () => {
+      const rect = fullscreenRect();
+      place({ x: rect.x, y: rect.y }, { w: rect.w, h: rect.h });
+    };
+    window.addEventListener("resize", follow);
+    return () => window.removeEventListener("resize", follow);
+  }, [fullscreen, place]);
+
   // ─── The navigator ────────────────────────────────────────────────────────
 
   /**
