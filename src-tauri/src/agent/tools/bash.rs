@@ -125,14 +125,27 @@ impl Tool for Bash {
         let total = done.output.len();
         let (kept, dropped) = head_and_tail(&done.output, HEAD, TAIL);
 
-        let mut text = format!(
-            "$ {command}\n{}\n",
-            if done.timed_out {
-                format!("killed after {seconds}s")
-            } else {
-                format!("exit {} in {}ms", done.status, done.ms)
-            }
-        );
+        /*
+          The outcome first, then the command, then the output.
+
+          It used to be the command first, which put it on the row as
+          the one-line summary — beside the row's own copy of it, and
+          above the body's. Three times for one `docker build`, and
+          the row was taken up by a string the person had already
+          read instead of by what happened to it.
+
+          The outcome is the line worth having there: `exit 0 in 27s`
+          is what you look for after waiting, and the command is a
+          keystroke away under it.
+        */
+        let outcome = if done.timed_out {
+            format!("killed after {seconds}s")
+        } else if done.ms >= 1000 {
+            format!("exit {} in {:.1}s", done.status, done.ms as f64 / 1000.0)
+        } else {
+            format!("exit {} in {}ms", done.status, done.ms)
+        };
+        let mut text = format!("{outcome}\n$ {command}\n");
         for line in &kept {
             text.push_str(&clip_line(line, MAX_LINE));
             text.push('\n');

@@ -700,7 +700,9 @@ function body(text: string, detail: unknown): Partial<ToolRow> {
  *
  * The whole result is in the conversation and costs tokens there; showing
  * it again in the row would be a wall of text per call. The first line is
- * what every tool here writes its headline on.
+ * what every tool here writes its headline on — and it names its own
+ * subject, which is why the row drops the target once this arrives
+ * rather than printing the path twice.
  */
 function summarise(text: string): string {
   const first = text.split("\n").find((line) => line.trim()) ?? "";

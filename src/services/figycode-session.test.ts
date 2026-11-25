@@ -508,6 +508,32 @@ test("output from a running command shows the tail, not the whole log", () => {
   assert.equal(row.tool.live.at(-1), "step 29", "the newest line survives");
 });
 
+test("the command is in the body, not said three times on the way there", () => {
+  // It was the row's target, the result's first line *and* the first
+  // line of the body — one `docker build` printed three times, with
+  // the row spending its width on a string already read.
+  const state = play(
+    { kind: "toolStarted", id: "t1", name: "bash" },
+    { kind: "toolRunning", id: "t1", target: "docker build -t app .", why: "building the image" },
+    {
+      kind: "toolFinished",
+      id: "t1",
+      name: "bash",
+      text: "exit 0 in 27.0s\n$ docker build -t app .\n#0 building with colima",
+      detail: { cmd: "docker build -t app .", status: 0 },
+      tokens: 20,
+    }
+  );
+  const row = state.blocks[0];
+  assert.ok(row.kind === "tool");
+  // The outcome is what the row says, because it is what you look
+  // for after waiting twenty-seven seconds.
+  assert.equal(row.tool.meta, "exit 0 in 27.0s");
+  assert.equal(row.tool.why, "building the image");
+  // And the command is under the triangle, once.
+  assert.deepEqual(row.tool.output, ["$ docker build -t app .", "#0 building with colima"]);
+});
+
 test("the finished output supersedes what was streaming", () => {
   // Two copies of a build log in one row is one too many, and the
   // finished one is trimmed and complete.
@@ -518,7 +544,7 @@ test("the finished output supersedes what was streaming", () => {
       kind: "toolFinished",
       id: "t1",
       name: "bash",
-      text: "$ npm run build\nexit 0 in 94000ms\nbuilt in 94s",
+      text: "exit 0 in 94.0s\n$ npm run build\nbuilt in 94s",
       detail: { cmd: "npm run build", why: "checking it compiles", status: 0 },
       tokens: 20,
     }
@@ -528,8 +554,8 @@ test("the finished output supersedes what was streaming", () => {
   assert.equal(row.tool.live, undefined);
   assert.equal(row.tool.running, false);
   // The first line is the row's own summary; the rest is the body.
-  assert.deepEqual(row.tool.output, ["exit 0 in 94000ms", "built in 94s"]);
-  assert.equal(row.tool.meta, "$ npm run build");
+  assert.deepEqual(row.tool.output, ["$ npm run build", "built in 94s"]);
+  assert.equal(row.tool.meta, "exit 0 in 94.0s");
   assert.equal(row.tool.why, "checking it compiles", "the reason outlives the run");
 });
 

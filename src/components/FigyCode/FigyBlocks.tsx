@@ -164,16 +164,23 @@ export function ToolCall({ tool }: { tool: ToolRow }) {
         )}
         <span className="figy-tool-name">{tool.name}</span>
         {/*
-          Both, because they answer different questions.
+          The reason, and the thing it acted on — but only until the
+          result can say that itself.
 
-          The target is what it acted on and the reason is what for —
-          `Bash pnpm build` is a fact and "building to see if it
-          compiles" is why anybody is looking. Neither replaces the
-          other, so the row carries both and the target gives way
-          first: a path is recognisable from its tail, and a reason
-          cut in half is a sentence nobody can finish.
+          Every tool's first line of output names its own subject:
+          `src/main.rs · 1 line`, `. — 3 folders, 12 files`,
+          `exit 0 in 27.0s` over a `$ docker build …` a line below.
+          So once that lands, a target on the row is the same string
+          a second time, and the row was spending its width on
+          something the reader had already read.
+
+          While it runs there is no summary yet, and the target is
+          the only thing identifying the row — so it stays until
+          there is something better.
         */}
-        {tool.target && <span className="figy-tool-target">{tool.target}</span>}
+        {tool.target && !tool.meta && (
+          <span className="figy-tool-target">{tool.target}</span>
+        )}
         {tool.why && <span className="figy-tool-why">{tool.why}</span>}
         {tool.added !== undefined && <span className="figy-add">+{tool.added}</span>}
         {tool.removed !== undefined && <span className="figy-del">-{tool.removed}</span>}
