@@ -165,7 +165,7 @@ pub fn claude_session_exists(root: String, session_id: String) -> bool {
         .any(|path| path.is_file())
 }
 
-/// One conversation found on disk that FigyTerm did not start.
+/// One conversation found on disk that Figylo did not start.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PastConversation {
@@ -195,12 +195,12 @@ struct TranscriptHead {
 
 /// Conversations the CLI has recorded for a folder.
 ///
-/// Every project has a history that predates FigyTerm knowing about it: work
+/// Every project has a history that predates Figylo knowing about it: work
 /// done in a plain shell, in another editor, or before this project existed
 /// here. They are all resumable by id, so the window can offer them rather
 /// than pretending a folder's history began when it was added.
 ///
-/// `exclude` is the set FigyTerm already tracks, which would otherwise appear
+/// `exclude` is the set Figylo already tracks, which would otherwise appear
 /// twice. An unreadable directory is an empty list, not an error.
 #[tauri::command(async)]
 pub fn claude_past_conversations(

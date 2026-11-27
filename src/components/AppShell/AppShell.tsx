@@ -728,7 +728,7 @@ export function AppShell() {
    *
    * A terminal does not normally ask — a shell sitting at a prompt loses
    * nothing — but an agent halfway through editing files is not that, and
-   * FigyTerm deliberately runs no background sessions, so quitting really does
+   * Figylo deliberately runs no background sessions, so quitting really does
    * stop them. Nothing is *lost*: every conversation is resumable next launch,
    * because its id is ours and its transcript is the CLI's. What is lost is a
    * turn in flight, which is worth one dialog.
@@ -748,7 +748,7 @@ export function AppShell() {
       const ok = await confirm(
         `${live} Claude ${live === 1 ? "conversation is" : "conversations are"} running. ` +
           "Quitting stops them — you can resume each one next time, with its history.",
-        { title: "Quit FigyTerm?", kind: "warning", okLabel: "Quit", cancelLabel: "Cancel" }
+        { title: "Quit Figylo?", kind: "warning", okLabel: "Quit", cancelLabel: "Cancel" }
       );
       if (ok) await getCurrentWindow().destroy();
     });

@@ -54,7 +54,7 @@ import { ProjectPicker } from "./ProjectPicker";
 /**
  * The Claude Code window.
  *
- * A frame around the real CLI. FigyTerm draws the chrome — projects,
+ * A frame around the real CLI. Figylo draws the chrome — projects,
  * conversations, the folders a conversation can reach — and everything inside
  * the body is Claude Code's own terminal interface, unmodified. See
  * `docs/CLAUDE-CODE.md` for why that division is the whole design.
@@ -1273,7 +1273,7 @@ export function ClaudeModal({
                   </span>
                   <span className="claude-empty-title">Claude Code isn’t installed</span>
                   <span className="claude-empty-body max-w-[460px] text-center">
-                    FigyTerm runs the <code>claude</code> CLI; it doesn’t bundle one. Install it,
+                    Figylo runs the <code>claude</code> CLI; it doesn’t bundle one. Install it,
                     then check again — the search includes your login shell’s PATH, so a version
                     manager’s directory counts.
                   </span>

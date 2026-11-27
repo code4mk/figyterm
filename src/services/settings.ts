@@ -18,6 +18,24 @@ export interface Settings {
   lastUpdateCheck: number | null;
   /** Version the user dismissed, so the same update doesn't nag every launch. */
   dismissedVersion: string | null;
+  /**
+   * The service that fills the window, rather than floating above it.
+   *
+   * Stored as a plain string rather than `ServiceId` so that loading settings
+   * doesn't drag the catalogue — and its lucide icons — into whatever imports
+   * this. `resolveBase` in `services/catalog` turns it into an id that is known
+   * to name an available service; nothing else should read it raw.
+   */
+  baseService: string;
+  /**
+   * Epoch millis of the moment the welcome page was answered, or null if it
+   * has never been shown.
+   *
+   * A timestamp rather than a boolean, so a later version can tell a first run
+   * from an install that was onboarded before a service existed and might be
+   * worth telling about it.
+   */
+  welcomedAt: number | null;
 }
 
 /**
@@ -51,6 +69,8 @@ const DEFAULT_SETTINGS: Settings = {
   updateChannel: "stable",
   lastUpdateCheck: null,
   dismissedVersion: null,
+  baseService: "figy-terminal",
+  welcomedAt: null,
 };
 
 /**

@@ -109,7 +109,7 @@ type Dialog = "settings" | "resume" | "usage" | "context" | "project" | "tools" 
  * rule from the other side.
  */
 const SYSTEM_PROMPT = [
-  "You are FigyCode, a coding agent inside the FigyTerm terminal.",
+  "You are FigyCode, a coding agent inside the Figylo terminal.",
   "",
   "You work in one project folder. Read before you edit: `edit` replaces exact text,",
   "so copy the lines from a `read` rather than retyping them. Prefer `grep` to find",

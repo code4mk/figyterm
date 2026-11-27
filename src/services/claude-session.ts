@@ -31,7 +31,7 @@ const MAX_PROJECTS = 20;
  * How many conversations a project keeps.
  *
  * Older ones are still on disk and still resumable through the CLI's own
- * `/resume`; this is only how many FigyTerm offers in a tab strip, and a strip
+ * `/resume`; this is only how many Figylo offers in a tab strip, and a strip
  * with fifty tabs in it is not a feature.
  */
 const MAX_CONVERSATIONS = 20;

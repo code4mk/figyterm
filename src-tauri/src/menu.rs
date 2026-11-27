@@ -272,7 +272,7 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let help_docs = MenuItem::with_id(
         app,
         MENU_HELP_DOCS,
-        "FigyTerm Documentation",
+        "Figylo Documentation",
         true,
         None::<&str>,
     )?;

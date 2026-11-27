@@ -1,4 +1,4 @@
-# Claude Code in FigyTerm
+# Claude Code in Figylo
 
 A project-shaped child window for the `claude` CLI, the way `BrowserModal` is an
 in-app browser and `EditorModal` is an in-app editor.
@@ -33,7 +33,7 @@ From the request, restated so the design can be checked against it:
    [Decisions](#decisions).
 4. The user can **switch projects**, and **any conversation that is running keeps
    running**.
-5. What is inside the window is **the Claude Code CLI as it ships**. FigyTerm
+5. What is inside the window is **the Claude Code CLI as it ships**. Figylo
    draws the frame and nothing else.
 
 Point 4 is the load-bearing one. It is what turns this from "a terminal tab with
@@ -55,10 +55,10 @@ dialogs, plan mode, streamed diffs, todo lists, `/`-commands, `@`-mentions, a
 resume picker, a spinner that reports token spend. Reimplementing that over
 `--print --output-format=stream-json` means owning a second front-end for a
 product that ships changes weekly, and being a version behind forever. Every
-feature Anthropic adds would land in FigyTerm as a regression.
+feature Anthropic adds would land in Figylo as a regression.
 
 So the window hosts a **pty running `claude`**, drawn with the xterm.js instance
-the app already builds for every pane. FigyTerm's job is the part the CLI
+the app already builds for every pane. Figylo's job is the part the CLI
 deliberately doesn't do:
 
 - **Projects** — a primary folder plus a set of additional folders, saved,
@@ -96,7 +96,7 @@ disagree with.
 | Keeping a conversation alive while hidden | **Keep the pty and its xterm instance alive; hide the view.** The pty manager already outlives any React tree. |
 | Adding a folder mid-conversation | **Type `/add-dir <path>` into the session**, on an explicit click, and say in the UI that it was sent. |
 | Changing a project's primary folder | **Not an edit.** It changes the cwd, the name, the `CLAUDE.md` that is discovered and where transcripts live. Offer "duplicate as a new project" instead. |
-| Auth, login, model config | **The CLI's, untouched.** FigyTerm never sees a token. |
+| Auth, login, model config | **The CLI's, untouched.** Figylo never sees a token. |
 | Installing the CLI | **Detect, don't manage.** If `claude` isn't found, say so and link the install docs. |
 
 ### On asking rather than remembering
@@ -152,7 +152,7 @@ has to rediscover them:
   the same primary folder, which takes one dialog and no typing. That is a fair
   trade for deleting the entire grant-revocation story below, which was the most
   intricate thing in the first draft and bought very little.
-- **No background sessions** means quitting FigyTerm ends every conversation.
+- **No background sessions** means quitting Figylo ends every conversation.
   Softened by resume rather than by a daemon: the ids are ours and the
   transcripts are on disk, so the next launch picks any of them back up with its
   history intact. What is genuinely lost is a turn that was in flight, which is
@@ -364,7 +364,7 @@ defaults, versioned and discarded on mismatch — exactly the contract
 synchronous few-megabyte browser store would be both slow and wrong.
 
 That path is worth stating plainly, because two features fall out of it for
-free: FigyTerm can list a project's past conversations without having launched
+free: Figylo can list a project's past conversations without having launched
 them, and it can read the first user message to title a tab.
 
 ---
@@ -429,7 +429,7 @@ Resuming a conversation whose process has exited replaces `--session-id` with
 
 `-n` is worth passing even though nothing forces it: it names the session in
 Claude's own `/resume` picker and in the terminal title, so a conversation
-started in FigyTerm is still recognisable from a plain shell later. Since the
+started in Figylo is still recognisable from a plain shell later. Since the
 name is the folder name, this costs a string concatenation and no UI at all.
 
 ### What we do not pass
@@ -453,7 +453,7 @@ own rather than scraping Claude's buys three things at once:
 2. **We know where the transcript is** before Claude has written a byte:
    `~/.claude/projects/<root with separators turned to dashes>/<uuid>.jsonl`.
    That is how a tab gets a real title instead of "Conversation 3", and how the
-   project remembers conversations FigyTerm never had open.
+   project remembers conversations Figylo never had open.
 3. **The mapping survives us.** A project's conversation list is a list of
    uuids; nothing depends on a process still being alive for the list to be
    meaningful.
@@ -505,7 +505,7 @@ If this turns out to be wrong it becomes a setting, not a hard-coded eight.
 
 ### What it does not survive
 
-FigyTerm quitting. The pty's child dies with the app, exactly as a shell in a
+Figylo quitting. The pty's child dies with the app, exactly as a shell in a
 pane does, and that is the accepted behaviour — **no background sessions**.
 `claude --bg`, `attach`, `agents` and `stop` exist and would survive an app
 restart, but they buy a detach/attach model, a second kind of session to reason
@@ -627,14 +627,14 @@ status bar. Clicking it goes straight there.
 
 Two things to check in Phase 4 rather than assume: which notification channel
 the CLI uses by default (it is configurable, and the terminal bell is one of
-several), and whether FigyTerm should set it explicitly for sessions it starts.
+several), and whether Figylo should set it explicitly for sessions it starts.
 If neither signal arrives, the fallback is `foreground_pid()`, which
 `TerminalManager` already computes — it distinguishes "Claude is working" from
 "Claude is sitting at a prompt", which is most of the value.
 
 ---
 
-## What makes it *FigyTerm's* Claude window
+## What makes it *Figylo's* Claude window
 
 A modal with a pty in it is worth about as much as a tab. These are the reasons
 to build it here rather than type `claude` into a pane, and they should be in
@@ -689,7 +689,7 @@ depends on.
 No new filesystem surface: the folder picker is `plugin-dialog`, already a
 dependency, and nothing here reads project files. The confinement model in
 `fs.rs` is untouched — **Claude's file access is Claude's, governed by its own
-permission system, and FigyTerm neither extends nor constrains it.** Worth
+permission system, and Figylo neither extends nor constrains it.** Worth
 writing down because the opposite assumption would be a security claim we cannot
 honour.
 
@@ -757,7 +757,7 @@ Named up front, in rough order of likelihood.
    transcript, not in the buffer. Watch it before deciding it is fine.
 6. **CLI version drift**: a flag we pass is renamed. Mitigated by passing very
    few, all of them long-established, and by `claude_probe` recording the version
-   so the failure says "your Claude Code is 3.x and FigyTerm expects…" rather
+   so the failure says "your Claude Code is 3.x and Figylo expects…" rather
    than showing a dead pane.
 7. **Two conversations editing the same repo at once.** Ours to warn about, not
    to prevent: the project view should say when a folder is already live in
@@ -800,7 +800,7 @@ Nothing built. This is the proposed order, each phase shippable on its own.
 - [ ] Attention: `onBell` / `onTitleChange` → tab dot, menu badge, status bar
 - [ ] Tab titles from the transcript's first user message
 - [ ] "Ask Claude about this" from the editor's tree and git panel
-- [ ] Conversations FigyTerm never launched, listed from `~/.claude/projects` and resumable
+- [ ] Conversations Figylo never launched, listed from `~/.claude/projects` and resumable
 
 **Phase 5 — Docking, if picture-in-picture proves not to be enough**
 - [ ] A Claude conversation as a `PaneContainer` leaf, beside a shell rather than over it
@@ -813,14 +813,14 @@ Nothing built. This is the proposed order, each phase shippable on its own.
 
 - **Not a chat UI.** Restating it because it is the thing that will be proposed
   again in six months, and the answer will still be no. What is in the window is
-  the CLI, unmodified, with FigyTerm's chrome around it.
+  the CLI, unmodified, with Figylo's chrome around it.
 - **No naming, renaming or removing.** A project is a folder plus the folders it
   may also touch, and both halves are decided once, in one dialog. Every feature
   that would let them be edited later is a feature that has to explain itself to
   a running conversation.
-- **Not an API client.** FigyTerm never holds a key, never makes a request, never
+- **Not an API client.** Figylo never holds a key, never makes a request, never
   counts a token. Auth is `claude auth`'s.
-- **No FigyTerm-side permission policy.** We do not add allow-lists, we do not
+- **No Figylo-side permission policy.** We do not add allow-lists, we do not
   pre-approve tools, and we do not expose `--dangerously-skip-permissions`.
   Claude's permission model is the permission model.
 - **Not one OS window per project.** Tauri can do it; it doubles every piece of

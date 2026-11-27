@@ -3,12 +3,12 @@ import { GitBranch, History, X } from "lucide-react";
 import { PastConversation, pastConversations } from "../../services/claude";
 
 /**
- * Conversations this folder already has, that FigyTerm never started.
+ * Conversations this folder already has, that Figylo never started.
  *
  * The CLI writes every conversation to disk under the folder it ran in, so a
  * project has a history the moment it is created — work done in a plain shell,
  * in another editor, or before the project existed here. All of it resumes by
- * id, which FigyTerm has because the id *is* the transcript's filename.
+ * id, which Figylo has because the id *is* the transcript's filename.
  *
  * Two ways in, sharing one list. Inline under the empty state, where it is the
  * obvious thing to want — you opened a project with nothing running, and what

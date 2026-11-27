@@ -1,6 +1,6 @@
-# Contributing to FigyTerm
+# Contributing to Figylo
 
-Thank you for your interest in contributing to FigyTerm! This guide will help you get started.
+Thank you for your interest in contributing to Figylo! This guide will help you get started.
 
 ## Table of Contents
 
@@ -188,7 +188,7 @@ Quick summary:
 
 When filing a bug report, please include:
 
-1. **FigyTerm version** (from Settings or `package.json`)
+1. **Figylo version** (from Settings or `package.json`)
 2. **macOS version**
 3. **Shell** (zsh, bash, fish)
 4. **Steps to reproduce**

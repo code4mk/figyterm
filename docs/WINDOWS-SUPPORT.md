@@ -1,6 +1,6 @@
 # Windows Support
 
-An assessment of what it would take to ship FigyTerm on Windows, written against
+An assessment of what it would take to ship Figylo on Windows, written against
 the code as it stands. Nothing here is implemented yet — this is the plan.
 
 Related: [`WINDOWS-TASKS.md`](./WINDOWS-TASKS.md) tracks the work.
@@ -23,7 +23,7 @@ WebView2, so `browser_layout.rs` stays Linux-only.
 port was mostly packaging plus two runtime bugs, because Linux and macOS are both
 POSIX: same `$HOME`, same `/` paths, same `$SHELL`, same `-l` login flag, same
 `~/.bash_history`. Windows breaks every one of those, and they're threaded
-through the parts of FigyTerm that make it FigyTerm — the autocomplete engine
+through the parts of Figylo that make it Figylo — the autocomplete engine
 resolves paths, the status bar scrapes a POSIX prompt, the theme picker shells
 out to `grep` and `sed`.
 
@@ -125,7 +125,7 @@ feature, not a port task.
 ### 9. Updater asset matching will miss
 
 `BUNDLE_EXT` is `.msi` off macOS and Linux, and the arch match expects a name
-ending `x64.msi`. Tauri actually writes `FigyTerm_0.1.0_x64_en-US.msi` — the
+ending `x64.msi`. Tauri actually writes `Figylo_0.1.0_x64_en-US.msi` — the
 locale suffix means the arch token never matches, and selection only works by
 falling through to the "a lone unsuffixed bundle is safe" branch. That's working
 by accident, and it breaks the moment an NSIS `.exe` is published alongside it.
@@ -198,4 +198,4 @@ disproportionate effort for the current userbase — same call as `aarch64` Linu
    differs from what testing on macOS suggests.
 
 Steps 1–2 get you something that starts and tracks its directory. Step 3 is what
-makes it *FigyTerm* rather than a terminal that happens to run on Windows.
+makes it *Figylo* rather than a terminal that happens to run on Windows.

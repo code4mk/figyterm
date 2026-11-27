@@ -65,7 +65,7 @@ export interface PastConversation {
 }
 
 /**
- * Conversations the CLI has recorded for a folder that FigyTerm didn't start.
+ * Conversations the CLI has recorded for a folder that Figylo didn't start.
  *
  * Every project has a history that predates the window knowing about it —
  * work done in a plain shell, or before the project was added here — and all
@@ -106,7 +106,7 @@ async function sessionExists(root: string, sessionId: string): Promise<boolean> 
  * Starts a conversation in a pty, resuming it if it already exists.
  *
  * The session id is decided by the caller and passed twice over: once to the
- * CLI, so the conversation *is* that id, and once to the pty so FigyTerm's own
+ * CLI, so the conversation *is* that id, and once to the pty so Figylo's own
  * bookkeeping uses the same one. One id for the conversation, the transcript,
  * the tab and the pty is the whole reason resume is exact.
  *

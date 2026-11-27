@@ -1,7 +1,7 @@
 //! Asking a language server, through the one that is already running.
 //!
 //! `docs/figy-code-plan/TOOLS.md` calls these the reason to build this agent
-//! inside this app: FigyTerm hosts language servers, and no CLI agent does,
+//! inside this app: Figylo hosts language servers, and no CLI agent does,
 //! because warming one per invocation is not viable. `references` returning
 //! the 7 real uses instead of grep's 200 textual hits is closer to a 30×
 //! saving than a 2× one, on the operation an agent performs most often.

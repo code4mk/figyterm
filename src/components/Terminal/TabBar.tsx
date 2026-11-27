@@ -146,7 +146,7 @@ export function TabBar({ tabs, onTabClick, onTabClose, onNewTab, onRenameTab, on
       <div className="tab-bar flex items-end h-[40px] pt-[6px] pl-[72px] pr-2 gap-0 overflow-x-auto no-drag drag-region select-none">
         {/* Logo */}
         <div className="flex items-center h-[32px] px-2 flex-shrink-0 no-drag">
-          <img src="/logo.png" alt="FigyTerm" className="h-4 w-auto" />
+          <img src="/logo.png" alt="Figylo" className="h-4 w-auto" />
         </div>
 
         {/* Global nav arrows */}

@@ -1,4 +1,4 @@
-//! Opening another FigyTerm window.
+//! Opening another Figylo window.
 //!
 //! A window is the unit of isolation here, and that is the whole feature: its
 //! own tabs and panes, its own shells, its own editor workspace, its own
@@ -89,7 +89,7 @@ fn pick_name(app: &AppHandle) -> String {
 /// truncated title keeps; the app's name after it, so a window in a
 /// screenshot or the Window menu still says what application it belongs to.
 fn title_for(name: &str) -> String {
-    format!("{name} — FigyTerm")
+    format!("{name} — Figylo")
 }
 
 /// A label no live window is using.

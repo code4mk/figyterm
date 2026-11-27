@@ -1,7 +1,7 @@
 //! Update discovery against GitHub Releases.
 //!
 //! This is deliberately *discovery only* — it tells the user a new version exists
-//! and hands them a download URL. It does not install anything. FigyTerm ships
+//! and hands them a download URL. It does not install anything. Figylo ships
 //! unsigned, so the install itself still goes through the DMG + `xattr` flow that
 //! the UI explains. See `docs/UPDATE-SYSTEM.md`.
 
@@ -226,7 +226,7 @@ async fn fetch_release(current_version: &str, channel: Channel) -> Result<GhRele
     let client = reqwest::Client::builder()
         .timeout(REQUEST_TIMEOUT)
         // GitHub rejects API requests that arrive without a User-Agent.
-        .user_agent(format!("FigyTerm/{current_version}"))
+        .user_agent(format!("Figylo/{current_version}"))
         .build()
         .map_err(|e| format!("Could not create HTTP client: {e}"))?;
 
@@ -258,7 +258,7 @@ async fn fetch_release(current_version: &str, channel: Channel) -> Result<GhRele
         );
     }
     if status.as_u16() == 404 {
-        return Err("No published releases were found for FigyTerm.".to_string());
+        return Err("No published releases were found for Figylo.".to_string());
     }
     if !status.is_success() {
         return Err(format!("GitHub returned an unexpected response ({status})."));
@@ -277,7 +277,7 @@ async fn fetch_release(current_version: &str, channel: Channel) -> Result<GhRele
             releases
                 .into_iter()
                 .find(|r| !r.draft)
-                .ok_or_else(|| "No published releases were found for FigyTerm.".to_string())
+                .ok_or_else(|| "No published releases were found for Figylo.".to_string())
         }
     }
 }
@@ -469,18 +469,18 @@ mod tests {
     fn platform_asset_names(version: &str) -> (String, String) {
         if cfg!(target_os = "linux") {
             (
-                format!("FigyTerm_{version}_arm64.AppImage"),
-                format!("FigyTerm_{version}_amd64.AppImage"),
+                format!("Figylo_{version}_arm64.AppImage"),
+                format!("Figylo_{version}_amd64.AppImage"),
             )
         } else if cfg!(target_os = "windows") {
             (
-                format!("FigyTerm_{version}_arm64-setup.exe"),
-                format!("FigyTerm_{version}_x64-setup.exe"),
+                format!("Figylo_{version}_arm64-setup.exe"),
+                format!("Figylo_{version}_x64-setup.exe"),
             )
         } else {
             (
-                format!("FigyTerm_{version}_aarch64.dmg"),
-                format!("FigyTerm_{version}_x64.dmg"),
+                format!("Figylo_{version}_aarch64.dmg"),
+                format!("Figylo_{version}_x64.dmg"),
             )
         }
     }
@@ -508,16 +508,51 @@ mod tests {
         assert_eq!(picked.name, expected_asset("0.0.7"));
     }
 
+    /// The rename from FigyTerm to Figylo changed every published asset's
+    /// filename, and nothing in the matcher noticed — which is the property
+    /// worth pinning down rather than the rename itself.
+    ///
+    /// `asset_for_current_target` selects on the extension and the architecture
+    /// token, never on the product name, so a build running today still
+    /// resolves a release named either way. Anyone tempted to "tidy" the
+    /// matcher into reconstructing the expected filename should fail here
+    /// first: that version would have stranded every installed FigyTerm on the
+    /// release before the rename, silently, with the update button still
+    /// reporting success.
+    #[test]
+    fn an_asset_under_the_old_product_name_still_resolves() {
+        let ext = bundle_ext();
+        let arch = if cfg!(target_arch = "aarch64") {
+            if cfg!(target_os = "linux") { "arm64" } else { "aarch64" }
+        } else if cfg!(target_os = "linux") {
+            "amd64"
+        } else {
+            "x64"
+        };
+
+        for product in ["Figylo", "FigyTerm"] {
+            let name = if cfg!(target_os = "windows") {
+                format!("{product}_0.0.7_{arch}-setup.{ext}")
+            } else {
+                format!("{product}_0.0.7_{arch}.{ext}")
+            };
+            let assets = vec![asset(&name)];
+            let picked = asset_for_current_target(&assets)
+                .unwrap_or_else(|| panic!("{name} should have matched"));
+            assert_eq!(picked.name, name);
+        }
+    }
+
     #[test]
     fn a_lone_unsuffixed_bundle_is_offered_but_an_ambiguous_pair_is_not() {
         let ext = bundle_ext();
 
-        let single = vec![asset(&format!("FigyTerm.{ext}"))];
+        let single = vec![asset(&format!("Figylo.{ext}"))];
         assert!(asset_for_current_target(&single).is_some());
 
         let ambiguous = vec![
-            asset(&format!("FigyTerm-one.{ext}")),
-            asset(&format!("FigyTerm-two.{ext}")),
+            asset(&format!("Figylo-one.{ext}")),
+            asset(&format!("Figylo-two.{ext}")),
         ];
         assert!(asset_for_current_target(&ambiguous).is_none());
     }
@@ -531,22 +566,22 @@ mod tests {
         let payload = r###"{
             "tag_name": "v0.0.6",
             "html_url": "https://github.com/code4mk/figyterm/releases/tag/v0.0.6",
-            "body": "## FigyTerm v0.0.6\n\n### What's New\nStuff.",
+            "body": "## Figylo v0.0.6\n\n### What's New\nStuff.",
             "published_at": "2026-09-03T06:53:20Z",
             "prerelease": false,
             "draft": false,
             "assets": [
-                {"name": "FigyTerm_0.0.6_aarch64.app.tar.gz", "browser_download_url": "https://example.test/a", "size": 7346876},
-                {"name": "FigyTerm_0.0.6_aarch64.dmg", "browser_download_url": "https://example.test/b", "size": 8068596},
-                {"name": "FigyTerm_0.0.6_x64.app.tar.gz", "browser_download_url": "https://example.test/c", "size": 7441989},
-                {"name": "FigyTerm_0.0.6_x64.dmg", "browser_download_url": "https://example.test/d", "size": 8156110},
-                {"name": "FigyTerm_0.0.6_amd64.AppImage", "browser_download_url": "https://example.test/e", "size": 9231044},
-                {"name": "FigyTerm_0.0.6_arm64.AppImage", "browser_download_url": "https://example.test/f", "size": 9014377},
-                {"name": "FigyTerm_0.0.6_amd64.deb", "browser_download_url": "https://example.test/g", "size": 6720418},
-                {"name": "FigyTerm-0.0.6-1.x86_64.rpm", "browser_download_url": "https://example.test/h", "size": 6733901},
-                {"name": "FigyTerm_0.0.6_x64-setup.exe", "browser_download_url": "https://example.test/i", "size": 3814522},
-                {"name": "FigyTerm_0.0.6_arm64-setup.exe", "browser_download_url": "https://example.test/j", "size": 3699108},
-                {"name": "FigyTerm_0.0.6_x64_en-US.msi", "browser_download_url": "https://example.test/k", "size": 5120044}
+                {"name": "Figylo_0.0.6_aarch64.app.tar.gz", "browser_download_url": "https://example.test/a", "size": 7346876},
+                {"name": "Figylo_0.0.6_aarch64.dmg", "browser_download_url": "https://example.test/b", "size": 8068596},
+                {"name": "Figylo_0.0.6_x64.app.tar.gz", "browser_download_url": "https://example.test/c", "size": 7441989},
+                {"name": "Figylo_0.0.6_x64.dmg", "browser_download_url": "https://example.test/d", "size": 8156110},
+                {"name": "Figylo_0.0.6_amd64.AppImage", "browser_download_url": "https://example.test/e", "size": 9231044},
+                {"name": "Figylo_0.0.6_arm64.AppImage", "browser_download_url": "https://example.test/f", "size": 9014377},
+                {"name": "Figylo_0.0.6_amd64.deb", "browser_download_url": "https://example.test/g", "size": 6720418},
+                {"name": "Figylo-0.0.6-1.x86_64.rpm", "browser_download_url": "https://example.test/h", "size": 6733901},
+                {"name": "Figylo_0.0.6_x64-setup.exe", "browser_download_url": "https://example.test/i", "size": 3814522},
+                {"name": "Figylo_0.0.6_arm64-setup.exe", "browser_download_url": "https://example.test/j", "size": 3699108},
+                {"name": "Figylo_0.0.6_x64_en-US.msi", "browser_download_url": "https://example.test/k", "size": 5120044}
             ]
         }"###;
 
@@ -564,12 +599,12 @@ mod tests {
 
         // The size must come from the matching entry, not from the first asset.
         let expected_size = match expected.as_str() {
-            "FigyTerm_0.0.6_aarch64.dmg" => 8068596,
-            "FigyTerm_0.0.6_x64.dmg" => 8156110,
-            "FigyTerm_0.0.6_arm64.AppImage" => 9014377,
-            "FigyTerm_0.0.6_amd64.AppImage" => 9231044,
-            "FigyTerm_0.0.6_x64-setup.exe" => 3814522,
-            "FigyTerm_0.0.6_arm64-setup.exe" => 3699108,
+            "Figylo_0.0.6_aarch64.dmg" => 8068596,
+            "Figylo_0.0.6_x64.dmg" => 8156110,
+            "Figylo_0.0.6_arm64.AppImage" => 9014377,
+            "Figylo_0.0.6_amd64.AppImage" => 9231044,
+            "Figylo_0.0.6_x64-setup.exe" => 3814522,
+            "Figylo_0.0.6_arm64-setup.exe" => 3699108,
             other => panic!("no size fixture for {other}"),
         };
         assert_eq!(info.download_size, Some(expected_size));
@@ -582,10 +617,10 @@ mod tests {
         // Offering any of them would be offering an install the app can't
         // complete.
         let assets = vec![
-            asset("FigyTerm_0.0.7.app.tar.gz"),
-            asset("FigyTerm_0.0.7_amd64.deb"),
-            asset("FigyTerm-0.0.7-1.x86_64.rpm"),
-            asset("FigyTerm_0.0.7_x64_en-US.msi"),
+            asset("Figylo_0.0.7.app.tar.gz"),
+            asset("Figylo_0.0.7_amd64.deb"),
+            asset("Figylo-0.0.7-1.x86_64.rpm"),
+            asset("Figylo_0.0.7_x64_en-US.msi"),
             asset("checksums.txt"),
         ];
         assert!(asset_for_current_target(&assets).is_none());

@@ -663,7 +663,7 @@ function ThemeTab({
         <SectionHeader icon={<Palette size={13} />} title="Shell Theme" />
         <div className="settings-card text-xs text-ft-text-muted py-4 px-4 text-center">
           Oh My Zsh themes are a zsh feature, so there's nothing to configure
-          here on Windows. PowerShell's equivalent is Oh My Posh, which FigyTerm
+          here on Windows. PowerShell's equivalent is Oh My Posh, which Figylo
           doesn't manage yet.
         </div>
       </div>
@@ -963,7 +963,7 @@ function UpdatesTab({
         <SectionHeader icon={<ArrowUpCircle size={13} />} title="Version" />
         <div className="settings-card flex items-center justify-between py-3 px-4">
           <div>
-            <p className="text-xs font-medium text-ft-text">FigyTerm {version || "—"}</p>
+            <p className="text-xs font-medium text-ft-text">Figylo {version || "—"}</p>
             <p className="text-[10px] text-ft-text-muted mt-0.5">
               Last checked: {formatCheckedAt(settings.lastUpdateCheck)}
             </p>
@@ -989,7 +989,7 @@ function UpdatesTab({
         {!error && result && (
           <p className="text-[10px] text-ft-text-muted mt-2 px-1">
             {result.status === "update-available" &&
-              `FigyTerm ${result.latestVersion} is available.`}
+              `Figylo ${result.latestVersion} is available.`}
             {result.status === "up-to-date" && "You're running the latest version."}
             {result.status === "dev-build" &&
               `Development build — newer than the latest release (${result.latestVersion}).`}
@@ -1345,7 +1345,7 @@ function TerminalPreview({
         </div>
         <div className="flex-1 text-center">
           <span style={{ color: c.textMuted, fontSize: "9px", fontFamily }}>
-            FigyTerm — zsh {zshTheme ? `(${zshTheme})` : ""}
+            Figylo — zsh {zshTheme ? `(${zshTheme})` : ""}
           </span>
         </div>
       </div>

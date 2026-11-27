@@ -1,30 +1,37 @@
 #!/bin/sh
 #
-# FigyTerm installer for macOS.
+# Figylo installer for macOS.
 #
 #   curl -fsSL https://raw.githubusercontent.com/code4mk/figyterm/main/install.sh | sh
 #
-# Why this exists: FigyTerm is not code-signed with an Apple Developer ID, so a
+# Why this exists: Figylo is not code-signed with an Apple Developer ID, so a
 # .dmg downloaded through a browser gets flagged with com.apple.quarantine and
 # macOS refuses to open it until you clear the flag by hand. Quarantine is set by
 # the *downloading application* — browsers set it, curl does not. So downloading
 # this way sidesteps Gatekeeper entirely: no security dialog, no `xattr` step.
 #
-# It only ever touches two things: a temporary directory, and FigyTerm.app in
+# It only ever touches two things: a temporary directory, and Figylo.app in
 # your applications folder. Read it before running it — you should read anything
 # you pipe to a shell.
 #
 # Environment overrides:
-#   FIGYTERM_VERSION       tag to install (default: latest release), e.g. v0.1.0
-#   FIGYTERM_INSTALL_DIR   destination (default: /Applications)
+#   FIGYLO_VERSION       tag to install (default: latest release), e.g. v0.1.0
+#   FIGYLO_INSTALL_DIR   destination (default: /Applications)
+#
+# The FIGYTERM_* spellings still work. They were the documented interface before
+# the rename, and somebody's provisioning script is still passing them.
 
 set -eu
 
 REPO="code4mk/figyterm"
-APP_NAME="FigyTerm"
+APP_NAME="Figylo"
 BINARY_NAME="figy-term"
-INSTALL_DIR="${FIGYTERM_INSTALL_DIR:-/Applications}"
-REQUESTED_VERSION="${FIGYTERM_VERSION:-latest}"
+# The app as it was called before the rename. Still installed on machines that
+# have not upgraded since, and left behind by an install that only knows the new
+# name — see the uninstall step below, which is the whole reason this is here.
+LEGACY_APP_NAME="FigyTerm"
+INSTALL_DIR="${FIGYLO_INSTALL_DIR:-${FIGYTERM_INSTALL_DIR:-/Applications}}"
+REQUESTED_VERSION="${FIGYLO_VERSION:-${FIGYTERM_VERSION:-latest}}"
 
 TMP_DIR=""
 MOUNT_POINT=""
@@ -62,9 +69,15 @@ esac
 command -v curl >/dev/null 2>&1 || die "curl is required but was not found."
 command -v hdiutil >/dev/null 2>&1 || die "hdiutil is required but was not found."
 
-# Replacing a running app leaves it in a broken half-state, and FigyTerm may well
+# Replacing a running app leaves it in a broken half-state, and Figylo may well
 # have live terminal sessions in it. Refuse rather than kill someone's work.
-if pgrep -x "$BINARY_NAME" >/dev/null 2>&1 || pgrep -x "$APP_NAME" >/dev/null 2>&1; then
+#
+# The old name is checked too: the binary inside the bundle did not change, so
+# `pgrep` on it already catches a running FigyTerm — but a copy still carrying
+# the old bundle name would otherwise be replaced out from under itself.
+if pgrep -x "$BINARY_NAME" >/dev/null 2>&1 ||
+   pgrep -x "$APP_NAME" >/dev/null 2>&1 ||
+   pgrep -x "$LEGACY_APP_NAME" >/dev/null 2>&1; then
   die "$APP_NAME is running. Quit it first, then run this again."
 fi
 
@@ -108,7 +121,7 @@ fi
 
 step "Mounting the disk image"
 # -nobrowse keeps it out of Finder, and an explicit private mountpoint avoids
-# colliding with any volume already mounted as /Volumes/FigyTerm.
+# colliding with any volume already mounted as /Volumes/Figylo.
 MOUNT_POINT="$TMP_DIR/mnt"
 mkdir -p "$MOUNT_POINT"
 hdiutil attach "$DMG_PATH" -mountpoint "$MOUNT_POINT" -nobrowse -readonly -quiet ||
@@ -130,6 +143,17 @@ if [ -d "$INSTALL_DIR/$APP_NAME.app" ]; then
   step "Removing the previous version"
   $SUDO rm -rf "$INSTALL_DIR/$APP_NAME.app" ||
     die "Could not remove the existing $INSTALL_DIR/$APP_NAME.app."
+fi
+
+# The app used to be called FigyTerm, and a bundle rename is not an upgrade as
+# far as the filesystem is concerned: installing Figylo beside it would leave
+# two apps in the folder, two Spotlight hits and two dock icons, one of which
+# never updates again. Same application, same identifier, same data — so the
+# old bundle goes.
+if [ -d "$INSTALL_DIR/$LEGACY_APP_NAME.app" ]; then
+  step "Removing $LEGACY_APP_NAME.app (renamed to $APP_NAME)"
+  $SUDO rm -rf "$INSTALL_DIR/$LEGACY_APP_NAME.app" ||
+    die "Could not remove the old $INSTALL_DIR/$LEGACY_APP_NAME.app."
 fi
 
 step "Installing to $INSTALL_DIR"

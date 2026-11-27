@@ -262,7 +262,7 @@ export function DrawingModal({ visible, onClose }: DrawingModalProps) {
           {/*
             One mark, not two.
 
-            The brand carried FigyTerm's logo *and* Excalidraw's, on the
+            The brand carried Figylo's logo *and* Excalidraw's, on the
             argument that the window is one hosting the other. The Claude
             window makes the same argument and draws one mark, because whose
             window it is belongs in the title and a second logo beside the

@@ -16,7 +16,7 @@ A proposal to disagree with, in
 the shape [`CLAUDE-CODE.md`](./CLAUDE-CODE.md) had before that feature existed.
 Facts about Rig and OpenRouter were checked on **2026-11-22** against `rig`
 0.47.0 (published 2026-11-20) and OpenRouter's caching docs; facts about
-FigyTerm against this repository. Everything else is argument.
+Figylo against this repository. Everything else is argument.
 
 ---
 
@@ -42,7 +42,7 @@ Its reasoning deserves quoting against ourselves:
 
 > Reimplementing that … means owning a second front-end for a product that ships
 > changes weekly, and being a version behind forever. Every feature Anthropic
-> adds would land in FigyTerm as a regression.
+> adds would land in Figylo as a regression.
 
 **That argument was about hosting somebody else's product.** We do not control
 Claude Code's prompt box, its permission dialogs or its release cadence, so
@@ -57,7 +57,7 @@ question.
 
 ---
 
-## Second: FigyTerm is a better starting position than a CLI
+## Second: Figylo is a better starting position than a CLI
 
 A fresh agent project spends its first month building what `src-tauri` already
 has:
@@ -83,7 +83,7 @@ proposition from one running as your shell user behind no fence.
 
 ### The LSP tools are the real reason to build it here
 
-FigyTerm hosts language servers. **No CLI coding agent does**, because warming
+Figylo hosts language servers. **No CLI coding agent does**, because warming
 one per invocation is not viable. That gives us tools nobody else can offer, and
 they are dramatically cheaper in tokens:
 

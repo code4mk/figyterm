@@ -95,7 +95,7 @@ Two real candidates.
 | Language support | Lezer grammars, ~30 first-party packages | TextMate grammars + full TS/JS IntelliSense built in |
 | Mobile/IME/accessibility | First-class, rebuilt for CM6 | Adequate, desktop-shaped |
 
-**Recommendation: CodeMirror 6.** FigyTerm is a ~10 MB terminal that starts
+**Recommendation: CodeMirror 6.** Figylo is a ~10 MB terminal that starts
 fast; a 5 MB editor engine with a worker fleet is the wrong trade for a modal
 that opens beside a shell. CM6 gives us multi-cursor, folding, bracket matching,
 autoclose, incremental highlighting, a real search/replace panel, undo grouping
@@ -299,7 +299,7 @@ as requirements rather than left to Phase 5 good intentions.
 
 A modal that only edits files is a worse VS Code. These are the features that
 only make sense because there's a shell three inches away, and they're what
-should make this the thing people open FigyTerm for.
+should make this the thing people open Figylo for.
 
 - **Click a path in terminal output, open it here.** xterm's web-links addon is
   already loaded; a second link provider for `path`, `path:line`, and

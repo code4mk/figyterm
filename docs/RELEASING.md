@@ -1,4 +1,4 @@
-# Releasing FigyTerm
+# Releasing Figylo
 
 How to cut a release, what the pipeline does, and how to fix it when it breaks.
 
@@ -166,8 +166,8 @@ second.
 ### `<artifact>.sig is missing from the release`
 
 Raised by `updater-manifest` for whichever artifact it couldn't find a signature for —
-`FigyTerm_<version>_<arch>.app.tar.gz` on macOS, `FigyTerm_<version>_amd64.AppImage` on
-Linux, `FigyTerm_<version>_x64-setup.exe` on Windows.
+`Figylo_<version>_<arch>.app.tar.gz` on macOS, `Figylo_<version>_amd64.AppImage` on
+Linux, `Figylo_<version>_x64-setup.exe` on Windows.
 
 **Cause:** `TAURI_SIGNING_PRIVATE_KEY` isn't set, so the bundler produced no updater
 signature.
@@ -180,11 +180,11 @@ nothing for every user — a failure you'd only discover much later.
 
 ### DMG bundling fails locally with `error running bundle_dmg.sh`
 
-**Cause:** a volume named `FigyTerm` is already mounted — usually a previously
-downloaded FigyTerm `.dmg` still open in Finder. The bundler can't create its own
+**Cause:** a volume named `Figylo` is already mounted — usually a previously
+downloaded Figylo `.dmg` still open in Finder. The bundler can't create its own
 volume under that name.
 
-**Fix:** eject it (`ls /Volumes`, then `hdiutil detach /Volumes/FigyTerm`), or skip
+**Fix:** eject it (`ls /Volumes`, then `hdiutil detach /Volumes/Figylo`), or skip
 DMG bundling while iterating:
 
 ```bash
@@ -201,7 +201,7 @@ that installed clients will actually accept it:
 ```bash
 python3 -c "
 import base64, json
-sig_text = base64.b64decode(open('src-tauri/target/release/bundle/macos/FigyTerm.app.tar.gz.sig').read()).decode()
+sig_text = base64.b64decode(open('src-tauri/target/release/bundle/macos/Figylo.app.tar.gz.sig').read()).decode()
 sig = base64.b64decode(sig_text.splitlines()[1])
 pub_text = base64.b64decode(json.load(open('src-tauri/tauri.conf.json'))['plugins']['updater']['pubkey']).decode()
 pub = base64.b64decode(pub_text.splitlines()[1])

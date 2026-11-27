@@ -1,5 +1,5 @@
 /**
- * Which desktop FigyTerm is running on.
+ * Which desktop Figylo is running on.
  *
  * Tauri's OS plugin would answer this too, but that's a Rust dependency and a
  * capability entry for a question the webview's own user agent already answers:

@@ -32,7 +32,7 @@ use updater::UpdaterState;
 /// Nothing else does. On POSIX that was survivable by accident: the process
 /// exits, the kernel closes the pty, the shell takes SIGHUP and follows. Windows
 /// has no hangup and no parent-child lifetime link, so a shell left running when
-/// FigyTerm quit simply kept running — an orphaned `powershell.exe` per tab,
+/// Figylo quit simply kept running — an orphaned `powershell.exe` per tab,
 /// still attached to a pseudoconsole with no owner.
 ///
 /// `PtyInstance::shutdown` is what does the work; this only makes sure it is

@@ -1,4 +1,4 @@
-# FigyTerm Update System — Design & Implementation Plan
+# Figylo Update System — Design & Implementation Plan
 
 **Status:** Phases 1–3 implemented.
 **Scope:** macOS only (Apple Silicon + Intel), distributed via GitHub Releases
@@ -8,7 +8,7 @@
 
 ## 1. The problem
 
-Today a FigyTerm user has no way to learn that a new version exists. They installed
+Today a Figylo user has no way to learn that a new version exists. They installed
 `v0.0.6` from a GitHub release page and the app will sit at that version forever unless
 they happen to revisit the repo.
 
@@ -17,9 +17,9 @@ Two separate problems are tangled together here, and they need separate solution
 | # | Problem | Who hits it | Frequency |
 |---|---------|-------------|-----------|
 | **A** | No update discovery or install path inside the app | every user | every release, forever |
-| **B** | Unsigned app → Gatekeeper blocks first launch, user must run `xattr -cr /Applications/FigyTerm.app` | every new user | once, at install |
+| **B** | Unsigned app → Gatekeeper blocks first launch, user must run `xattr -cr /Applications/Figylo.app` | every new user | once, at install |
 
-**Constraint: there is no budget for an Apple Developer ID ($99/yr).** FigyTerm ships
+**Constraint: there is no budget for an Apple Developer ID ($99/yr).** Figylo ships
 unsigned and unnotarized for the foreseeable future. That is a fixed input to this design,
 not a temporary state to be worked around.
 
@@ -109,7 +109,7 @@ Two things are worth doing even though notarization is off the table:
 `tauri.conf.json` so the bundler always ad-hoc signs rather than relying on whatever the
 linker happens to do. Ad-hoc signing does **not** satisfy Gatekeeper and does **not** avoid
 the quarantine dialog — but it produces a structurally valid bundle, which tends to move the
-failure from the alarming *"FigyTerm is damaged and can't be opened"* (which reads like
+failure from the alarming *"Figylo is damaged and can't be opened"* (which reads like
 malware to a first-time user) to the milder, more accurate *"unidentified developer"*.
 Free, low-risk, worth verifying empirically on both architectures.
 
@@ -212,13 +212,13 @@ Implementation notes:
   - stable channel → `GET https://api.github.com/repos/code4mk/figyterm/releases/latest`
     (GitHub excludes prereleases from `/latest` automatically)
   - prerelease channel → `GET .../releases?per_page=10`, take the first entry
-- **Headers:** `User-Agent: FigyTerm/<version>` (GitHub rejects requests without one) and
+- **Headers:** `User-Agent: Figylo/<version>` (GitHub rejects requests without one) and
   `Accept: application/vnd.github+json`.
 - **Rate limit:** 60 req/hr per IP unauthenticated. Ample, but cache the response for
   ~1 hour in `AppState` so rapid manual checks don't burn quota.
 - **Timeout:** 10s, and never block app startup on it.
 - **Arch detection:** `std::env::consts::ARCH` → `aarch64` picks
-  `FigyTerm_<v>_aarch64.dmg`, `x86_64` picks `FigyTerm_<v>_x64.dmg`. Match on the asset
+  `Figylo_<v>_aarch64.dmg`, `x86_64` picks `Figylo_<v>_x64.dmg`. Match on the asset
   name suffix rather than reconstructing the filename, so a bundler naming change doesn't
   silently break asset selection.
 - **Comparison:** `semver::Version` parse both sides.
@@ -234,8 +234,8 @@ Follow macOS convention: `Check for Updates…` belongs in the app menu, directl
 `About`.
 
 ```
-FigyTerm
-  About FigyTerm
+Figylo
+  About Figylo
   Check for Updates…          ← new (MENU_CHECK_UPDATES → "menu://check-updates")
   ─────────
   Services / Hide / Quit …
@@ -245,7 +245,7 @@ And fill in the currently-empty Help menu:
 
 ```
 Help
-  FigyTerm Documentation      → opens README / docs site
+  Figylo Documentation      → opens README / docs site
   Release Notes               → opens releases page
   ─────────
   Report an Issue…            → opens GitHub issues/new
@@ -265,7 +265,7 @@ ten already there. The Help items that just open a URL can call `shell::open` di
 | State | Content |
 |-------|---------|
 | `checking` | spinner, "Checking for updates…" |
-| `up-to-date` | ✓ "FigyTerm 0.0.6 is the latest version", last-checked timestamp |
+| `up-to-date` | ✓ "Figylo 0.0.6 is the latest version", last-checked timestamp |
 | `dev-build` | "You're running a development build (0.1.0). Latest release is 0.0.6." |
 | `available` | version + date, rendered release notes, **Download** (primary), **View on GitHub**, and the install instructions block |
 | `error` | message + Retry + a link to the releases page as manual fallback |
@@ -276,12 +276,12 @@ copy button on the command:
 
 ```
 1. Download and open the .dmg
-2. Drag FigyTerm to Applications
+2. Drag Figylo to Applications
 3. Run this in your terminal:
    ┌────────────────────────────────────────┐
-   │ xattr -cr /Applications/FigyTerm.app   │ [copy]
+   │ xattr -cr /Applications/Figylo.app   │ [copy]
    └────────────────────────────────────────┘
-   Why? FigyTerm isn't code-signed yet, so macOS
+   Why? Figylo isn't code-signed yet, so macOS
    quarantines it. This clears that flag.  [learn more]
 ```
 
@@ -407,8 +407,8 @@ downloads the two `.sig` files, and composes:
   "notes": "See the release page for details.",
   "pub_date": "2026-09-06T00:00:00Z",
   "platforms": {
-    "darwin-aarch64": { "signature": "<sig>", "url": "https://github.com/.../FigyTerm_0.0.7_aarch64.app.tar.gz" },
-    "darwin-x86_64":  { "signature": "<sig>", "url": "https://github.com/.../FigyTerm_0.0.7_x64.app.tar.gz" }
+    "darwin-aarch64": { "signature": "<sig>", "url": "https://github.com/.../Figylo_0.0.7_aarch64.app.tar.gz" },
+    "darwin-x86_64":  { "signature": "<sig>", "url": "https://github.com/.../Figylo_0.0.7_x64.app.tar.gz" }
   }
 }
 ```
@@ -471,7 +471,7 @@ They should live in exactly three places and say the same thing in all three:
 - **Release notes template** — same, trimmed.
 - **In-app update modal** — same, with the copy button (§5.3).
 
-Be straightforward about *why*: "FigyTerm is open source and not code-signed, because an
+Be straightforward about *why*: "Figylo is open source and not code-signed, because an
 Apple Developer ID costs $99/year. Here's what that means for you and how to install
 safely." Developers respond well to that framing; a vague "click Open Anyway" with no
 explanation reads like something to be suspicious of.
@@ -642,7 +642,7 @@ by hand. The release-notes template says so.
   | `codesign --verify --strict` | — | passes |
   | `spctl` | *"no resources but signature indicates they must be present"* | plain `rejected` |
 
-  The malformed-seal complaint is what produced the *"FigyTerm is damaged"* wording.
+  The malformed-seal complaint is what produced the *"Figylo is damaged"* wording.
   It now reads as an unidentified developer instead, which is both accurate and far
   less alarming. Hardened runtime came along with it, which notarization would require.
 
@@ -661,7 +661,7 @@ bundle) and it can always be replaced. Linux has three, and only one of them can
 | Format | Updates |
 |---|---|
 | AppImage | In place, same as macOS — Tauri's updater swaps the file |
-| `.deb` / `.rpm` | Discovery only: FigyTerm reports the new version and links the download |
+| `.deb` / `.rpm` | Discovery only: Figylo reports the new version and links the download |
 
 The reason is ownership, not capability. A package install puts the binary in `/usr/bin`
 and records it in the package database; rewriting it would need root and would leave
@@ -675,7 +675,7 @@ Two smaller consequences:
 
 - **Asset matching.** `asset_for_current_target()` looks for `.AppImage` on Linux and
   `.dmg` on macOS. The `.deb` and `.rpm` are deliberately not offered as downloads from
-  inside the app: pointing at one would be offering an install FigyTerm can't complete.
+  inside the app: pointing at one would be offering an install Figylo can't complete.
 - **`latest.json`.** The manifest's `linux-x86_64` entry points at the AppImage and its
   signature. A package-managed install never reaches the updater endpoint at all.
 

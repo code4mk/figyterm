@@ -60,7 +60,7 @@ export class OverlayBoundary extends React.Component<
             The {this.props.label} hit an error
           </div>
           <div className="overlay-boundary-message mt-1.5 text-[12px] leading-relaxed">
-            It has been closed so the rest of FigyTerm keeps working. The details
+            It has been closed so the rest of Figylo keeps working. The details
             are in the developer console.
           </div>
           <div className="overlay-boundary-detail mt-1.5 text-[11px] truncate" title={error.message}>

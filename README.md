@@ -1,7 +1,7 @@
 <p align="center">
-  <img src="public/logo.png" alt="FigyTerm icon" height="64" />
+  <img src="public/logo.png" alt="Figylo icon" height="64" />
   &nbsp;&nbsp;
-  <img src="public/figyterm.png" alt="FigyTerm" height="64" />
+  <img src="public/figyterm.png" alt="Figylo" height="64" />
 </p>
 
 <p align="center">
@@ -27,11 +27,11 @@
 
 ---
 
-FigyTerm is a fully local desktop terminal built with **Tauri 2**, **React**, and **Rust**. It brings IDE-level autocomplete to your command line — context-aware suggestions for git, docker, pnpm, npm, uv, and more — all running natively with zero network dependency.
+Figylo is a fully local desktop terminal built with **Tauri 2**, **React**, and **Rust**. It brings IDE-level autocomplete to your command line — context-aware suggestions for git, docker, pnpm, npm, uv, and more — all running natively with zero network dependency.
 
-**FigyTerm is the open-source successor to [Fig](https://github.com/withfig/autocomplete)**, whose standalone autocomplete app was acquired by AWS in 2023 and [sunset on 1 September 2024](https://github.com/aws/amazon-q-developer-cli-autocomplete). FigyTerm reads the same completion spec format Fig used, so the community specs written for it still work — without an account, a login or a network connection, and on Linux and Windows as well as macOS.
+**Figylo is the open-source successor to [Fig](https://github.com/withfig/autocomplete)**, whose standalone autocomplete app was acquired by AWS in 2023 and [sunset on 1 September 2024](https://github.com/aws/amazon-q-developer-cli-autocomplete). Figylo reads the same completion spec format Fig used, so the community specs written for it still work — without an account, a login or a network connection, and on Linux and Windows as well as macOS.
 
-> **Not to be confused with:** *Fig* (withfig/fig.io, discontinued) or *figterm*, Fig's shell integration shim. FigyTerm is an independent MIT-licensed project, unaffiliated with Fig or Amazon Web Services.
+> **Not to be confused with:** *Fig* (withfig/fig.io, discontinued) or *figterm*, Fig's shell integration shim. Figylo is an independent MIT-licensed project, unaffiliated with Fig or Amazon Web Services.
 
 ## Features
 
@@ -59,7 +59,7 @@ FigyTerm is a fully local desktop terminal built with **Tauri 2**, **React**, an
 macOS (Apple Silicon and Intel), Linux (x86_64) and Windows (x64) — see the
 [installation guide](docs/INSTALLATION.md) for the full details.
 
-**You only install once**: FigyTerm updates itself from then on. The exceptions are the
+**You only install once**: Figylo updates itself from then on. The exceptions are the
 packages meant to be managed by something else — a Linux `.deb`/`.rpm` and the Windows
 `.msi` — which stay with whatever installed them.
 
@@ -73,22 +73,22 @@ One line, no security dialog, no `xattr` step. It detects your Mac's architectur
 downloads the right build, and installs to `/Applications`.
 
 [Read the script first](install.sh) — you should read anything you pipe to a shell. It
-touches a temp directory and `FigyTerm.app`, nothing else.
+touches a temp directory and `Figylo.app`, nothing else.
 
 ### macOS — Option 2: download the .dmg manually
 
 1. Download the build for your Mac from [Releases](https://github.com/code4mk/figyterm/releases):
    `aarch64` for Apple Silicon, `x64` for Intel
-2. Open the `.dmg` and drag **FigyTerm** into **Applications**
+2. Open the `.dmg` and drag **Figylo** into **Applications**
 3. Clear the quarantine flag macOS added during the download:
 
    ```bash
-   xattr -cr /Applications/FigyTerm.app
+   xattr -cr /Applications/Figylo.app
    ```
 
-4. Launch FigyTerm
+4. Launch Figylo
 
-Step 3 isn't optional — skip it and macOS says *"FigyTerm is damaged and can't be
+Step 3 isn't optional — skip it and macOS says *"Figylo is damaged and can't be
 opened"*, which sounds alarming but only means the app is unsigned.
 
 If macOS still blocks it, open **System Settings → Privacy & Security**, scroll down,
@@ -105,7 +105,7 @@ Installs the AppImage to `~/.local/bin` with a desktop entry.
 [Read the script first](install-linux.sh).
 
 Or take a package from [Releases](https://github.com/code4mk/figyterm/releases):
-`sudo apt install ./FigyTerm_*_amd64.deb`, `sudo dnf install ./FigyTerm-*.x86_64.rpm`.
+`sudo apt install ./Figylo_*_amd64.deb`, `sudo dnf install ./Figylo-*.x86_64.rpm`.
 No Gatekeeper, no quarantine, no `xattr` — none of that exists here.
 
 The AppImage is the build that updates itself; a distro package is your package
@@ -114,7 +114,7 @@ it with `WEBKIT_DISABLE_DMABUF_RENDERER=1`.
 
 ### Windows
 
-Download `FigyTerm_*_x64-setup.exe` from [Releases](https://github.com/code4mk/figyterm/releases)
+Download `Figylo_*_x64-setup.exe` from [Releases](https://github.com/code4mk/figyterm/releases)
 and run it. It installs for the current user, needs no administrator rights, and updates
 itself from then on.
 
@@ -128,7 +128,7 @@ self-update, on purpose — a managed install stays managed.
 <details>
 <summary>Why does Option 1 skip that step?</summary>
 
-FigyTerm isn't code-signed with an Apple Developer ID (it costs $99/year), so macOS
+Figylo isn't code-signed with an Apple Developer ID (it costs $99/year), so macOS
 quarantines it on download and refuses to open it until the flag is cleared.
 
 Quarantine is applied by the **downloading application** — browsers set it, `curl`
@@ -141,7 +141,7 @@ than through a browser, so updates are never quarantined.
 
 </details>
 
-> **Keychain access popup:** macOS may ask to allow FigyTerm to access your keychain (for SSH keys, credentials, etc.). Click **Always Allow** or **Allow** to proceed. If you accidentally deny it, go to **Keychain Access > login** and update the access control for the relevant entry.
+> **Keychain access popup:** macOS may ask to allow Figylo to access your keychain (for SSH keys, credentials, etc.). Click **Always Allow** or **Allow** to proceed. If you accidentally deny it, go to **Keychain Access > login** and update the access control for the relevant entry.
 
 ### Build from Source
 
@@ -167,7 +167,7 @@ The built `.app` and `.dmg` will be in `src-tauri/target/release/bundle/macos/`.
 
 ## Recommended Setup
 
-FigyTerm runs your normal login shell — it uses the `$SHELL` environment variable (same as Terminal.app). **You do not need to install anything extra for basic use.**
+Figylo runs your normal login shell — it uses the `$SHELL` environment variable (same as Terminal.app). **You do not need to install anything extra for basic use.**
 
 For the best experience (themes, prompts, plugins, and recent-folder ordering from history), we recommend **zsh** with **Oh My Zsh**.
 
@@ -175,7 +175,7 @@ For the best experience (themes, prompts, plugins, and recent-folder ordering fr
 
 | Shell | Required? | Notes |
 |-------|-----------|-------|
-| **zsh** | No (recommended) | Default on macOS since Catalina (`/bin/zsh`). FigyTerm launches whatever `$SHELL` points to. |
+| **zsh** | No (recommended) | Default on macOS since Catalina (`/bin/zsh`). Figylo launches whatever `$SHELL` points to. |
 | **bash / fish** | Supported | Works out of the box if `$SHELL` is set to them. |
 | **Oh My Zsh** | No (recommended) | Enables theme switching in Settings and rich prompt rendering. Without it, the terminal still works — you just won't see Oh My Zsh themes in Settings. |
 
@@ -192,11 +192,11 @@ If you want to switch the default shell to zsh:
 chsh -s /bin/zsh
 ```
 
-Restart FigyTerm (or open a new tab) after changing shells.
+Restart Figylo (or open a new tab) after changing shells.
 
 ### Oh My Zsh (optional)
 
-Oh My Zsh is **not required**, but it unlocks FigyTerm's theme picker (Settings → Theme) and matches how most developers configure their macOS terminal.
+Oh My Zsh is **not required**, but it unlocks Figylo's theme picker (Settings → Theme) and matches how most developers configure their macOS terminal.
 
 Install Oh My Zsh:
 
@@ -206,13 +206,13 @@ sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/too
 
 After install:
 
-1. Restart FigyTerm or open a new tab
+1. Restart Figylo or open a new tab
 2. Open **Settings → Theme** to browse and switch Oh My Zsh themes live
 3. Custom themes can be placed in `~/.oh-my-zsh/custom/themes/`
 
-> **Already using Oh My Zsh in Terminal.app?** FigyTerm reads the same `~/.zshrc` and `~/.oh-my-zsh` config — no extra setup needed.
+> **Already using Oh My Zsh in Terminal.app?** Figylo reads the same `~/.zshrc` and `~/.oh-my-zsh` config — no extra setup needed.
 
-> **Not using Oh My Zsh?** FigyTerm still works. Autocomplete, split panes, tabs, and path suggestions are independent of Oh My Zsh.
+> **Not using Oh My Zsh?** Figylo still works. Autocomplete, split panes, tabs, and path suggestions are independent of Oh My Zsh.
 
 ## Keyboard Shortcuts
 
@@ -308,7 +308,7 @@ Rust and Python. Word completion from the open document covers the "finish this
 identifier" case without any of the machinery below.
 
 **Language servers are there when you want them, and off until you do.** Switch
-them on in the editor's settings and FigyTerm speaks LSP to the servers already
+them on in the editor's settings and Figylo speaks LSP to the servers already
 installed on your machine — nothing is bundled and nothing is downloaded, the
 same reasoning that has it shell out to `git`. That gets you real diagnostics in
 the gutter, hover types, completion that knows what `foo` is, signature help,
@@ -383,7 +383,7 @@ language server. Reasons and a plan are in [docs/CODE-EDITOR.md](docs/CODE-EDITO
 
 ## Supported Command Specs
 
-FigyTerm ships with built-in specs for popular tools:
+Figylo ships with built-in specs for popular tools:
 
 | Command | Coverage |
 |---------|----------|

@@ -16,6 +16,14 @@
 
 use keyring::Entry;
 
+/// Deliberately still spelled `figyterm`, after the rename to Figylo.
+///
+/// This is the keychain's lookup key, not a label — the OS finds a stored
+/// credential by it, and nothing migrates an entry from one service name to
+/// another. Renaming it would not move anybody's API keys to the new name; it
+/// would hide them behind a name nothing looks under, and the app would report
+/// no saved credentials on a machine that has them. The same goes for the
+/// bundle identifier in `tauri.conf.json`, for the same reason.
 const SERVICE: &str = "com.figyterm.figyman";
 
 /// What a credential is called in the keychain.

@@ -25,7 +25,7 @@ const LOGIN_ARGS: &[&str] = &[];
 /// reachable without any of this. On Linux these variables *are* the session:
 /// clear them and the shell can no longer find the display, the session bus or
 /// the user runtime dir, so `xdg-open`, GUI editors, clipboard tools,
-/// `notify-send` and `systemctl --user` all fail inside FigyTerm while working
+/// `notify-send` and `systemctl --user` all fail inside Figylo while working
 /// in every other terminal.
 #[cfg(target_os = "linux")]
 const SESSION_PASSTHROUGH: &[&str] = &[
@@ -66,7 +66,7 @@ fn configure_environment(cmd: &mut CommandBuilder, shell: &str) {
     cmd.env("LANG", &lang);
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
-    cmd.env("TERM_PROGRAM", "Figyterm");
+    cmd.env("TERM_PROGRAM", "Figylo");
     cmd.env("LOGNAME", &user);
     cmd.env(
         "TMPDIR",
@@ -113,7 +113,7 @@ fn configure_environment(cmd: &mut CommandBuilder, _shell: &str) {
     // layers on what identifies the terminal.
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
-    cmd.env("TERM_PROGRAM", "Figyterm");
+    cmd.env("TERM_PROGRAM", "Figylo");
 }
 
 /// The PATH a login shell starts with. User config is sourced afterwards and can

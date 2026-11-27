@@ -270,7 +270,7 @@ export class LspClient {
       "initialize",
       {
         processId: null,
-        clientInfo: { name: "FigyTerm" },
+        clientInfo: { name: "Figylo" },
         locale: typeof navigator === "undefined" ? "en" : navigator.language,
         rootUri: pathToUri(this.root),
         workspaceFolders: [
