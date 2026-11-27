@@ -21,8 +21,10 @@ export interface Settings {
   /**
    * The service that fills the window, rather than floating above it.
    *
-   * Null until the welcome page has been answered — there is no default, on
-   * purpose; see `resolveBase`, which explains why.
+   * Null until one has been chosen — there is no default, on purpose; see
+   * `resolveBase`, which explains why. Remembered across launches and marked
+   * on the services screen, which every launch opens on regardless: the window
+   * offers the way back to it in one click rather than assuming it.
    *
    * Stored as a plain string rather than `ServiceId` so that loading settings
    * doesn't drag the catalogue — and its lucide icons — into whatever imports
@@ -31,12 +33,12 @@ export interface Settings {
    */
   baseService: string | null;
   /**
-   * Epoch millis of the moment the welcome page was answered, or null if it
-   * has never been shown.
+   * Epoch millis of the last time a primary was chosen, or null if one never
+   * has been.
    *
-   * A timestamp rather than a boolean, so a later version can tell a first run
-   * from an install that was onboarded before a service existed and might be
-   * worth telling about it.
+   * It no longer gates anything — the services screen opens every launch — but
+   * it is the one record of whether this install has ever been past it, which
+   * is what a later version would need to tell a first run from an old one.
    */
   welcomedAt: number | null;
 }

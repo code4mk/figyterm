@@ -33,7 +33,7 @@ import { isMac, EMBEDDED_BROWSER_SUPPORTED } from "../../services/platform";
 import { DockWindow, MinimizedDock } from "./MinimizedDock";
 import { AppHeader } from "./AppHeader";
 import { TerminalWindow } from "../Terminal/TerminalWindow";
-import { WelcomeScreen } from "../Welcome/WelcomeScreen";
+import { ServicesScreen } from "../Services/ServicesScreen";
 import { resolveBase, type ServiceId } from "../../services/catalog";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { serveAgentLsp } from "../../services/figycode-lsp";
@@ -192,11 +192,34 @@ export function AppShell() {
   */
   const settings = useSettingsStore((state) => state.settings);
   const updateSettings = useSettingsStore((state) => state.updateSettings);
-  const baseId = resolveBase(settings.baseService);
-  const welcomed = settings.welcomedAt !== null && baseId !== null;
+  /** The primary remembered from last time, or null if never set. */
+  const storedBase = resolveBase(settings.baseService);
 
-  const chooseBase = useCallback(
-    (id: ServiceId) => updateSettings({ baseService: id, welcomedAt: Date.now() }),
+  /*
+    Every launch opens on the services screen.
+
+    Not an onboarding page that is shown once — the home screen. The window
+    remembers what was primary and marks it there, so getting back to it is one
+    click, but it does not assume you want it again: the point of the screen is
+    that the other six exist, and a window that skips straight past it is the
+    window that hid them in the first place.
+  */
+  const [launcherOpen, setLauncherOpen] = useState(true);
+
+  /**
+   * The service actually filling the slot right now.
+   *
+   * Null while the services screen is up, because the screen is what fills it
+   * — and a service that thought it was docked underneath would be a second
+   * thing claiming the same rectangle.
+   */
+  const baseId = launcherOpen ? null : storedBase;
+
+  const setPrimary = useCallback(
+    (id: ServiceId) => {
+      updateSettings({ baseService: id, welcomedAt: Date.now() });
+      setLauncherOpen(false);
+    },
     [updateSettings]
   );
 
@@ -1142,21 +1165,35 @@ export function AppShell() {
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-ft-bg">
       <AppHeader
-        baseId={baseId}
+        baseId={storedBase}
         openIds={openIds}
         onOpenService={openService}
+        onShowServices={() => setLauncherOpen(true)}
+        servicesShown={launcherOpen}
         onOpenSettings={() => setSettingsOpen(true)}
       />
       {/*
-        The space the base occupies, and nothing else.
+        The slot.
 
-        The base is an overlay like every other window — placed by
-        `baseSlotRect`, which is this gap measured from the two bars around it
-        — so there is nothing to render into it here. What this div does is
-        hold the gap open at the right height, which is the one thing a
-        `position: fixed` rectangle cannot do for itself.
+        A docked service is an overlay placed by `baseSlotRect` — this gap
+        measured from the two bars around it — so when one is primary there is
+        nothing to render here and this div only holds the height open, which
+        is the one thing a `position: fixed` rectangle cannot do for itself.
+
+        The services screen is the exception: it is ordinary layout, because
+        it is the thing the slot falls back to rather than another window
+        competing for the same rectangle.
       */}
-      <div className="flex-1 min-h-0" />
+      <div className="flex-1 min-h-0">
+        {launcherOpen && (
+          <ServicesScreen
+            current={storedBase}
+            onSetPrimary={setPrimary}
+            onOpenWindow={(id) => setServiceOpen(id, true)}
+            openIds={openIds}
+          />
+        )}
+      </div>
       <div onMouseUp={focusActivePane}>
         <StatusBar
           cwd={activePaneId ? (liveCwds[activePaneId] || activePaneSession?.session?.cwd || "") : ""}
@@ -1369,13 +1406,6 @@ export function AppShell() {
         onCancel={() => setNewWindowPrompt(false)}
         onSubmit={confirmNewWindow}
       />
-      {/*
-        Last, and over everything. Until it is answered there is no base, so
-        the window behind it is the header, an empty slot and the status bar —
-        which is exactly what it should be, because nothing has been chosen to
-        put there yet.
-      */}
-      {!welcomed && <WelcomeScreen initial={baseId} onChoose={chooseBase} />}
     </div>
   );
 }

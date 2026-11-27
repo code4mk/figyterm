@@ -1172,11 +1172,19 @@ export function ApiModal({
           docked ? "" : "z-[250] flex items-start justify-center pt-[6vh]"
         }`}
         style={{ zIndex: docked ? BASE_SLOT_Z : (frontZ ?? undefined) }}
-        onMouseDown={(e) => {
-          // A click on the backdrop dismisses a window. The base has no
-          // backdrop to click and nothing to dismiss to.
-          if (!docked && e.target === e.currentTarget) onClose();
-        }}
+        /*
+          A click beside a window does not close it.
+
+          These windows hold work in progress — a request in flight, a buffer
+          with unsaved edits, a conversation mid-turn — and a backdrop that
+          dismisses on a stray click is how that gets lost by reaching for the
+          thing behind it. They close by their own button, by Escape, or not at
+          all. FigyCode never did dismiss this way; now none of them do.
+
+          The layer still has to swallow the click rather than let it fall
+          through to whatever is underneath.
+        */
+        onMouseDown={(e) => e.stopPropagation()}
         onKeyUp={(e) => e.stopPropagation()}
       >
         {modal}

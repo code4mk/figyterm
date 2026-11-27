@@ -180,9 +180,8 @@ export function selectableServices(): ServiceDef[] {
  * There is deliberately no default. The terminal was the base for as long as
  * it was the only thing here, and leaving it as the fallback would have meant
  * every install still opened on a shell and looked like a terminal — which is
- * the exact impression the welcome page exists to correct. So an install with
- * no answer yet has no base, and the welcome page is what fills the window
- * until there is one.
+ * the exact impression the services screen exists to correct. So an install
+ * with no answer yet has no primary, and the screen is what fills the window.
  *
  * Null also covers the recoverable failures: a service dropped from the table,
  * or one that is unavailable on this platform after a settings file travelled

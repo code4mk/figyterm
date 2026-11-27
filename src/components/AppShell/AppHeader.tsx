@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, ChevronDown, Settings as SettingsIcon } from "lucide-react";
+import { Check, ChevronDown, LayoutGrid, Settings as SettingsIcon } from "lucide-react";
 import { SERVICES, service, serviceShortcut, type ServiceId } from "../../services/catalog";
 import { keys } from "../../services/shortcuts";
 
@@ -25,6 +25,10 @@ interface AppHeaderProps {
   openIds: ReadonlySet<ServiceId>;
   /** Open one as a window, or focus it if it is already up. */
   onOpenService: (id: ServiceId) => void;
+  /** Back to the services screen, where the primary is chosen. */
+  onShowServices: () => void;
+  /** True while that screen is already up. */
+  servicesShown: boolean;
   onOpenSettings: () => void;
 }
 
@@ -32,6 +36,8 @@ export function AppHeader({
   baseId,
   openIds,
   onOpenService,
+  onShowServices,
+  servicesShown,
   onOpenSettings,
 }: AppHeaderProps) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -123,6 +129,29 @@ export function AppHeader({
             aria-label="Services"
             className="absolute left-0 top-full z-[300] mt-1 w-[290px] overflow-hidden rounded-lg border border-ft-border bg-ft-surface py-1 shadow-2xl"
           >
+            {/*
+              The way back to the screen the app opens on, where a service is
+              made primary. The rows below open a window over whatever is
+              primary, which is the other thing you can do with a service and
+              deliberately not the same thing.
+            */}
+            <button
+              type="button"
+              role="menuitem"
+              disabled={servicesShown}
+              onClick={() => {
+                setMenuOpen(false);
+                onShowServices();
+              }}
+              className="flex w-full items-center gap-2.5 px-2.5 py-1.5 text-left text-[11.5px] text-ft-text transition-colors hover:bg-ft-elevated disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
+            >
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-ft-elevated text-ft-text-muted">
+                <LayoutGrid size={13} />
+              </span>
+              All services
+            </button>
+            <div className="my-1 h-px bg-ft-border-subtle" />
+
             {SERVICES.map((def) => {
               const isBase = def.id === baseId;
               const shortcut = serviceShortcut(def);
