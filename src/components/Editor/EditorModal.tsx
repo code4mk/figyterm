@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FigyMark } from "../Shared/FigyMark";
 import { MakePrimary, PrimaryHome } from "../AppShell/PrimaryChrome";
 import { invoke } from "@tauri-apps/api/core";
 import {
@@ -3052,7 +3053,7 @@ export function EditorModal({
               onPointerDown={docked ? undefined : onDragStart}
             >
               {docked && <PrimaryHome className="-ml-1 mr-0.5" />}
-              <img src="/logo.png" alt="" className="h-3.5 w-auto shrink-0" />
+              <FigyMark size={16} />
               <span className="editor-brand-title text-[11px] font-semibold whitespace-nowrap">
                 Figy Code Editor
               </span>

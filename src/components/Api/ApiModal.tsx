@@ -15,6 +15,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FigyMark } from "../Shared/FigyMark";
 import { MakePrimary, PrimaryHome } from "../AppShell/PrimaryChrome";
 import {
   Ban,
@@ -595,7 +596,7 @@ export function ApiModal({
       >
         {docked && <PrimaryHome className="mr-1" />}
         <div className="browser-brand flex items-center gap-2 pl-1 pr-2.5 mr-1 shrink-0">
-          <img src="/logo.png" alt="" className="h-4 w-auto shrink-0" />
+          <FigyMark size={16} />
           <span className="browser-brand-title text-[11px] font-semibold whitespace-nowrap">
             Figy Man
           </span>

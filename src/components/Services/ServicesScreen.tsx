@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { FigyMark } from "../Shared/FigyMark";
 import { ArrowLeft, Undo2 } from "lucide-react";
 import { OverlayPortal } from "../Overlay/OverlayPortal";
 import { OVERLAY_Z_MAX } from "../../services/overlay-stack";
@@ -146,7 +147,7 @@ export function ServicesScreen({
         <header className="mb-10 flex items-end justify-between gap-6">
           <div className="min-w-0">
             <div className="mb-4 flex items-center gap-2">
-              <img src="/logo.png" alt="" className="h-5 w-5 rounded-[5px]" />
+              <FigyMark size={18} />
               <span className="text-[12px] font-semibold tracking-tight text-ft-text-secondary">
                 Figylo
               </span>

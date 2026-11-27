@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, Fragment, useCallback, type ReactNode } from "react";
+import { FigyMark } from "../Shared/FigyMark";
 import { Dialog, Transition } from "@headlessui/react";
 import { TerminalSquare, X, Plus, Pencil, Columns2, ChevronLeft, ChevronRight } from "lucide-react";
 import { SHORTCUTS, text } from "../../services/shortcuts";
@@ -187,8 +188,8 @@ export function TabBar({
           seven and it says which — a window titled "FigyCode" beside one
           titled nothing was the inconsistency.
         */}
-        <div className="flex items-center gap-1.5 h-[32px] px-2 flex-shrink-0">
-          <img src="/logo.png" alt="" className="h-4 w-4 shrink-0 rounded" />
+        <div className="flex items-center gap-2 h-[32px] px-2 flex-shrink-0">
+          <FigyMark size={16} />
           <span className="text-[11px] font-semibold whitespace-nowrap text-ft-text">
             Figy Terminal
           </span>

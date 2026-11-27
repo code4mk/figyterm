@@ -12,6 +12,7 @@
  */
 
 import { FileUp, History, Layers, Plus } from "lucide-react";
+import { FigyMark } from "../Shared/FigyMark";
 import { HistoryEntry } from "../../types/api";
 import { formatDuration, statusTone, timeAgo, toneClass } from "../../services/api/format";
 
@@ -54,7 +55,7 @@ export function EmptyState({
     <div className="flex flex-1 min-h-0 items-center justify-center overflow-auto p-6">
       <div className="w-full max-w-[460px]">
         <div className="mb-4 flex items-center gap-2.5">
-          <img src="/logo.png" alt="" className="h-7 w-auto shrink-0" />
+          <FigyMark size={28} />
           <span className="text-[15px] font-semibold tracking-tight text-ft-text">
             Figy API
           </span>

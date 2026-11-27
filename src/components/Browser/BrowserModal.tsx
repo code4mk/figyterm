@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { FigyMark } from "../Shared/FigyMark";
 import { MakePrimary, PrimaryHome } from "../AppShell/PrimaryChrome";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useThemeStore } from "../../stores/themeStore";
@@ -614,7 +615,7 @@ export function BrowserModal({
         */}
         {docked && <PrimaryHome className="mr-1 self-center" />}
         <div className="browser-brand flex items-center gap-2 pl-1 pr-2.5 mr-1 pb-1.5 shrink-0">
-          <img src="/logo.png" alt="" className="h-3.5 w-auto shrink-0" />
+          <FigyMark size={16} />
           <span className="browser-brand-title text-[11px] font-semibold whitespace-nowrap">
             Figy Browser
           </span>
