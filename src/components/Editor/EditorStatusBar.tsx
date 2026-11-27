@@ -75,7 +75,8 @@ interface EditorStatusBarProps {
   onSetLineEnding: (lineEnding: LineEnding) => void;
   onSetEncoding: (encoding: FileEncoding) => void;
   onGoToLine: () => void;
-  onResizeStart: (e: React.PointerEvent) => void;
+  /** Absent as the primary, which is the size of the slot and has no grip. */
+  onResizeStart?: (e: React.PointerEvent) => void;
   /** The workspace, for finding environments inside it. */
   pythonRoot: string | null;
   /** The interpreter the user chose for this workspace, if any. */
@@ -308,7 +309,7 @@ export function EditorStatusBar({
         it needs somewhere nothing else is competing for the pointer.
       */}
       <div
-        className="editor-resize-handle"
+        className={`editor-resize-handle ${onResizeStart ? "" : "hidden"}`}
         onPointerDown={onResizeStart}
         title="Resize"
         role="separator"

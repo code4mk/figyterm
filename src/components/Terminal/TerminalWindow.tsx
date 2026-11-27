@@ -6,7 +6,7 @@ import { useOverlayRect } from "../../hooks/useOverlayRect";
 import { useOverlayZSync } from "../../hooks/useOverlayZSync";
 import { fullscreenRect, useDraggableModal } from "../../hooks/useDraggableModal";
 import { BASE_SLOT_Z, useBaseSlot } from "../../hooks/useBaseSlot";
-import { PrimaryHome } from "../AppShell/PrimaryChrome";
+import { MakePrimary, PrimaryHome } from "../AppShell/PrimaryChrome";
 
 /**
  * The frame the terminal lives in — the base slot, or a window above it.
@@ -66,14 +66,23 @@ export function TerminalWindow({
   const modalRef = useRef<HTMLDivElement>(null);
   const [fullscreen, setFullscreen] = useState(false);
 
-  const { style, onDragStart, place, reset } = useDraggableModal({
+  const { style, onDragStart, onResizeStart, place, reset } = useDraggableModal({
     defaultSize: DEFAULT_SIZE,
     minSize: MIN_SIZE,
     maxSize: MAX_SIZE,
     elementRef: modalRef,
   });
 
-  useBaseSlot(docked, place);
+  /*
+    Back to a window's own geometry when something else takes the primary
+    slot: centred, default size, not fullscreen. See `useBaseSlot`.
+  */
+  const undock = useCallback(() => {
+    setFullscreen(false);
+    reset();
+  }, [reset]);
+
+  useBaseSlot(docked, place, undock);
 
   const [frontZ, setFrontZ] = useState<number | null>(null);
   // The base never joins the stack — there is nothing for it to be raised
@@ -140,6 +149,7 @@ export function TerminalWindow({
   ) : (
     <>
       {settingsButton}
+      <MakePrimary id="figy-terminal" />
       <button
         className="tab-nav-btn flex items-center justify-center w-6 h-6 rounded"
         onPointerDown={(e) => e.stopPropagation()}
@@ -173,8 +183,22 @@ export function TerminalWindow({
       } ${fullscreen || docked ? "rounded-none" : "rounded-xl"}`}
       style={style}
       onPointerDownCapture={raise}
-      onMouseDown={(e) => e.stopPropagation()}
-      onMouseUp={(e) => e.stopPropagation()}
+      /*
+        No `stopPropagation` on the mouse events here, and the mouse-up is the
+        one that matters.
+
+        Every pane is an xterm, and xterm ends a drag-selection with a `mouseup`
+        listener bound on `document`. React's `stopPropagation` calls the native
+        one, and React's listener sits on the root container — below `document`
+        — so swallowing it here meant the drag never ended: the selection went
+        on extending across the screen with the button long since released, on
+        nothing more than a moved pointer.
+
+        The frame copied this pair from the other windows, where it stopped a
+        click reaching a backdrop that dismissed on one. No backdrop dismisses
+        any more, so it was guarding against nothing and breaking selection to
+        do it.
+      */
     >
       {chrome({
         controls,
@@ -182,6 +206,26 @@ export function TerminalWindow({
         onDragHandle: docked ? undefined : onDragStart,
       })}
       <div className="flex-1 relative min-h-0 overflow-hidden">{children}</div>
+
+      {/*
+        Resizable like the other six. It is the corner grip they all use, and
+        it is absent as the primary for the same reason the drag handle is:
+        the primary is the size of the window and there is nothing to resize
+        it against.
+      */}
+      {!docked && (
+        <div
+          className="editor-resize-handle"
+          onPointerDown={(e) => onResizeStart(e, "se")}
+          title="Resize"
+          role="separator"
+          aria-orientation="horizontal"
+        >
+          <svg width="10" height="10" viewBox="0 0 10 10" className="editor-resize-icon">
+            <path d="M9 1L1 9M9 5L5 9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+          </svg>
+        </div>
+      )}
     </div>
   );
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PrimaryHome } from "../AppShell/PrimaryChrome";
+import { MakePrimary, PrimaryHome } from "../AppShell/PrimaryChrome";
 import { open as openFolderDialog } from "@tauri-apps/plugin-dialog";
 import {
   AlertTriangle,
@@ -276,7 +276,16 @@ export function ClaudeModal({
   // full-screen backdrop; see the note in `overlay-stack.ts`.
   useOverlayRect("claude", modalRef, docked);
 
-  useBaseSlot(docked, place);
+  /*
+    Back to a window's own geometry when something else takes the primary
+    slot: centred, default size, not fullscreen. See `useBaseSlot`.
+  */
+  const undock = useCallback(() => {
+    setFullscreen(false);
+    reset();
+  }, [reset]);
+
+  useBaseSlot(docked, place, undock);
 
   useEffect(() => {
     if (docked) return;
@@ -1168,6 +1177,7 @@ export function ClaudeModal({
                 <>
                   <span className="claude-sep" />
 
+                  <MakePrimary id="claude-code" />
                   <button
                     className={`claude-iconbtn ${fullscreen ? "on" : ""}`}
                     onClick={toggleFullscreen}
@@ -1516,10 +1526,12 @@ export function ClaudeModal({
 
             {/*
               The grip lives down here for the reason the editor's does: it
-              needs somewhere nothing else is competing for the pointer.
+              needs somewhere nothing else is competing for the pointer — and
+              it is a window's, so the primary has none: it is the size of the
+              slot and there is nothing to resize it against.
             */}
             <div
-              className="editor-resize-handle"
+              className={`editor-resize-handle ${docked ? "hidden" : ""}`}
               onPointerDown={onResizeStart}
               title="Resize"
               role="separator"

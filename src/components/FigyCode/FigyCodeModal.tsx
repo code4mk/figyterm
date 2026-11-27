@@ -24,7 +24,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PrimaryHome } from "../AppShell/PrimaryChrome";
+import { MakePrimary, PrimaryHome } from "../AppShell/PrimaryChrome";
 import { open as openFolderDialog } from "@tauri-apps/plugin-dialog";
 import {
   ChevronRight,
@@ -691,7 +691,16 @@ export function FigyCodeModal({
     elementRef: modalRef,
   });
 
-  useBaseSlot(docked, place);
+  /*
+    Back to a window's own geometry when something else takes the primary
+    slot: centred, default size, not fullscreen. See `useBaseSlot`.
+  */
+  const undock = useCallback(() => {
+    setFullscreen(false);
+    reset();
+  }, [reset]);
+
+  useBaseSlot(docked, place, undock);
 
   const [frontZ, setFrontZ] = useState<number | null>(null);
   /*
@@ -822,7 +831,7 @@ export function FigyCodeModal({
       ref={modalRef}
       role="dialog"
       aria-modal={false}
-      aria-label="FigyCode"
+      aria-label="Figy Harness"
       className={`figy-modal pointer-events-auto flex flex-col overflow-hidden ${
         fullscreen || docked ? "rounded-none" : "rounded-xl"
       }`}
@@ -844,7 +853,7 @@ export function FigyCodeModal({
         <div className="flex items-center gap-1.5 shrink-0" onPointerDown={(e) => e.stopPropagation()}>
           {docked && <PrimaryHome />}
           <span className="figy-mark">ƒ</span>
-          <span className="figy-brand-title">FigyCode</span>
+          <span className="figy-brand-title">Figy Harness</span>
         </div>
 
         <span className="figy-sep" />
@@ -891,6 +900,7 @@ export function FigyCodeModal({
             <>
               <span className="figy-sep" />
 
+              <MakePrimary id="figy-harness" />
               <button
                 className={`figy-iconbtn ${fullscreen ? "on" : ""}`}
                 onClick={toggleFullscreen}
@@ -1175,17 +1185,23 @@ export function FigyCodeModal({
           <span>Settings</span>
         </button>
 
-        <div
-          className="editor-resize-handle"
-          onPointerDown={(e) => onResizeStart(e, "se")}
-          title="Resize"
-          role="separator"
-          aria-orientation="horizontal"
-        >
-          <svg width="10" height="10" viewBox="0 0 10 10" className="editor-resize-icon">
-            <path d="M9 1L1 9M9 5L5 9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-          </svg>
-        </div>
+{/*
+          The grip is a window's, and the primary is not a window: it is the
+          size of the slot and there is nothing to resize it against.
+        */}
+        {!docked && (
+          <div
+            className="editor-resize-handle"
+            onPointerDown={(e) => onResizeStart(e, "se")}
+            title="Resize"
+            role="separator"
+            aria-orientation="horizontal"
+          >
+            <svg width="10" height="10" viewBox="0 0 10 10" className="editor-resize-icon">
+              <path d="M9 1L1 9M9 5L5 9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+            </svg>
+          </div>
+        )}
       </div>
 
       {dialog === "settings" && (

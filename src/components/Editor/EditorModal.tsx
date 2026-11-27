@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PrimaryHome } from "../AppShell/PrimaryChrome";
+import { MakePrimary, PrimaryHome } from "../AppShell/PrimaryChrome";
 import { invoke } from "@tauri-apps/api/core";
 import {
   AlignLeft,
@@ -772,7 +772,16 @@ export function EditorModal({
   */
   useOverlayRect("editor", modalRef, docked);
 
-  useBaseSlot(docked, place);
+  /*
+    Back to a window's own geometry when something else takes the primary
+    slot: centred, default size, not fullscreen. See `useBaseSlot`.
+  */
+  const undock = useCallback(() => {
+    setFullscreen(false);
+    reset();
+  }, [reset]);
+
+  useBaseSlot(docked, place, undock);
 
   const { change, mechanism } = useFileWatcher(rootReady ? root : null, visible);
 
@@ -3045,7 +3054,7 @@ export function EditorModal({
               {docked && <PrimaryHome className="-ml-1 mr-0.5" />}
               <img src="/logo.png" alt="" className="h-3.5 w-auto shrink-0" />
               <span className="editor-brand-title text-[11px] font-semibold whitespace-nowrap">
-                Code Editor
+                Figy Code Editor
               </span>
             </div>
             <div className="flex-1 min-w-0">
@@ -3094,6 +3103,7 @@ export function EditorModal({
               */}
               {!docked && (
                 <>
+                  <MakePrimary id="figy-code-editor" />
                   <button
                     className={`editor-btn p-1 rounded ${fullscreen ? "on" : ""}`}
                     onClick={toggleFullscreen}
@@ -3557,7 +3567,9 @@ export function EditorModal({
             onSetPythonPath={setPythonPath}
             onRefreshInterpreters={refreshInterpreters}
             onGoToLine={openGoToLine}
-            onResizeStart={onResizeStart}
+            // The primary is the size of the slot; there is nothing to
+            // resize it against, so the grip is not offered.
+            onResizeStart={docked ? undefined : onResizeStart}
           />
 
           {quickOpen && root && rootReady && (

@@ -174,16 +174,25 @@ export function TabBar({
 
   return (
     <>
-      {/*
-        No logo and no traffic-light gutter: both belonged to this strip while
-        it was the thing at the top of the window, and both moved to the app
-        header when the terminal became one service among seven. What is left
-        is the terminal's own chrome, which is all this ever was.
-      */}
       <div className="tab-bar flex items-end h-[40px] pt-[6px] pl-2 pr-2 gap-0 overflow-x-auto no-drag select-none">
         {leading && (
-          <div className="flex items-center h-[32px] mr-1 flex-shrink-0">{leading}</div>
+          <div className="flex items-center h-[32px] flex-shrink-0">{leading}</div>
         )}
+
+        {/*
+          The mark and the name, the way the other six windows carry theirs.
+
+          This strip had a bare logo while it was the app's own chrome and the
+          terminal was simply what the window was. Now it is one service among
+          seven and it says which — a window titled "FigyCode" beside one
+          titled nothing was the inconsistency.
+        */}
+        <div className="flex items-center gap-1.5 h-[32px] px-2 flex-shrink-0">
+          <img src="/logo.png" alt="" className="h-4 w-4 shrink-0 rounded" />
+          <span className="text-[11px] font-semibold whitespace-nowrap text-ft-text">
+            Figy Terminal
+          </span>
+        </div>
 
         {/* Global nav arrows */}
         {tabs.length > 1 && (
@@ -295,10 +304,15 @@ export function TabBar({
 
         {/*
           The empty stretch is the drag handle, the way it is in every tab
-          strip — but only when this is a floating window. As the base it is
-          just space.
+          strip. As a floating window that means this frame, through
+          `onDragHandle`; as the primary there is no frame to move, so it means
+          the OS window — which is what the strip meant before the terminal had
+          a frame at all.
         */}
-        <div className="flex-1 self-stretch" onPointerDown={onDragHandle} />
+        <div
+          className={`flex-1 self-stretch ${onDragHandle ? "" : "drag-region"}`}
+          onPointerDown={onDragHandle}
+        />
 
         {controls && <div className="flex items-center gap-0.5 flex-shrink-0 ml-1">{controls}</div>}
       </div>

@@ -18,29 +18,6 @@ export interface Settings {
   lastUpdateCheck: number | null;
   /** Version the user dismissed, so the same update doesn't nag every launch. */
   dismissedVersion: string | null;
-  /**
-   * The service that fills the window, rather than floating above it.
-   *
-   * Null until one has been chosen — there is no default, on purpose; see
-   * `resolveBase`, which explains why. Remembered across launches and marked
-   * on the services screen, which every launch opens on regardless: the window
-   * offers the way back to it in one click rather than assuming it.
-   *
-   * Stored as a plain string rather than `ServiceId` so that loading settings
-   * doesn't drag the catalogue — and its lucide icons — into whatever imports
-   * this. `resolveBase` in `services/catalog` turns it into an id that is known
-   * to name an available service, or null; nothing else should read it raw.
-   */
-  baseService: string | null;
-  /**
-   * Epoch millis of the last time a primary was chosen, or null if one never
-   * has been.
-   *
-   * It no longer gates anything — the services screen opens every launch — but
-   * it is the one record of whether this install has ever been past it, which
-   * is what a later version would need to tell a first run from an old one.
-   */
-  welcomedAt: number | null;
 }
 
 /**
@@ -74,8 +51,6 @@ const DEFAULT_SETTINGS: Settings = {
   updateChannel: "stable",
   lastUpdateCheck: null,
   dismissedVersion: null,
-  baseService: null,
-  welcomedAt: null,
 };
 
 /**

@@ -16,7 +16,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { PrimaryHome } from "../AppShell/PrimaryChrome";
+import { MakePrimary, PrimaryHome } from "../AppShell/PrimaryChrome";
 import { Maximize2, Minimize2, PanelLeft, X } from "lucide-react";
 import { OverlayPortal } from "../Overlay/OverlayPortal";
 import { claimFront, releaseFront } from "../../services/overlay-stack";
@@ -117,7 +117,16 @@ export function DrawingModal({ visible, onClose, docked = false }: DrawingModalP
 
   // ─── Stacking ────────────────────────────────────────────────────────────
 
-  useBaseSlot(docked, place);
+  /*
+    Back to a window's own geometry when something else takes the primary
+    slot: centred, default size, not fullscreen. See `useBaseSlot`.
+  */
+  const undock = useCallback(() => {
+    setFullscreen(false);
+    reset();
+  }, [reset]);
+
+  useBaseSlot(docked, place, undock);
 
   const [frontZ, setFrontZ] = useState<number | null>(null);
   // The base never joins the stack — there is nothing for it to be raised
@@ -218,7 +227,7 @@ export function DrawingModal({ visible, onClose, docked = false }: DrawingModalP
       */
       role="dialog"
       aria-modal={false}
-      aria-label={active ? `Draw — ${active.name}` : "Draw"}
+      aria-label={active ? `Figy Drawing — ${active.name}` : "Figy Drawing"}
       className={`drawing-modal flex flex-col overflow-hidden ${
         fullscreen || docked ? "rounded-none" : "rounded-xl"
       }`}
@@ -278,7 +287,7 @@ export function DrawingModal({ visible, onClose, docked = false }: DrawingModalP
           <span className="drawing-mark">
             <img src="/excalidraw.png" alt="" />
           </span>
-          <span className="drawing-brand-title">Draw</span>
+          <span className="drawing-brand-title">Figy Drawing</span>
         </div>
 
         <span className="drawing-sep" />
@@ -349,6 +358,7 @@ export function DrawingModal({ visible, onClose, docked = false }: DrawingModalP
             <>
               <span className="drawing-sep" />
 
+              <MakePrimary id="figy-drawing" />
               <button
                 className={`drawing-iconbtn ${fullscreen ? "on" : ""}`}
                 onClick={toggleFullscreen}
@@ -443,22 +453,28 @@ export function DrawingModal({ visible, onClose, docked = false }: DrawingModalP
           The shared grip, rather than a bare div with a cursor on it — the
           same element the editor and Claude windows put in the same corner.
         */}
-        <div
-          className="editor-resize-handle"
-          onPointerDown={(e) => onResizeStart(e, "se")}
-          title="Resize"
-          role="separator"
-          aria-orientation="horizontal"
-        >
-          <svg width="10" height="10" viewBox="0 0 10 10" className="editor-resize-icon">
-            <path
-              d="M9 1L1 9M9 5L5 9"
-              stroke="currentColor"
-              strokeWidth="1.2"
-              strokeLinecap="round"
-            />
-          </svg>
-        </div>
+{/*
+          The grip is a window's, and the primary is not a window: it is the
+          size of the slot and there is nothing to resize it against.
+        */}
+        {!docked && (
+          <div
+            className="editor-resize-handle"
+            onPointerDown={(e) => onResizeStart(e, "se")}
+            title="Resize"
+            role="separator"
+            aria-orientation="horizontal"
+          >
+            <svg width="10" height="10" viewBox="0 0 10 10" className="editor-resize-icon">
+              <path
+                d="M9 1L1 9M9 5L5 9"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinecap="round"
+              />
+            </svg>
+          </div>
+        )}
       </div>
     </div>
   );

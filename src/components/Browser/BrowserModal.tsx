@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { PrimaryHome } from "../AppShell/PrimaryChrome";
+import { MakePrimary, PrimaryHome } from "../AppShell/PrimaryChrome";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useThemeStore } from "../../stores/themeStore";
 import { OverlayPortal } from "../Overlay/OverlayPortal";
@@ -130,8 +130,26 @@ export function BrowserModal({
     native child webview is positioned from this element's geometry, so the
     page lands wrong if the frame is anywhere but where it says it is.
   */
+  const wasDocked = useRef(false);
+
   useEffect(() => {
-    if (!docked) return;
+    if (!docked) {
+      /*
+        Back to a window's own geometry when something else takes the slot.
+        Being primary means being pinned to the whole of it, and that position
+        and size outlive the promotion — so without this the browser would
+        reopen as a "popup" at 0,0 the size of the screen, covering whatever
+        replaced it, with a native webview stretched over the lot.
+      */
+      if (!wasDocked.current) return;
+      wasDocked.current = false;
+      setFullscreen(false);
+      setPos(null);
+      setSize(DEFAULT_SIZE);
+      return;
+    }
+
+    wasDocked.current = true;
     const follow = () => {
       const rect = baseSlotRect();
       setSize({ w: rect.w, h: rect.h });
@@ -554,7 +572,7 @@ export function BrowserModal({
       role="dialog"
       aria-modal={false}
       aria-label={
-        activeTab ? `Browser — ${activeTab.title || hostLabel(activeTab.url)}` : "Browser"
+        activeTab ? `Figy Browser — ${activeTab.title || hostLabel(activeTab.url)}` : "Figy Browser"
       }
       className={`browser-modal overflow-hidden shadow-2xl flex flex-col ${
         fullscreen || docked ? "browser-fullscreen" : "rounded-xl"
@@ -585,7 +603,7 @@ export function BrowserModal({
         <div className="browser-brand flex items-center gap-2 pl-1 pr-2.5 mr-1 pb-1.5 shrink-0">
           <img src="/logo.png" alt="" className="h-3.5 w-auto shrink-0" />
           <span className="browser-brand-title text-[11px] font-semibold whitespace-nowrap">
-            Browser
+            Figy Browser
           </span>
         </div>
 
@@ -649,6 +667,7 @@ export function BrowserModal({
           */}
           {!docked && (
             <>
+              <MakePrimary id="figy-browser" />
               <button
                 className={`browser-btn p-1 rounded ${fullscreen ? "on" : ""}`}
                 onPointerDown={(e) => e.stopPropagation()}

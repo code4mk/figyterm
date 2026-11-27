@@ -15,7 +15,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PrimaryHome } from "../AppShell/PrimaryChrome";
+import { MakePrimary, PrimaryHome } from "../AppShell/PrimaryChrome";
 import {
   Ban,
   Maximize2,
@@ -283,7 +283,16 @@ export function ApiModal({
 
   // ─── Stacking ────────────────────────────────────────────────────────────
 
-  useBaseSlot(docked, place);
+  /*
+    Back to a window's own geometry when something else takes the primary
+    slot: centred, default size, not fullscreen. See `useBaseSlot`.
+  */
+  const undock = useCallback(() => {
+    setFullscreen(false);
+    reset();
+  }, [reset]);
+
+  useBaseSlot(docked, place, undock);
 
   const [frontZ, setFrontZ] = useState<number | null>(null);
   // The base never joins the stack — there is nothing for it to be raised
@@ -575,7 +584,7 @@ export function ApiModal({
         <div className="browser-brand flex items-center gap-2 pl-1 pr-2.5 mr-1 shrink-0">
           <img src="/logo.png" alt="" className="h-4 w-auto shrink-0" />
           <span className="browser-brand-title text-[11px] font-semibold whitespace-nowrap">
-            Figy API
+            Figy Man
           </span>
         </div>
 
@@ -609,6 +618,7 @@ export function ApiModal({
           */}
           {!docked && (
             <>
+              <MakePrimary id="figy-man" />
               <button
                 className={`p-1.5 rounded hover:bg-ft-surface ${fullscreen ? "text-ft-accent" : "text-ft-text-muted"}`}
                 onPointerDown={(e) => e.stopPropagation()}
@@ -1128,20 +1138,26 @@ export function ApiModal({
                     : "Saved"
                   : "Not in a collection · ⌘S to save"}
         </span>
-        <div
-          className="cursor-se-resize p-1 shrink-0"
-          onPointerDown={(e) => onResizeStart(e, "se")}
-          title="Resize"
-        >
-          <svg width="10" height="10" viewBox="0 0 10 10" className="text-ft-text-muted">
-            <path
-              d="M9 1L1 9M9 5L5 9"
-              stroke="currentColor"
-              strokeWidth="1.2"
-              strokeLinecap="round"
-            />
-          </svg>
-        </div>
+{/*
+          The grip is a window's, and the primary is not a window: it is the
+          size of the slot and there is nothing to resize it against.
+        */}
+        {!docked && (
+          <div
+            className="cursor-se-resize p-1 shrink-0"
+            onPointerDown={(e) => onResizeStart(e, "se")}
+            title="Resize"
+          >
+            <svg width="10" height="10" viewBox="0 0 10 10" className="text-ft-text-muted">
+              <path
+                d="M9 1L1 9M9 5L5 9"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinecap="round"
+              />
+            </svg>
+          </div>
+        )}
       </div>
     </div>
   );

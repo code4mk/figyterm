@@ -79,6 +79,7 @@ export const SERVICES: ServiceDef[] = [
       "Panes, tabs, search, history, a system monitor and a command palette — the terminal fundamentals, done properly.",
     accent: "#94a3b8",
     icon: TerminalIcon,
+    shortcut: "terminal",
     available: true,
   },
   {
@@ -161,7 +162,8 @@ const BY_ID = new Map(SERVICES.map((service) => [service.id, service]));
  *
  * Every caller here holds an id that came out of this table or out of settings
  * that this table validated, so a miss is a programming error and not a case to
- * branch on. `baseService()` below is where a stale stored id is dealt with.
+ * branch on. A primary is chosen from a window that is already open, so there
+ * is no stored id to go stale: it is picked from this very table.
  */
 export function service(id: ServiceId): ServiceDef {
   const found = BY_ID.get(id);
@@ -174,24 +176,6 @@ export function selectableServices(): ServiceDef[] {
   return SERVICES.filter((s) => s.available);
 }
 
-/**
- * The stored base, made safe — or null, meaning nobody has chosen one.
- *
- * There is deliberately no default. The terminal was the base for as long as
- * it was the only thing here, and leaving it as the fallback would have meant
- * every install still opened on a shell and looked like a terminal — which is
- * the exact impression the services screen exists to correct. So an install
- * with no answer yet has no primary, and the screen is what fills the window.
- *
- * Null also covers the recoverable failures: a service dropped from the table,
- * or one that is unavailable on this platform after a settings file travelled
- * between machines — the browser is the one that can. Rather than silently
- * substituting a service nobody picked, the window asks again.
- */
-export function resolveBase(stored: string | null | undefined): ServiceId | null {
-  const found = stored ? BY_ID.get(stored as ServiceId) : undefined;
-  return found?.available ? found.id : null;
-}
 
 /** The chord that opens a service, spelled for this platform. */
 export function serviceShortcut(def: ServiceDef) {

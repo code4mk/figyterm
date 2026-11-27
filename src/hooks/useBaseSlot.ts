@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { baseSlotRect, type ModalPos, type ModalSize } from "./useDraggableModal";
 
 /**
@@ -18,10 +18,32 @@ import { baseSlotRect, type ModalPos, type ModalSize } from "./useDraggableModal
  */
 export function useBaseSlot(
   docked: boolean,
-  place: (pos: ModalPos | null, size: ModalSize) => void
+  place: (pos: ModalPos | null, size: ModalSize) => void,
+  /**
+   * Called once when this service stops being the primary.
+   *
+   * It has to put the window back where a window goes. Being primary means
+   * being `place()`d at the whole slot, and that position and size outlive the
+   * promotion — so a service demoted when something else took the window would
+   * reopen as a "popup" pinned to 0,0 at the full size of the screen, covering
+   * the thing that replaced it. Implementations call `reset()`, which is the
+   * centred default a window has before it has ever been dragged, and clear
+   * any fullscreen they were holding, since the button that would have
+   * restored it was hidden for as long as they were primary.
+   */
+  onUndock: () => void
 ): void {
+  const wasDocked = useRef(false);
+
   useEffect(() => {
-    if (!docked) return;
+    if (!docked) {
+      if (!wasDocked.current) return;
+      wasDocked.current = false;
+      onUndock();
+      return;
+    }
+
+    wasDocked.current = true;
 
     const follow = () => {
       const rect = baseSlotRect();
@@ -31,7 +53,7 @@ export function useBaseSlot(
     follow();
     window.addEventListener("resize", follow);
     return () => window.removeEventListener("resize", follow);
-  }, [docked, place]);
+  }, [docked, place, onUndock]);
 }
 
 /**

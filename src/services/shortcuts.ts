@@ -66,6 +66,12 @@ export const SHORTCUTS = define({
   clearTerminal: { key: "k", label: "K", mac: MOD_ONLY, other: CTRL_SHIFT },
   commandPalette: { key: "p", label: "P", mac: MOD_SHIFT, other: CTRL_SHIFT },
   monitor: { key: "m", label: "M", mac: MOD_SHIFT, other: CTRL_SHIFT },
+  // `S` for shell. The terminal is a service like the other six and takes a
+  // chord like them — it had none while it was simply what the window was.
+  // `T` and `D`, the letters it would want, are new-tab and split; `S` was
+  // free in both schemes, and the shell's own Ctrl+S is XOFF where this is
+  // Ctrl+Shift+S.
+  terminal: { key: "s", label: "S", mac: MOD_SHIFT, other: CTRL_SHIFT },
   browser: { key: "b", label: "B", mac: MOD_SHIFT, other: CTRL_SHIFT },
   // `E` for editor. Free in both schemes, and the editor's own chords (⌘S,
   // ⌘P, ⌘B…) are scoped inside its modal — see `EditorModal.onKeyDown`, which

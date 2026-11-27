@@ -204,10 +204,15 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         None::<&str>,
     )?;
     // The terminal is a service like the other six and belongs in the list
-    // with them. It carries no accelerator because it has no chord: every
-    // other service took a free letter, and the ones a terminal would want —
-    // T for a tab, D for a split — are the shell menu's own.
-    let terminal = MenuItem::with_id(app, MENU_TERMINAL, "Figy Terminal", true, None::<&str>)?;
+    // with them, chord and all. `S` for shell: `T` and `D`, the letters it
+    // would want, are new-tab and split.
+    let terminal = MenuItem::with_id(
+        app,
+        MENU_TERMINAL,
+        label("Figy Terminal", "Ctrl+Shift+S"),
+        true,
+        accel("CmdOrCtrl+Shift+S", "Ctrl+Shift+S"),
+    )?;
     let browser = MenuItem::with_id(
         app,
         MENU_BROWSER,

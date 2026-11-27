@@ -31,9 +31,8 @@ import type { ClaudeMentionRequest } from "../Claude/ClaudeModal";
 import { isMac, EMBEDDED_BROWSER_SUPPORTED } from "../../services/platform";
 import { TerminalWindow } from "../Terminal/TerminalWindow";
 import { ServicesScreen } from "../Services/ServicesScreen";
-import { resolveBase, type ServiceId } from "../../services/catalog";
+import { type ServiceId } from "../../services/catalog";
 import { PrimaryChromeProvider } from "./PrimaryChrome";
-import { useSettingsStore } from "../../stores/settingsStore";
 import { serveAgentLsp } from "../../services/figycode-lsp";
 
 const MAX_PANES_PER_TAB = 4;
@@ -180,28 +179,21 @@ export function AppShell() {
   const toggleTheme = useThemeStore((s) => s.toggleTheme);
 
   /*
-    Which service fills the window, and whether anybody has said yet.
+    The primary is this session's, and is not remembered.
 
-    `baseService` is stored as a plain string and may name a service that this
-    build dropped or this platform cannot run; `resolveBase` turns it into an
-    id that is known good, or null. Null is not a failure — it is a first run,
-    and the welcome page is what the window shows until it is answered.
+    Every launch opens on the services screen with nothing primary. The point
+    of that screen is that seven programs exist, and a window that restored
+    yesterday's choice and skipped straight past it is the window that hid six
+    of them in the first place. Promoting something is a decision about this
+    sitting, taken after opening it and using it — see `MakePrimary`, which is
+    in a window's own title bar for that reason — so it lives in state here
+    rather than in `settings`.
   */
-  const settings = useSettingsStore((state) => state.settings);
-  const updateSettings = useSettingsStore((state) => state.updateSettings);
-  /** The primary remembered from last time, or null if never set. */
-  const storedBase = resolveBase(settings.baseService);
-
-  /*
-    Every launch opens on the services screen.
-
-    Not an onboarding page that is shown once — the home screen. The window
-    remembers what was primary and marks it there, so getting back to it is one
-    click, but it does not assume you want it again: the point of the screen is
-    that the other six exist, and a window that skips straight past it is the
-    window that hid them in the first place.
-  */
+  const [storedBase, setStoredBase] = useState<ServiceId | null>(null);
   const [launcherOpen, setLauncherOpen] = useState(true);
+
+  /** The primary, for callbacks defined before it and not rebuilt when it moves. */
+  const baseRef = useRef<ServiceId | null>(null);
 
   /**
    * The service actually filling the slot right now.
@@ -211,14 +203,7 @@ export function AppShell() {
    * thing claiming the same rectangle.
    */
   const baseId = launcherOpen ? null : storedBase;
-
-  const setPrimary = useCallback(
-    (id: ServiceId) => {
-      updateSettings({ baseService: id, welcomedAt: Date.now() });
-      setLauncherOpen(false);
-    },
-    [updateSettings]
-  );
+  baseRef.current = baseId;
 
   /**
    * Whether a service should be drawn as a floating window.
@@ -311,11 +296,13 @@ export function AppShell() {
     setTabs((prev) => [...prev, { id: tabId, paneTree, sessions: {} }]);
     setActiveTabId(tabId);
     setActivePaneId(paneId);
-    // A new tab is a request to look at the terminal. When it is the base it
-    // is already in front of you; when it is not — ⌘T from the drawing board,
-    // or "open a terminal here" from the editor's tree — the window has to
-    // come up, or the tab is made somewhere nobody can see.
-    setTerminalOpen(true);
+    // A new tab is a request to look at the terminal. When it is the primary
+    // it is already in front of you, and setting the flag would only arrange
+    // for it to pop open later, once something else took the window; when it
+    // is not — ⌘T from the drawing board, or "open a terminal here" from the
+    // editor's tree — the window has to come up, or the tab is made somewhere
+    // nobody can see.
+    if (baseRef.current !== "figy-terminal") setTerminalOpen(true);
   }, [setPaneInitialCwd]);
 
   const handleNewTab = useCallback(() => {
@@ -622,6 +609,44 @@ export function AppShell() {
         break;
     }
   }, []);
+
+  const setPrimary = useCallback(
+    (id: ServiceId) => {
+      setStoredBase(id);
+      setLauncherOpen(false);
+      /*
+        It stops being a popup as it becomes the primary.
+
+        `windowVisible` already hides it either way — the primary is never
+        drawn as a window — so this is about later: left set, the flag would
+        bring the window back the moment something else was made primary, and
+        promoting B would pop A open behind it.
+      */
+      setServiceOpen(id, false);
+    },
+    [setServiceOpen]
+  );
+
+  /**
+   * "Open" from the services screen.
+   *
+   * For the service that is already primary this means going back to it: it is
+   * not hidden, it is underneath this screen, and opening a popup of the thing
+   * you are about to be looking at anyway would put two of it on the window.
+   * For anything else it is a popup over the primary, and the screen stays up
+   * so several can be opened in a row.
+   */
+  const openFromServices = useCallback(
+    (id: ServiceId) => {
+      if (id === storedBase) {
+        setLauncherOpen(false);
+        return;
+      }
+      setServiceOpen(id, true);
+    },
+    [storedBase, setServiceOpen]
+  );
+
 
   /*
     Minimize is gone with the dock it landed in.
@@ -970,6 +995,9 @@ export function AppShell() {
       } else if (matches(e, SHORTCUTS.monitor)) {
         e.preventDefault();
         setMonitorOpen((prev) => !prev);
+      } else if (matches(e, SHORTCUTS.terminal)) {
+        e.preventDefault();
+        toggleTerminal();
       } else if (EMBEDDED_BROWSER_SUPPORTED && matches(e, SHORTCUTS.browser)) {
         e.preventDefault();
         setBrowserOpen((prev) => !prev);
@@ -1011,7 +1039,7 @@ export function AppShell() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleNewTab, handleNewTabInSameDir, handleClosePane, handleClearTerminal, switchToNextTab, switchToPreviousTab, handleSplitPane, handleSwitchTab, tabs, toggleTheme, toggleEditor, toggleClaude, toggleFigy, toggleDrawing, toggleApi]);
+  }, [handleNewTab, handleNewTabInSameDir, handleClosePane, handleClearTerminal, switchToNextTab, switchToPreviousTab, handleSplitPane, handleSwitchTab, tabs, toggleTheme, toggleTerminal, toggleEditor, toggleClaude, toggleFigy, toggleDrawing, toggleApi]);
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
 
@@ -1063,7 +1091,7 @@ export function AppShell() {
       something it can do.
     */
     ...(baseId !== "figy-terminal"
-      ? [{ id: "terminal", label: "Open Figy Terminal", action: toggleTerminal }]
+      ? [{ id: "terminal", label: "Open Figy Terminal", shortcut: keys(SHORTCUTS.terminal), action: toggleTerminal }]
       : []),
     // Absent only where the embedded browser can't be positioned at all.
     ...(EMBEDDED_BROWSER_SUPPORTED && baseId !== "figy-browser"
@@ -1117,7 +1145,12 @@ export function AppShell() {
   );
 
   return (
-    <PrimaryChromeProvider onShowServices={() => setLauncherOpen(true)}>
+    <PrimaryChromeProvider
+      value={{
+        onShowServices: () => setLauncherOpen(true),
+        onSetPrimary: setPrimary,
+      }}
+    >
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-ft-bg">
       {/*
         The slot.
@@ -1135,9 +1168,9 @@ export function AppShell() {
         {launcherOpen && (
           <ServicesScreen
             current={storedBase}
-            onSetPrimary={setPrimary}
-            onOpen={(id) => setServiceOpen(id, true)}
+            onOpen={openFromServices}
             openIds={openIds}
+            onDismiss={storedBase ? () => setLauncherOpen(false) : undefined}
           />
         )}
       </div>
@@ -1218,7 +1251,7 @@ export function AppShell() {
         />
       </OverlayBoundary>
       {EMBEDDED_BROWSER_SUPPORTED && (
-        <OverlayBoundary label="browser" onDismiss={() => setBrowserOpen(false)}>
+        <OverlayBoundary label="Figy Browser" onDismiss={() => setBrowserOpen(false)}>
           <BrowserModal
             visible={windowVisible("figy-browser", browserOpen)}
             docked={baseId === "figy-browser"}
@@ -1233,7 +1266,7 @@ export function AppShell() {
         dismiss it to look at the shell for a moment.
       */}
       {(editorMounted || baseId === "figy-code-editor") && (
-        <OverlayBoundary label="code editor" onDismiss={closeEditor}>
+        <OverlayBoundary label="Figy Code Editor" onDismiss={closeEditor}>
           <Suspense fallback={null}>
             <EditorModal
               visible={windowVisible("figy-code-editor", editorOpen)}
@@ -1273,7 +1306,7 @@ export function AppShell() {
         is still there when the window comes back.
       */}
       {(figyMounted || baseId === "figy-harness") && (
-        <OverlayBoundary label="FigyCode" onDismiss={closeFigy}>
+        <OverlayBoundary label="Figy Harness" onDismiss={closeFigy}>
           <Suspense fallback={null}>
             <FigyCodeModal
               visible={windowVisible("figy-harness", figyOpen)}
@@ -1285,7 +1318,7 @@ export function AppShell() {
         </OverlayBoundary>
       )}
       {(drawingMounted || baseId === "figy-drawing") && (
-        <OverlayBoundary label="drawing" onDismiss={closeDrawing}>
+        <OverlayBoundary label="Figy Drawing" onDismiss={closeDrawing}>
           <Suspense fallback={null}>
             <DrawingModal
               visible={windowVisible("figy-drawing", drawingOpen)}
@@ -1296,7 +1329,7 @@ export function AppShell() {
         </OverlayBoundary>
       )}
       {(apiMounted || baseId === "figy-man") && (
-        <OverlayBoundary label="API client" onDismiss={closeApi}>
+        <OverlayBoundary label="Figy Man" onDismiss={closeApi}>
           <Suspense fallback={null}>
             <ApiModal
               visible={windowVisible("figy-man", apiOpen)}

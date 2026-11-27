@@ -20,12 +20,10 @@ import {
   Loader2,
   ArrowUpCircle,
   ExternalLink,
-  LayoutGrid,
 } from "lucide-react";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { invoke } from "@tauri-apps/api/core";
 import { useSettingsStore } from "../../stores/settingsStore";
-import { resolveBase, selectableServices } from "../../services/catalog";
 import { useThemeStore } from "../../stores/themeStore";
 import { Settings as SettingsType } from "../../services/settings";
 import {
@@ -76,13 +74,15 @@ export type SettingsScope = "app" | "terminal";
 /**
  * Which tabs each scope has, in order. The first is where it opens.
  *
- * Specs is the one that could argue for either — a command spec is
- * autocomplete for the shell — but it is a library the whole app downloads and
- * shares rather than anything about this terminal, so it sits with the app.
+ * Specs is with the terminal. A command spec is the autocomplete that appears
+ * as you type at the prompt — it is only ever seen in the terminal and only
+ * ever affects the terminal, and the fact that the library behind it is
+ * downloaded once and shared is a detail of how it is stored, not of what it
+ * is for.
  */
 const SCOPE_TABS: Record<SettingsScope, SettingsTab[]> = {
-  app: ["general", "shortcuts", "specs", "updates"],
-  terminal: ["terminal", "theme"],
+  app: ["general", "shortcuts", "updates"],
+  terminal: ["terminal", "theme", "specs"],
 };
 
 interface ShellCommandOutput {
@@ -416,12 +416,7 @@ source "${resolvedPath}"`, `${home}/.zshrc`],
                 {/* Content area */}
                 <div className="flex-1 overflow-y-auto p-6">
                   {activeTab === "general" && (
-                    <GeneralTab
-                      settings={settings}
-                      updateSettings={updateSettings}
-                      theme={theme}
-                      setTheme={setTheme}
-                    />
+                    <GeneralTab theme={theme} setTheme={setTheme} />
                   )}
                   {activeTab === "terminal" && (
                     <TerminalTab
@@ -480,66 +475,14 @@ source "${resolvedPath}"`, `${home}/.zshrc`],
 /* ---------- General Tab ---------- */
 
 function GeneralTab({
-  settings,
-  updateSettings,
   theme,
   setTheme,
 }: {
-  settings: SettingsType;
-  updateSettings: (partial: Partial<SettingsType>) => void;
   theme: "dark" | "light";
   setTheme: (t: "dark" | "light") => void;
 }) {
-  const baseId = resolveBase(settings.baseService);
-
   return (
     <div className="space-y-6">
-      {/* Base service */}
-      <div>
-        <SectionHeader icon={<LayoutGrid size={13} />} title="Base" />
-        <p className="mb-3 text-[11px] leading-relaxed text-ft-text-muted">
-          The service that fills the window. Everything else opens over it in
-          its own window — and keeps running when you close it.
-        </p>
-        <div className="grid grid-cols-2 gap-2">
-          {selectableServices().map((def) => {
-            const isBase = def.id === baseId;
-            const Icon = def.icon;
-
-            return (
-              <button
-                key={def.id}
-                type="button"
-                onClick={() => updateSettings({ baseService: def.id })}
-                aria-pressed={isBase}
-                title={def.tagline}
-                className={`flex items-center gap-2.5 rounded-lg border p-2.5 text-left transition-colors ${
-                  isBase
-                    ? "border-transparent bg-ft-elevated"
-                    : "border-ft-border-subtle hover:border-ft-border hover:bg-ft-elevated"
-                }`}
-                style={isBase ? { boxShadow: `0 0 0 1.5px ${def.accent}` } : undefined}
-              >
-                <span
-                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded"
-                  style={{ backgroundColor: `${def.accent}1f`, color: def.accent }}
-                >
-                  {def.image ? (
-                    <img src={def.image} alt="" className="h-4 w-4" />
-                  ) : (
-                    <Icon size={14} />
-                  )}
-                </span>
-                <span className="min-w-0 flex-1 truncate text-[11.5px] text-ft-text">
-                  {def.name}
-                </span>
-                {isBase && <Check size={13} style={{ color: def.accent }} />}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
       {/* Appearance */}
       <div>
         <SectionHeader icon={<Sun size={13} />} title="Appearance" />
