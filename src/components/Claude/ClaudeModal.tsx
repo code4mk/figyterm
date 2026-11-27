@@ -1543,22 +1543,34 @@ export function ClaudeModal({
               it is a window's, so the primary has none: it is the size of the
               slot and there is nothing to resize it against.
             */}
-            <div
-              className={`editor-resize-handle ${docked ? "hidden" : ""}`}
-              onPointerDown={onResizeStart}
-              title="Resize"
-              role="separator"
-              aria-orientation="horizontal"
-            >
-              <svg width="10" height="10" viewBox="0 0 10 10" className="editor-resize-icon">
-                <path
-                  d="M9 1L1 9M9 5L5 9"
-                  stroke="currentColor"
-                  strokeWidth="1.2"
-                  strokeLinecap="round"
-                />
-              </svg>
-            </div>
+{/*
+              Not rendered rather than hidden with a class.
+
+              `.editor-resize-handle` sets `display: flex`, `.hidden` sets
+              `display: none`, and the two have the same specificity — so which
+              wins is decided by source order, and this stylesheet comes after
+              Tailwind's utilities. The handle stayed visible and clickable.
+              The same trap is written up in `EditorModal`, where `hidden` lost
+              to `.flex` and a modal would not close.
+            */}
+            {!docked && (
+              <div
+                className="editor-resize-handle"
+                onPointerDown={onResizeStart}
+                title="Resize"
+                role="separator"
+                aria-orientation="horizontal"
+              >
+                <svg width="10" height="10" viewBox="0 0 10 10" className="editor-resize-icon">
+                  <path
+                    d="M9 1L1 9M9 5L5 9"
+                    stroke="currentColor"
+                    strokeWidth="1.2"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </div>
+            )}
           </div>
 
           {/*

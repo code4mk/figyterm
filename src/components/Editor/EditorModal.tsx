@@ -3092,7 +3092,7 @@ export function EditorModal({
                   openScratch();
                 }}
                 onReorder={reorderBuffers}
-                onDragHandle={onDragStart}
+                onDragHandle={docked ? undefined : onDragStart}
               />
             </div>
             <div className="flex items-center gap-0.5 px-2 shrink-0 editor-tabstrip">

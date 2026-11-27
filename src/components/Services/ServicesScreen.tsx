@@ -1,5 +1,7 @@
-import { useCallback, useRef, useState, type CSSProperties } from "react";
-import { ArrowLeft } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { ArrowLeft, Undo2 } from "lucide-react";
+import { OverlayPortal } from "../Overlay/OverlayPortal";
+import { OVERLAY_Z_MAX } from "../../services/overlay-stack";
 import {
   selectableServices,
   service,
@@ -23,6 +25,13 @@ import { keys } from "../../services/shortcuts";
  * they have seen any of them; it is asked in a window's own title bar now,
  * once you have one open and know whether you want to live in it. See
  * `MakePrimary`.
+ *
+ * It appears two ways, and the difference is only whether there is anything
+ * behind it. With nothing primary it is the slot's content, because the window
+ * has nothing else to show. With a primary it is a modal over it — asking what
+ * else exists is not a reason to put away the thing being used, and the
+ * previous arrangement, which swapped the primary out for this list, made it
+ * one.
  */
 
 interface ServicesScreenProps {
@@ -39,9 +48,26 @@ interface ServicesScreenProps {
    * screen is the only thing the window has to show.
    */
   onDismiss?: () => void;
+  /**
+   * Gives the window back to this list, with nothing primary.
+   *
+   * Present only when something is. The primary is a choice, and a choice you
+   * cannot take back is a trap — before this the only way out of one was into
+   * another.
+   */
+  onRemovePrimary?: () => void;
+  /** Over a primary rather than instead of one. */
+  asModal?: boolean;
 }
 
-export function ServicesScreen({ current, onOpen, openIds, onDismiss }: ServicesScreenProps) {
+export function ServicesScreen({
+  current,
+  onOpen,
+  openIds,
+  onDismiss,
+  onRemovePrimary,
+  asModal = false,
+}: ServicesScreenProps) {
   const options = selectableServices();
   const [focused, setFocused] = useState<ServiceId>(
     current && options.some((o) => o.id === current) ? current : options[0].id
@@ -79,9 +105,44 @@ export function ServicesScreen({ current, onOpen, openIds, onDismiss }: Services
     [focused, options, onDismiss]
   );
 
-  return (
-    <div className="h-full overflow-y-auto bg-ft-bg" onKeyDown={onKeyDown}>
-      <div className="mx-auto w-full max-w-[940px] px-10 py-14">
+  /*
+    The keyboard starts on a card.
+
+    `onKeyDown` is a React handler on the container, so it only sees keys from
+    something inside it — with nothing focused, Escape and the arrows went to
+    the document and this list answered neither. It matters most as a modal,
+    where Escape is how anybody expects to leave.
+  */
+  useEffect(() => {
+    const target = gridRef.current?.querySelector<HTMLElement>(
+      `[data-service="${focused}"]`
+    );
+    target?.focus({ preventScroll: true });
+    // Once, on open. The arrow handler moves focus itself afterwards, and
+    // re-running this would take it back off whatever a pointer had reached.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const body = (
+    <div
+      className={
+        asModal
+          ? "w-full max-w-[940px] overflow-y-auto rounded-2xl border border-ft-border bg-ft-bg shadow-2xl"
+          : "h-full overflow-y-auto bg-ft-bg"
+      }
+      style={asModal ? { maxHeight: "min(78vh, 760px)" } : undefined}
+      role={asModal ? "dialog" : undefined}
+      aria-modal={asModal || undefined}
+      aria-label={asModal ? "Services" : undefined}
+      onKeyDown={onKeyDown}
+    >
+      <div
+        className={
+          asModal
+            ? "w-full px-8 py-8"
+            : "mx-auto w-full max-w-[940px] px-10 py-14"
+        }
+      >
         <header className="mb-10 flex items-end justify-between gap-6">
           <div className="min-w-0">
             <div className="mb-4 flex items-center gap-2">
@@ -100,23 +161,45 @@ export function ServicesScreen({ current, onOpen, openIds, onDismiss }: Services
               Services
             </h1>
             <p className="mt-1.5 text-[13px] leading-relaxed text-ft-text-muted">
-              Open one in a window. Set a primary from its title bar to have it
-              fill this one.
+              {current
+                ? "Open one in a window. Set a primary from its title bar to have it fill this one."
+                : "Open one in a window. Set a primary from its title bar to have it fill this one — until then, this is what the window shows."}
             </p>
           </div>
 
-          {current && onDismiss && (
-            <button
-              type="button"
-              onClick={onDismiss}
-              className="flex shrink-0 items-center gap-2 rounded-lg border border-ft-border-subtle px-3 py-2 text-[12px] text-ft-text-secondary transition-colors hover:border-ft-border hover:bg-ft-surface hover:text-ft-text"
-            >
-              <ArrowLeft size={13} className="opacity-60" />
-              <span className="max-w-[180px] truncate">{service(current).name}</span>
-              <kbd className="rounded border border-ft-border-subtle px-1.5 py-px font-sans text-[9.5px] text-ft-text-muted">
-                Esc
-              </kbd>
-            </button>
+          {current && (
+            <div className="flex shrink-0 items-center gap-2">
+              {/*
+                Undo the primary. It is a choice, and a choice with no way back
+                is a trap — before this the only way out of one was into
+                another.
+              */}
+              {onRemovePrimary && (
+                <button
+                  type="button"
+                  onClick={onRemovePrimary}
+                  title={`${service(current).name} stops filling the window`}
+                  className="flex items-center gap-2 rounded-lg border border-ft-border-subtle px-3 py-2 text-[12px] text-ft-text-secondary transition-colors hover:border-ft-border hover:bg-ft-surface hover:text-ft-text"
+                >
+                  <Undo2 size={13} className="opacity-60" />
+                  Remove primary
+                </button>
+              )}
+
+              {onDismiss && (
+                <button
+                  type="button"
+                  onClick={onDismiss}
+                  className="flex items-center gap-2 rounded-lg border border-ft-border-subtle px-3 py-2 text-[12px] text-ft-text-secondary transition-colors hover:border-ft-border hover:bg-ft-surface hover:text-ft-text"
+                >
+                  <ArrowLeft size={13} className="opacity-60" />
+                  <span className="max-w-[160px] truncate">{service(current).name}</span>
+                  <kbd className="rounded border border-ft-border-subtle px-1.5 py-px font-sans text-[9.5px] text-ft-text-muted">
+                    Esc
+                  </kbd>
+                </button>
+              )}
+            </div>
           )}
         </header>
 
@@ -216,5 +299,29 @@ export function ServicesScreen({ current, onOpen, openIds, onDismiss }: Services
         </div>
       </div>
     </div>
+  );
+
+  if (!asModal) return body;
+
+  return (
+    <OverlayPortal>
+      {/*
+        Above every service window, so the list is never behind one of the
+        things it lists. Below `APP_DIALOG_Z`, which Settings uses — that is a
+        dialog raised *from* here and has to cover it.
+
+        The backdrop dismisses, unlike a service window's. This holds nothing:
+        it is a list, and clicking away from a list is how anybody closes one.
+      */}
+      <div
+        className="fixed inset-0 flex items-start justify-center overflow-y-auto bg-black/50 px-6 py-[7vh] backdrop-blur-[2px]"
+        style={{ zIndex: OVERLAY_Z_MAX + 1 }}
+        onMouseDown={(e) => {
+          if (e.target === e.currentTarget) onDismiss?.();
+        }}
+      >
+        {body}
+      </div>
+    </OverlayPortal>
   );
 }

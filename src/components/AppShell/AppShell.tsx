@@ -198,15 +198,20 @@ export function AppShell() {
   const storedBaseRef = useRef<ServiceId | null>(null);
 
   /**
-   * The service actually filling the slot right now.
+   * The service filling the slot, or null when nothing is primary yet.
    *
-   * Null while the services screen is up, because the screen is what fills it
-   * — and a service that thought it was docked underneath would be a second
-   * thing claiming the same rectangle.
+   * The services list no longer displaces it. With no primary the list *is*
+   * the slot's content, because there is nothing else to show; with one, the
+   * list is a modal over it — asking for the other six is not a reason to put
+   * away the one you are using.
    */
-  const baseId = launcherOpen ? null : storedBase;
+  const baseId = storedBase;
   baseRef.current = baseId;
   storedBaseRef.current = storedBase;
+
+  /** The list fills the slot when nothing is primary, and floats over one when something is. */
+  const servicesAsModal = launcherOpen && storedBase !== null;
+  const servicesShown = servicesAsModal || storedBase === null;
 
   /**
    * Whether a service should be drawn as a floating window.
@@ -652,14 +657,39 @@ export function AppShell() {
    */
   const openFromServices = useCallback(
     (id: ServiceId) => {
-      if (id === storedBase) {
-        setLauncherOpen(false);
-        return;
-      }
+      // The list closes behind the thing it opened — it is a modal and you
+      // picked something, so leaving it up would hide what you just asked for.
+      setLauncherOpen(false);
+      // The primary is not hidden, it is underneath; opening a popup of what
+      // you are about to look at anyway would put two of it on the window.
+      if (id === storedBase) return;
       setServiceOpen(id, true);
     },
     [storedBase, setServiceOpen]
   );
+
+  /**
+   * Gives the window back to the services list.
+   *
+   * The primary is cleared rather than replaced, so the slot goes back to what
+   * it shows on a fresh launch. Any popups stay where they are — this is about
+   * what fills the window, not about closing anything.
+   */
+  const removePrimary = useCallback(() => {
+    const outgoing = storedBaseRef.current;
+    setStoredBase(null);
+    setLauncherOpen(false);
+    /*
+      It stops filling the window; it does not stop existing.
+
+      The same rule as being replaced by another primary: it was on screen a
+      moment ago and nobody closed it, so it goes back to being a window
+      rather than having to be found again in this list. `useBaseSlot`'s
+      `onUndock` resets the geometry it was holding, which was the whole
+      slot, so it returns at the centred default size.
+    */
+    if (outgoing) setServiceOpen(outgoing, true);
+  }, [setServiceOpen]);
 
 
   /*
@@ -1179,12 +1209,14 @@ export function AppShell() {
         competing for the same rectangle.
       */}
       <div className="flex-1 min-h-0">
-        {launcherOpen && (
+        {servicesShown && (
           <ServicesScreen
+            asModal={servicesAsModal}
             current={storedBase}
             onOpen={openFromServices}
             openIds={openIds}
-            onDismiss={storedBase ? () => setLauncherOpen(false) : undefined}
+            onDismiss={servicesAsModal ? () => setLauncherOpen(false) : undefined}
+            onRemovePrimary={storedBase ? removePrimary : undefined}
           />
         )}
       </div>

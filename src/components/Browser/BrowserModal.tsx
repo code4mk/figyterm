@@ -604,7 +604,7 @@ export function BrowserModal({
         className={`browser-chrome browser-tabstrip flex items-center gap-1 px-2 pt-1.5 pb-0 select-none ${
           docked ? "" : "cursor-grab active:cursor-grabbing"
         }`}
-        onPointerDown={handleDragStart}
+        onPointerDown={docked ? undefined : handleDragStart}
         onContextMenu={suppressContextMenu}
       >
         {/*
@@ -830,27 +830,39 @@ export function BrowserModal({
           <span className="browser-status-text text-[10px]">
             {tabs.length} {tabs.length === 1 ? "tab" : "tabs"}
           </span>
-          <div
-            className="browser-resize-handle"
-            onPointerDown={handleResizeStart}
-            title="Resize"
-            role="separator"
-            aria-orientation="horizontal"
-          >
-            {/*
-              `M9 9L9 9` used to be a third segment here. It is zero length, so
-              it drew nothing — two strokes is the mark, as in every other
-              window's corner.
-            */}
-            <svg width="10" height="10" viewBox="0 0 10 10" className="browser-resize-icon">
-              <path
-                d="M9 1L1 9M9 5L5 9"
-                stroke="currentColor"
-                strokeWidth="1.2"
-                strokeLinecap="round"
-              />
-            </svg>
-          </div>
+{/*
+            Not rendered rather than hidden with a class.
+
+            `.editor-resize-handle` sets `display: flex`, `.hidden` sets
+            `display: none`, and the two have the same specificity — so which
+            wins is decided by source order, and this stylesheet comes after
+            Tailwind's utilities. The handle stayed visible and clickable.
+            The same trap is written up in `EditorModal`, where `hidden` lost
+            to `.flex` and a modal would not close.
+          */}
+          {!docked && (
+            <div
+              className="browser-resize-handle"
+              onPointerDown={handleResizeStart}
+              title="Resize"
+              role="separator"
+              aria-orientation="horizontal"
+            >
+              {/*
+                `M9 9L9 9` used to be a third segment here. It is zero length, so
+                it drew nothing — two strokes is the mark, as in every other
+                window's corner.
+              */}
+              <svg width="10" height="10" viewBox="0 0 10 10" className="browser-resize-icon">
+                <path
+                  d="M9 1L1 9M9 5L5 9"
+                  stroke="currentColor"
+                  strokeWidth="1.2"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </div>
+          )}
         </div>
       </div>
     </div>
