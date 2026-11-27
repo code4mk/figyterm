@@ -178,7 +178,7 @@ export function TerminalWindow({
       role="dialog"
       aria-modal={false}
       aria-label="Terminal"
-      className={`pointer-events-auto flex flex-col overflow-hidden bg-ft-bg ${
+      className={`pointer-events-auto relative flex flex-col overflow-hidden bg-ft-bg ${
         docked ? "" : "border border-ft-border shadow-2xl"
       } ${fullscreen || docked ? "rounded-none" : "rounded-xl"}`}
       style={style}
@@ -208,14 +208,21 @@ export function TerminalWindow({
       <div className="flex-1 relative min-h-0 overflow-hidden">{children}</div>
 
       {/*
-        Resizable like the other six. It is the corner grip they all use, and
-        it is absent as the primary for the same reason the drag handle is:
-        the primary is the size of the window and there is nothing to resize
-        it against.
+        Resizable like the other six, and in the same corner.
+
+        `.editor-resize-handle` carries no position of its own — everywhere
+        else it is the last child of a horizontal status bar, which lands it
+        bottom-right for free. This window has no status bar, so as a child of
+        a column it sat bottom-*left*. Pinning it to the frame's corner puts it
+        where the other six are, and costs the terminal no height.
+
+        Absent as the primary for the same reason the drag handle is: the
+        primary is the size of the slot and there is nothing to resize it
+        against.
       */}
       {!docked && (
         <div
-          className="editor-resize-handle"
+          className="editor-resize-handle absolute bottom-0 right-0 z-10"
           onPointerDown={(e) => onResizeStart(e, "se")}
           title="Resize"
           role="separator"
