@@ -174,21 +174,24 @@ export function selectableServices(): ServiceDef[] {
   return SERVICES.filter((s) => s.available);
 }
 
-/** The base when nothing has been chosen — and the one every window falls back to. */
-export const DEFAULT_BASE: ServiceId = "figy-terminal";
-
 /**
- * The stored base, made safe.
+ * The stored base, made safe — or null, meaning nobody has chosen one.
  *
- * A service can be removed from the table, or turn out to be unavailable on
- * this platform after a settings file travelled between machines — the browser
- * is the one that can. Either way the window must still open, so an id that no
- * longer names an available service falls back to the terminal rather than
- * leaving the base slot empty.
+ * There is deliberately no default. The terminal was the base for as long as
+ * it was the only thing here, and leaving it as the fallback would have meant
+ * every install still opened on a shell and looked like a terminal — which is
+ * the exact impression the welcome page exists to correct. So an install with
+ * no answer yet has no base, and the welcome page is what fills the window
+ * until there is one.
+ *
+ * Null also covers the recoverable failures: a service dropped from the table,
+ * or one that is unavailable on this platform after a settings file travelled
+ * between machines — the browser is the one that can. Rather than silently
+ * substituting a service nobody picked, the window asks again.
  */
-export function resolveBase(stored: string | null | undefined): ServiceId {
+export function resolveBase(stored: string | null | undefined): ServiceId | null {
   const found = stored ? BY_ID.get(stored as ServiceId) : undefined;
-  return found?.available ? found.id : DEFAULT_BASE;
+  return found?.available ? found.id : null;
 }
 
 /** The chord that opens a service, spelled for this platform. */

@@ -21,12 +21,15 @@ export interface Settings {
   /**
    * The service that fills the window, rather than floating above it.
    *
+   * Null until the welcome page has been answered — there is no default, on
+   * purpose; see `resolveBase`, which explains why.
+   *
    * Stored as a plain string rather than `ServiceId` so that loading settings
    * doesn't drag the catalogue — and its lucide icons — into whatever imports
    * this. `resolveBase` in `services/catalog` turns it into an id that is known
-   * to name an available service; nothing else should read it raw.
+   * to name an available service, or null; nothing else should read it raw.
    */
-  baseService: string;
+  baseService: string | null;
   /**
    * Epoch millis of the moment the welcome page was answered, or null if it
    * has never been shown.
@@ -69,7 +72,7 @@ const DEFAULT_SETTINGS: Settings = {
   updateChannel: "stable",
   lastUpdateCheck: null,
   dismissedVersion: null,
-  baseService: "figy-terminal",
+  baseService: null,
   welcomedAt: null,
 };
 

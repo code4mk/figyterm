@@ -20,10 +20,12 @@ import {
   Loader2,
   ArrowUpCircle,
   ExternalLink,
+  LayoutGrid,
 } from "lucide-react";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { invoke } from "@tauri-apps/api/core";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { resolveBase, selectableServices } from "../../services/catalog";
 import { useThemeStore } from "../../stores/themeStore";
 import { Settings as SettingsType } from "../../services/settings";
 import {
@@ -361,6 +363,7 @@ source "${resolvedPath}"`, `${home}/.zshrc`],
                   {activeTab === "general" && (
                     <GeneralTab
                       settings={settings}
+                      updateSettings={updateSettings}
                       theme={theme}
                       setTheme={setTheme}
                       zshTheme={zshTheme}
@@ -419,17 +422,67 @@ source "${resolvedPath}"`, `${home}/.zshrc`],
 
 function GeneralTab({
   settings,
+  updateSettings,
   theme,
   setTheme,
   zshTheme,
 }: {
   settings: SettingsType;
+  updateSettings: (partial: Partial<SettingsType>) => void;
   theme: "dark" | "light";
   setTheme: (t: "dark" | "light") => void;
   zshTheme: string;
 }) {
+  const baseId = resolveBase(settings.baseService);
+
   return (
     <div className="space-y-6">
+      {/* Base service */}
+      <div>
+        <SectionHeader icon={<LayoutGrid size={13} />} title="Base" />
+        <p className="mb-3 text-[11px] leading-relaxed text-ft-text-muted">
+          The service that fills the window. Everything else opens over it in
+          its own window — and keeps running when you close it.
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          {selectableServices().map((def) => {
+            const isBase = def.id === baseId;
+            const Icon = def.icon;
+
+            return (
+              <button
+                key={def.id}
+                type="button"
+                onClick={() => updateSettings({ baseService: def.id })}
+                aria-pressed={isBase}
+                title={def.tagline}
+                className={`flex items-center gap-2.5 rounded-lg border p-2.5 text-left transition-colors ${
+                  isBase
+                    ? "border-transparent bg-ft-elevated"
+                    : "border-ft-border-subtle hover:border-ft-border hover:bg-ft-elevated"
+                }`}
+                style={isBase ? { boxShadow: `0 0 0 1.5px ${def.accent}` } : undefined}
+              >
+                <span
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded"
+                  style={{ backgroundColor: `${def.accent}1f`, color: def.accent }}
+                >
+                  {def.image ? (
+                    <img src={def.image} alt="" className="h-4 w-4" />
+                  ) : (
+                    <Icon size={14} />
+                  )}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-[11.5px] text-ft-text">
+                  {def.name}
+                </span>
+                {isBase && <Check size={13} style={{ color: def.accent }} />}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Preview */}
       <div>
         <SectionHeader icon={<Eye size={13} />} title="Preview" />

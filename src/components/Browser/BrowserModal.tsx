@@ -9,7 +9,12 @@ import {
   subscribeOverlayStack,
 } from "../../services/overlay-stack";
 import { useOverlayZSync } from "../../hooks/useOverlayZSync";
-import { fullscreenRect, pictureInPictureRect } from "../../hooks/useDraggableModal";
+import {
+  baseSlotRect,
+  fullscreenRect,
+  pictureInPictureRect,
+} from "../../hooks/useDraggableModal";
+import { BASE_SLOT_Z } from "../../hooks/useBaseSlot";
 import {
   ArrowLeft,
   ArrowRight,
@@ -57,6 +62,11 @@ interface BrowserModalProps {
    * would be a close that lied about it.
    */
   onMinimize?: () => void;
+  /**
+   * This is the base: it fills the slot above the status bar, never moves and
+   * cannot be put away. See `useBaseSlot`.
+   */
+  docked?: boolean;
 }
 
 const MIN_WIDTH = 520;
@@ -66,7 +76,12 @@ const MAX_HEIGHT = 1200;
 const DEFAULT_SIZE = { w: 940, h: 620 };
 const MAX_TABS = 10;
 
-export function BrowserModal({ visible, onClose, onMinimize }: BrowserModalProps) {
+export function BrowserModal({
+  visible,
+  onClose,
+  onMinimize,
+  docked = false,
+}: BrowserModalProps) {
   const [tabs, setTabs] = useState<BrowserTabState[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -98,11 +113,17 @@ export function BrowserModal({ visible, onClose, onMinimize }: BrowserModalProps
    * the raised value has to land on the outermost fixed element to count.
    */
   const [frontZ, setFrontZ] = useState<number | null>(null);
-  const raise = useCallback(() => setFrontZ(claimFront("browser")), []);
+  // The base never joins the stack — there is nothing for it to be raised
+  // above, and claiming a rank would put it over every open window.
+  const raise = useCallback(() => {
+    if (docked) return;
+    setFrontZ(claimFront("browser"));
+  }, [docked]);
   // A claim by any overlay renumbers the rest; this re-reads ours.
   useOverlayZSync("browser", setFrontZ);
 
   useEffect(() => {
+    if (docked) return;
     if (visible) {
       raise();
       return;
@@ -110,7 +131,28 @@ export function BrowserModal({ visible, onClose, onMinimize }: BrowserModalProps
     // Released on close, so whatever is still open becomes frontmost.
     releaseFront("browser");
     setFrontZ(null);
-  }, [visible, pipMode, raise]);
+  }, [docked, visible, pipMode, raise]);
+
+  /*
+    Pinned to the base slot while it is the base.
+
+    This window keeps its own `pos`/`size` rather than using
+    `useDraggableModal`, so it cannot use `useBaseSlot` — but it is the same
+    rectangle, kept up to date the same way, and for the same reason: the
+    native child webview is positioned from this element's geometry, so the
+    page lands wrong if the frame is anywhere but where it says it is.
+  */
+  useEffect(() => {
+    if (!docked) return;
+    const follow = () => {
+      const rect = baseSlotRect();
+      setSize({ w: rect.w, h: rect.h });
+      setPos({ x: rect.x, y: rect.y });
+    };
+    follow();
+    window.addEventListener("resize", follow);
+    return () => window.removeEventListener("resize", follow);
+  }, [docked]);
 
   /**
    * Whether something is actually on top of the page.
@@ -502,7 +544,9 @@ export function BrowserModal({ visible, onClose, onMinimize }: BrowserModalProps
           setEditingAddress(false);
           setDraft(activeTab?.url ?? "");
           addressRef.current?.blur();
-        } else {
+        } else if (!docked) {
+          // The base has nothing to close to; the key is still swallowed so it
+          // does not travel on to the shell behind.
           onClose();
         }
       } else if (isMod && !e.shiftKey && !e.altKey && e.key === "l") {
@@ -519,7 +563,8 @@ export function BrowserModal({ visible, onClose, onMinimize }: BrowserModalProps
     [editingAddress, activeTab?.url, activeTabId, onClose]
   );
 
-  if (!visible) return null;
+  // The base is never hidden; that is what being the base means.
+  if (!visible && !docked) return null;
 
   const isSecure = activeTab?.url.startsWith("https://") ?? false;
   const isLocal = /^(https?:\/\/)?(localhost|127\.0\.0\.1)/.test(activeTab?.url ?? "");
@@ -543,7 +588,7 @@ export function BrowserModal({ visible, onClose, onMinimize }: BrowserModalProps
       }
       className={`browser-modal overflow-hidden shadow-2xl flex flex-col ${
         pipMode ? "browser-pip" : ""
-      } ${fullscreen ? "browser-fullscreen" : "rounded-xl"}`}
+      } ${fullscreen || docked ? "browser-fullscreen" : "rounded-xl"}`}
       style={pipMode ? { ...modalStyle, zIndex: frontZ ?? undefined } : modalStyle}
       onPointerDownCapture={raise}
       onMouseDown={(e) => e.stopPropagation()}
@@ -555,7 +600,9 @@ export function BrowserModal({ visible, onClose, onMinimize }: BrowserModalProps
     >
       {/* Tab strip doubles as the drag handle, the way a real browser title bar does. */}
       <div
-        className="browser-chrome browser-tabstrip flex items-center gap-1 px-2 pt-1.5 pb-0 select-none cursor-grab active:cursor-grabbing"
+        className={`browser-chrome browser-tabstrip flex items-center gap-1 px-2 pt-1.5 pb-0 select-none ${
+          docked ? "" : "cursor-grab active:cursor-grabbing"
+        }`}
         onPointerDown={handleDragStart}
         onContextMenu={suppressContextMenu}
       >
@@ -624,7 +671,7 @@ export function BrowserModal({ visible, onClose, onMinimize }: BrowserModalProps
         <span className="browser-sep shrink-0" />
 
         <div className="flex items-center gap-0.5 shrink-0 pb-0.5">
-          {onMinimize && (
+          {onMinimize && !docked && (
             <button
               className="browser-btn p-1 rounded"
               onPointerDown={(e) => e.stopPropagation()}
@@ -635,33 +682,42 @@ export function BrowserModal({ visible, onClose, onMinimize }: BrowserModalProps
               <Minus size={12} />
             </button>
           )}
-          <button
-            className={`browser-btn p-1 rounded ${pipMode ? "on" : ""}`}
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={togglePip}
-            title={pipMode ? "Exit picture-in-picture" : "Picture-in-picture"}
-            aria-label={pipMode ? "Exit picture-in-picture" : "Picture-in-picture"}
-          >
-            <PictureInPicture2 size={12} />
-          </button>
-          <button
-            className={`browser-btn p-1 rounded ${fullscreen ? "on" : ""}`}
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={toggleFullscreen}
-            title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
-            aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
-          >
-            {fullscreen ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
-          </button>
-          <button
-            className="browser-btn browser-btn-close p-1 rounded"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={onClose}
-            title="Close browser"
-            aria-label="Close browser"
-          >
-            <X size={13} />
-          </button>
+          {/*
+            No window controls on the base: these move or dismiss a window, and
+            the base is neither moved nor dismissed. Changing it is a settings
+            decision.
+          */}
+          {!docked && (
+            <>
+              <button
+                className={`browser-btn p-1 rounded ${pipMode ? "on" : ""}`}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={togglePip}
+                title={pipMode ? "Exit picture-in-picture" : "Picture-in-picture"}
+                aria-label={pipMode ? "Exit picture-in-picture" : "Picture-in-picture"}
+              >
+                <PictureInPicture2 size={12} />
+              </button>
+              <button
+                className={`browser-btn p-1 rounded ${fullscreen ? "on" : ""}`}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={toggleFullscreen}
+                title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+                aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+              >
+                {fullscreen ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+              </button>
+              <button
+                className="browser-btn browser-btn-close p-1 rounded"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={onClose}
+                title="Close browser"
+                aria-label="Close browser"
+              >
+                <X size={13} />
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -822,8 +878,10 @@ export function BrowserModal({ visible, onClose, onMinimize }: BrowserModalProps
   return (
     <OverlayPortal>
       <div
-        className="fixed inset-0 z-[250] flex items-start justify-center pt-[6vh]"
-        style={{ zIndex: frontZ ?? undefined }}
+        className={`fixed inset-0 ${
+          docked ? "" : "z-[250] flex items-start justify-center pt-[6vh]"
+        }`}
+        style={{ zIndex: docked ? BASE_SLOT_Z : (frontZ ?? undefined) }}
         onMouseDown={(e) => {
           if (e.target === e.currentTarget) onClose();
         }}

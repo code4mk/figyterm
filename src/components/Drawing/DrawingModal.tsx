@@ -25,6 +25,7 @@ import {
   pictureInPictureRect,
   useDraggableModal,
 } from "../../hooks/useDraggableModal";
+import { BASE_SLOT_Z, useBaseSlot } from "../../hooks/useBaseSlot";
 import { Group, Panel, Separator } from "react-resizable-panels";
 import { useDrawingStore } from "../../stores/drawingStore";
 import { PaneTabs } from "./PaneTabs";
@@ -36,6 +37,11 @@ import { DrawingEmpty } from "./DrawingEmpty";
 export interface DrawingModalProps {
   visible: boolean;
   onClose: () => void;
+  /**
+   * This is the base: it fills the slot above the status bar, never moves and
+   * cannot be put away. See `useBaseSlot`.
+   */
+  docked?: boolean;
 }
 
 const MIN_SIZE = { w: 640, h: 480 };
@@ -53,7 +59,7 @@ function savedAtLabel(at: number | null): string {
   return `Saved ${time}`;
 }
 
-export function DrawingModal({ visible, onClose }: DrawingModalProps) {
+export function DrawingModal({ visible, onClose, docked = false }: DrawingModalProps) {
   const [pipMode, setPipMode] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const modalRef = useRef<HTMLDivElement>(null);
@@ -112,19 +118,27 @@ export function DrawingModal({ visible, onClose }: DrawingModalProps) {
 
   // ─── Stacking ────────────────────────────────────────────────────────────
 
+  useBaseSlot(docked, place);
+
   const [frontZ, setFrontZ] = useState<number | null>(null);
-  const raise = useCallback(() => setFrontZ(claimFront("drawing")), []);
+  // The base never joins the stack — there is nothing for it to be raised
+  // above, and claiming a rank would put it over every open window.
+  const raise = useCallback(() => {
+    if (docked) return;
+    setFrontZ(claimFront("drawing"));
+  }, [docked]);
   // A claim by any overlay renumbers the rest; this re-reads ours.
   useOverlayZSync("drawing", setFrontZ);
 
   useEffect(() => {
+    if (docked) return;
     if (visible) {
       raise();
       return;
     }
     releaseFront("drawing");
     setFrontZ(null);
-  }, [visible, raise]);
+  }, [docked, visible, raise]);
 
   // ─── Projects ────────────────────────────────────────────────────────────
 
@@ -191,18 +205,23 @@ export function DrawingModal({ visible, onClose }: DrawingModalProps) {
    * Stopped here rather than bubbling to the shell, and *not* taken when
    * Excalidraw is using it — a linear editor, a context menu or a dialog inside
    * the canvas all want Escape first, and they mark the event handled.
+   *
+   * The base has nothing to close to, so it only swallows the key — Excalidraw
+   * still gets first refusal, and what is left does not travel on to the shell
+   * and clear a terminal line nobody is looking at.
    */
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === "Escape" && !e.defaultPrevented) {
         e.stopPropagation();
-        onClose();
+        if (!docked) onClose();
       }
     },
-    [onClose]
+    [docked, onClose]
   );
 
-  if (!visible) return null;
+  // The base is never hidden; that is what being the base means.
+  if (!visible && !docked) return null;
 
   const modal = (
     <div
@@ -216,7 +235,7 @@ export function DrawingModal({ visible, onClose }: DrawingModalProps) {
       aria-modal={!pipMode}
       aria-label={active ? `Draw — ${active.name}` : "Draw"}
       className={`drawing-modal flex flex-col overflow-hidden ${
-        fullscreen ? "rounded-none" : "rounded-xl"
+        fullscreen || docked ? "rounded-none" : "rounded-xl"
       }`}
       style={pipMode ? { ...style, zIndex: frontZ ?? undefined } : style}
       onPointerDownCapture={raise}
@@ -243,8 +262,10 @@ export function DrawingModal({ visible, onClose }: DrawingModalProps) {
         agreement rather than by inheritance.
       */}
       <header
-        className="drawing-header flex items-center gap-2 px-2 select-none cursor-grab active:cursor-grabbing"
-        onPointerDown={onDragStart}
+        className={`drawing-header flex items-center gap-2 px-2 select-none ${
+          docked ? "" : "cursor-grab active:cursor-grabbing"
+        }`}
+        onPointerDown={docked ? undefined : onDragStart}
       >
         <div
           className="flex items-center gap-1.5 shrink-0"
@@ -333,34 +354,43 @@ export function DrawingModal({ visible, onClose }: DrawingModalProps) {
             <PaneTabs pane={pane} onChange={setPane} hasNotes={(active.noteChars ?? 0) > 0} />
           )}
 
-          <span className="drawing-sep" />
+          {/*
+            No window controls on the base — picture-in-picture, maximize and
+            close are all answers to "put this somewhere else", and the base is
+            where everything else is put. Changing it is a settings decision.
+          */}
+          {!docked && (
+            <>
+              <span className="drawing-sep" />
 
-          <button
-            className={`drawing-iconbtn ${pipMode ? "on" : ""}`}
-            onClick={togglePip}
-            title={pipMode ? "Leave picture-in-picture" : "Picture-in-picture"}
-            aria-label="Picture in picture"
-            aria-pressed={pipMode}
-          >
-            <PictureInPicture2 size={12} />
-          </button>
-          <button
-            className={`drawing-iconbtn ${fullscreen ? "on" : ""}`}
-            onClick={toggleFullscreen}
-            title={fullscreen ? "Restore" : "Maximize"}
-            aria-label={fullscreen ? "Restore" : "Maximize"}
-            aria-pressed={fullscreen}
-          >
-            {fullscreen ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
-          </button>
-          <button
-            className="drawing-iconbtn danger"
-            onClick={onClose}
-            title="Close — your work is already saved"
-            aria-label="Close"
-          >
-            <X size={13} />
-          </button>
+              <button
+                className={`drawing-iconbtn ${pipMode ? "on" : ""}`}
+                onClick={togglePip}
+                title={pipMode ? "Leave picture-in-picture" : "Picture-in-picture"}
+                aria-label="Picture in picture"
+                aria-pressed={pipMode}
+              >
+                <PictureInPicture2 size={12} />
+              </button>
+              <button
+                className={`drawing-iconbtn ${fullscreen ? "on" : ""}`}
+                onClick={toggleFullscreen}
+                title={fullscreen ? "Restore" : "Maximize"}
+                aria-label={fullscreen ? "Restore" : "Maximize"}
+                aria-pressed={fullscreen}
+              >
+                {fullscreen ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+              </button>
+              <button
+                className="drawing-iconbtn danger"
+                onClick={onClose}
+                title="Close — your work is already saved"
+                aria-label="Close"
+              >
+                <X size={13} />
+              </button>
+            </>
+          )}
         </div>
       </header>
 
@@ -461,10 +491,14 @@ export function DrawingModal({ visible, onClose }: DrawingModalProps) {
   return (
     <OverlayPortal>
       <div
-        className="fixed inset-0 z-[250] flex items-start justify-center pt-[6vh]"
-        style={{ zIndex: frontZ ?? undefined }}
+        className={`fixed inset-0 ${
+          docked ? "" : "z-[250] flex items-start justify-center pt-[6vh]"
+        }`}
+        style={{ zIndex: docked ? BASE_SLOT_Z : (frontZ ?? undefined) }}
         onMouseDown={(e) => {
-          if (e.target === e.currentTarget) onClose();
+          // A click on the backdrop dismisses a window. The base has no
+          // backdrop to click and nothing to dismiss to.
+          if (!docked && e.target === e.currentTarget) onClose();
         }}
         onKeyUp={(e) => e.stopPropagation()}
       >

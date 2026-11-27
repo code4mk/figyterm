@@ -24,6 +24,7 @@ import {
   useDraggableModal,
 } from "../../hooks/useDraggableModal";
 import { useOverlayRect } from "../../hooks/useOverlayRect";
+import { BASE_SLOT_Z, useBaseSlot } from "../../hooks/useBaseSlot";
 import { useClaudeStore } from "../../stores/claudeStore";
 import {
   addDirCommand,
@@ -127,6 +128,11 @@ interface ClaudeModalProps {
   onMinimize?: () => void;
   /** The focused pane's working directory, for a new project's folder. */
   cwd?: string;
+  /**
+   * This is the base: it fills the slot above the status bar, never moves and
+   * cannot be put away. See `useBaseSlot`.
+   */
+  docked?: boolean;
   /** Counts ⌘W presses handed to this window; see the listener in `AppShell`. */
   closeTabRequest?: number;
   /**
@@ -165,6 +171,7 @@ export function ClaudeModal({
   onLiveCountChange,
   onAttentionCountChange,
   mentionRequest,
+  docked = false,
 }: ClaudeModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
   const [frontZ, setFrontZ] = useState<number | null>(null);
@@ -255,7 +262,12 @@ export function ClaudeModal({
     [projects, activeProjectId]
   );
 
-  const raise = useCallback(() => setFrontZ(claimFront("claude")), []);
+  // The base never joins the stack — there is nothing for it to be raised
+  // above, and claiming a rank would put it over every open window.
+  const raise = useCallback(() => {
+    if (docked) return;
+    setFrontZ(claimFront("claude"));
+  }, [docked]);
   // A claim by any overlay renumbers the rest; this re-reads ours.
   useOverlayZSync("claude", setFrontZ);
 
@@ -274,12 +286,15 @@ export function ClaudeModal({
 
   // Only in picture-in-picture is this a window rather than a modal with a
   // full-screen backdrop; see the note in `overlay-stack.ts`.
-  useOverlayRect("claude", modalRef, visible && pipMode);
+  useOverlayRect("claude", modalRef, (visible && pipMode) || docked);
+
+  useBaseSlot(docked, place);
 
   useEffect(() => {
+    if (docked) return;
     if (visible) raise();
     else releaseFront("claude");
-  }, [visible, raise]);
+  }, [docked, visible, raise]);
 
   useEffect(() => () => releaseFront("claude"), []);
 
@@ -1038,13 +1053,17 @@ export function ClaudeModal({
   return (
     <OverlayPortal>
       <div
-        className={`fixed inset-0 z-[240] items-start justify-center pt-[4vh] ${
-          visible ? "flex" : "hidden"
+        className={`fixed inset-0 ${
+          docked
+            ? "flex"
+            : `z-[240] items-start justify-center pt-[4vh] ${visible ? "flex" : "hidden"}`
         } ${pipMode ? "editor-backdrop-pip" : ""}`}
-        style={{ zIndex: frontZ ?? undefined }}
+        style={{ zIndex: docked ? BASE_SLOT_Z : (frontZ ?? undefined) }}
         onPointerDownCapture={raise}
         onMouseDown={(e) => {
-          if (!pipMode && e.target === e.currentTarget) onClose();
+          // A click on the backdrop dismisses a window. The base has no
+          // backdrop to click and nothing to dismiss to.
+          if (!docked && !pipMode && e.target === e.currentTarget) onClose();
         }}
         onKeyUp={(e) => e.stopPropagation()}
       >
@@ -1063,7 +1082,7 @@ export function ClaudeModal({
           aria-label={project ? `Claude Code — ${projectName(project)}` : "Claude Code"}
           className={`editor-modal claude-window overflow-hidden flex flex-col focus:outline-none ${
             pipMode ? "editor-pip" : ""
-          } ${fullscreen ? "editor-fullscreen" : "rounded-xl"}`}
+          } ${fullscreen || docked ? "editor-fullscreen" : "rounded-xl"}`}
           style={modalStyle}
           onMouseDown={(e) => e.stopPropagation()}
           onKeyDown={onKeyDown}
@@ -1080,8 +1099,10 @@ export function ClaudeModal({
             button that reveals the thing that replaced it.
           */}
           <header
-            className="claude-header flex items-center gap-2 px-2 select-none cursor-grab active:cursor-grabbing"
-            onPointerDown={onDragStart}
+            className={`claude-header flex items-center gap-2 px-2 select-none ${
+              docked ? "" : "cursor-grab active:cursor-grabbing"
+            }`}
+            onPointerDown={docked ? undefined : onDragStart}
           >
             <div
               className="flex items-center gap-1.5 shrink-0"
@@ -1163,44 +1184,53 @@ export function ClaudeModal({
                 </span>
               )}
 
-              <span className="claude-sep" />
+              {/*
+                No window controls on the base. Every one of these is an answer
+                to "put this away", and the base is what is left when
+                everything is put away. Changing it is a settings decision.
+              */}
+              {!docked && (
+                <>
+                  <span className="claude-sep" />
 
-              {onMinimize && (
-                <button
-                  className="claude-iconbtn"
-                  onClick={onMinimize}
-                  title="Minimize — conversations keep running"
-                  aria-label="Minimize"
-                >
-                  <Minus size={12} />
-                </button>
+                  {onMinimize && (
+                    <button
+                      className="claude-iconbtn"
+                      onClick={onMinimize}
+                      title="Minimize — conversations keep running"
+                      aria-label="Minimize"
+                    >
+                      <Minus size={12} />
+                    </button>
+                  )}
+                  <button
+                    className={`claude-iconbtn ${pipMode ? "on" : ""}`}
+                    onClick={togglePip}
+                    title={pipMode ? "Leave picture-in-picture" : "Picture-in-picture"}
+                    aria-label="Picture in picture"
+                    aria-pressed={pipMode}
+                  >
+                    <PictureInPicture2 size={12} />
+                  </button>
+                  <button
+                    className={`claude-iconbtn ${fullscreen ? "on" : ""}`}
+                    onClick={toggleFullscreen}
+                    title={fullscreen ? "Restore" : "Maximize"}
+                    aria-label={fullscreen ? "Restore" : "Maximize"}
+                    aria-pressed={fullscreen}
+                  >
+                    {fullscreen ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+                  </button>
+                  <button
+                    className="claude-iconbtn danger"
+                    onClick={onClose}
+                    title="Close — conversations keep running"
+                    aria-label="Close"
+                  >
+                    <X size={13} />
+                  </button>
+                </>
               )}
-              <button
-                className={`claude-iconbtn ${pipMode ? "on" : ""}`}
-                onClick={togglePip}
-                title={pipMode ? "Leave picture-in-picture" : "Picture-in-picture"}
-                aria-label="Picture in picture"
-                aria-pressed={pipMode}
-              >
-                <PictureInPicture2 size={12} />
-              </button>
-              <button
-                className={`claude-iconbtn ${fullscreen ? "on" : ""}`}
-                onClick={toggleFullscreen}
-                title={fullscreen ? "Restore" : "Maximize"}
-                aria-label={fullscreen ? "Restore" : "Maximize"}
-                aria-pressed={fullscreen}
-              >
-                {fullscreen ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
-              </button>
-              <button
-                className="claude-iconbtn danger"
-                onClick={onClose}
-                title="Close — conversations keep running"
-                aria-label="Close"
-              >
-                <X size={13} />
-              </button>
             </div>
           </header>
 

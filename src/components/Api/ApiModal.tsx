@@ -37,6 +37,7 @@ import {
   pictureInPictureRect,
   useDraggableModal,
 } from "../../hooks/useDraggableModal";
+import { BASE_SLOT_Z, useBaseSlot } from "../../hooks/useBaseSlot";
 import { onApiProgress } from "../../services/api/client";
 import { isSendableUrl } from "../../services/api/url";
 import { formatBytes } from "../../services/api/format";
@@ -85,13 +86,23 @@ export interface ApiModalProps {
    * would be a close that lied about it.
    */
   onMinimize?: () => void;
+  /**
+   * This is the base: it fills the slot above the status bar, never moves and
+   * cannot be put away. See `useBaseSlot`.
+   */
+  docked?: boolean;
 }
 
 const MIN_SIZE = { w: 820, h: 520 };
 const MAX_SIZE = { w: 2400, h: 1600 };
 const DEFAULT_SIZE = { w: 1180, h: 760 };
 
-export function ApiModal({ visible, onClose, onMinimize }: ApiModalProps) {
+export function ApiModal({
+  visible,
+  onClose,
+  onMinimize,
+  docked = false,
+}: ApiModalProps) {
   const [pipMode, setPipMode] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const modalRef = useRef<HTMLDivElement>(null);
@@ -284,19 +295,27 @@ export function ApiModal({ visible, onClose, onMinimize }: ApiModalProps) {
 
   // ─── Stacking ────────────────────────────────────────────────────────────
 
+  useBaseSlot(docked, place);
+
   const [frontZ, setFrontZ] = useState<number | null>(null);
-  const raise = useCallback(() => setFrontZ(claimFront("api")), []);
+  // The base never joins the stack — there is nothing for it to be raised
+  // above, and claiming a rank would put it over every open window.
+  const raise = useCallback(() => {
+    if (docked) return;
+    setFrontZ(claimFront("api"));
+  }, [docked]);
   // A claim by any overlay renumbers the rest; this re-reads ours.
   useOverlayZSync("api", setFrontZ);
 
   useEffect(() => {
+    if (docked) return;
     if (visible) {
       raise();
       return;
     }
     releaseFront("api");
     setFrontZ(null);
-  }, [visible, raise]);
+  }, [docked, visible, raise]);
 
   // ─── Opening ─────────────────────────────────────────────────────────────
 
@@ -467,7 +486,9 @@ export function ApiModal({ visible, onClose, onMinimize }: ApiModalProps) {
         // same rule the rest of the app's overlays follow.
         if (report) dismissReport();
         else if (run.open) openRunner(null);
-        else onClose();
+        // The base has nothing to close to; the key is still swallowed so it
+        // does not travel on to the shell behind.
+        else if (!docked) onClose();
         return;
       }
       if (mod && e.key === "Enter") {
@@ -529,7 +550,8 @@ export function ApiModal({ visible, onClose, onMinimize }: ApiModalProps) {
     ]
   );
 
-  if (!visible) return null;
+  // The base is never hidden; that is what being the base means.
+  if (!visible && !docked) return null;
 
   const sending = tab?.sendingId != null;
   const canSend = tab ? isSendableUrl(tab.draft.url) : false;
@@ -539,7 +561,7 @@ export function ApiModal({ visible, onClose, onMinimize }: ApiModalProps) {
     <div
       ref={modalRef}
       className={`api-modal flex flex-col overflow-hidden bg-ft-bg border border-ft-border shadow-2xl ${
-        fullscreen ? "rounded-none" : "rounded-xl"
+        fullscreen || docked ? "rounded-none" : "rounded-xl"
       }`}
       style={pipMode ? { ...style, zIndex: frontZ ?? undefined } : style}
       onPointerDownCapture={raise}
@@ -570,8 +592,10 @@ export function ApiModal({ visible, onClose, onMinimize }: ApiModalProps) {
       {/* Title bar — also the drag handle, and the same chrome the browser and
           drawing windows use so the three line up. */}
       <div
-        className="browser-chrome browser-tabstrip api-titlebar flex items-center gap-1 px-2 pt-1.5 pb-1.5 select-none cursor-grab active:cursor-grabbing"
-        onPointerDown={onDragStart}
+        className={`browser-chrome browser-tabstrip api-titlebar flex items-center gap-1 px-2 pt-1.5 pb-1.5 select-none ${
+          docked ? "" : "cursor-grab active:cursor-grabbing"
+        }`}
+        onPointerDown={docked ? undefined : onDragStart}
       >
         <div className="browser-brand flex items-center gap-2 pl-1 pr-2.5 mr-1 shrink-0">
           <img src="/logo.png" alt="" className="h-4 w-auto shrink-0" />
@@ -603,7 +627,7 @@ export function ApiModal({ visible, onClose, onMinimize }: ApiModalProps) {
           >
             {split === "bottom" ? <PanelRight size={14} /> : <PanelBottom size={14} />}
           </button>
-          {onMinimize && (
+          {onMinimize && !docked && (
             <button
               className="p-1.5 rounded text-ft-text-muted hover:bg-ft-surface"
               onPointerDown={(e) => e.stopPropagation()}
@@ -614,33 +638,42 @@ export function ApiModal({ visible, onClose, onMinimize }: ApiModalProps) {
               <Minus size={14} />
             </button>
           )}
-          <button
-            className={`p-1.5 rounded hover:bg-ft-surface ${pipMode ? "text-ft-accent" : "text-ft-text-muted"}`}
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={togglePip}
-            title={pipMode ? "Exit picture-in-picture" : "Picture-in-picture"}
-            aria-label={pipMode ? "Exit picture-in-picture" : "Picture-in-picture"}
-          >
-            <PictureInPicture2 size={14} />
-          </button>
-          <button
-            className={`p-1.5 rounded hover:bg-ft-surface ${fullscreen ? "text-ft-accent" : "text-ft-text-muted"}`}
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={toggleFullscreen}
-            title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
-            aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
-          >
-            {fullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-          </button>
-          <button
-            className="p-1.5 rounded text-ft-text-muted hover:bg-red-500/20 hover:text-red-400"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={onClose}
-            title="Close API client"
-            aria-label="Close API client"
-          >
-            <X size={14} />
-          </button>
+          {/*
+            No window controls on the base: picture-in-picture, fullscreen and
+            close all move or dismiss a window, and the base is neither moved
+            nor dismissed. Changing it is a settings decision.
+          */}
+          {!docked && (
+            <>
+              <button
+                className={`p-1.5 rounded hover:bg-ft-surface ${pipMode ? "text-ft-accent" : "text-ft-text-muted"}`}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={togglePip}
+                title={pipMode ? "Exit picture-in-picture" : "Picture-in-picture"}
+                aria-label={pipMode ? "Exit picture-in-picture" : "Picture-in-picture"}
+              >
+                <PictureInPicture2 size={14} />
+              </button>
+              <button
+                className={`p-1.5 rounded hover:bg-ft-surface ${fullscreen ? "text-ft-accent" : "text-ft-text-muted"}`}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={toggleFullscreen}
+                title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+                aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+              >
+                {fullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+              </button>
+              <button
+                className="p-1.5 rounded text-ft-text-muted hover:bg-red-500/20 hover:text-red-400"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={onClose}
+                title="Close API client"
+                aria-label="Close API client"
+              >
+                <X size={14} />
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -1163,10 +1196,14 @@ export function ApiModal({ visible, onClose, onMinimize }: ApiModalProps) {
   return (
     <OverlayPortal>
       <div
-        className="fixed inset-0 z-[250] flex items-start justify-center pt-[6vh]"
-        style={{ zIndex: frontZ ?? undefined }}
+        className={`fixed inset-0 ${
+          docked ? "" : "z-[250] flex items-start justify-center pt-[6vh]"
+        }`}
+        style={{ zIndex: docked ? BASE_SLOT_Z : (frontZ ?? undefined) }}
         onMouseDown={(e) => {
-          if (e.target === e.currentTarget) onClose();
+          // A click on the backdrop dismisses a window. The base has no
+          // backdrop to click and nothing to dismiss to.
+          if (!docked && e.target === e.currentTarget) onClose();
         }}
         onKeyUp={(e) => e.stopPropagation()}
       >

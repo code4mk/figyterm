@@ -36,10 +36,16 @@ import {
   X,
 } from "lucide-react";
 import { OverlayPortal } from "../Overlay/OverlayPortal";
-import { claimFront, isFront, releaseFront } from "../../services/overlay-stack";
+import {
+  claimFront,
+  isFront,
+  noOverlayOpen,
+  releaseFront,
+} from "../../services/overlay-stack";
 import { useOverlayRect } from "../../hooks/useOverlayRect";
 import { useOverlayZSync } from "../../hooks/useOverlayZSync";
 import { fullscreenRect, useDraggableModal } from "../../hooks/useDraggableModal";
+import { BASE_SLOT_Z, useBaseSlot } from "../../hooks/useBaseSlot";
 import { collapseHome, normalizeDir, recentDirs } from "../../services/recent-dirs";
 import { countDir, setExtraDirs, type DirCount } from "../../services/figycode-files";
 import {
@@ -84,6 +90,12 @@ export interface FigyCodeModalProps {
   onMinimize: () => void;
   /** The folder the focused terminal is in, so the window opens on it. */
   cwd?: string;
+  /**
+   * This is the base: it fills the slot above the status bar, never moves and
+   * cannot be put away. See `useBaseSlot` for why that is a prop rather than a
+   * second component.
+   */
+  docked?: boolean;
 }
 
 const MIN_SIZE = { w: 700, h: 480 };
@@ -188,7 +200,13 @@ function conversationTitle(blocks: Block[]): string | null {
   return line.length > 54 ? `${line.slice(0, 53)}…` : line;
 }
 
-export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeModalProps) {
+export function FigyCodeModal({
+  visible,
+  onClose,
+  onMinimize,
+  cwd,
+  docked = false,
+}: FigyCodeModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -675,9 +693,24 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
     elementRef: modalRef,
   });
 
+  useBaseSlot(docked, place);
+
   const [frontZ, setFrontZ] = useState<number | null>(null);
-  const raise = useCallback(() => setFrontZ(claimFront("figy-code")), []);
+  /*
+    The base never joins the overlay stack.
+
+    `claimFront` exists to answer "which of these windows is on top", and the
+    base is not one of these windows — it is what they are on top of. Letting
+    it claim a rank would put it above whatever was already open the moment it
+    was clicked, which is every floating window, all of them.
+  */
+  const raise = useCallback(() => {
+    if (docked) return;
+    setFrontZ(claimFront("figy-code"));
+  }, [docked]);
   useOverlayZSync("figy-code", setFrontZ);
+  // Registered either way: the browser's native webview has to know this
+  // rectangle is here whether it is the base or a window above it.
   useOverlayRect("figy-code", modalRef, visible);
 
   /*
@@ -695,28 +728,30 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
     interrupt the turn behind it.
   */
   useEffect(() => {
-    if (!visible) return;
+    if (!visible && !docked) return;
     const onEscape = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       if (modalRef.current?.contains(e.target as Node)) return;
       // Not ours if something else is on top: the rank alone does not
-      // say, because every open overlay has one.
-      if (!isFront("figy-code")) return;
+      // say, because every open overlay has one. The base has no rank at
+      // all, so it asks the other question — whether anything is above it.
+      if (docked ? !noOverlayOpen() : !isFront("figy-code")) return;
       e.preventDefault();
       escape();
     };
     document.addEventListener("keydown", onEscape);
     return () => document.removeEventListener("keydown", onEscape);
-  }, [visible, escape]);
+  }, [docked, visible, escape]);
 
   useEffect(() => {
+    if (docked) return;
     if (visible) {
       raise();
       return;
     }
     releaseFront("figy-code");
     setFrontZ(null);
-  }, [visible, raise]);
+  }, [docked, visible, raise]);
 
   const toggleFullscreen = useCallback(() => {
     setFullscreen((prev) => {
@@ -765,7 +800,8 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
     setAtBottom(true);
   }, []);
 
-  if (!visible) return null;
+  // The base is never hidden; that is what being the base means.
+  if (!visible && !docked) return null;
 
   /* ─── Strings the chrome needs ─────────────────────────────────────────── */
 
@@ -790,7 +826,7 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
       aria-modal={false}
       aria-label="FigyCode"
       className={`figy-modal pointer-events-auto flex flex-col overflow-hidden ${
-        fullscreen ? "rounded-none" : "rounded-xl"
+        fullscreen || docked ? "rounded-none" : "rounded-xl"
       }`}
       style={style}
       onPointerDownCapture={raise}
@@ -802,8 +838,10 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
       tabIndex={-1}
     >
       <header
-        className="figy-header flex items-center gap-2 px-2 select-none cursor-grab active:cursor-grabbing"
-        onPointerDown={onDragStart}
+        className={`figy-header flex items-center gap-2 px-2 select-none ${
+          docked ? "" : "cursor-grab active:cursor-grabbing"
+        }`}
+        onPointerDown={docked ? undefined : onDragStart}
       >
         <div className="flex items-center gap-1.5 shrink-0" onPointerDown={(e) => e.stopPropagation()}>
           <span className="figy-mark">ƒ</span>
@@ -842,28 +880,40 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
             </span>
           )}
 
-          <span className="figy-sep" />
+          {/*
+            No window controls on the base. Minimize, maximize and close are
+            all answers to "put this away", and the base is what is left when
+            everything is put away — a close button here would empty the
+            window, and a minimize would send it to a dock it cannot be
+            restored over. Changing the base is a settings decision, which is
+            where the control for it lives.
+          */}
+          {!docked && (
+            <>
+              <span className="figy-sep" />
 
-          <button className="figy-iconbtn" onClick={onMinimize} title="Minimize" aria-label="Minimize">
-            <Minus size={12} />
-          </button>
-          <button
-            className={`figy-iconbtn ${fullscreen ? "on" : ""}`}
-            onClick={toggleFullscreen}
-            title={fullscreen ? "Restore" : "Maximize"}
-            aria-label={fullscreen ? "Restore" : "Maximize"}
-            aria-pressed={fullscreen}
-          >
-            {fullscreen ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
-          </button>
-          <button
-            className="figy-iconbtn danger"
-            onClick={onClose}
-            title="Close (Esc) — the conversation is kept"
-            aria-label="Close"
-          >
-            <X size={13} />
-          </button>
+              <button className="figy-iconbtn" onClick={onMinimize} title="Minimize" aria-label="Minimize">
+                <Minus size={12} />
+              </button>
+              <button
+                className={`figy-iconbtn ${fullscreen ? "on" : ""}`}
+                onClick={toggleFullscreen}
+                title={fullscreen ? "Restore" : "Maximize"}
+                aria-label={fullscreen ? "Restore" : "Maximize"}
+                aria-pressed={fullscreen}
+              >
+                {fullscreen ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+              </button>
+              <button
+                className="figy-iconbtn danger"
+                onClick={onClose}
+                title="Close (Esc) — the conversation is kept"
+                aria-label="Close"
+              >
+                <X size={13} />
+              </button>
+            </>
+          )}
         </div>
       </header>
 
@@ -1235,8 +1285,13 @@ export function FigyCodeModal({ visible, onClose, onMinimize, cwd }: FigyCodeMod
         which leaves the app behind it looking broken.
       */}
       <div
-        className="fixed inset-0 flex items-start justify-center pt-[6vh] pointer-events-none"
-        style={{ zIndex: frontZ ?? undefined }}
+        className={`fixed inset-0 pointer-events-none ${
+          docked ? "" : "flex items-start justify-center pt-[6vh]"
+        }`}
+        // The base is placed by `useBaseSlot` rather than by this layer, so it
+        // needs no centring — and it takes a constant z below the stack, since
+        // it has no rank of its own to paint at.
+        style={{ zIndex: docked ? BASE_SLOT_Z : (frontZ ?? undefined) }}
         onKeyUp={(e) => e.stopPropagation()}
       >
         {modal}

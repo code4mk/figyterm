@@ -53,6 +53,7 @@ import {
 } from "../../hooks/useDraggableModal";
 import { useFileWatcher } from "../../hooks/useFileWatcher";
 import { useOverlayRect } from "../../hooks/useOverlayRect";
+import { BASE_SLOT_Z, useBaseSlot } from "../../hooks/useBaseSlot";
 import { useEditorStore, restorableSession } from "../../stores/editorStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useThemeStore } from "../../stores/themeStore";
@@ -251,6 +252,11 @@ interface EditorModalProps {
   onMinimize?: () => void;
   /** The focused terminal pane's working directory, if it has one. */
   cwd?: string;
+  /**
+   * This is the base: it fills the slot between the app header and the status
+   * bar, never moves and cannot be put away. See `useBaseSlot`.
+   */
+  docked?: boolean;
   /** Opens a terminal tab rooted at a directory. */
   onOpenTerminal: (dir: string) => void;
   /** A file the app wants opened — a clicked path in terminal output. */
@@ -456,6 +462,7 @@ export function EditorModal({
   openRequest,
   closeTabRequest,
   chordRef,
+  docked = false,
 }: EditorModalProps) {
   const {
     root,
@@ -606,7 +613,12 @@ export function EditorModal({
    * behind the browser's however high its own z-index was set.
    */
   const [frontZ, setFrontZ] = useState<number | null>(null);
-  const raise = useCallback(() => setFrontZ(claimFront("editor")), []);
+  // The base never joins the stack — there is nothing for it to be raised
+  // above, and claiming a rank would put it over every open window.
+  const raise = useCallback(() => {
+    if (docked) return;
+    setFrontZ(claimFront("editor"));
+  }, [docked]);
   // A claim by any overlay renumbers the rest; this re-reads ours.
   useOverlayZSync("editor", setFrontZ);
 
@@ -773,7 +785,9 @@ export function EditorModal({
     a full-screen backdrop, and the stack's "no rectangle means it covers
     everything" is the right answer for that.
   */
-  useOverlayRect("editor", modalRef, visible && pipMode);
+  useOverlayRect("editor", modalRef, (visible && pipMode) || docked);
+
+  useBaseSlot(docked, place);
 
   const { change, mechanism } = useFileWatcher(rootReady ? root : null, visible);
 
@@ -1669,6 +1683,7 @@ export function EditorModal({
     releaseFront("editor");
     setFrontZ(null);
   }, [visible, pipMode, raise]);
+
 
   /**
    * Focus follows the editor when it opens.
@@ -3027,10 +3042,12 @@ export function EditorModal({
         went away. Closing it looked like a dead button.
       */}
       <div
-        className={`fixed inset-0 z-[240] items-start justify-center pt-[4vh] ${
-          visible ? "flex" : "hidden"
+        className={`fixed inset-0 ${
+          docked
+            ? "flex"
+            : `z-[240] items-start justify-center pt-[4vh] ${visible ? "flex" : "hidden"}`
         } ${pipMode ? "editor-backdrop-pip" : ""}`}
-        style={{ zIndex: frontZ ?? undefined }}
+        style={{ zIndex: docked ? BASE_SLOT_Z : (frontZ ?? undefined) }}
         onPointerDownCapture={raise}
         /*
           Clicking outside hides the editor, as the other overlays do. Nothing
@@ -3040,7 +3057,9 @@ export function EditorModal({
           backdrop to click — the class below makes it click-through.
         */
         onMouseDown={(e) => {
-          if (!pipMode && e.target === e.currentTarget) onClose();
+          // A click on the backdrop dismisses a window. The base has no
+          // backdrop to click and nothing to dismiss to.
+          if (!docked && !pipMode && e.target === e.currentTarget) onClose();
         }}
         onKeyUp={(e) => e.stopPropagation()}
       >
@@ -3055,7 +3074,7 @@ export function EditorModal({
           tabIndex={-1}
           className={`editor-modal overflow-hidden shadow-2xl flex flex-col focus:outline-none ${
             pipMode ? "editor-pip" : ""
-          } ${fullscreen ? "editor-fullscreen" : "rounded-xl"}`}
+          } ${fullscreen || docked ? "editor-fullscreen" : "rounded-xl"}`}
           style={modalStyle}
           onMouseDown={(e) => e.stopPropagation()}
           onKeyDown={onKeyDown}
@@ -3066,8 +3085,10 @@ export function EditorModal({
           {/* Tab strip, doubling as the drag handle */}
           <div className="flex items-stretch editor-chrome">
             <div
-              className="editor-brand editor-tabstrip flex items-center gap-2 pl-3 pr-2.5 shrink-0 cursor-grab active:cursor-grabbing"
-              onPointerDown={onDragStart}
+              className={`editor-brand editor-tabstrip flex items-center gap-2 pl-3 pr-2.5 shrink-0 ${
+                docked ? "" : "cursor-grab active:cursor-grabbing"
+              }`}
+              onPointerDown={docked ? undefined : onDragStart}
             >
               <img src="/logo.png" alt="" className="h-3.5 w-auto shrink-0" />
               <span className="editor-brand-title text-[11px] font-semibold whitespace-nowrap">
@@ -3113,40 +3134,49 @@ export function EditorModal({
               />
             </div>
             <div className="flex items-center gap-0.5 px-2 shrink-0 editor-tabstrip">
-              {onMinimize && (
-                <button
-                  className="editor-btn p-1 rounded"
-                  onClick={onMinimize}
-                  title="Minimize — open files and undo history are kept"
-                  aria-label="Minimize"
-                >
-                  <Minus size={12} />
-                </button>
+              {/*
+                No window controls on the base. Every one of these is an answer
+                to "put this away", and the base is what is left when
+                everything is put away. Changing it is a settings decision.
+              */}
+              {!docked && (
+                <>
+                  {onMinimize && (
+                    <button
+                      className="editor-btn p-1 rounded"
+                      onClick={onMinimize}
+                      title="Minimize — open files and undo history are kept"
+                      aria-label="Minimize"
+                    >
+                      <Minus size={12} />
+                    </button>
+                  )}
+                  <button
+                    className={`editor-btn p-1 rounded ${pipMode ? "on" : ""}`}
+                    onClick={togglePip}
+                    title={pipMode ? "Exit picture-in-picture" : "Picture-in-picture"}
+                    aria-label={pipMode ? "Exit picture-in-picture" : "Picture-in-picture"}
+                  >
+                    <PictureInPicture2 size={12} />
+                  </button>
+                  <button
+                    className={`editor-btn p-1 rounded ${fullscreen ? "on" : ""}`}
+                    onClick={toggleFullscreen}
+                    title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+                    aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+                  >
+                    {fullscreen ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+                  </button>
+                  <button
+                    className="editor-btn editor-btn-close p-1 rounded"
+                    onClick={onClose}
+                    title="Close editor"
+                    aria-label="Close editor"
+                  >
+                    <X size={13} />
+                  </button>
+                </>
               )}
-              <button
-                className={`editor-btn p-1 rounded ${pipMode ? "on" : ""}`}
-                onClick={togglePip}
-                title={pipMode ? "Exit picture-in-picture" : "Picture-in-picture"}
-                aria-label={pipMode ? "Exit picture-in-picture" : "Picture-in-picture"}
-              >
-                <PictureInPicture2 size={12} />
-              </button>
-              <button
-                className={`editor-btn p-1 rounded ${fullscreen ? "on" : ""}`}
-                onClick={toggleFullscreen}
-                title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
-                aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
-              >
-                {fullscreen ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
-              </button>
-              <button
-                className="editor-btn editor-btn-close p-1 rounded"
-                onClick={onClose}
-                title="Close editor"
-                aria-label="Close editor"
-              >
-                <X size={13} />
-              </button>
             </div>
           </div>
 

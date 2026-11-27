@@ -119,6 +119,22 @@ export function isFront(id: string): boolean {
 }
 
 /**
+ * True when no floating overlay is open at all.
+ *
+ * For the service that is the base. It never claims a rank — there is nothing
+ * for it to be raised above — so `isFront` is permanently false for it, and a
+ * window-level key like Escape would be owned by nobody whenever the base is
+ * the only thing on screen, which is most of the time.
+ *
+ * So the base asks this instead: it owns the key exactly when nothing is in
+ * front of it. The two questions stay separate because they are different —
+ * `isFront` is "am I the top of the stack", this is "is there a stack".
+ */
+export function noOverlayOpen(): boolean {
+  return claims.size === 0;
+}
+
+/**
  * Where each overlay is, for the ones that are a window rather than a
  * full-screen modal. Absent means "assume it covers everything".
  */

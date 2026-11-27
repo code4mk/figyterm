@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, Fragment, useCallback } from "react";
+import { useState, useRef, useEffect, Fragment, useCallback, type ReactNode } from "react";
 import { Dialog, Transition } from "@headlessui/react";
 import { TerminalSquare, X, Plus, Pencil, Columns2, ChevronLeft, ChevronRight } from "lucide-react";
 import { SHORTCUTS, text } from "../../services/shortcuts";
@@ -20,9 +20,31 @@ interface TabBarProps {
   onReorderTabs?: (fromIndex: number, toIndex: number) => void;
   onPrevTab?: () => void;
   onNextTab?: () => void;
+  /**
+   * The window controls for the frame this strip is the chrome of.
+   *
+   * The terminal is a service like the other six now, so it needs the same
+   * minimize/maximize/close — and its tab strip is the only bar it has, the
+   * way the editor's tab strip is. Empty when the terminal is the base, which
+   * has nothing to minimize or close to.
+   */
+  controls?: ReactNode;
+  /** Drags the frame, when this strip is a floating window's handle. */
+  onDragHandle?: (e: React.PointerEvent) => void;
 }
 
-export function TabBar({ tabs, onTabClick, onTabClose, onNewTab, onRenameTab, onReorderTabs, onPrevTab, onNextTab }: TabBarProps) {
+export function TabBar({
+  tabs,
+  onTabClick,
+  onTabClose,
+  onNewTab,
+  onRenameTab,
+  onReorderTabs,
+  onPrevTab,
+  onNextTab,
+  controls,
+  onDragHandle,
+}: TabBarProps) {
   const [renameModal, setRenameModal] = useState<{ id: string; title: string } | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [hoveredTab, setHoveredTab] = useState<string | null>(null);
@@ -143,12 +165,13 @@ export function TabBar({ tabs, onTabClick, onTabClose, onNewTab, onRenameTab, on
 
   return (
     <>
-      <div className="tab-bar flex items-end h-[40px] pt-[6px] pl-[72px] pr-2 gap-0 overflow-x-auto no-drag drag-region select-none">
-        {/* Logo */}
-        <div className="flex items-center h-[32px] px-2 flex-shrink-0 no-drag">
-          <img src="/logo.png" alt="Figylo" className="h-4 w-auto" />
-        </div>
-
+      {/*
+        No logo and no traffic-light gutter: both belonged to this strip while
+        it was the thing at the top of the window, and both moved to the app
+        header when the terminal became one service among seven. What is left
+        is the terminal's own chrome, which is all this ever was.
+      */}
+      <div className="tab-bar flex items-end h-[40px] pt-[6px] pl-2 pr-2 gap-0 overflow-x-auto no-drag select-none">
         {/* Global nav arrows */}
         {tabs.length > 1 && (
           <div className="flex items-center h-[32px] gap-0 mr-1 flex-shrink-0 no-drag">
@@ -257,7 +280,14 @@ export function TabBar({ tabs, onTabClick, onTabClose, onNewTab, onRenameTab, on
           <Plus size={13} strokeWidth={2} />
         </button>
 
-        <div className="flex-1 drag-region" />
+        {/*
+          The empty stretch is the drag handle, the way it is in every tab
+          strip — but only when this is a floating window. As the base it is
+          just space.
+        */}
+        <div className="flex-1 self-stretch" onPointerDown={onDragHandle} />
+
+        {controls && <div className="flex items-center gap-0.5 flex-shrink-0 ml-1">{controls}</div>}
       </div>
 
       {/* Floating drag ghost */}

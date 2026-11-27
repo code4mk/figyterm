@@ -93,6 +93,9 @@ export function StatusBar({
   }, []);
 
   return (
+    // `h-7` is duplicated as STATUS_BAR_HEIGHT in `useDraggableModal`, which a
+    // docked service is placed against before this bar has laid itself out.
+    // Change one, change the other.
     <div className="flex items-center h-7 px-3 bg-ft-surface border-t border-ft-border-subtle text-[10px] text-ft-text-muted select-none gap-3">
       <div className="flex items-center gap-1.5">
         <Terminal size={10} className="opacity-50" />

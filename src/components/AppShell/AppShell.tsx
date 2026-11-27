@@ -31,6 +31,11 @@ import type { EditorOpenRequest } from "../Editor/EditorModal";
 import type { ClaudeMentionRequest } from "../Claude/ClaudeModal";
 import { isMac, EMBEDDED_BROWSER_SUPPORTED } from "../../services/platform";
 import { DockWindow, MinimizedDock } from "./MinimizedDock";
+import { AppHeader } from "./AppHeader";
+import { TerminalWindow } from "../Terminal/TerminalWindow";
+import { WelcomeScreen } from "../Welcome/WelcomeScreen";
+import { resolveBase, type ServiceId } from "../../services/catalog";
+import { useSettingsStore } from "../../stores/settingsStore";
 import { serveAgentLsp } from "../../services/figycode-lsp";
 
 const MAX_PANES_PER_TAB = 4;
@@ -114,6 +119,16 @@ export function AppShell() {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [monitorOpen, setMonitorOpen] = useState(false);
+  /*
+    The terminal is a window now, like the other six.
+
+    It opens closed, because whenever it is *not* the base somebody chose
+    something else to look at — and whenever it is, this flag is ignored: a
+    docked service is never hidden. See `visibleWhenNotBase` below.
+  */
+  const [terminalOpen, setTerminalOpen] = useState(false);
+  /** Latches the first time the terminal is shown; it then stays mounted. */
+  const [terminalMounted, setTerminalMounted] = useState(false);
   const [browserOpen, setBrowserOpen] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
   const [claudeOpen, setClaudeOpen] = useState(false);
@@ -166,6 +181,36 @@ export function AppShell() {
 
   const { addTab, removeTab, setActiveTab, reorderTabs } = useTerminalStore();
   const toggleTheme = useThemeStore((s) => s.toggleTheme);
+
+  /*
+    Which service fills the window, and whether anybody has said yet.
+
+    `baseService` is stored as a plain string and may name a service that this
+    build dropped or this platform cannot run; `resolveBase` turns it into an
+    id that is known good, or null. Null is not a failure — it is a first run,
+    and the welcome page is what the window shows until it is answered.
+  */
+  const settings = useSettingsStore((state) => state.settings);
+  const updateSettings = useSettingsStore((state) => state.updateSettings);
+  const baseId = resolveBase(settings.baseService);
+  const welcomed = settings.welcomedAt !== null && baseId !== null;
+
+  const chooseBase = useCallback(
+    (id: ServiceId) => updateSettings({ baseService: id, welcomedAt: Date.now() }),
+    [updateSettings]
+  );
+
+  /**
+   * Whether a service should be drawn as a floating window.
+   *
+   * The base is never one: it is docked, it is always visible, and its own
+   * `visible` prop is ignored in favour of `docked`. Everything else is a
+   * window, shown when it has been opened.
+   */
+  const windowVisible = useCallback(
+    (id: ServiceId, open: boolean) => open && baseId !== id,
+    [baseId]
+  );
 
   /**
    * Asks the focused pane to do something only it can do.
@@ -247,6 +292,11 @@ export function AppShell() {
     setTabs((prev) => [...prev, { id: tabId, paneTree, sessions: {} }]);
     setActiveTabId(tabId);
     setActivePaneId(paneId);
+    // A new tab is a request to look at the terminal. When it is the base it
+    // is already in front of you; when it is not — ⌘T from the drawing board,
+    // or "open a terminal here" from the editor's tree — the window has to
+    // come up, or the tab is made somewhere nobody can see.
+    setTerminalOpen(true);
   }, [setPaneInitialCwd]);
 
   const handleNewTab = useCallback(() => {
@@ -520,28 +570,57 @@ export function AppShell() {
    * the two and the whole point of having both. The keyboard goes back to the
    * shell either way: a window you cannot see must not be holding it.
    */
+  /**
+   * Each service's "is it open" setter, in one place.
+   *
+   * There were four copies of this correspondence — minimize, restore, the
+   * dock-pruning effect and the palette — each a chain of `if` on a different
+   * spelling of the same seven things, and adding the terminal to all four was
+   * the point at which that stopped being reasonable.
+   */
+  const setServiceOpen = useCallback((which: ServiceId, open: boolean) => {
+    switch (which) {
+      case "figy-terminal":
+        setTerminalOpen(open);
+        break;
+      case "figy-browser":
+        setBrowserOpen(open);
+        break;
+      case "figy-code-editor":
+        setEditorOpen(open);
+        break;
+      case "claude-code":
+        setClaudeOpen(open);
+        break;
+      case "figy-harness":
+        setFigyOpen(open);
+        break;
+      case "figy-man":
+        setApiOpen(open);
+        break;
+      case "figy-drawing":
+        setDrawingOpen(open);
+        break;
+    }
+  }, []);
+
   const minimizeWindow = useCallback(
     (which: DockWindow) => {
       setMinimized((ids) => (ids.includes(which) ? ids : [...ids, which]));
-      if (which === "browser") setBrowserOpen(false);
-      else if (which === "editor") setEditorOpen(false);
-      else if (which === "claude") setClaudeOpen(false);
-      else if (which === "figycode") setFigyOpen(false);
-      else setApiOpen(false);
+      setServiceOpen(which, false);
       focusActivePane();
     },
-    [focusActivePane]
+    [focusActivePane, setServiceOpen]
   );
 
   /** Brings one back, and takes it out of the dock. */
-  const restoreWindow = useCallback((which: DockWindow) => {
-    setMinimized((ids) => ids.filter((id) => id !== which));
-    if (which === "browser") setBrowserOpen(true);
-    else if (which === "editor") setEditorOpen(true);
-    else if (which === "claude") setClaudeOpen(true);
-    else if (which === "figycode") setFigyOpen(true);
-    else setApiOpen(true);
-  }, []);
+  const restoreWindow = useCallback(
+    (which: DockWindow) => {
+      setMinimized((ids) => ids.filter((id) => id !== which));
+      setServiceOpen(which, true);
+    },
+    [setServiceOpen]
+  );
 
   /*
     Opening a window by any other route — the chord, the palette, the menu —
@@ -550,22 +629,50 @@ export function AppShell() {
     later would otherwise leave a window on screen and in the dock at once.
   */
   useEffect(() => {
+    const open: Record<ServiceId, boolean> = {
+      "figy-terminal": terminalOpen,
+      "figy-browser": browserOpen,
+      "figy-code-editor": editorOpen,
+      "claude-code": claudeOpen,
+      "figy-harness": figyOpen,
+      "figy-man": apiOpen,
+      "figy-drawing": drawingOpen,
+    };
     setMinimized((ids) => {
-      const next = ids.filter(
-        (id) =>
-          !(id === "browser" && browserOpen) &&
-          !(id === "editor" && editorOpen) &&
-          !(id === "claude" && claudeOpen) &&
-          !(id === "figycode" && figyOpen) &&
-          !(id === "api" && apiOpen)
-      );
+      // The base is not a window and cannot be in the dock — a service that
+      // becomes the base while minimized has to leave it, or the footer offers
+      // to restore the thing already filling the screen.
+      const next = ids.filter((id) => !open[id] && id !== baseId);
       return next.length === ids.length ? ids : next;
     });
-  }, [browserOpen, editorOpen, claudeOpen, figyOpen, apiOpen]);
+  }, [terminalOpen, browserOpen, editorOpen, claudeOpen, figyOpen, apiOpen, drawingOpen, baseId]);
+
+  /** Read by the shortcut handler, which is registered once. */
+  const terminalOpenRef = useRef(terminalOpen);
+  terminalOpenRef.current = terminalOpen;
+
+  /**
+   * Closing the terminal window stops nothing.
+   *
+   * The panes stay mounted and their shells keep running — see `TerminalWindow`,
+   * which hides rather than unmounts for exactly this reason. Refused when the
+   * terminal is the base: there would be nothing left in the window.
+   */
+  const closeTerminal = useCallback(() => {
+    if (baseId === "figy-terminal") return;
+    setTerminalOpen(false);
+    setMinimized((ids) => ids.filter((id) => id !== "figy-terminal"));
+  }, [baseId]);
+
+  const toggleTerminal = useCallback(() => {
+    if (baseId === "figy-terminal") return;
+    if (terminalOpenRef.current) closeTerminal();
+    else setTerminalOpen(true);
+  }, [baseId, closeTerminal]);
 
   const closeEditor = useCallback(() => {
     setEditorOpen(false);
-    setMinimized((ids) => ids.filter((id) => id !== "editor"));
+    setMinimized((ids) => ids.filter((id) => id !== "figy-code-editor"));
     focusActivePane();
   }, [focusActivePane]);
 
@@ -585,7 +692,7 @@ export function AppShell() {
    */
   const closeClaude = useCallback(() => {
     setClaudeOpen(false);
-    setMinimized((ids) => ids.filter((id) => id !== "claude"));
+    setMinimized((ids) => ids.filter((id) => id !== "claude-code"));
     focusActivePane();
   }, [focusActivePane]);
 
@@ -600,7 +707,7 @@ export function AppShell() {
 
   const closeFigy = useCallback(() => {
     setFigyOpen(false);
-    setMinimized((ids) => ids.filter((id) => id !== "figycode"));
+    setMinimized((ids) => ids.filter((id) => id !== "figy-harness"));
     focusActivePane();
   }, [focusActivePane]);
 
@@ -634,7 +741,7 @@ export function AppShell() {
    * having when the window comes back. */
   const closeApi = useCallback(() => {
     setApiOpen(false);
-    setMinimized((ids) => ids.filter((id) => id !== "api"));
+    setMinimized((ids) => ids.filter((id) => id !== "figy-man"));
     focusActivePane();
   }, [focusActivePane]);
 
@@ -758,12 +865,24 @@ export function AppShell() {
     };
   }, []);
 
+  /**
+   * Whether the terminal is on screen at all — as the base, or as a window.
+   *
+   * The first shell waits for this. It used to be spawned on mount, which was
+   * right while the terminal was the base by definition and wrong now: a first
+   * run shows the welcome page with no base chosen, and starting somebody's
+   * login shell behind a page they have not answered is work nobody asked for.
+   * Pick the drawing board and no shell is ever started.
+   */
+  const terminalShown = baseId === "figy-terminal" || terminalOpen;
+
   useEffect(() => {
-    if (!initialCreated.current) {
-      initialCreated.current = true;
-      handleNewTab();
-    }
-  }, [handleNewTab]);
+    if (!terminalShown) return;
+    setTerminalMounted(true);
+    if (initialCreated.current) return;
+    initialCreated.current = true;
+    handleNewTab();
+  }, [terminalShown, handleNewTab]);
 
   useEffect(() => {
     const unlisteners = [
@@ -946,15 +1065,36 @@ export function AppShell() {
     { id: "copy", label: "Copy Selection", shortcut: keys(SHORTCUTS.copy), action: () => askActivePane("copy") },
     { id: "paste", label: "Paste", shortcut: keys(SHORTCUTS.paste), action: () => askActivePane("paste") },
     { id: "toggle-theme", label: "Toggle Light/Dark Theme", shortcut: keys(SHORTCUTS.toggleTheme), action: toggleTheme },
-    // Absent only where the embedded browser can't be positioned at all.
-    ...(EMBEDDED_BROWSER_SUPPORTED
-      ? [{ id: "browser", label: "Open Browser", shortcut: keys(SHORTCUTS.browser), action: () => setBrowserOpen(true) }]
+    /*
+      One entry per service, named as the catalogue names it — the palette
+      used to call Figy Man "API Client" and the dock called it "API", which
+      left the app with three names for one program.
+
+      The base is left out: it is already the whole window, so "Open" is not
+      something it can do.
+    */
+    ...(baseId !== "figy-terminal"
+      ? [{ id: "terminal", label: "Open Figy Terminal", action: toggleTerminal }]
       : []),
-    { id: "editor", label: "Open Code Editor", shortcut: keys(SHORTCUTS.editor), action: () => setEditorOpen(true) },
-    { id: "claude", label: "Open Claude Code", shortcut: keys(SHORTCUTS.claude), action: () => setClaudeOpen(true) },
-    { id: "figy-code", label: "Open FigyCode", shortcut: keys(SHORTCUTS.figyCode), action: () => setFigyOpen(true) },
-    { id: "drawing", label: "Open Drawing", shortcut: keys(SHORTCUTS.drawing), action: () => setDrawingOpen(true) },
-    { id: "api", label: "Open API Client", shortcut: keys(SHORTCUTS.api), action: () => setApiOpen(true) },
+    // Absent only where the embedded browser can't be positioned at all.
+    ...(EMBEDDED_BROWSER_SUPPORTED && baseId !== "figy-browser"
+      ? [{ id: "browser", label: "Open Figy Browser", shortcut: keys(SHORTCUTS.browser), action: () => setBrowserOpen(true) }]
+      : []),
+    ...(baseId !== "figy-code-editor"
+      ? [{ id: "editor", label: "Open Figy Code Editor", shortcut: keys(SHORTCUTS.editor), action: () => setEditorOpen(true) }]
+      : []),
+    ...(baseId !== "claude-code"
+      ? [{ id: "claude", label: "Open Claude Code", shortcut: keys(SHORTCUTS.claude), action: () => setClaudeOpen(true) }]
+      : []),
+    ...(baseId !== "figy-harness"
+      ? [{ id: "figy-code", label: "Open Figy Harness", shortcut: keys(SHORTCUTS.figyCode), action: () => setFigyOpen(true) }]
+      : []),
+    ...(baseId !== "figy-drawing"
+      ? [{ id: "drawing", label: "Open Figy Drawing", shortcut: keys(SHORTCUTS.drawing), action: () => setDrawingOpen(true) }]
+      : []),
+    ...(baseId !== "figy-man"
+      ? [{ id: "api", label: "Open Figy Man", shortcut: keys(SHORTCUTS.api), action: () => setApiOpen(true) }]
+      : []),
     {
       id: "drawing-new",
       label: "New Drawing",
@@ -970,40 +1110,53 @@ export function AppShell() {
     { id: "check-updates", label: "Check for Updates", action: handleOpenUpdates },
   ];
 
+  /** Which services currently have a window up, for the header's menu. */
+  const openIds = new Set<ServiceId>(
+    (
+      [
+        ["figy-terminal", terminalOpen],
+        ["figy-browser", browserOpen],
+        ["figy-code-editor", editorOpen],
+        ["claude-code", claudeOpen],
+        ["figy-harness", figyOpen],
+        ["figy-man", apiOpen],
+        ["figy-drawing", drawingOpen],
+      ] as const
+    )
+      .filter(([, open]) => open)
+      .map(([id]) => id)
+  );
+
+  /** The header's menu, and anything else that opens a service by name. */
+  const openService = useCallback(
+    (id: ServiceId) => {
+      // The base is already the whole window. Asking for it is a no-op rather
+      // than an error — the menu lists it because leaving it out would be a
+      // list of six that claims to be the services.
+      if (id === baseId) return;
+      setServiceOpen(id, true);
+    },
+    [baseId, setServiceOpen]
+  );
+
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-ft-bg">
-      <div onMouseUp={focusActivePane}>
-        <TabBar
-          tabs={tabsForUI}
-          onTabClick={handleSwitchTab}
-          onTabClose={handleCloseTab}
-          onNewTab={handleNewTab}
-          onRenameTab={(id, name) => setCustomTabNames((prev) => ({ ...prev, [id]: name }))}
-          onReorderTabs={handleReorderTabs}
-          onPrevTab={switchToPreviousTab}
-          onNextTab={switchToNextTab}
-        />
-      </div>
-      <div className="flex-1 relative overflow-hidden" onClick={focusActivePane}>
-        {tabs.map((tab) => (
-          <div
-            key={tab.id}
-            className={`absolute inset-0 ${tab.id === activeTabId ? "z-10" : "z-0 invisible"}`}
-          >
-            <PaneContainer
-              paneTree={tab.paneTree}
-              activePaneId={tab.id === activeTabId ? activePaneId : null}
-              onPaneFocus={setActivePaneId}
-              onPaneClose={handleClosePane}
-              onSessionCreated={handleSessionCreated}
-              onCwdChange={(paneId, cwd) => setLiveCwds((prev) => ({ ...prev, [paneId]: cwd }))}
-              getPaneInitialCwd={getPaneInitialCwd}
-              clearRefs={clearRefs}
-              focusRefs={focusRefs}
-            />
-          </div>
-        ))}
-      </div>
+      <AppHeader
+        baseId={baseId}
+        openIds={openIds}
+        onOpenService={openService}
+        onOpenSettings={() => setSettingsOpen(true)}
+      />
+      {/*
+        The space the base occupies, and nothing else.
+
+        The base is an overlay like every other window — placed by
+        `baseSlotRect`, which is this gap measured from the two bars around it
+        — so there is nothing to render into it here. What this div does is
+        hold the gap open at the right height, which is the one thing a
+        `position: fixed` rectangle cannot do for itself.
+      */}
+      <div className="flex-1 min-h-0" />
       <div onMouseUp={focusActivePane}>
         <StatusBar
           cwd={activePaneId ? (liveCwds[activePaneId] || activePaneSession?.session?.cwd || "") : ""}
@@ -1022,11 +1175,69 @@ export function AppShell() {
               // A minimized Claude window is the one place a waiting
               // conversation can be said out loud, so the count rides on its
               // dock item rather than being announced twice.
-              badges={{ claude: claudeAttention }}
+              badges={{ "claude-code": claudeAttention }}
             />
           }
         />
       </div>
+      {/*
+        The terminal, in the frame it never used to have.
+
+        Mounted from the moment it is first shown and kept thereafter: the
+        panes are ptys, and the one thing this window must not do is end
+        somebody's shell because it was dismissed.
+      */}
+      {terminalMounted && (
+        <TerminalWindow
+          visible={windowVisible("figy-terminal", terminalOpen)}
+          docked={baseId === "figy-terminal"}
+          onClose={closeTerminal}
+          onMinimize={() => minimizeWindow("figy-terminal")}
+          chrome={({ controls, onDragHandle }) => (
+            <div onMouseUp={focusActivePane}>
+              <TabBar
+                tabs={tabsForUI}
+                onTabClick={handleSwitchTab}
+                onTabClose={handleCloseTab}
+                onNewTab={handleNewTab}
+                onRenameTab={(id, name) =>
+                  setCustomTabNames((prev) => ({ ...prev, [id]: name }))
+                }
+                onReorderTabs={handleReorderTabs}
+                onPrevTab={switchToPreviousTab}
+                onNextTab={switchToNextTab}
+                controls={controls}
+                onDragHandle={onDragHandle}
+              />
+            </div>
+          )}
+        >
+          <div className="absolute inset-0" onClick={focusActivePane}>
+            {tabs.map((tab) => (
+              <div
+                key={tab.id}
+                className={`absolute inset-0 ${
+                  tab.id === activeTabId ? "z-10" : "z-0 invisible"
+                }`}
+              >
+                <PaneContainer
+                  paneTree={tab.paneTree}
+                  activePaneId={tab.id === activeTabId ? activePaneId : null}
+                  onPaneFocus={setActivePaneId}
+                  onPaneClose={handleClosePane}
+                  onSessionCreated={handleSessionCreated}
+                  onCwdChange={(paneId, cwd) =>
+                    setLiveCwds((prev) => ({ ...prev, [paneId]: cwd }))
+                  }
+                  getPaneInitialCwd={getPaneInitialCwd}
+                  clearRefs={clearRefs}
+                  focusRefs={focusRefs}
+                />
+              </div>
+            ))}
+          </div>
+        </TerminalWindow>
+      )}
       <CommandPalette
         isOpen={commandPaletteOpen}
         onClose={() => setCommandPaletteOpen(false)}
@@ -1046,9 +1257,10 @@ export function AppShell() {
       {EMBEDDED_BROWSER_SUPPORTED && (
         <OverlayBoundary label="browser" onDismiss={() => setBrowserOpen(false)}>
           <BrowserModal
-            visible={browserOpen}
+            visible={windowVisible("figy-browser", browserOpen)}
+            docked={baseId === "figy-browser"}
             onClose={() => setBrowserOpen(false)}
-            onMinimize={() => minimizeWindow("browser")}
+            onMinimize={() => minimizeWindow("figy-browser")}
           />
         </OverlayBoundary>
       )}
@@ -1058,13 +1270,14 @@ export function AppShell() {
         and selection, which is the one thing an editor must not lose when you
         dismiss it to look at the shell for a moment.
       */}
-      {editorMounted && (
+      {(editorMounted || baseId === "figy-code-editor") && (
         <OverlayBoundary label="code editor" onDismiss={closeEditor}>
           <Suspense fallback={null}>
             <EditorModal
-              visible={editorOpen}
+              visible={windowVisible("figy-code-editor", editorOpen)}
+              docked={baseId === "figy-code-editor"}
               onClose={closeEditor}
-              onMinimize={() => minimizeWindow("editor")}
+              onMinimize={() => minimizeWindow("figy-code-editor")}
               cwd={getActiveCwd()}
               onOpenTerminal={createTab}
               openRequest={editorRequest}
@@ -1079,13 +1292,14 @@ export function AppShell() {
         conversation inside it is a live process, and unmounting would end them
         all because the window happened to be dismissed.
       */}
-      {claudeMounted && (
+      {(claudeMounted || baseId === "claude-code") && (
         <OverlayBoundary label="Claude Code" onDismiss={closeClaude}>
           <Suspense fallback={null}>
             <ClaudeModal
-              visible={claudeOpen}
+              visible={windowVisible("claude-code", claudeOpen)}
+              docked={baseId === "claude-code"}
               onClose={closeClaude}
-              onMinimize={() => minimizeWindow("claude")}
+              onMinimize={() => minimizeWindow("claude-code")}
               cwd={getActiveCwd()}
               closeTabRequest={claudeCloseTab}
               onLiveCountChange={setClaudeLive}
@@ -1099,32 +1313,38 @@ export function AppShell() {
         Mounted once and then kept, so a scripted run you dismissed halfway
         is still there when the window comes back.
       */}
-      {figyMounted && (
+      {(figyMounted || baseId === "figy-harness") && (
         <OverlayBoundary label="FigyCode" onDismiss={closeFigy}>
           <Suspense fallback={null}>
             <FigyCodeModal
-              visible={figyOpen}
+              visible={windowVisible("figy-harness", figyOpen)}
+              docked={baseId === "figy-harness"}
               onClose={closeFigy}
-              onMinimize={() => minimizeWindow("figycode")}
+              onMinimize={() => minimizeWindow("figy-harness")}
               cwd={getActiveCwd()}
             />
           </Suspense>
         </OverlayBoundary>
       )}
-      {drawingMounted && (
+      {(drawingMounted || baseId === "figy-drawing") && (
         <OverlayBoundary label="drawing" onDismiss={closeDrawing}>
           <Suspense fallback={null}>
-            <DrawingModal visible={drawingOpen} onClose={closeDrawing} />
+            <DrawingModal
+              visible={windowVisible("figy-drawing", drawingOpen)}
+              docked={baseId === "figy-drawing"}
+              onClose={closeDrawing}
+            />
           </Suspense>
         </OverlayBoundary>
       )}
-      {apiMounted && (
+      {(apiMounted || baseId === "figy-man") && (
         <OverlayBoundary label="API client" onDismiss={closeApi}>
           <Suspense fallback={null}>
             <ApiModal
-              visible={apiOpen}
+              visible={windowVisible("figy-man", apiOpen)}
+              docked={baseId === "figy-man"}
               onClose={closeApi}
-              onMinimize={() => minimizeWindow("api")}
+              onMinimize={() => minimizeWindow("figy-man")}
             />
           </Suspense>
         </OverlayBoundary>
@@ -1149,6 +1369,13 @@ export function AppShell() {
         onCancel={() => setNewWindowPrompt(false)}
         onSubmit={confirmNewWindow}
       />
+      {/*
+        Last, and over everything. Until it is answered there is no base, so
+        the window behind it is the header, an empty slot and the status bar —
+        which is exactly what it should be, because nothing has been chosen to
+        put there yet.
+      */}
+      {!welcomed && <WelcomeScreen initial={baseId} onChoose={chooseBase} />}
     </div>
   );
 }
