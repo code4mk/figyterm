@@ -12,7 +12,6 @@ import { useOverlayZSync } from "../../hooks/useOverlayZSync";
 import {
   baseSlotRect,
   fullscreenRect,
-  pictureInPictureRect,
 } from "../../hooks/useDraggableModal";
 import { BASE_SLOT_Z } from "../../hooks/useBaseSlot";
 import {
@@ -23,7 +22,6 @@ import {
   Plus,
   Globe,
   ExternalLink,
-  PictureInPicture2,
   Maximize2,
   Minus,
   Minimize2,
@@ -87,7 +85,6 @@ export function BrowserModal({
   const [draft, setDraft] = useState("");
   const [editingAddress, setEditingAddress] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [pipMode, setPipMode] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const theme = useThemeStore((s) => s.theme);
 
@@ -131,7 +128,7 @@ export function BrowserModal({
     // Released on close, so whatever is still open becomes frontmost.
     releaseFront("browser");
     setFrontZ(null);
-  }, [docked, visible, pipMode, raise]);
+  }, [docked, visible, raise]);
 
   /*
     Pinned to the base slot while it is the base.
@@ -194,7 +191,7 @@ export function BrowserModal({
       width: rect.width,
       height: rect.height,
     });
-  }, [frontZ, stackVersion, pos, size, pipMode]);
+  }, [frontZ, stackVersion, pos, size]);
 
 
   const activeTab = useMemo(
@@ -347,7 +344,7 @@ export function BrowserModal({
         () => {}
       );
     });
-  }, [visible, interacting, covered, activeTabId, tabIdsKey, pos, size, pipMode, measure]);
+  }, [visible, interacting, covered, activeTabId, tabIdsKey, pos, size, measure]);
 
   useEffect(() => {
     if (!visible) return;
@@ -455,12 +452,10 @@ export function BrowserModal({
   /**
    * Fullscreen: the modal takes the whole window.
    *
-   * Mutually exclusive with picture-in-picture — they're opposite answers to
-   * the same question — and the geometry comes from the shared helper, so this
-   * mode matches the editor's exactly.
+   * The geometry comes from the shared helper, so this mode matches the
+   * editor's exactly.
    */
   const toggleFullscreen = useCallback(() => {
-    setPipMode(false);
     setFullscreen((prev) => {
       if (prev) {
         setPos(null);
@@ -485,22 +480,6 @@ export function BrowserModal({
     window.addEventListener("resize", follow);
     return () => window.removeEventListener("resize", follow);
   }, [fullscreen]);
-
-  const togglePip = useCallback(() => {
-    setFullscreen(false);
-    setPipMode((prev) => {
-      if (!prev) {
-        // The same geometry the editor uses, from the shared helper.
-        const rect = pictureInPictureRect();
-        setSize({ w: rect.w, h: rect.h });
-        setPos({ x: rect.x, y: rect.y });
-      } else {
-        setPos(null);
-        setSize(DEFAULT_SIZE);
-      }
-      return !prev;
-    });
-  }, []);
 
   // --- Actions ---------------------------------------------------------------
 
@@ -582,14 +561,14 @@ export function BrowserModal({
         which of four tabs is on screen.
       */
       role="dialog"
-      aria-modal={!pipMode}
+      aria-modal={false}
       aria-label={
         activeTab ? `Browser — ${activeTab.title || hostLabel(activeTab.url)}` : "Browser"
       }
       className={`browser-modal overflow-hidden shadow-2xl flex flex-col ${
-        pipMode ? "browser-pip" : ""
-      } ${fullscreen || docked ? "browser-fullscreen" : "rounded-xl"}`}
-      style={pipMode ? { ...modalStyle, zIndex: frontZ ?? undefined } : modalStyle}
+        fullscreen || docked ? "browser-fullscreen" : "rounded-xl"
+      }`}
+      style={modalStyle}
       onPointerDownCapture={raise}
       onMouseDown={(e) => e.stopPropagation()}
       onMouseUp={(e) => e.stopPropagation()}
@@ -689,15 +668,6 @@ export function BrowserModal({
           */}
           {!docked && (
             <>
-              <button
-                className={`browser-btn p-1 rounded ${pipMode ? "on" : ""}`}
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={togglePip}
-                title={pipMode ? "Exit picture-in-picture" : "Picture-in-picture"}
-                aria-label={pipMode ? "Exit picture-in-picture" : "Picture-in-picture"}
-              >
-                <PictureInPicture2 size={12} />
-              </button>
               <button
                 className={`browser-btn p-1 rounded ${fullscreen ? "on" : ""}`}
                 onPointerDown={(e) => e.stopPropagation()}
@@ -872,8 +842,6 @@ export function BrowserModal({
       </div>
     </div>
   );
-
-  if (pipMode) return <OverlayPortal>{modal}</OverlayPortal>;
 
   return (
     <OverlayPortal>

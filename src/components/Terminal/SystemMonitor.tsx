@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { X, PictureInPicture2, Maximize2, Cpu, MemoryStick, HardDrive } from "lucide-react";
+import { X, Cpu, MemoryStick, HardDrive } from "lucide-react";
 import Chart from "react-apexcharts";
 import { useThemeStore } from "../../stores/themeStore";
 import { OverlayPortal } from "../Overlay/OverlayPortal";
@@ -38,14 +38,13 @@ export function SystemMonitor({ visible, onClose }: SystemMonitorProps) {
   const [stats, setStats] = useState<SystemStats | null>(null);
   const [cpuHistory, setCpuHistory] = useState<{ x: number; y: number }[]>([]);
   const [memHistory, setMemHistory] = useState<{ x: number; y: number }[]>([]);
-  const [pipMode, setPipMode] = useState(false);
   const [activeChart, setActiveChart] = useState<"cpu" | "memory">("cpu");
 
   /**
    * Keeps this window in front when it's opened or clicked, and steps aside
    * when it closes. See `services/overlay-stack.ts`.
    */
-  const [frontZ, setFrontZ] = useState<number | null>(null);
+  const [, setFrontZ] = useState<number | null>(null);
   const raise = useCallback(() => setFrontZ(claimFront("monitor")), []);
   // A claim by any overlay renumbers the rest; this re-reads ours.
   useOverlayZSync("monitor", setFrontZ);
@@ -58,14 +57,13 @@ export function SystemMonitor({ visible, onClose }: SystemMonitorProps) {
     // Released on close, so whatever is still open becomes frontmost.
     releaseFront("monitor");
     setFrontZ(null);
-  }, [visible, pipMode, raise]);
+  }, [visible, raise]);
 
   const modalRef = useRef<HTMLDivElement>(null);
 
-  // A window only in picture-in-picture; a backdropped modal otherwise. See
-  // `useOverlayRect` — this is what stops it blanking the browser's page when
-  // the two are side by side.
-  useOverlayRect("monitor", modalRef, visible && pipMode);
+  // A backdropped modal, which the stack reads as covering everything — see
+  // `useOverlayRect`, and the note there about a missing rectangle.
+  useOverlayRect("monitor", modalRef, false);
   const theme = useThemeStore((s) => s.theme);
 
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
@@ -80,7 +78,6 @@ export function SystemMonitor({ visible, onClose }: SystemMonitorProps) {
     setCpuHistory([]);
     setMemHistory([]);
     setPos(null);
-    setPipMode(false);
     setSize({ w: 520, h: 400 });
 
     const fetchStats = () => {
@@ -133,14 +130,6 @@ export function SystemMonitor({ visible, onClose }: SystemMonitorProps) {
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
   }, [size]);
-
-  const togglePip = useCallback(() => {
-    setPipMode((prev) => {
-      if (!prev) { setSize({ w: 440, h: 340 }); setPos({ x: window.innerWidth - 460, y: window.innerHeight - 380 }); }
-      else { setPos(null); setSize({ w: 520, h: 400 }); }
-      return !prev;
-    });
-  }, []);
 
   const isDark = theme === "dark";
 
@@ -242,8 +231,8 @@ export function SystemMonitor({ visible, onClose }: SystemMonitorProps) {
   const modal = (
     <div
       ref={modalRef}
-      className={`monitor-modal rounded-xl overflow-hidden shadow-2xl ${pipMode ? "monitor-pip" : ""}`}
-      style={pipMode ? { ...modalStyle, zIndex: frontZ ?? undefined } : modalStyle}
+      className="monitor-modal rounded-xl overflow-hidden shadow-2xl"
+      style={modalStyle}
       onPointerDownCapture={raise}
       onMouseDown={(e) => e.stopPropagation()}
       onMouseUp={(e) => e.stopPropagation()}
@@ -258,14 +247,6 @@ export function SystemMonitor({ visible, onClose }: SystemMonitorProps) {
       >
         <span className="text-xs font-semibold monitor-title">System Monitor</span>
         <div className="flex items-center gap-1">
-          <button
-            className="monitor-btn p-1 rounded transition-colors"
-            onClick={(e) => { e.stopPropagation(); togglePip(); }}
-            onPointerDown={(e) => e.stopPropagation()}
-            title={pipMode ? "Exit PiP" : "PiP mode"}
-          >
-            {pipMode ? <Maximize2 size={12} /> : <PictureInPicture2 size={12} />}
-          </button>
           <button
             className="monitor-btn p-1 rounded transition-colors"
             onClick={(e) => { e.stopPropagation(); onClose(); }}
@@ -344,8 +325,6 @@ export function SystemMonitor({ visible, onClose }: SystemMonitorProps) {
       </div>
     </div>
   );
-
-  if (pipMode) return <OverlayPortal>{modal}</OverlayPortal>;
 
   return (
     <OverlayPortal>

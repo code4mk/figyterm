@@ -10,7 +10,6 @@ import {
   Minimize2,
   Minus,
   PanelLeft,
-  PictureInPicture2,
   Plus,
   RotateCcw,
   X,
@@ -20,7 +19,6 @@ import { claimFront, releaseFront } from "../../services/overlay-stack";
 import { useOverlayZSync } from "../../hooks/useOverlayZSync";
 import {
   fullscreenRect,
-  pictureInPictureRect,
   useDraggableModal,
 } from "../../hooks/useDraggableModal";
 import { useOverlayRect } from "../../hooks/useOverlayRect";
@@ -175,7 +173,6 @@ export function ClaudeModal({
 }: ClaudeModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
   const [frontZ, setFrontZ] = useState<number | null>(null);
-  const [pipMode, setPipMode] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
 
   const [probe, setProbe] = useState<ClaudeProbe | null>(null);
@@ -286,7 +283,7 @@ export function ClaudeModal({
 
   // Only in picture-in-picture is this a window rather than a modal with a
   // full-screen backdrop; see the note in `overlay-stack.ts`.
-  useOverlayRect("claude", modalRef, (visible && pipMode) || docked);
+  useOverlayRect("claude", modalRef, docked);
 
   useBaseSlot(docked, place);
 
@@ -844,25 +841,12 @@ export function ClaudeModal({
 
   // ─── Window chrome ────────────────────────────────────────────────────────
 
-  const togglePip = useCallback(() => {
-    if (pipMode) {
-      setPipMode(false);
-      reset();
-      return;
-    }
-    setFullscreen(false);
-    setPipMode(true);
-    const rect = pictureInPictureRect();
-    place({ x: rect.x, y: rect.y }, { w: rect.w, h: rect.h });
-  }, [pipMode, place, reset]);
-
   const toggleFullscreen = useCallback(() => {
     if (fullscreen) {
       setFullscreen(false);
       reset();
       return;
     }
-    setPipMode(false);
     setFullscreen(true);
     const rect = fullscreenRect();
     place({ x: rect.x, y: rect.y }, { w: rect.w, h: rect.h });
@@ -883,12 +867,8 @@ export function ClaudeModal({
   /**
    * Whether the sidebar is on screen.
    *
-   * Picture-in-picture overrides the preference rather than clearing it: that
-   * mode's window is 520px at its narrowest, and a 236px column would leave the
-   * CLI too few terminal columns to lay its own output out in. Leaving it off
-   * instead means the preference survives the round trip.
    */
-  const navVisible = chrome.navOpen && !pipMode;
+  const navVisible = chrome.navOpen;
 
   const toggleNav = useCallback(
     () => setChrome((current) => ({ ...current, navOpen: !current.navOpen })),
@@ -1057,13 +1037,13 @@ export function ClaudeModal({
           docked
             ? "flex"
             : `z-[240] items-start justify-center pt-[4vh] ${visible ? "flex" : "hidden"}`
-        } ${pipMode ? "editor-backdrop-pip" : ""}`}
+        }`}
         style={{ zIndex: docked ? BASE_SLOT_Z : (frontZ ?? undefined) }}
         onPointerDownCapture={raise}
         onMouseDown={(e) => {
           // A click on the backdrop dismisses a window. The base has no
           // backdrop to click and nothing to dismiss to.
-          if (!docked && !pipMode && e.target === e.currentTarget) onClose();
+          if (!docked && e.target === e.currentTarget) onClose();
         }}
         onKeyUp={(e) => e.stopPropagation()}
       >
@@ -1078,11 +1058,11 @@ export function ClaudeModal({
             states look alike from the outside.
           */
           role="dialog"
-          aria-modal={!pipMode}
+          aria-modal={false}
           aria-label={project ? `Claude Code — ${projectName(project)}` : "Claude Code"}
           className={`editor-modal claude-window overflow-hidden flex flex-col focus:outline-none ${
-            pipMode ? "editor-pip" : ""
-          } ${fullscreen || docked ? "editor-fullscreen" : "rounded-xl"}`}
+            fullscreen || docked ? "editor-fullscreen" : "rounded-xl"
+          }`}
           style={modalStyle}
           onMouseDown={(e) => e.stopPropagation()}
           onKeyDown={onKeyDown}
@@ -1111,12 +1091,7 @@ export function ClaudeModal({
               <button
                 className={`claude-iconbtn ${navVisible ? "on" : ""}`}
                 onClick={toggleNav}
-                disabled={pipMode}
-                title={
-                  pipMode
-                    ? "The sidebar is hidden in picture-in-picture"
-                    : `${navVisible ? "Hide" : "Show"} the sidebar (${navChord})`
-                }
+                title={`${navVisible ? "Hide" : "Show"} the sidebar (${navChord})`}
                 aria-label="Toggle sidebar"
                 aria-pressed={navVisible}
               >
@@ -1203,15 +1178,6 @@ export function ClaudeModal({
                       <Minus size={12} />
                     </button>
                   )}
-                  <button
-                    className={`claude-iconbtn ${pipMode ? "on" : ""}`}
-                    onClick={togglePip}
-                    title={pipMode ? "Leave picture-in-picture" : "Picture-in-picture"}
-                    aria-label="Picture in picture"
-                    aria-pressed={pipMode}
-                  >
-                    <PictureInPicture2 size={12} />
-                  </button>
                   <button
                     className={`claude-iconbtn ${fullscreen ? "on" : ""}`}
                     onClick={toggleFullscreen}

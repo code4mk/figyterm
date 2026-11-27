@@ -11,6 +11,10 @@ import { useCallback, useRef, useState } from "react";
  * it does need every other manner here, and two copies of pointer-capture
  * arithmetic is one too many.
  *
+ * There used to be a picture-in-picture rectangle here too, shared by the
+ * windows that offered that mode. They no longer do — see the windows
+ * themselves, which now offer minimize, maximize and close and nothing else.
+ *
  * Position starts as `null`, meaning "wherever the layout puts it" — that's how
  * a modal can be centred by flexbox until the user first moves it. Anything
  * that needs a concrete rect before then (resizing from a top or left edge)
@@ -47,7 +51,7 @@ export interface DraggableModal {
   style: React.CSSProperties;
   onDragStart: (e: React.PointerEvent) => void;
   onResizeStart: (e: React.PointerEvent, edge?: ResizeEdge) => void;
-  /** Put the modal somewhere specific — maximize, picture-in-picture, restore. */
+  /** Put the modal somewhere specific — maximize, dock, restore. */
   place: (pos: ModalPos | null, size: ModalSize) => void;
   /** Back to the layout's own placement at the default size. */
   reset: () => void;
@@ -56,24 +60,6 @@ export interface DraggableModal {
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
-
-/**
- * Picture-in-picture geometry, shared by the editor and the browser.
- *
- * Proportions rather than fixed pixels: a hard-coded size is wrong on two
- * displays at once — the editor's original 560×420 was cramped on a laptop and
- * a postage stamp on a 5K panel. Clamped at both ends so it stays a usable
- * window without growing into a second full-screen modal.
- *
- * Both modals call this so the two modes match, and can't drift apart the next
- * time one of them is adjusted.
- */
-const PIP_RATIO = { w: 0.55, h: 0.85 };
-const PIP_MIN = { w: 520, h: 400 };
-const PIP_MAX = { w: 900, h: 900 };
-
-/** Measured from the bottom-right corner, clear of the window's own edges. */
-const PIP_MARGIN = { right: 24, bottom: 32 };
 
 /**
  * Fullscreen: the whole app window, edge to edge.
@@ -123,21 +109,6 @@ export function baseSlotRect(): ModalPos & ModalSize {
     y: APP_HEADER_HEIGHT,
     w: window.innerWidth,
     h: Math.max(0, window.innerHeight - APP_HEADER_HEIGHT - STATUS_BAR_HEIGHT),
-  };
-}
-
-export function pictureInPictureRect(): ModalPos & ModalSize {
-  const w = Math.round(
-    clamp(window.innerWidth * PIP_RATIO.w, PIP_MIN.w, PIP_MAX.w)
-  );
-  const h = Math.round(
-    clamp(window.innerHeight * PIP_RATIO.h, PIP_MIN.h, PIP_MAX.h)
-  );
-  return {
-    w,
-    h,
-    x: Math.max(0, window.innerWidth - w - PIP_MARGIN.right),
-    y: Math.max(0, window.innerHeight - h - PIP_MARGIN.bottom),
   };
 }
 

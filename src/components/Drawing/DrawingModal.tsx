@@ -16,13 +16,12 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Maximize2, Minimize2, PanelLeft, PictureInPicture2, X } from "lucide-react";
+import { Maximize2, Minimize2, PanelLeft, X } from "lucide-react";
 import { OverlayPortal } from "../Overlay/OverlayPortal";
 import { claimFront, releaseFront } from "../../services/overlay-stack";
 import { useOverlayZSync } from "../../hooks/useOverlayZSync";
 import {
   fullscreenRect,
-  pictureInPictureRect,
   useDraggableModal,
 } from "../../hooks/useDraggableModal";
 import { BASE_SLOT_Z, useBaseSlot } from "../../hooks/useBaseSlot";
@@ -60,7 +59,6 @@ function savedAtLabel(at: number | null): string {
 }
 
 export function DrawingModal({ visible, onClose, docked = false }: DrawingModalProps) {
-  const [pipMode, setPipMode] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const modalRef = useRef<HTMLDivElement>(null);
 
@@ -164,7 +162,6 @@ export function DrawingModal({ visible, onClose, docked = false }: DrawingModalP
   // ─── Window modes ────────────────────────────────────────────────────────
 
   const toggleFullscreen = useCallback(() => {
-    setPipMode(false);
     setFullscreen((prev) => {
       if (prev) {
         reset();
@@ -185,19 +182,6 @@ export function DrawingModal({ visible, onClose, docked = false }: DrawingModalP
     window.addEventListener("resize", follow);
     return () => window.removeEventListener("resize", follow);
   }, [fullscreen, place]);
-
-  const togglePip = useCallback(() => {
-    setFullscreen(false);
-    setPipMode((prev) => {
-      if (prev) {
-        reset();
-      } else {
-        const rect = pictureInPictureRect();
-        place({ x: rect.x, y: rect.y }, { w: rect.w, h: rect.h });
-      }
-      return !prev;
-    });
-  }, [place, reset]);
 
   /**
    * Escape closes the window.
@@ -232,12 +216,12 @@ export function DrawingModal({ visible, onClose, docked = false }: DrawingModalP
         alone does not say which drawing is open.
       */
       role="dialog"
-      aria-modal={!pipMode}
+      aria-modal={false}
       aria-label={active ? `Draw — ${active.name}` : "Draw"}
       className={`drawing-modal flex flex-col overflow-hidden ${
         fullscreen || docked ? "rounded-none" : "rounded-xl"
       }`}
-      style={pipMode ? { ...style, zIndex: frontZ ?? undefined } : style}
+      style={style}
       onPointerDownCapture={raise}
       onMouseDown={(e) => e.stopPropagation()}
       onMouseUp={(e) => e.stopPropagation()}
@@ -364,15 +348,6 @@ export function DrawingModal({ visible, onClose, docked = false }: DrawingModalP
               <span className="drawing-sep" />
 
               <button
-                className={`drawing-iconbtn ${pipMode ? "on" : ""}`}
-                onClick={togglePip}
-                title={pipMode ? "Leave picture-in-picture" : "Picture-in-picture"}
-                aria-label="Picture in picture"
-                aria-pressed={pipMode}
-              >
-                <PictureInPicture2 size={12} />
-              </button>
-              <button
                 className={`drawing-iconbtn ${fullscreen ? "on" : ""}`}
                 onClick={toggleFullscreen}
                 title={fullscreen ? "Restore" : "Maximize"}
@@ -485,8 +460,6 @@ export function DrawingModal({ visible, onClose, docked = false }: DrawingModalP
       </div>
     </div>
   );
-
-  if (pipMode) return <OverlayPortal>{modal}</OverlayPortal>;
 
   return (
     <OverlayPortal>

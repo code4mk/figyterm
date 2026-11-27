@@ -22,7 +22,6 @@ import {
   Minimize2,
   PanelBottom,
   PanelRight,
-  PictureInPicture2,
   Save,
   Send,
   TriangleAlert,
@@ -34,7 +33,6 @@ import { claimFront, releaseFront } from "../../services/overlay-stack";
 import { useOverlayZSync } from "../../hooks/useOverlayZSync";
 import {
   fullscreenRect,
-  pictureInPictureRect,
   useDraggableModal,
 } from "../../hooks/useDraggableModal";
 import { BASE_SLOT_Z, useBaseSlot } from "../../hooks/useBaseSlot";
@@ -103,7 +101,6 @@ export function ApiModal({
   onMinimize,
   docked = false,
 }: ApiModalProps) {
-  const [pipMode, setPipMode] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const modalRef = useRef<HTMLDivElement>(null);
   const urlRef = useRef<VariableInputHandle>(null);
@@ -436,7 +433,6 @@ export function ApiModal({
   // ─── Window modes ────────────────────────────────────────────────────────
 
   const toggleFullscreen = useCallback(() => {
-    setPipMode(false);
     setFullscreen((prev) => {
       if (prev) {
         reset();
@@ -457,19 +453,6 @@ export function ApiModal({
     window.addEventListener("resize", follow);
     return () => window.removeEventListener("resize", follow);
   }, [fullscreen, place]);
-
-  const togglePip = useCallback(() => {
-    setFullscreen(false);
-    setPipMode((prev) => {
-      if (prev) {
-        reset();
-      } else {
-        const rect = pictureInPictureRect();
-        place({ x: rect.x, y: rect.y }, { w: rect.w, h: rect.h });
-      }
-      return !prev;
-    });
-  }, [place, reset]);
 
   /**
    * The window's own chords. Escape closes, ⌘Enter sends, ⌘S saves, ⌘W closes
@@ -563,7 +546,7 @@ export function ApiModal({
       className={`api-modal flex flex-col overflow-hidden bg-ft-bg border border-ft-border shadow-2xl ${
         fullscreen || docked ? "rounded-none" : "rounded-xl"
       }`}
-      style={pipMode ? { ...style, zIndex: frontZ ?? undefined } : style}
+      style={style}
       onPointerDownCapture={raise}
       onMouseDown={(e) => e.stopPropagation()}
       onMouseUp={(e) => e.stopPropagation()}
@@ -645,15 +628,6 @@ export function ApiModal({
           */}
           {!docked && (
             <>
-              <button
-                className={`p-1.5 rounded hover:bg-ft-surface ${pipMode ? "text-ft-accent" : "text-ft-text-muted"}`}
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={togglePip}
-                title={pipMode ? "Exit picture-in-picture" : "Picture-in-picture"}
-                aria-label={pipMode ? "Exit picture-in-picture" : "Picture-in-picture"}
-              >
-                <PictureInPicture2 size={14} />
-              </button>
               <button
                 className={`p-1.5 rounded hover:bg-ft-surface ${fullscreen ? "text-ft-accent" : "text-ft-text-muted"}`}
                 onPointerDown={(e) => e.stopPropagation()}
@@ -1190,8 +1164,6 @@ export function ApiModal({
       </div>
     </div>
   );
-
-  if (pipMode) return <OverlayPortal>{modal}</OverlayPortal>;
 
   return (
     <OverlayPortal>

@@ -320,8 +320,10 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
 
     let shell_menu = Submenu::with_id_and_items(
         app,
+        // The id stays `shell` — it is what the webview's listeners are keyed
+        // on. Only the label changed.
         "shell",
-        "Shell",
+        "Menu",
         true,
         &[
             // Above the tabs, and separated from them: a window is the bigger

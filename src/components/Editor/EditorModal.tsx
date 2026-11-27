@@ -28,7 +28,6 @@ import {
   PanelRightClose,
   PanelRightOpen,
   PenLine,
-  PictureInPicture2,
   Redo2,
   Save,
   Scissors,
@@ -48,7 +47,6 @@ import { claimFront, releaseFront } from "../../services/overlay-stack";
 import { useOverlayZSync } from "../../hooks/useOverlayZSync";
 import {
   fullscreenRect,
-  pictureInPictureRect,
   useDraggableModal,
 } from "../../hooks/useDraggableModal";
 import { useFileWatcher } from "../../hooks/useFileWatcher";
@@ -210,9 +208,6 @@ const PANEL_MODES = [
 
 /** The editor itself never gets dragged narrower than this. */
 const MIN_EDITOR = 320;
-
-/** The same idea in picture-in-picture, where there is far less to go round. */
-const MIN_PIP_EDITOR = 240;
 
 /** Debounce before a dirty buffer is journalled to storage. */
 const JOURNAL_MS = 700;
@@ -603,7 +598,6 @@ export function EditorModal({
    */
   const [wrapped, setWrapped] = useState(() => editorSettings.wordWrap);
   const [fullscreen, setFullscreen] = useState(false);
-  const [pipMode, setPipMode] = useState(false);
   /**
    * Keeps this window in front when it's opened or clicked.
    *
@@ -785,7 +779,7 @@ export function EditorModal({
     a full-screen backdrop, and the stack's "no rectangle means it covers
     everything" is the right answer for that.
   */
-  useOverlayRect("editor", modalRef, (visible && pipMode) || docked);
+  useOverlayRect("editor", modalRef, docked);
 
   useBaseSlot(docked, place);
 
@@ -1682,7 +1676,7 @@ export function EditorModal({
     */
     releaseFront("editor");
     setFrontZ(null);
-  }, [visible, pipMode, raise]);
+  }, [visible, raise]);
 
 
   /**
@@ -1908,7 +1902,6 @@ export function EditorModal({
   );
 
   const toggleFullscreen = useCallback(() => {
-    setPipMode(false);
     setFullscreen((prev) => {
       if (prev) {
         reset();
@@ -1922,25 +1915,6 @@ export function EditorModal({
 
   /**
    * Picture-in-picture: a small, always-on-top editor with no backdrop.
-   *
-   * It parks bottom-right, out of the way of a shell being typed into, which is
-   * the case it exists for — keeping a file in view while working in the
-   * terminal. The side panel and the preview are left out at this size rather
-   * than squeezed: two 260px panes in a 560px window would leave no editor.
-   */
-  const togglePip = useCallback(() => {
-    setFullscreen(false);
-    setPipMode((prev) => {
-      if (prev) {
-        reset();
-      } else {
-        const rect = pictureInPictureRect();
-        place({ x: rect.x, y: rect.y }, { w: rect.w, h: rect.h });
-      }
-      return !prev;
-    });
-  }, [place, reset]);
-
   /*
     No folder, no panel. The explorer, search and source control all describe a
     folder, so with none open the column has nothing to say — and showed a
@@ -1952,20 +1926,6 @@ export function EditorModal({
   const rightShown = previewShown || agentOpen;
 
   /**
-   * A pane's width as the layout should use it.
-   *
-   * In picture-in-picture the whole window is 560px, so a 260px tree plus a
-   * 420px preview would leave the editor at nothing — the panes are narrowed to
-   * fit instead of being hidden. Hiding them was the first attempt and it made
-   * the tree's toggle look broken: pressing it changed a flag that the layout
-   * then ignored.
-   */
-  const paneWidth = useCallback(
-    (width: number) =>
-      pipMode ? Math.min(width, Math.max(140, modalSize.w - MIN_PIP_EDITOR)) : width,
-    [pipMode, modalSize.w]
-  );
-
   /** Keeps a fullscreen modal the size of the window it's filling. */
   useEffect(() => {
     if (!fullscreen) return;
@@ -2804,7 +2764,7 @@ export function EditorModal({
 
   /** Wide enough for the switcher's tabs to be worth labelling. */
   const wideControls =
-    panelShown && paneWidth(dragWidth ?? explorerWidth) >= LABELLED_CONTROLS;
+    panelShown && (dragWidth ?? explorerWidth) >= LABELLED_CONTROLS;
 
   const gitPanelTitle = git.isRepo
     ? `Source control — ${git.files.length} change${git.files.length === 1 ? "" : "s"}`
@@ -2858,7 +2818,7 @@ export function EditorModal({
       style={
         panelShown
           ? {
-              width: paneWidth(dragWidth ?? explorerWidth) - TOOLBAR_PAD + DIVIDER_W,
+              width: (dragWidth ?? explorerWidth) - TOOLBAR_PAD + DIVIDER_W,
               // Never narrower than the icons: a panel dragged to its minimum
               // in picture-in-picture must not push them out of their own box.
               minWidth: "fit-content",
@@ -2970,7 +2930,7 @@ export function EditorModal({
       )}
       <div
         className={`shrink-0 min-h-0 editor-sidepanel on-${panelSide}`}
-        style={{ width: paneWidth(dragWidth ?? explorerWidth) }}
+        style={{ width: (dragWidth ?? explorerWidth) }}
       >
         {sidePanel === "git" && root && rootReady ? (
           <SourceControl
@@ -3046,7 +3006,7 @@ export function EditorModal({
           docked
             ? "flex"
             : `z-[240] items-start justify-center pt-[4vh] ${visible ? "flex" : "hidden"}`
-        } ${pipMode ? "editor-backdrop-pip" : ""}`}
+        }`}
         style={{ zIndex: docked ? BASE_SLOT_Z : (frontZ ?? undefined) }}
         onPointerDownCapture={raise}
         /*
@@ -3059,7 +3019,7 @@ export function EditorModal({
         onMouseDown={(e) => {
           // A click on the backdrop dismisses a window. The base has no
           // backdrop to click and nothing to dismiss to.
-          if (!docked && !pipMode && e.target === e.currentTarget) onClose();
+          if (!docked && e.target === e.currentTarget) onClose();
         }}
         onKeyUp={(e) => e.stopPropagation()}
       >
@@ -3073,8 +3033,8 @@ export function EditorModal({
           */
           tabIndex={-1}
           className={`editor-modal overflow-hidden shadow-2xl flex flex-col focus:outline-none ${
-            pipMode ? "editor-pip" : ""
-          } ${fullscreen || docked ? "editor-fullscreen" : "rounded-xl"}`}
+            fullscreen || docked ? "editor-fullscreen" : "rounded-xl"
+          }`}
           style={modalStyle}
           onMouseDown={(e) => e.stopPropagation()}
           onKeyDown={onKeyDown}
@@ -3151,14 +3111,6 @@ export function EditorModal({
                       <Minus size={12} />
                     </button>
                   )}
-                  <button
-                    className={`editor-btn p-1 rounded ${pipMode ? "on" : ""}`}
-                    onClick={togglePip}
-                    title={pipMode ? "Exit picture-in-picture" : "Picture-in-picture"}
-                    aria-label={pipMode ? "Exit picture-in-picture" : "Picture-in-picture"}
-                  >
-                    <PictureInPicture2 size={12} />
-                  </button>
                   <button
                     className={`editor-btn p-1 rounded ${fullscreen ? "on" : ""}`}
                     onClick={toggleFullscreen}
@@ -3565,7 +3517,7 @@ export function EditorModal({
                 />
                 <div
                   className="shrink-0 min-h-0"
-                  style={{ width: paneWidth(previewDragWidth ?? previewWidth) }}
+                  style={{ width: (previewDragWidth ?? previewWidth) }}
                 >
                   {agentOpen ? (
                     <AgentPanel
