@@ -1189,7 +1189,7 @@ export function AppShell() {
           <ServicesScreen
             current={storedBase}
             onSetPrimary={setPrimary}
-            onOpenWindow={(id) => setServiceOpen(id, true)}
+            onOpen={(id) => setServiceOpen(id, true)}
             openIds={openIds}
           />
         )}

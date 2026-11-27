@@ -19,10 +19,16 @@ import { keys } from "../../services/shortcuts";
  *
  * Two things can be done with a service, and they are genuinely different:
  * make it the primary, which fills the window and is what you came here to
- * work in, or open it in a window, which floats over whatever is primary. The
+ * work in, or open it, which puts it in a popup over whatever is primary. The
  * first is the common one, so it is what a plain click does; both are on the
  * right-click menu, because a one-click action with no second route is a
  * feature people never find.
+ *
+ * "Open" rather than "open in a window", deliberately. This app has real
+ * windows — ⌘N makes one, with its own tabs and its own shells — and a popup
+ * inside this one is not that. Borrowing the word would have left the app's
+ * one genuinely new-window action indistinguishable from the six that are
+ * nothing of the kind.
  */
 
 interface ServicesScreenProps {
@@ -30,9 +36,9 @@ interface ServicesScreenProps {
   current: ServiceId | null;
   /** Fill the window with this service, and leave this screen. */
   onSetPrimary: (id: ServiceId) => void;
-  /** Open it as a floating window. This screen stays, so several can be opened. */
-  onOpenWindow: (id: ServiceId) => void;
-  /** Which services already have a window open over this screen. */
+  /** Open it as a popup over the primary. This screen stays, so several can be. */
+  onOpen: (id: ServiceId) => void;
+  /** Which services are already open as popups over this screen. */
   openIds: ReadonlySet<ServiceId>;
 }
 
@@ -49,7 +55,7 @@ const MENU_H = 84;
 export function ServicesScreen({
   current,
   onSetPrimary,
-  onOpenWindow,
+  onOpen,
   openIds,
 }: ServicesScreenProps) {
   const options = selectableServices();
@@ -178,8 +184,8 @@ export function ServicesScreen({
 
                   {/*
                     Two different facts, and both are worth one word: this is
-                    what filled the window last time, or it already has a window
-                    open over this screen right now.
+                    what filled the window last time, or it is already open as
+                    a popup over this screen right now.
                   */}
                   {isCurrent ? (
                     <span className="flex shrink-0 items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-ft-text-muted">
@@ -246,12 +252,12 @@ export function ServicesScreen({
             role="menuitem"
             onClick={() => {
               setMenu(null);
-              onOpenWindow(menu.service.id);
+              onOpen(menu.service.id);
             }}
             className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[11.5px] text-ft-text transition-colors hover:bg-ft-elevated"
           >
             <SquareArrowOutUpRight size={13} className="shrink-0 text-ft-text-muted" />
-            Open in a window
+            Open
           </button>
         </div>
       )}

@@ -21,9 +21,9 @@ import { keys } from "../../services/shortcuts";
 interface AppHeaderProps {
   /** The service filling the slot below, or null before one has been chosen. */
   baseId: ServiceId | null;
-  /** Which services currently have a window open. */
+  /** Which services are currently open as popups over the primary. */
   openIds: ReadonlySet<ServiceId>;
-  /** Open one as a window, or focus it if it is already up. */
+  /** Open one as a popup, or do nothing if it is already the primary. */
   onOpenService: (id: ServiceId) => void;
   /** Back to the services screen, where the primary is chosen. */
   onShowServices: () => void;
@@ -131,9 +131,13 @@ export function AppHeader({
           >
             {/*
               The way back to the screen the app opens on, where a service is
-              made primary. The rows below open a window over whatever is
+              made primary. The rows below open one as a popup over whatever is
               primary, which is the other thing you can do with a service and
               deliberately not the same thing.
+
+              Neither is ⌘N. That makes a real second window of the app, with
+              its own tabs and its own shells, and it is why nothing here
+              borrows the word.
             */}
             <button
               type="button"
