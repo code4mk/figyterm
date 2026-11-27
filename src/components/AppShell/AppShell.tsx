@@ -9,7 +9,7 @@ import { BrowserModal } from "../Browser/BrowserModal";
 import { OverlayBoundary } from "../Overlay/OverlayBoundary";
 import { useDrawingStore } from "../../stores/drawingStore";
 import { CommandPalette } from "../CommandPalette/CommandPalette";
-import { Settings, type SettingsTab } from "../Settings/Settings";
+import { Settings, type SettingsScope } from "../Settings/Settings";
 import { UpdateModal } from "../Updates/UpdateModal";
 import { UpdateToast } from "../Updates/UpdateToast";
 import { useUpdateCheck } from "../../hooks/useUpdateCheck";
@@ -117,17 +117,17 @@ export function AppShell() {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   /**
-   * Which tab Settings opens on, and so which question is being asked.
+   * Whose settings are open: the app's, or the service's that asked.
    *
-   * "Settings" from the native Menu is about the whole of Figylo and opens on
-   * General. "Settings" from inside a service is about that service — the
-   * terminal's button opens on Terminal. The same dialog answers both; what
-   * changes is where it lands.
+   * "Settings" from the native Menu is about the whole of Figylo — the theme,
+   * updates, shortcuts, which service is primary. "Settings" from inside a
+   * service is about that service. The scope decides which tabs the dialog
+   * has, so neither can reach the other's.
    */
-  const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
+  const [settingsScope, setSettingsScope] = useState<SettingsScope>("app");
 
-  const openSettings = useCallback((tab: SettingsTab = "general") => {
-    setSettingsTab(tab);
+  const openSettings = useCallback((scope: SettingsScope = "app") => {
+    setSettingsScope(scope);
     setSettingsOpen(true);
   }, []);
   const [monitorOpen, setMonitorOpen] = useState(false);
@@ -1209,7 +1209,7 @@ export function AppShell() {
         isOpen={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         activeSessionId={activePaneSession?.sessionId ?? null}
-        initialTab={settingsTab}
+        scope={settingsScope}
       />
       <OverlayBoundary label="system monitor" onDismiss={() => setMonitorOpen(false)}>
         <SystemMonitor

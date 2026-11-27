@@ -56,17 +56,34 @@ interface SettingsProps {
   onClose: () => void;
   activeSessionId?: string | null;
   /**
-   * The tab to open on.
+   * Whose settings these are.
    *
-   * The app's own Settings — the native Menu's, which is about the whole of
-   * Figylo — opens on General. A service that has settings of its own points
-   * at the tab that is about it: the terminal's button opens on Terminal, so
-   * "settings" from inside a service means that service, and "settings" from
-   * the Menu means the app. Two different questions, and they were being
-   * answered by the same dialog opening in the same place.
+   * "Settings" was one word answering two questions. The native Menu's is
+   * about the whole of Figylo — the theme, updates, shortcuts, which service
+   * is primary. The terminal's button is about the terminal — its font, its
+   * cursor, its shell, its prompt. Opening the same six tabs from both and
+   * only landing on a different one meant either could reach the other's, so
+   * the terminal's settings offered to change the app's update channel and
+   * the app's offered a picture of a terminal that might not be running.
+   *
+   * The scope decides which tabs exist, not which one is selected.
    */
-  initialTab?: SettingsTab;
+  scope?: SettingsScope;
 }
+
+export type SettingsScope = "app" | "terminal";
+
+/**
+ * Which tabs each scope has, in order. The first is where it opens.
+ *
+ * Specs is the one that could argue for either — a command spec is
+ * autocomplete for the shell — but it is a library the whole app downloads and
+ * shares rather than anything about this terminal, so it sits with the app.
+ */
+const SCOPE_TABS: Record<SettingsScope, SettingsTab[]> = {
+  app: ["general", "shortcuts", "specs", "updates"],
+  terminal: ["terminal", "theme"],
+};
 
 interface ShellCommandOutput {
   stdout: string;
@@ -86,23 +103,23 @@ export function Settings({
   isOpen,
   onClose,
   activeSessionId,
-  initialTab = "general",
+  scope = "app",
 }: SettingsProps) {
   const { settings, updateSettings, resetSettings } = useSettingsStore();
   const { theme, setTheme } = useThemeStore();
-  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
+  const [activeTab, setActiveTab] = useState<SettingsTab>(SCOPE_TABS[scope][0]);
 
   /*
-    Each opening starts on the tab it was opened for.
+    Each opening starts at the front of its own scope.
 
     Not only the first: the dialog is mounted for the life of the window and
     merely hidden, so without this the second open would land on whatever tab
-    was last clicked — which makes the terminal's own settings button a
-    coin-toss between Terminal and wherever you happened to finish.
+    was last clicked — and once the two scopes have different tabs, that tab
+    may not even be in the list being drawn.
   */
   useEffect(() => {
-    if (isOpen) setActiveTab(initialTab);
-  }, [isOpen, initialTab]);
+    if (isOpen) setActiveTab(SCOPE_TABS[scope][0]);
+  }, [isOpen, scope]);
 
   const [zshTheme, setZshTheme] = useState<string>("");
   const [availableThemes, setAvailableThemes] = useState<string[]>([]);
@@ -317,14 +334,16 @@ source "${resolvedPath}"`, `${home}/.zshrc`],
     }
   }
 
-  const tabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
-    { id: "general", label: "General", icon: <Eye size={14} /> },
-    { id: "terminal", label: "Terminal", icon: <TerminalIcon size={14} /> },
-    { id: "theme", label: "Theme", icon: <Palette size={14} /> },
-    { id: "shortcuts", label: "Shortcuts", icon: <Keyboard size={14} /> },
-    { id: "specs", label: "Specs", icon: <Package size={14} /> },
-    { id: "updates", label: "Updates", icon: <ArrowUpCircle size={14} /> },
-  ];
+  const ALL_TABS: Record<SettingsTab, { label: string; icon: React.ReactNode }> = {
+    general: { label: "General", icon: <Eye size={14} /> },
+    terminal: { label: "Terminal", icon: <TerminalIcon size={14} /> },
+    theme: { label: "Prompt", icon: <Palette size={14} /> },
+    shortcuts: { label: "Shortcuts", icon: <Keyboard size={14} /> },
+    specs: { label: "Specs", icon: <Package size={14} /> },
+    updates: { label: "Updates", icon: <ArrowUpCircle size={14} /> },
+  };
+
+  const tabs = SCOPE_TABS[scope].map((id) => ({ id, ...ALL_TABS[id] }));
 
   return (
     <Transition appear show={isOpen} as={Fragment}>
@@ -363,7 +382,9 @@ source "${resolvedPath}"`, `${home}/.zshrc`],
             <Dialog.Panel className="settings-modal w-full max-w-2xl rounded-xl overflow-hidden flex flex-col max-h-[80vh]">
               {/* Header */}
               <div className="settings-header flex items-center justify-between px-6 py-4 shrink-0">
-                <Dialog.Title className="text-sm font-semibold text-ft-text">Settings</Dialog.Title>
+                <Dialog.Title className="text-sm font-semibold text-ft-text">
+                  {scope === "terminal" ? "Terminal Settings" : "Settings"}
+                </Dialog.Title>
                 <button
                   onClick={onClose}
                   className="flex items-center justify-center w-7 h-7 rounded-md text-ft-text-muted hover:text-ft-text hover:bg-ft-surface transition-colors"
@@ -400,11 +421,15 @@ source "${resolvedPath}"`, `${home}/.zshrc`],
                       updateSettings={updateSettings}
                       theme={theme}
                       setTheme={setTheme}
-                      zshTheme={zshTheme}
                     />
                   )}
                   {activeTab === "terminal" && (
-                    <TerminalTab settings={settings} updateSettings={updateSettings} />
+                    <TerminalTab
+                      settings={settings}
+                      updateSettings={updateSettings}
+                      theme={theme}
+                      zshTheme={zshTheme}
+                    />
                   )}
                   {activeTab === "theme" && (
                     <ThemeTab
@@ -459,13 +484,11 @@ function GeneralTab({
   updateSettings,
   theme,
   setTheme,
-  zshTheme,
 }: {
   settings: SettingsType;
   updateSettings: (partial: Partial<SettingsType>) => void;
   theme: "dark" | "light";
   setTheme: (t: "dark" | "light") => void;
-  zshTheme: string;
 }) {
   const baseId = resolveBase(settings.baseService);
 
@@ -517,20 +540,6 @@ function GeneralTab({
         </div>
       </div>
 
-      {/* Preview */}
-      <div>
-        <SectionHeader icon={<Eye size={13} />} title="Preview" />
-        <TerminalPreview
-          fontFamily={settings.fontFamily}
-          fontSize={settings.fontSize}
-          lineHeight={settings.lineHeight}
-          cursorStyle={settings.cursorStyle}
-          cursorBlink={settings.cursorBlink}
-          theme={theme}
-          zshTheme={zshTheme}
-        />
-      </div>
-
       {/* Appearance */}
       <div>
         <SectionHeader icon={<Sun size={13} />} title="Appearance" />
@@ -564,12 +573,35 @@ function GeneralTab({
 function TerminalTab({
   settings,
   updateSettings,
+  theme,
+  zshTheme,
 }: {
   settings: SettingsType;
   updateSettings: (partial: Partial<SettingsType>) => void;
+  theme: "dark" | "light";
+  zshTheme: string;
 }) {
   return (
     <div className="space-y-6">
+      {/*
+        The preview sits with the controls it previews. It was in General,
+        back when General was most of the terminal's appearance; now that the
+        terminal has its own settings, a picture of the terminal in the app's
+        settings would be a picture of something that is not there.
+      */}
+      <div>
+        <SectionHeader icon={<Eye size={13} />} title="Preview" />
+        <TerminalPreview
+          fontFamily={settings.fontFamily}
+          fontSize={settings.fontSize}
+          lineHeight={settings.lineHeight}
+          cursorStyle={settings.cursorStyle}
+          cursorBlink={settings.cursorBlink}
+          theme={theme}
+          zshTheme={zshTheme}
+        />
+      </div>
+
       {/* Font */}
       <div>
         <SectionHeader icon={<TerminalIcon size={13} />} title="Font" />
