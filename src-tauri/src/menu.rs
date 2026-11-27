@@ -21,6 +21,7 @@ pub const MENU_SPLIT_DOWN: &str = "shell_split_down";
 pub const MENU_CLOSE_PANE: &str = "shell_close_pane";
 pub const MENU_CLEAR_TERMINAL: &str = "shell_clear_terminal";
 pub const MENU_ALL_SERVICES: &str = "shell_all_services";
+pub const MENU_TERMINAL: &str = "shell_terminal";
 pub const MENU_BROWSER: &str = "shell_browser";
 pub const MENU_EDITOR: &str = "shell_editor";
 pub const MENU_CLAUDE: &str = "shell_claude";
@@ -50,6 +51,7 @@ const EVENT_SPLIT_DOWN: &str = "menu://split-down";
 const EVENT_CLOSE_PANE: &str = "menu://close-pane";
 const EVENT_CLEAR_TERMINAL: &str = "menu://clear-terminal";
 const EVENT_ALL_SERVICES: &str = "menu://all-services";
+const EVENT_TERMINAL: &str = "menu://terminal";
 const EVENT_BROWSER: &str = "menu://browser";
 const EVENT_EDITOR: &str = "menu://editor";
 const EVENT_CLAUDE: &str = "menu://claude";
@@ -201,6 +203,11 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         true,
         None::<&str>,
     )?;
+    // The terminal is a service like the other six and belongs in the list
+    // with them. It carries no accelerator because it has no chord: every
+    // other service took a free letter, and the ones a terminal would want —
+    // T for a tab, D for a split — are the shell menu's own.
+    let terminal = MenuItem::with_id(app, MENU_TERMINAL, "Figy Terminal", true, None::<&str>)?;
     let browser = MenuItem::with_id(
         app,
         MENU_BROWSER,
@@ -352,6 +359,7 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
             &clear_terminal,
             &sep3,
             &all_services,
+            &terminal,
             &browser,
             &editor,
             &claude,
@@ -585,6 +593,7 @@ pub fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
         MENU_CLOSE_PANE => emit_focused(app, EVENT_CLOSE_PANE),
         MENU_CLEAR_TERMINAL => emit_focused(app, EVENT_CLEAR_TERMINAL),
         MENU_ALL_SERVICES => emit_focused(app, EVENT_ALL_SERVICES),
+        MENU_TERMINAL => emit_focused(app, EVENT_TERMINAL),
         MENU_BROWSER => emit_focused(app, EVENT_BROWSER),
         MENU_EDITOR => emit_focused(app, EVENT_EDITOR),
         MENU_CLAUDE => emit_focused(app, EVENT_CLAUDE),

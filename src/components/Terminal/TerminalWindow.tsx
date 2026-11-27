@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Maximize2, Minimize2, X } from "lucide-react";
+import { Maximize2, Minimize2, Settings as SettingsIcon, X } from "lucide-react";
 import { OverlayPortal } from "../Overlay/OverlayPortal";
 import { claimFront, releaseFront } from "../../services/overlay-stack";
 import { useOverlayRect } from "../../hooks/useOverlayRect";
@@ -33,6 +33,14 @@ interface TerminalWindowProps {
   docked?: boolean;
   onClose: () => void;
   /**
+   * The terminal's own settings — font, cursor, shell, scrollback.
+   *
+   * Distinct from the native Menu's Settings, which is about the whole of
+   * Figylo. Both open the same dialog; this one opens it on the Terminal tab,
+   * because "settings" asked from inside a service means that service.
+   */
+  onOpenSettings: () => void;
+  /**
    * The tab strip, which is also this window's title bar.
    *
    * Handed back the two things a frame knows and a tab strip does not: where
@@ -51,6 +59,7 @@ export function TerminalWindow({
   visible,
   docked = false,
   onClose,
+  onOpenSettings,
   chrome,
   children,
 }: TerminalWindowProps) {
@@ -109,13 +118,28 @@ export function TerminalWindow({
     return () => window.removeEventListener("resize", follow);
   }, [fullscreen, place]);
 
+  const settingsButton = (
+    <button
+      className="tab-nav-btn flex items-center justify-center w-6 h-6 rounded"
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={onOpenSettings}
+      title="Terminal settings"
+      aria-label="Terminal settings"
+    >
+      <SettingsIcon size={12} />
+    </button>
+  );
+
   /*
-    As the primary this bar carries the way back to the services screen and
-    nothing else: maximize and close are both answers to "put this away", and
-    the primary is what is left when everything is put away.
+    The terminal's own settings either way; maximize and close only as a
+    window. Both of those are answers to "put this away", and the primary is
+    what is left when everything is put away.
   */
-  const controls = docked ? null : (
+  const controls = docked ? (
+    settingsButton
+  ) : (
     <>
+      {settingsButton}
       <button
         className="tab-nav-btn flex items-center justify-center w-6 h-6 rounded"
         onPointerDown={(e) => e.stopPropagation()}

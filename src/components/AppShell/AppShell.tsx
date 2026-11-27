@@ -9,7 +9,7 @@ import { BrowserModal } from "../Browser/BrowserModal";
 import { OverlayBoundary } from "../Overlay/OverlayBoundary";
 import { useDrawingStore } from "../../stores/drawingStore";
 import { CommandPalette } from "../CommandPalette/CommandPalette";
-import { Settings } from "../Settings/Settings";
+import { Settings, type SettingsTab } from "../Settings/Settings";
 import { UpdateModal } from "../Updates/UpdateModal";
 import { UpdateToast } from "../Updates/UpdateToast";
 import { useUpdateCheck } from "../../hooks/useUpdateCheck";
@@ -116,6 +116,20 @@ interface TabInstance {
 export function AppShell() {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  /**
+   * Which tab Settings opens on, and so which question is being asked.
+   *
+   * "Settings" from the native Menu is about the whole of Figylo and opens on
+   * General. "Settings" from inside a service is about that service — the
+   * terminal's button opens on Terminal. The same dialog answers both; what
+   * changes is where it lands.
+   */
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
+
+  const openSettings = useCallback((tab: SettingsTab = "general") => {
+    setSettingsTab(tab);
+    setSettingsOpen(true);
+  }, []);
   const [monitorOpen, setMonitorOpen] = useState(false);
   /*
     The terminal is a window now, like the other six.
@@ -865,6 +879,7 @@ export function AppShell() {
       listenToSelf("menu://close-pane", () => handleClosePane()),
       listenToSelf("menu://clear-terminal", () => handleClearTerminal()),
       listenToSelf("menu://all-services", () => setLauncherOpen(true)),
+      listenToSelf("menu://terminal", () => toggleTerminal()),
       listenToSelf("menu://browser", () => setBrowserOpen((open) => !open)),
       listenToSelf("menu://editor", () => toggleEditor()),
       listenToSelf("menu://claude", () => toggleClaude()),
@@ -873,7 +888,7 @@ export function AppShell() {
       listenToSelf("menu://api", () => toggleApi()),
       listenToSelf("menu://monitor", () => setMonitorOpen((open) => !open)),
       listenToSelf("menu://command-palette", () => setCommandPaletteOpen((open) => !open)),
-      listenToSelf("menu://settings", () => setSettingsOpen(true)),
+      listenToSelf("menu://settings", () => openSettings()),
       listenToSelf("menu://toggle-theme", () => toggleTheme()),
       listenToSelf("menu://check-updates", () => handleOpenUpdates()),
       /*
@@ -910,6 +925,8 @@ export function AppShell() {
     handleClearTerminal,
     handleOpenUpdates,
     toggleTheme,
+    toggleTerminal,
+    openSettings,
     toggleEditor,
     toggleClaude,
     toggleFigy,
@@ -949,7 +966,7 @@ export function AppShell() {
         toggleTheme();
       } else if (matches(e, SHORTCUTS.settings)) {
         e.preventDefault();
-        setSettingsOpen(true);
+        openSettings();
       } else if (matches(e, SHORTCUTS.monitor)) {
         e.preventDefault();
         setMonitorOpen((prev) => !prev);
@@ -1078,7 +1095,7 @@ export function AppShell() {
       },
     },
     { id: "monitor", label: "System Monitor", shortcut: keys(SHORTCUTS.monitor), action: () => setMonitorOpen(true) },
-    { id: "settings", label: "Settings", shortcut: keys(SHORTCUTS.settings), action: () => setSettingsOpen(true) },
+    { id: "settings", label: "Settings", shortcut: keys(SHORTCUTS.settings), action: () => openSettings() },
     { id: "check-updates", label: "Check for Updates", action: handleOpenUpdates },
   ];
 
@@ -1136,6 +1153,7 @@ export function AppShell() {
           visible={windowVisible("figy-terminal", terminalOpen)}
           docked={baseId === "figy-terminal"}
           onClose={closeTerminal}
+          onOpenSettings={() => openSettings("terminal")}
           chrome={({ controls, leading, onDragHandle }) => (
             <div onMouseUp={focusActivePane}>
               <TabBar
@@ -1191,6 +1209,7 @@ export function AppShell() {
         isOpen={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         activeSessionId={activePaneSession?.sessionId ?? null}
+        initialTab={settingsTab}
       />
       <OverlayBoundary label="system monitor" onDismiss={() => setMonitorOpen(false)}>
         <SystemMonitor

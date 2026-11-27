@@ -55,6 +55,17 @@ interface SettingsProps {
   isOpen: boolean;
   onClose: () => void;
   activeSessionId?: string | null;
+  /**
+   * The tab to open on.
+   *
+   * The app's own Settings — the native Menu's, which is about the whole of
+   * Figylo — opens on General. A service that has settings of its own points
+   * at the tab that is about it: the terminal's button opens on Terminal, so
+   * "settings" from inside a service means that service, and "settings" from
+   * the Menu means the app. Two different questions, and they were being
+   * answered by the same dialog opening in the same place.
+   */
+  initialTab?: SettingsTab;
 }
 
 interface ShellCommandOutput {
@@ -63,12 +74,35 @@ interface ShellCommandOutput {
   status: number;
 }
 
-type SettingsTab = "general" | "terminal" | "theme" | "shortcuts" | "specs" | "updates";
+export type SettingsTab =
+  | "general"
+  | "terminal"
+  | "theme"
+  | "shortcuts"
+  | "specs"
+  | "updates";
 
-export function Settings({ isOpen, onClose, activeSessionId }: SettingsProps) {
+export function Settings({
+  isOpen,
+  onClose,
+  activeSessionId,
+  initialTab = "general",
+}: SettingsProps) {
   const { settings, updateSettings, resetSettings } = useSettingsStore();
   const { theme, setTheme } = useThemeStore();
-  const [activeTab, setActiveTab] = useState<SettingsTab>("general");
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
+
+  /*
+    Each opening starts on the tab it was opened for.
+
+    Not only the first: the dialog is mounted for the life of the window and
+    merely hidden, so without this the second open would land on whatever tab
+    was last clicked — which makes the terminal's own settings button a
+    coin-toss between Terminal and wherever you happened to finish.
+  */
+  useEffect(() => {
+    if (isOpen) setActiveTab(initialTab);
+  }, [isOpen, initialTab]);
 
   const [zshTheme, setZshTheme] = useState<string>("");
   const [availableThemes, setAvailableThemes] = useState<string[]>([]);
