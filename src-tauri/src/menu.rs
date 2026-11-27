@@ -20,6 +20,8 @@ pub const MENU_SPLIT_RIGHT: &str = "shell_split_right";
 pub const MENU_SPLIT_DOWN: &str = "shell_split_down";
 pub const MENU_CLOSE_PANE: &str = "shell_close_pane";
 pub const MENU_CLEAR_TERMINAL: &str = "shell_clear_terminal";
+pub const MENU_ALL_SERVICES: &str = "shell_all_services";
+pub const MENU_TERMINAL: &str = "shell_terminal";
 pub const MENU_BROWSER: &str = "shell_browser";
 pub const MENU_EDITOR: &str = "shell_editor";
 pub const MENU_CLAUDE: &str = "shell_claude";
@@ -48,6 +50,8 @@ const EVENT_SPLIT_RIGHT: &str = "menu://split-right";
 const EVENT_SPLIT_DOWN: &str = "menu://split-down";
 const EVENT_CLOSE_PANE: &str = "menu://close-pane";
 const EVENT_CLEAR_TERMINAL: &str = "menu://clear-terminal";
+const EVENT_ALL_SERVICES: &str = "menu://all-services";
+const EVENT_TERMINAL: &str = "menu://terminal";
 const EVENT_BROWSER: &str = "menu://browser";
 const EVENT_EDITOR: &str = "menu://editor";
 const EVENT_CLAUDE: &str = "menu://claude";
@@ -189,17 +193,37 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         true,
         accel("CmdOrCtrl+K", "Ctrl+Shift+K"),
     )?;
+    // The way back to the screen the app opens on. It heads the list of
+    // services because it is the list of services — the entries under it open
+    // one over the primary, which is the other thing you can do with them.
+    let all_services = MenuItem::with_id(
+        app,
+        MENU_ALL_SERVICES,
+        "All Services",
+        true,
+        None::<&str>,
+    )?;
+    // The terminal is a service like the other six and belongs in the list
+    // with them, chord and all. `S` for shell: `T` and `D`, the letters it
+    // would want, are new-tab and split.
+    let terminal = MenuItem::with_id(
+        app,
+        MENU_TERMINAL,
+        label("Figy Terminal", "Ctrl+Shift+S"),
+        true,
+        accel("CmdOrCtrl+Shift+S", "Ctrl+Shift+S"),
+    )?;
     let browser = MenuItem::with_id(
         app,
         MENU_BROWSER,
-        label("Browser", "Ctrl+Shift+B"),
+        label("Figy Browser", "Ctrl+Shift+B"),
         true,
         accel("CmdOrCtrl+Shift+B", "Ctrl+Shift+B"),
     )?;
     let editor = MenuItem::with_id(
         app,
         MENU_EDITOR,
-        label("Code Editor", "Ctrl+Shift+E"),
+        label("Figy Code Editor", "Ctrl+Shift+E"),
         true,
         accel("CmdOrCtrl+Shift+E", "Ctrl+Shift+E"),
     )?;
@@ -213,21 +237,21 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let figy_code = MenuItem::with_id(
         app,
         MENU_FIGY_CODE,
-        label("FigyCode", "Ctrl+Shift+G"),
+        label("Figy Harness", "Ctrl+Shift+G"),
         true,
         accel("CmdOrCtrl+Shift+G", "Ctrl+Shift+G"),
     )?;
     let drawing = MenuItem::with_id(
         app,
         MENU_DRAWING,
-        label("Drawing", "Ctrl+Shift+X"),
+        label("Figy Drawing", "Ctrl+Shift+X"),
         true,
         accel("CmdOrCtrl+Shift+X", "Ctrl+Shift+X"),
     )?;
     let api = MenuItem::with_id(
         app,
         MENU_API,
-        label("API Client", "Ctrl+Shift+H"),
+        label("Figy Man", "Ctrl+Shift+H"),
         true,
         accel("CmdOrCtrl+Shift+H", "Ctrl+Shift+H"),
     )?;
@@ -272,7 +296,7 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let help_docs = MenuItem::with_id(
         app,
         MENU_HELP_DOCS,
-        "FigyTerm Documentation",
+        "Figylo Documentation",
         true,
         None::<&str>,
     )?;
@@ -320,8 +344,10 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
 
     let shell_menu = Submenu::with_id_and_items(
         app,
+        // The id stays `shell` — it is what the webview's listeners are keyed
+        // on. Only the label changed.
         "shell",
-        "Shell",
+        "Menu",
         true,
         &[
             // Above the tabs, and separated from them: a window is the bigger
@@ -337,6 +363,8 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
             &sep2,
             &clear_terminal,
             &sep3,
+            &all_services,
+            &terminal,
             &browser,
             &editor,
             &claude,
@@ -569,6 +597,8 @@ pub fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
         MENU_SPLIT_DOWN => emit_focused(app, EVENT_SPLIT_DOWN),
         MENU_CLOSE_PANE => emit_focused(app, EVENT_CLOSE_PANE),
         MENU_CLEAR_TERMINAL => emit_focused(app, EVENT_CLEAR_TERMINAL),
+        MENU_ALL_SERVICES => emit_focused(app, EVENT_ALL_SERVICES),
+        MENU_TERMINAL => emit_focused(app, EVENT_TERMINAL),
         MENU_BROWSER => emit_focused(app, EVENT_BROWSER),
         MENU_EDITOR => emit_focused(app, EVENT_EDITOR),
         MENU_CLAUDE => emit_focused(app, EVENT_CLAUDE),

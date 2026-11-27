@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { FigyMark } from "../Shared/FigyMark";
+import { MakePrimary, PrimaryHome } from "../AppShell/PrimaryChrome";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useThemeStore } from "../../stores/themeStore";
 import { OverlayPortal } from "../Overlay/OverlayPortal";
@@ -9,7 +11,11 @@ import {
   subscribeOverlayStack,
 } from "../../services/overlay-stack";
 import { useOverlayZSync } from "../../hooks/useOverlayZSync";
-import { fullscreenRect, pictureInPictureRect } from "../../hooks/useDraggableModal";
+import {
+  baseSlotRect,
+  fullscreenRect,
+} from "../../hooks/useDraggableModal";
+import { BASE_SLOT_Z } from "../../hooks/useBaseSlot";
 import {
   ArrowLeft,
   ArrowRight,
@@ -18,9 +24,7 @@ import {
   Plus,
   Globe,
   ExternalLink,
-  PictureInPicture2,
   Maximize2,
-  Minus,
   Minimize2,
   Lock,
   TriangleAlert,
@@ -50,13 +54,10 @@ interface BrowserModalProps {
   visible: boolean;
   onClose: () => void;
   /**
-   * Puts the window away without stopping it.
-   *
-   * Absent when the shell has nowhere to put it, which is why the button is
-   * conditional rather than always drawn: a minimize with no dock to land in
-   * would be a close that lied about it.
+   * This is the base: it fills the slot above the status bar, never moves and
+   * cannot be put away. See `useBaseSlot`.
    */
-  onMinimize?: () => void;
+  docked?: boolean;
 }
 
 const MIN_WIDTH = 520;
@@ -66,13 +67,16 @@ const MAX_HEIGHT = 1200;
 const DEFAULT_SIZE = { w: 940, h: 620 };
 const MAX_TABS = 10;
 
-export function BrowserModal({ visible, onClose, onMinimize }: BrowserModalProps) {
+export function BrowserModal({
+  visible,
+  onClose,
+  docked = false,
+}: BrowserModalProps) {
   const [tabs, setTabs] = useState<BrowserTabState[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [editingAddress, setEditingAddress] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [pipMode, setPipMode] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const theme = useThemeStore((s) => s.theme);
 
@@ -98,11 +102,30 @@ export function BrowserModal({ visible, onClose, onMinimize }: BrowserModalProps
    * the raised value has to land on the outermost fixed element to count.
    */
   const [frontZ, setFrontZ] = useState<number | null>(null);
-  const raise = useCallback(() => setFrontZ(claimFront("browser")), []);
+  // The base never joins the stack — there is nothing for it to be raised
+  // above, and claiming a rank would put it over every open window.
+  const raise = useCallback(() => {
+    if (docked) return;
+    setFrontZ(claimFront("browser"));
+  }, [docked]);
   // A claim by any overlay renumbers the rest; this re-reads ours.
   useOverlayZSync("browser", setFrontZ);
 
   useEffect(() => {
+    /*
+      Becoming the primary gives up the claim.
+
+      A window that is promoted was in the overlay stack, and `if (docked)
+      return` left its rank there — so the stack still believed a floating
+      window was open and frontmost. `noOverlayOpen()` then said no for the
+      primary's own Escape, and the browser went on hiding its native page
+      behind a window that had become the thing underneath.
+    */
+    if (docked) {
+      releaseFront("browser");
+      setFrontZ(null);
+      return;
+    }
     if (visible) {
       raise();
       return;
@@ -110,7 +133,46 @@ export function BrowserModal({ visible, onClose, onMinimize }: BrowserModalProps
     // Released on close, so whatever is still open becomes frontmost.
     releaseFront("browser");
     setFrontZ(null);
-  }, [visible, pipMode, raise]);
+  }, [docked, visible, raise]);
+
+  /*
+    Pinned to the base slot while it is the base.
+
+    This window keeps its own `pos`/`size` rather than using
+    `useDraggableModal`, so it cannot use `useBaseSlot` — but it is the same
+    rectangle, kept up to date the same way, and for the same reason: the
+    native child webview is positioned from this element's geometry, so the
+    page lands wrong if the frame is anywhere but where it says it is.
+  */
+  const wasDocked = useRef(false);
+
+  useEffect(() => {
+    if (!docked) {
+      /*
+        Back to a window's own geometry when something else takes the slot.
+        Being primary means being pinned to the whole of it, and that position
+        and size outlive the promotion — so without this the browser would
+        reopen as a "popup" at 0,0 the size of the screen, covering whatever
+        replaced it, with a native webview stretched over the lot.
+      */
+      if (!wasDocked.current) return;
+      wasDocked.current = false;
+      setFullscreen(false);
+      setPos(null);
+      setSize(DEFAULT_SIZE);
+      return;
+    }
+
+    wasDocked.current = true;
+    const follow = () => {
+      const rect = baseSlotRect();
+      setSize({ w: rect.w, h: rect.h });
+      setPos({ x: rect.x, y: rect.y });
+    };
+    follow();
+    window.addEventListener("resize", follow);
+    return () => window.removeEventListener("resize", follow);
+  }, [docked]);
 
   /**
    * Whether something is actually on top of the page.
@@ -152,7 +214,7 @@ export function BrowserModal({ visible, onClose, onMinimize }: BrowserModalProps
       width: rect.width,
       height: rect.height,
     });
-  }, [frontZ, stackVersion, pos, size, pipMode]);
+  }, [frontZ, stackVersion, pos, size]);
 
 
   const activeTab = useMemo(
@@ -305,7 +367,7 @@ export function BrowserModal({ visible, onClose, onMinimize }: BrowserModalProps
         () => {}
       );
     });
-  }, [visible, interacting, covered, activeTabId, tabIdsKey, pos, size, pipMode, measure]);
+  }, [visible, interacting, covered, activeTabId, tabIdsKey, pos, size, measure]);
 
   useEffect(() => {
     if (!visible) return;
@@ -413,12 +475,10 @@ export function BrowserModal({ visible, onClose, onMinimize }: BrowserModalProps
   /**
    * Fullscreen: the modal takes the whole window.
    *
-   * Mutually exclusive with picture-in-picture — they're opposite answers to
-   * the same question — and the geometry comes from the shared helper, so this
-   * mode matches the editor's exactly.
+   * The geometry comes from the shared helper, so this mode matches the
+   * editor's exactly.
    */
   const toggleFullscreen = useCallback(() => {
-    setPipMode(false);
     setFullscreen((prev) => {
       if (prev) {
         setPos(null);
@@ -443,22 +503,6 @@ export function BrowserModal({ visible, onClose, onMinimize }: BrowserModalProps
     window.addEventListener("resize", follow);
     return () => window.removeEventListener("resize", follow);
   }, [fullscreen]);
-
-  const togglePip = useCallback(() => {
-    setFullscreen(false);
-    setPipMode((prev) => {
-      if (!prev) {
-        // The same geometry the editor uses, from the shared helper.
-        const rect = pictureInPictureRect();
-        setSize({ w: rect.w, h: rect.h });
-        setPos({ x: rect.x, y: rect.y });
-      } else {
-        setPos(null);
-        setSize(DEFAULT_SIZE);
-      }
-      return !prev;
-    });
-  }, []);
 
   // --- Actions ---------------------------------------------------------------
 
@@ -502,7 +546,9 @@ export function BrowserModal({ visible, onClose, onMinimize }: BrowserModalProps
           setEditingAddress(false);
           setDraft(activeTab?.url ?? "");
           addressRef.current?.blur();
-        } else {
+        } else if (!docked) {
+          // The base has nothing to close to; the key is still swallowed so it
+          // does not travel on to the shell behind.
           onClose();
         }
       } else if (isMod && !e.shiftKey && !e.altKey && e.key === "l") {
@@ -519,7 +565,8 @@ export function BrowserModal({ visible, onClose, onMinimize }: BrowserModalProps
     [editingAddress, activeTab?.url, activeTabId, onClose]
   );
 
-  if (!visible) return null;
+  // The base is never hidden; that is what being the base means.
+  if (!visible && !docked) return null;
 
   const isSecure = activeTab?.url.startsWith("https://") ?? false;
   const isLocal = /^(https?:\/\/)?(localhost|127\.0\.0\.1)/.test(activeTab?.url ?? "");
@@ -537,14 +584,14 @@ export function BrowserModal({ visible, onClose, onMinimize }: BrowserModalProps
         which of four tabs is on screen.
       */
       role="dialog"
-      aria-modal={!pipMode}
+      aria-modal={false}
       aria-label={
-        activeTab ? `Browser — ${activeTab.title || hostLabel(activeTab.url)}` : "Browser"
+        activeTab ? `Figy Browser — ${activeTab.title || hostLabel(activeTab.url)}` : "Figy Browser"
       }
       className={`browser-modal overflow-hidden shadow-2xl flex flex-col ${
-        pipMode ? "browser-pip" : ""
-      } ${fullscreen ? "browser-fullscreen" : "rounded-xl"}`}
-      style={pipMode ? { ...modalStyle, zIndex: frontZ ?? undefined } : modalStyle}
+        fullscreen || docked ? "browser-fullscreen" : "rounded-xl"
+      }`}
+      style={modalStyle}
       onPointerDownCapture={raise}
       onMouseDown={(e) => e.stopPropagation()}
       onMouseUp={(e) => e.stopPropagation()}
@@ -555,8 +602,10 @@ export function BrowserModal({ visible, onClose, onMinimize }: BrowserModalProps
     >
       {/* Tab strip doubles as the drag handle, the way a real browser title bar does. */}
       <div
-        className="browser-chrome browser-tabstrip flex items-center gap-1 px-2 pt-1.5 pb-0 select-none cursor-grab active:cursor-grabbing"
-        onPointerDown={handleDragStart}
+        className={`browser-chrome browser-tabstrip flex items-center gap-1 px-2 pt-1.5 pb-0 select-none ${
+          docked ? "" : "cursor-grab active:cursor-grabbing"
+        }`}
+        onPointerDown={docked ? undefined : handleDragStart}
         onContextMenu={suppressContextMenu}
       >
         {/*
@@ -564,10 +613,11 @@ export function BrowserModal({ visible, onClose, onMinimize }: BrowserModalProps
           beside it, so it picks up the strip's own background and the drag
           handler already on the parent.
         */}
+        {docked && <PrimaryHome className="mr-1 self-center" />}
         <div className="browser-brand flex items-center gap-2 pl-1 pr-2.5 mr-1 pb-1.5 shrink-0">
-          <img src="/logo.png" alt="" className="h-3.5 w-auto shrink-0" />
+          <FigyMark size={16} />
           <span className="browser-brand-title text-[11px] font-semibold whitespace-nowrap">
-            Browser
+            Figy Browser
           </span>
         </div>
 
@@ -624,44 +674,34 @@ export function BrowserModal({ visible, onClose, onMinimize }: BrowserModalProps
         <span className="browser-sep shrink-0" />
 
         <div className="flex items-center gap-0.5 shrink-0 pb-0.5">
-          {onMinimize && (
-            <button
-              className="browser-btn p-1 rounded"
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={onMinimize}
-              title="Minimize — the page keeps loading"
-              aria-label="Minimize"
-            >
-              <Minus size={12} />
-            </button>
+          {/*
+            No window controls on the base: these move or dismiss a window, and
+            the base is neither moved nor dismissed. Changing it is a settings
+            decision.
+          */}
+          {!docked && (
+            <>
+              <MakePrimary id="figy-browser" />
+              <button
+                className={`browser-btn p-1 rounded ${fullscreen ? "on" : ""}`}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={toggleFullscreen}
+                title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+                aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+              >
+                {fullscreen ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+              </button>
+              <button
+                className="browser-btn browser-btn-close p-1 rounded"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={onClose}
+                title="Close browser"
+                aria-label="Close browser"
+              >
+                <X size={13} />
+              </button>
+            </>
           )}
-          <button
-            className={`browser-btn p-1 rounded ${pipMode ? "on" : ""}`}
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={togglePip}
-            title={pipMode ? "Exit picture-in-picture" : "Picture-in-picture"}
-            aria-label={pipMode ? "Exit picture-in-picture" : "Picture-in-picture"}
-          >
-            <PictureInPicture2 size={12} />
-          </button>
-          <button
-            className={`browser-btn p-1 rounded ${fullscreen ? "on" : ""}`}
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={toggleFullscreen}
-            title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
-            aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
-          >
-            {fullscreen ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
-          </button>
-          <button
-            className="browser-btn browser-btn-close p-1 rounded"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={onClose}
-            title="Close browser"
-            aria-label="Close browser"
-          >
-            <X size={13} />
-          </button>
         </div>
       </div>
 
@@ -791,42 +831,64 @@ export function BrowserModal({ visible, onClose, onMinimize }: BrowserModalProps
           <span className="browser-status-text text-[10px]">
             {tabs.length} {tabs.length === 1 ? "tab" : "tabs"}
           </span>
-          <div
-            className="browser-resize-handle"
-            onPointerDown={handleResizeStart}
-            title="Resize"
-            role="separator"
-            aria-orientation="horizontal"
-          >
-            {/*
-              `M9 9L9 9` used to be a third segment here. It is zero length, so
-              it drew nothing — two strokes is the mark, as in every other
-              window's corner.
-            */}
-            <svg width="10" height="10" viewBox="0 0 10 10" className="browser-resize-icon">
-              <path
-                d="M9 1L1 9M9 5L5 9"
-                stroke="currentColor"
-                strokeWidth="1.2"
-                strokeLinecap="round"
-              />
-            </svg>
-          </div>
+{/*
+            Not rendered rather than hidden with a class.
+
+            `.editor-resize-handle` sets `display: flex`, `.hidden` sets
+            `display: none`, and the two have the same specificity — so which
+            wins is decided by source order, and this stylesheet comes after
+            Tailwind's utilities. The handle stayed visible and clickable.
+            The same trap is written up in `EditorModal`, where `hidden` lost
+            to `.flex` and a modal would not close.
+          */}
+          {!docked && (
+            <div
+              className="browser-resize-handle"
+              onPointerDown={handleResizeStart}
+              title="Resize"
+              role="separator"
+              aria-orientation="horizontal"
+            >
+              {/*
+                `M9 9L9 9` used to be a third segment here. It is zero length, so
+                it drew nothing — two strokes is the mark, as in every other
+                window's corner.
+              */}
+              <svg width="10" height="10" viewBox="0 0 10 10" className="browser-resize-icon">
+                <path
+                  d="M9 1L1 9M9 5L5 9"
+                  stroke="currentColor"
+                  strokeWidth="1.2"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 
-  if (pipMode) return <OverlayPortal>{modal}</OverlayPortal>;
-
   return (
     <OverlayPortal>
       <div
-        className="fixed inset-0 z-[250] flex items-start justify-center pt-[6vh]"
-        style={{ zIndex: frontZ ?? undefined }}
-        onMouseDown={(e) => {
-          if (e.target === e.currentTarget) onClose();
-        }}
+        className={`overlay-layer fixed inset-0 ${
+          docked ? "" : "z-[250] flex items-start justify-center pt-[6vh]"
+        }`}
+        style={{ zIndex: docked ? BASE_SLOT_Z : (frontZ ?? undefined) }}
+        /*
+          A click beside a window does not close it.
+
+          These windows hold work in progress — a request in flight, a buffer
+          with unsaved edits, a conversation mid-turn — and a backdrop that
+          dismisses on a stray click is how that gets lost by reaching for the
+          thing behind it. They close by their own button, by Escape, or not at
+          all. FigyCode never did dismiss this way; now none of them do.
+
+          The layer still has to swallow the click rather than let it fall
+          through to whatever is underneath.
+        */
+        onMouseDown={(e) => e.stopPropagation()}
         /*
           No `onKeyDown` swallow here either — it undid the per-chord handling
           in `handleModalKeyDown` by catching everything on the way past.

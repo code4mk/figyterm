@@ -15,7 +15,7 @@ import { APP_DIALOG_Z } from "../../services/overlay-stack";
  * **Empty is a real answer**, and the common one. Enter on an untouched field
  * hands the naming to the backend, which picks a fruit nothing else is called;
  * so the cost of a named window is one keystroke, and skipping it still leaves
- * you with `Mango` rather than a third identical `FigyTerm`.
+ * you with `Mango` rather than a third identical `Figylo`.
  *
  * Styled as the tab rename prompt is, because it is the same gesture one level
  * up and arriving at a different-looking box for it would be the surprise.

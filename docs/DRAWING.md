@@ -2,7 +2,7 @@
 
 A drawing tool that lives in a modal beside the browser, the editor and the
 Claude window. Unlike those three, it owns its documents: a **project** is a
-named drawing that FigyTerm stores, lists, searches, favourites, renames and
+named drawing that Figylo stores, lists, searches, favourites, renames and
 deletes. Drawing is autosaved; there is no Save button and nothing to lose.
 
 A project has **two halves** and three ways to look at them, chosen by a

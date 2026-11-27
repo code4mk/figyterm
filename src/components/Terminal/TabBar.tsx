@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect, Fragment, useCallback } from "react";
+import { useState, useRef, useEffect, Fragment, useCallback, type ReactNode } from "react";
+import { FigyMark } from "../Shared/FigyMark";
 import { Dialog, Transition } from "@headlessui/react";
 import { TerminalSquare, X, Plus, Pencil, Columns2, ChevronLeft, ChevronRight } from "lucide-react";
 import { SHORTCUTS, text } from "../../services/shortcuts";
@@ -20,9 +21,40 @@ interface TabBarProps {
   onReorderTabs?: (fromIndex: number, toIndex: number) => void;
   onPrevTab?: () => void;
   onNextTab?: () => void;
+  /**
+   * The window controls for the frame this strip is the chrome of.
+   *
+   * The terminal is a service like the other six now, so it needs the same
+   * minimize/maximize/close — and its tab strip is the only bar it has, the
+   * way the editor's tab strip is. Empty when the terminal is the base, which
+   * has nothing to minimize or close to.
+   */
+  controls?: ReactNode;
+  /**
+   * Goes at the left end, where the logo used to be.
+   *
+   * For the way back to the services screen when the terminal is the primary.
+   * Every other service puts that button at the left of its own bar, and a
+   * terminal that put it on the right would be the odd one.
+   */
+  leading?: ReactNode;
+  /** Drags the frame, when this strip is a floating window's handle. */
+  onDragHandle?: (e: React.PointerEvent) => void;
 }
 
-export function TabBar({ tabs, onTabClick, onTabClose, onNewTab, onRenameTab, onReorderTabs, onPrevTab, onNextTab }: TabBarProps) {
+export function TabBar({
+  tabs,
+  onTabClick,
+  onTabClose,
+  onNewTab,
+  onRenameTab,
+  onReorderTabs,
+  onPrevTab,
+  onNextTab,
+  controls,
+  leading,
+  onDragHandle,
+}: TabBarProps) {
   const [renameModal, setRenameModal] = useState<{ id: string; title: string } | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [hoveredTab, setHoveredTab] = useState<string | null>(null);
@@ -143,10 +175,24 @@ export function TabBar({ tabs, onTabClick, onTabClose, onNewTab, onRenameTab, on
 
   return (
     <>
-      <div className="tab-bar flex items-end h-[40px] pt-[6px] pl-[72px] pr-2 gap-0 overflow-x-auto no-drag drag-region select-none">
-        {/* Logo */}
-        <div className="flex items-center h-[32px] px-2 flex-shrink-0 no-drag">
-          <img src="/logo.png" alt="FigyTerm" className="h-4 w-auto" />
+      <div className="tab-bar flex items-end h-[40px] pt-[6px] pl-2 pr-2 gap-0 overflow-x-auto no-drag select-none">
+        {leading && (
+          <div className="flex items-center h-[32px] flex-shrink-0">{leading}</div>
+        )}
+
+        {/*
+          The mark and the name, the way the other six windows carry theirs.
+
+          This strip had a bare logo while it was the app's own chrome and the
+          terminal was simply what the window was. Now it is one service among
+          seven and it says which — a window titled "FigyCode" beside one
+          titled nothing was the inconsistency.
+        */}
+        <div className="flex items-center gap-2 h-[32px] px-2 flex-shrink-0">
+          <FigyMark size={16} />
+          <span className="text-[11px] font-semibold whitespace-nowrap text-ft-text">
+            Figy Terminal
+          </span>
         </div>
 
         {/* Global nav arrows */}
@@ -257,7 +303,19 @@ export function TabBar({ tabs, onTabClick, onTabClose, onNewTab, onRenameTab, on
           <Plus size={13} strokeWidth={2} />
         </button>
 
-        <div className="flex-1 drag-region" />
+        {/*
+          The empty stretch is the drag handle, the way it is in every tab
+          strip. As a floating window that means this frame, through
+          `onDragHandle`; as the primary there is no frame to move, so it means
+          the OS window — which is what the strip meant before the terminal had
+          a frame at all.
+        */}
+        <div
+          className={`flex-1 self-stretch ${onDragHandle ? "" : "drag-region"}`}
+          onPointerDown={onDragHandle}
+        />
+
+        {controls && <div className="flex items-center gap-0.5 flex-shrink-0 ml-1">{controls}</div>}
       </div>
 
       {/* Floating drag ghost */}

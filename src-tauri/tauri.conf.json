@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-config-schema/schema.json",
-  "productName": "FigyTerm",
+  "productName": "Figylo",
   "version": "0.1.0",
   "identifier": "com.code4mk.figyterm",
   "build": {
@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "FigyTerm",
+        "title": "Figylo",
         "width": 1100,
         "height": 700,
         "minWidth": 500,
@@ -38,7 +38,7 @@
     },
     "linux": {
       "deb": {
-        "desktopTemplate": "linux/figyterm.desktop"
+        "desktopTemplate": "linux/figylo.desktop"
       }
     },
     "icon": [

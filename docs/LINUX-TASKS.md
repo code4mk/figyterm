@@ -1,6 +1,6 @@
 # Linux Port — Task List
 
-Working checklist for making FigyTerm run and ship on Linux. Rationale for each
+Working checklist for making Figylo run and ship on Linux. Rationale for each
 item lives in [`LINUX-SUPPORT.md`](./LINUX-SUPPORT.md).
 
 Status: `[x]` done · `[~]` done as far as macOS allows, needs confirming on a
@@ -13,7 +13,7 @@ Linux machine · `[ ]` todo
 - [x] **PTY session environment** — `env_clear()` stripped `DISPLAY`,
       `WAYLAND_DISPLAY`, `XDG_RUNTIME_DIR`, `DBUS_SESSION_BUS_ADDRESS` and
       friends, which would have broken `xdg-open`, GUI editors, clipboard tools
-      and `systemctl --user` from inside FigyTerm. Now passed through via
+      and `systemctl --user` from inside Figylo. Now passed through via
       `SESSION_PASSTHROUGH`. `src-tauri/src/terminal/pty.rs`
 - [x] **PTY default PATH** — `build_path()` adds `/usr/games` off macOS and
       appends whatever the session already had, so Nix and Homebrew-on-Linux

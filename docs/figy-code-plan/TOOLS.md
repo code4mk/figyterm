@@ -126,7 +126,7 @@ test runner all have to start and keep running while the agent does something
 else; a `bash` that only returns when the process exits cannot start any of
 them. The window already draws the background-task chip for this.
 
-**This is the one place the product beats a CLI agent outright.** FigyTerm
+**This is the one place the product beats a CLI agent outright.** Figylo
 *is* a terminal: a background command can run in a real pty, in a real tab,
 with the user watching it and able to type into it. A CLI agent's background
 process is a pipe nobody can see. Make `bash(background: true)` open a tab.
@@ -167,7 +167,7 @@ Three things it has to get right, each of which is a test:
 
 > **The reason to build this agent inside this app rather than as a CLI.**
 
-FigyTerm hosts language servers. No CLI coding agent does, because warming one
+Figylo hosts language servers. No CLI coding agent does, because warming one
 per invocation is not viable. The client already speaks `definition`,
 `references`, `hover`, `documentSymbol`, `codeAction`, `rename`, `formatting`
 and `publishDiagnostics` — see `src/services/lsp/protocol.ts`. The tools are

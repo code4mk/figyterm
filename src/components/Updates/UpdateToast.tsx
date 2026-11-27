@@ -25,7 +25,7 @@ export function UpdateToast({ visible, version, onView, onDismiss }: UpdateToast
 
         <div className="min-w-0">
           <p className="text-[11px] font-medium text-ft-text">
-            FigyTerm {version} is available
+            Figylo {version} is available
           </p>
           <button
             onClick={onView}

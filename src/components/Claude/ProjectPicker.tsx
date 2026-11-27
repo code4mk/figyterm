@@ -182,7 +182,7 @@ export function ProjectPicker({
                 {/*
                   Forgetting is the permanent one, and the only one on this
                   list: the project record goes, and with it the folder set and
-                  the conversations FigyTerm was tracking. The folders and every
+                  the conversations Figylo was tracking. The folders and every
                   transcript stay on disk, so the work survives — but the
                   project as a thing you can reopen does not.
                   *Closing* a project is the other action entirely, and lives in

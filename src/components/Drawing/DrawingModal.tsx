@@ -16,15 +16,16 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Maximize2, Minimize2, PanelLeft, PictureInPicture2, X } from "lucide-react";
+import { MakePrimary, PrimaryHome } from "../AppShell/PrimaryChrome";
+import { Maximize2, Minimize2, PanelLeft, X } from "lucide-react";
 import { OverlayPortal } from "../Overlay/OverlayPortal";
 import { claimFront, releaseFront } from "../../services/overlay-stack";
 import { useOverlayZSync } from "../../hooks/useOverlayZSync";
 import {
   fullscreenRect,
-  pictureInPictureRect,
   useDraggableModal,
 } from "../../hooks/useDraggableModal";
+import { BASE_SLOT_Z, useBaseSlot } from "../../hooks/useBaseSlot";
 import { Group, Panel, Separator } from "react-resizable-panels";
 import { useDrawingStore } from "../../stores/drawingStore";
 import { PaneTabs } from "./PaneTabs";
@@ -36,6 +37,11 @@ import { DrawingEmpty } from "./DrawingEmpty";
 export interface DrawingModalProps {
   visible: boolean;
   onClose: () => void;
+  /**
+   * This is the base: it fills the slot above the status bar, never moves and
+   * cannot be put away. See `useBaseSlot`.
+   */
+  docked?: boolean;
 }
 
 const MIN_SIZE = { w: 640, h: 480 };
@@ -53,8 +59,7 @@ function savedAtLabel(at: number | null): string {
   return `Saved ${time}`;
 }
 
-export function DrawingModal({ visible, onClose }: DrawingModalProps) {
-  const [pipMode, setPipMode] = useState(false);
+export function DrawingModal({ visible, onClose, docked = false }: DrawingModalProps) {
   const [fullscreen, setFullscreen] = useState(false);
   const modalRef = useRef<HTMLDivElement>(null);
 
@@ -112,19 +117,49 @@ export function DrawingModal({ visible, onClose }: DrawingModalProps) {
 
   // ─── Stacking ────────────────────────────────────────────────────────────
 
+  /*
+    Back to a window's own geometry when something else takes the primary
+    slot: centred, default size, not fullscreen. See `useBaseSlot`.
+  */
+  const undock = useCallback(() => {
+    setFullscreen(false);
+    reset();
+  }, [reset]);
+
+  useBaseSlot(docked, place, undock);
+
   const [frontZ, setFrontZ] = useState<number | null>(null);
-  const raise = useCallback(() => setFrontZ(claimFront("drawing")), []);
+  // The base never joins the stack — there is nothing for it to be raised
+  // above, and claiming a rank would put it over every open window.
+  const raise = useCallback(() => {
+    if (docked) return;
+    setFrontZ(claimFront("drawing"));
+  }, [docked]);
   // A claim by any overlay renumbers the rest; this re-reads ours.
   useOverlayZSync("drawing", setFrontZ);
 
   useEffect(() => {
+    /*
+      Becoming the primary gives up the claim.
+
+      A window that is promoted was in the overlay stack, and `if (docked)
+      return` left its rank there — so the stack still believed a floating
+      window was open and frontmost. `noOverlayOpen()` then said no for the
+      primary's own Escape, and the browser went on hiding its native page
+      behind a window that had become the thing underneath.
+    */
+    if (docked) {
+      releaseFront("drawing");
+      setFrontZ(null);
+      return;
+    }
     if (visible) {
       raise();
       return;
     }
     releaseFront("drawing");
     setFrontZ(null);
-  }, [visible, raise]);
+  }, [docked, visible, raise]);
 
   // ─── Projects ────────────────────────────────────────────────────────────
 
@@ -150,7 +185,6 @@ export function DrawingModal({ visible, onClose }: DrawingModalProps) {
   // ─── Window modes ────────────────────────────────────────────────────────
 
   const toggleFullscreen = useCallback(() => {
-    setPipMode(false);
     setFullscreen((prev) => {
       if (prev) {
         reset();
@@ -172,37 +206,29 @@ export function DrawingModal({ visible, onClose }: DrawingModalProps) {
     return () => window.removeEventListener("resize", follow);
   }, [fullscreen, place]);
 
-  const togglePip = useCallback(() => {
-    setFullscreen(false);
-    setPipMode((prev) => {
-      if (prev) {
-        reset();
-      } else {
-        const rect = pictureInPictureRect();
-        place({ x: rect.x, y: rect.y }, { w: rect.w, h: rect.h });
-      }
-      return !prev;
-    });
-  }, [place, reset]);
-
   /**
    * Escape closes the window.
    *
    * Stopped here rather than bubbling to the shell, and *not* taken when
    * Excalidraw is using it — a linear editor, a context menu or a dialog inside
    * the canvas all want Escape first, and they mark the event handled.
+   *
+   * The base has nothing to close to, so it only swallows the key — Excalidraw
+   * still gets first refusal, and what is left does not travel on to the shell
+   * and clear a terminal line nobody is looking at.
    */
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === "Escape" && !e.defaultPrevented) {
         e.stopPropagation();
-        onClose();
+        if (!docked) onClose();
       }
     },
-    [onClose]
+    [docked, onClose]
   );
 
-  if (!visible) return null;
+  // The base is never hidden; that is what being the base means.
+  if (!visible && !docked) return null;
 
   const modal = (
     <div
@@ -213,12 +239,12 @@ export function DrawingModal({ visible, onClose }: DrawingModalProps) {
         alone does not say which drawing is open.
       */
       role="dialog"
-      aria-modal={!pipMode}
-      aria-label={active ? `Draw — ${active.name}` : "Draw"}
+      aria-modal={false}
+      aria-label={active ? `Figy Drawing — ${active.name}` : "Figy Drawing"}
       className={`drawing-modal flex flex-col overflow-hidden ${
-        fullscreen ? "rounded-none" : "rounded-xl"
+        fullscreen || docked ? "rounded-none" : "rounded-xl"
       }`}
-      style={pipMode ? { ...style, zIndex: frontZ ?? undefined } : style}
+      style={style}
       onPointerDownCapture={raise}
       onMouseDown={(e) => e.stopPropagation()}
       onMouseUp={(e) => e.stopPropagation()}
@@ -243,13 +269,16 @@ export function DrawingModal({ visible, onClose }: DrawingModalProps) {
         agreement rather than by inheritance.
       */}
       <header
-        className="drawing-header flex items-center gap-2 px-2 select-none cursor-grab active:cursor-grabbing"
-        onPointerDown={onDragStart}
+        className={`drawing-header flex items-center gap-2 px-2 select-none ${
+          docked ? "" : "cursor-grab active:cursor-grabbing"
+        }`}
+        onPointerDown={docked ? undefined : onDragStart}
       >
         <div
           className="flex items-center gap-1.5 shrink-0"
           onPointerDown={(e) => e.stopPropagation()}
         >
+          {docked && <PrimaryHome />}
           <button
             className={`drawing-iconbtn ${railCollapsed ? "" : "on"}`}
             onClick={toggleRail}
@@ -262,7 +291,7 @@ export function DrawingModal({ visible, onClose }: DrawingModalProps) {
           {/*
             One mark, not two.
 
-            The brand carried FigyTerm's logo *and* Excalidraw's, on the
+            The brand carried Figylo's logo *and* Excalidraw's, on the
             argument that the window is one hosting the other. The Claude
             window makes the same argument and draws one mark, because whose
             window it is belongs in the title and a second logo beside the
@@ -271,7 +300,7 @@ export function DrawingModal({ visible, onClose }: DrawingModalProps) {
           <span className="drawing-mark">
             <img src="/excalidraw.png" alt="" />
           </span>
-          <span className="drawing-brand-title">Draw</span>
+          <span className="drawing-brand-title">Figy Drawing</span>
         </div>
 
         <span className="drawing-sep" />
@@ -333,34 +362,35 @@ export function DrawingModal({ visible, onClose }: DrawingModalProps) {
             <PaneTabs pane={pane} onChange={setPane} hasNotes={(active.noteChars ?? 0) > 0} />
           )}
 
-          <span className="drawing-sep" />
+          {/*
+            No window controls on the base — picture-in-picture, maximize and
+            close are all answers to "put this somewhere else", and the base is
+            where everything else is put. Changing it is a settings decision.
+          */}
+          {!docked && (
+            <>
+              <span className="drawing-sep" />
 
-          <button
-            className={`drawing-iconbtn ${pipMode ? "on" : ""}`}
-            onClick={togglePip}
-            title={pipMode ? "Leave picture-in-picture" : "Picture-in-picture"}
-            aria-label="Picture in picture"
-            aria-pressed={pipMode}
-          >
-            <PictureInPicture2 size={12} />
-          </button>
-          <button
-            className={`drawing-iconbtn ${fullscreen ? "on" : ""}`}
-            onClick={toggleFullscreen}
-            title={fullscreen ? "Restore" : "Maximize"}
-            aria-label={fullscreen ? "Restore" : "Maximize"}
-            aria-pressed={fullscreen}
-          >
-            {fullscreen ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
-          </button>
-          <button
-            className="drawing-iconbtn danger"
-            onClick={onClose}
-            title="Close — your work is already saved"
-            aria-label="Close"
-          >
-            <X size={13} />
-          </button>
+              <MakePrimary id="figy-drawing" />
+              <button
+                className={`drawing-iconbtn ${fullscreen ? "on" : ""}`}
+                onClick={toggleFullscreen}
+                title={fullscreen ? "Restore" : "Maximize"}
+                aria-label={fullscreen ? "Restore" : "Maximize"}
+                aria-pressed={fullscreen}
+              >
+                {fullscreen ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+              </button>
+              <button
+                className="drawing-iconbtn danger"
+                onClick={onClose}
+                title="Close — your work is already saved"
+                aria-label="Close"
+              >
+                <X size={13} />
+              </button>
+            </>
+          )}
         </div>
       </header>
 
@@ -436,36 +466,52 @@ export function DrawingModal({ visible, onClose }: DrawingModalProps) {
           The shared grip, rather than a bare div with a cursor on it — the
           same element the editor and Claude windows put in the same corner.
         */}
-        <div
-          className="editor-resize-handle"
-          onPointerDown={(e) => onResizeStart(e, "se")}
-          title="Resize"
-          role="separator"
-          aria-orientation="horizontal"
-        >
-          <svg width="10" height="10" viewBox="0 0 10 10" className="editor-resize-icon">
-            <path
-              d="M9 1L1 9M9 5L5 9"
-              stroke="currentColor"
-              strokeWidth="1.2"
-              strokeLinecap="round"
-            />
-          </svg>
-        </div>
+{/*
+          The grip is a window's, and the primary is not a window: it is the
+          size of the slot and there is nothing to resize it against.
+        */}
+        {!docked && (
+          <div
+            className="editor-resize-handle"
+            onPointerDown={(e) => onResizeStart(e, "se")}
+            title="Resize"
+            role="separator"
+            aria-orientation="horizontal"
+          >
+            <svg width="10" height="10" viewBox="0 0 10 10" className="editor-resize-icon">
+              <path
+                d="M9 1L1 9M9 5L5 9"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinecap="round"
+              />
+            </svg>
+          </div>
+        )}
       </div>
     </div>
   );
 
-  if (pipMode) return <OverlayPortal>{modal}</OverlayPortal>;
-
   return (
     <OverlayPortal>
       <div
-        className="fixed inset-0 z-[250] flex items-start justify-center pt-[6vh]"
-        style={{ zIndex: frontZ ?? undefined }}
-        onMouseDown={(e) => {
-          if (e.target === e.currentTarget) onClose();
-        }}
+        className={`overlay-layer fixed inset-0 ${
+          docked ? "" : "z-[250] flex items-start justify-center pt-[6vh]"
+        }`}
+        style={{ zIndex: docked ? BASE_SLOT_Z : (frontZ ?? undefined) }}
+        /*
+          A click beside a window does not close it.
+
+          These windows hold work in progress — a request in flight, a buffer
+          with unsaved edits, a conversation mid-turn — and a backdrop that
+          dismisses on a stray click is how that gets lost by reaching for the
+          thing behind it. They close by their own button, by Escape, or not at
+          all. FigyCode never did dismiss this way; now none of them do.
+
+          The layer still has to swallow the click rather than let it fall
+          through to whatever is underneath.
+        */
+        onMouseDown={(e) => e.stopPropagation()}
         onKeyUp={(e) => e.stopPropagation()}
       >
         {modal}

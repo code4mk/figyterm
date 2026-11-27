@@ -39,7 +39,8 @@ interface EditorTabsProps {
   onClose: (id: string) => void;
   onNewScratch: () => void;
   onReorder: (from: number, to: number) => void;
-  onDragHandle: (e: React.PointerEvent) => void;
+  /** Absent as the primary, which does not move. */
+  onDragHandle?: (e: React.PointerEvent) => void;
 }
 
 export function EditorTabs({

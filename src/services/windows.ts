@@ -3,7 +3,7 @@ import { emitTo, listen, UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 /**
- * More than one FigyTerm window.
+ * More than one Figylo window.
  *
  * A window is the unit of isolation: its own tabs and panes, its own shells,
  * its own editor workspace and browser tabs. Settings, the theme and the API

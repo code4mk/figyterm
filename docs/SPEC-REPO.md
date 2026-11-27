@@ -1,6 +1,6 @@
-# FigyTerm Spec Repository Guide
+# Figylo Spec Repository Guide
 
-This document explains how to set up and maintain the `figy-specs` repository — the community-driven autocomplete spec registry for FigyTerm.
+This document explains how to set up and maintain the `figy-specs` repository — the community-driven autocomplete spec registry for Figylo.
 
 ## Repository Structure
 
@@ -28,7 +28,7 @@ figy-specs/
 
 ## registry.json
 
-This is the catalog that FigyTerm fetches to show available specs. It must be kept in sync with the `specs/` folder.
+This is the catalog that Figylo fetches to show available specs. It must be kept in sync with the `specs/` folder.
 
 ```json
 {
@@ -494,11 +494,11 @@ jobs:
 ```markdown
 # figy-specs
 
-Community-driven autocomplete specs for [FigyTerm](https://github.com/code4mk/figyterm).
+Community-driven autocomplete specs for [Figylo](https://github.com/code4mk/figyterm).
 
 ## Usage
 
-In FigyTerm, go to **Settings > Specs** and click "Load Specs" to browse and install.
+In Figylo, go to **Settings > Specs** and click "Load Specs" to browse and install.
 
 ## Contributing
 
@@ -509,7 +509,7 @@ In FigyTerm, go to **Settings > Specs** and click "Load Specs" to browse and ins
 5. Run `node scripts/validate.js`
 6. Open a PR
 
-See [FigyTerm Spec Authoring Guide](https://github.com/code4mk/figyterm/blob/main/docs/SPECS.md) for spec format docs.
+See [Figylo Spec Authoring Guide](https://github.com/code4mk/figyterm/blob/main/docs/SPECS.md) for spec format docs.
 
 ## Porting from Fig
 
@@ -531,7 +531,7 @@ CI validates (structure, registry sync)
 Merged to main
         │
         ▼
-FigyTerm users see it in Settings > Specs > Available
+Figylo users see it in Settings > Specs > Available
         │
         ▼
 User clicks Install → fetched from raw.githubusercontent.com

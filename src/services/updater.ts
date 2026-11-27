@@ -36,7 +36,7 @@ export interface UpdateInfo {
 export const RELEASES_URL = "https://github.com/code4mk/figyterm/releases";
 
 /** macOS only: clears the quarantine flag a browser download leaves behind. */
-export const XATTR_COMMAND = "xattr -cr /Applications/FigyTerm.app";
+export const XATTR_COMMAND = "xattr -cr /Applications/Figylo.app";
 
 /**
  * `force` bypasses the one-hour backend cache. Use it for an explicit "Check Now",

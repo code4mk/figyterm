@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { MakePrimary, PrimaryHome } from "../AppShell/PrimaryChrome";
 import { open as openFolderDialog } from "@tauri-apps/plugin-dialog";
 import {
   AlertTriangle,
@@ -8,9 +9,7 @@ import {
   History,
   Maximize2,
   Minimize2,
-  Minus,
   PanelLeft,
-  PictureInPicture2,
   Plus,
   RotateCcw,
   X,
@@ -20,10 +19,10 @@ import { claimFront, releaseFront } from "../../services/overlay-stack";
 import { useOverlayZSync } from "../../hooks/useOverlayZSync";
 import {
   fullscreenRect,
-  pictureInPictureRect,
   useDraggableModal,
 } from "../../hooks/useDraggableModal";
 import { useOverlayRect } from "../../hooks/useOverlayRect";
+import { BASE_SLOT_Z, useBaseSlot } from "../../hooks/useBaseSlot";
 import { useClaudeStore } from "../../stores/claudeStore";
 import {
   addDirCommand,
@@ -54,7 +53,7 @@ import { ProjectPicker } from "./ProjectPicker";
 /**
  * The Claude Code window.
  *
- * A frame around the real CLI. FigyTerm draws the chrome — projects,
+ * A frame around the real CLI. Figylo draws the chrome — projects,
  * conversations, the folders a conversation can reach — and everything inside
  * the body is Claude Code's own terminal interface, unmodified. See
  * `docs/CLAUDE-CODE.md` for why that division is the whole design.
@@ -117,16 +116,13 @@ interface OpenSurface {
 interface ClaudeModalProps {
   visible: boolean;
   onClose: () => void;
-  /**
-   * Puts the window away without stopping it.
-   *
-   * Absent when the shell has nowhere to put it, which is why the button is
-   * conditional rather than always drawn: a minimize with no dock to land in
-   * would be a close that lied about it.
-   */
-  onMinimize?: () => void;
   /** The focused pane's working directory, for a new project's folder. */
   cwd?: string;
+  /**
+   * This is the base: it fills the slot above the status bar, never moves and
+   * cannot be put away. See `useBaseSlot`.
+   */
+  docked?: boolean;
   /** Counts ⌘W presses handed to this window; see the listener in `AppShell`. */
   closeTabRequest?: number;
   /**
@@ -159,16 +155,15 @@ export interface ClaudeMentionRequest {
 export function ClaudeModal({
   visible,
   onClose,
-  onMinimize,
   cwd,
   closeTabRequest,
   onLiveCountChange,
   onAttentionCountChange,
   mentionRequest,
+  docked = false,
 }: ClaudeModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
   const [frontZ, setFrontZ] = useState<number | null>(null);
-  const [pipMode, setPipMode] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
 
   const [probe, setProbe] = useState<ClaudeProbe | null>(null);
@@ -255,7 +250,12 @@ export function ClaudeModal({
     [projects, activeProjectId]
   );
 
-  const raise = useCallback(() => setFrontZ(claimFront("claude")), []);
+  // The base never joins the stack — there is nothing for it to be raised
+  // above, and claiming a rank would put it over every open window.
+  const raise = useCallback(() => {
+    if (docked) return;
+    setFrontZ(claimFront("claude"));
+  }, [docked]);
   // A claim by any overlay renumbers the rest; this re-reads ours.
   useOverlayZSync("claude", setFrontZ);
 
@@ -274,12 +274,37 @@ export function ClaudeModal({
 
   // Only in picture-in-picture is this a window rather than a modal with a
   // full-screen backdrop; see the note in `overlay-stack.ts`.
-  useOverlayRect("claude", modalRef, visible && pipMode);
+  useOverlayRect("claude", modalRef, docked);
+
+  /*
+    Back to a window's own geometry when something else takes the primary
+    slot: centred, default size, not fullscreen. See `useBaseSlot`.
+  */
+  const undock = useCallback(() => {
+    setFullscreen(false);
+    reset();
+  }, [reset]);
+
+  useBaseSlot(docked, place, undock);
 
   useEffect(() => {
+    /*
+      Becoming the primary gives up the claim.
+
+      A window that is promoted was in the overlay stack, and `if (docked)
+      return` left its rank there — so the stack still believed a floating
+      window was open and frontmost. `noOverlayOpen()` then said no for the
+      primary's own Escape, and the browser went on hiding its native page
+      behind a window that had become the thing underneath.
+    */
+    if (docked) {
+      releaseFront("claude");
+      setFrontZ(null);
+      return;
+    }
     if (visible) raise();
     else releaseFront("claude");
-  }, [visible, raise]);
+  }, [docked, visible, raise]);
 
   useEffect(() => () => releaseFront("claude"), []);
 
@@ -829,41 +854,34 @@ export function ClaudeModal({
 
   // ─── Window chrome ────────────────────────────────────────────────────────
 
-  const togglePip = useCallback(() => {
-    if (pipMode) {
-      setPipMode(false);
-      reset();
-      return;
-    }
-    setFullscreen(false);
-    setPipMode(true);
-    const rect = pictureInPictureRect();
-    place({ x: rect.x, y: rect.y }, { w: rect.w, h: rect.h });
-  }, [pipMode, place, reset]);
-
   const toggleFullscreen = useCallback(() => {
     if (fullscreen) {
       setFullscreen(false);
       reset();
       return;
     }
-    setPipMode(false);
     setFullscreen(true);
     const rect = fullscreenRect();
     place({ x: rect.x, y: rect.y }, { w: rect.w, h: rect.h });
   }, [fullscreen, place, reset]);
+
+  useEffect(() => {
+    if (!fullscreen) return;
+    const follow = () => {
+      const rect = fullscreenRect();
+      place({ x: rect.x, y: rect.y }, { w: rect.w, h: rect.h });
+    };
+    window.addEventListener("resize", follow);
+    return () => window.removeEventListener("resize", follow);
+  }, [fullscreen, place]);
 
   // ─── The navigator ────────────────────────────────────────────────────────
 
   /**
    * Whether the sidebar is on screen.
    *
-   * Picture-in-picture overrides the preference rather than clearing it: that
-   * mode's window is 520px at its narrowest, and a 236px column would leave the
-   * CLI too few terminal columns to lay its own output out in. Leaving it off
-   * instead means the preference survives the round trip.
    */
-  const navVisible = chrome.navOpen && !pipMode;
+  const navVisible = chrome.navOpen;
 
   const toggleNav = useCallback(
     () => setChrome((current) => ({ ...current, navOpen: !current.navOpen })),
@@ -1028,14 +1046,26 @@ export function ClaudeModal({
   return (
     <OverlayPortal>
       <div
-        className={`fixed inset-0 z-[240] items-start justify-center pt-[4vh] ${
-          visible ? "flex" : "hidden"
-        } ${pipMode ? "editor-backdrop-pip" : ""}`}
-        style={{ zIndex: frontZ ?? undefined }}
+        className={`overlay-layer fixed inset-0 ${
+          docked
+            ? "flex"
+            : `z-[240] items-start justify-center pt-[4vh] ${visible ? "flex" : "hidden"}`
+        }`}
+        style={{ zIndex: docked ? BASE_SLOT_Z : (frontZ ?? undefined) }}
         onPointerDownCapture={raise}
-        onMouseDown={(e) => {
-          if (!pipMode && e.target === e.currentTarget) onClose();
-        }}
+        /*
+          A click beside a window does not close it.
+
+          These windows hold work in progress — a request in flight, a buffer
+          with unsaved edits, a conversation mid-turn — and a backdrop that
+          dismisses on a stray click is how that gets lost by reaching for the
+          thing behind it. They close by their own button, by Escape, or not at
+          all. FigyCode never did dismiss this way; now none of them do.
+
+          The layer still has to swallow the click rather than let it fall
+          through to whatever is underneath.
+        */
+        onMouseDown={(e) => e.stopPropagation()}
         onKeyUp={(e) => e.stopPropagation()}
       >
         <div
@@ -1049,11 +1079,11 @@ export function ClaudeModal({
             states look alike from the outside.
           */
           role="dialog"
-          aria-modal={!pipMode}
+          aria-modal={false}
           aria-label={project ? `Claude Code — ${projectName(project)}` : "Claude Code"}
           className={`editor-modal claude-window overflow-hidden flex flex-col focus:outline-none ${
-            pipMode ? "editor-pip" : ""
-          } ${fullscreen ? "editor-fullscreen" : "rounded-xl"}`}
+            fullscreen || docked ? "editor-fullscreen" : "rounded-xl"
+          }`}
           style={modalStyle}
           onMouseDown={(e) => e.stopPropagation()}
           onKeyDown={onKeyDown}
@@ -1070,22 +1100,20 @@ export function ClaudeModal({
             button that reveals the thing that replaced it.
           */}
           <header
-            className="claude-header flex items-center gap-2 px-2 select-none cursor-grab active:cursor-grabbing"
-            onPointerDown={onDragStart}
+            className={`claude-header flex items-center gap-2 px-2 select-none ${
+              docked ? "" : "cursor-grab active:cursor-grabbing"
+            }`}
+            onPointerDown={docked ? undefined : onDragStart}
           >
             <div
               className="flex items-center gap-1.5 shrink-0"
               onPointerDown={(e) => e.stopPropagation()}
             >
+              {docked && <PrimaryHome />}
               <button
                 className={`claude-iconbtn ${navVisible ? "on" : ""}`}
                 onClick={toggleNav}
-                disabled={pipMode}
-                title={
-                  pipMode
-                    ? "The sidebar is hidden in picture-in-picture"
-                    : `${navVisible ? "Hide" : "Show"} the sidebar (${navChord})`
-                }
+                title={`${navVisible ? "Hide" : "Show"} the sidebar (${navChord})`}
                 aria-label="Toggle sidebar"
                 aria-pressed={navVisible}
               >
@@ -1153,44 +1181,35 @@ export function ClaudeModal({
                 </span>
               )}
 
-              <span className="claude-sep" />
+              {/*
+                No window controls on the base. Every one of these is an answer
+                to "put this away", and the base is what is left when
+                everything is put away. Changing it is a settings decision.
+              */}
+              {!docked && (
+                <>
+                  <span className="claude-sep" />
 
-              {onMinimize && (
-                <button
-                  className="claude-iconbtn"
-                  onClick={onMinimize}
-                  title="Minimize — conversations keep running"
-                  aria-label="Minimize"
-                >
-                  <Minus size={12} />
-                </button>
+                  <MakePrimary id="claude-code" />
+                  <button
+                    className={`claude-iconbtn ${fullscreen ? "on" : ""}`}
+                    onClick={toggleFullscreen}
+                    title={fullscreen ? "Restore" : "Maximize"}
+                    aria-label={fullscreen ? "Restore" : "Maximize"}
+                    aria-pressed={fullscreen}
+                  >
+                    {fullscreen ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+                  </button>
+                  <button
+                    className="claude-iconbtn danger"
+                    onClick={onClose}
+                    title="Close — conversations keep running"
+                    aria-label="Close"
+                  >
+                    <X size={13} />
+                  </button>
+                </>
               )}
-              <button
-                className={`claude-iconbtn ${pipMode ? "on" : ""}`}
-                onClick={togglePip}
-                title={pipMode ? "Leave picture-in-picture" : "Picture-in-picture"}
-                aria-label="Picture in picture"
-                aria-pressed={pipMode}
-              >
-                <PictureInPicture2 size={12} />
-              </button>
-              <button
-                className={`claude-iconbtn ${fullscreen ? "on" : ""}`}
-                onClick={toggleFullscreen}
-                title={fullscreen ? "Restore" : "Maximize"}
-                aria-label={fullscreen ? "Restore" : "Maximize"}
-                aria-pressed={fullscreen}
-              >
-                {fullscreen ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
-              </button>
-              <button
-                className="claude-iconbtn danger"
-                onClick={onClose}
-                title="Close — conversations keep running"
-                aria-label="Close"
-              >
-                <X size={13} />
-              </button>
             </div>
           </header>
 
@@ -1263,7 +1282,7 @@ export function ClaudeModal({
                   </span>
                   <span className="claude-empty-title">Claude Code isn’t installed</span>
                   <span className="claude-empty-body max-w-[460px] text-center">
-                    FigyTerm runs the <code>claude</code> CLI; it doesn’t bundle one. Install it,
+                    Figylo runs the <code>claude</code> CLI; it doesn’t bundle one. Install it,
                     then check again — the search includes your login shell’s PATH, so a version
                     manager’s directory counts.
                   </span>
@@ -1520,24 +1539,38 @@ export function ClaudeModal({
 
             {/*
               The grip lives down here for the reason the editor's does: it
-              needs somewhere nothing else is competing for the pointer.
+              needs somewhere nothing else is competing for the pointer — and
+              it is a window's, so the primary has none: it is the size of the
+              slot and there is nothing to resize it against.
             */}
-            <div
-              className="editor-resize-handle"
-              onPointerDown={onResizeStart}
-              title="Resize"
-              role="separator"
-              aria-orientation="horizontal"
-            >
-              <svg width="10" height="10" viewBox="0 0 10 10" className="editor-resize-icon">
-                <path
-                  d="M9 1L1 9M9 5L5 9"
-                  stroke="currentColor"
-                  strokeWidth="1.2"
-                  strokeLinecap="round"
-                />
-              </svg>
-            </div>
+{/*
+              Not rendered rather than hidden with a class.
+
+              `.editor-resize-handle` sets `display: flex`, `.hidden` sets
+              `display: none`, and the two have the same specificity — so which
+              wins is decided by source order, and this stylesheet comes after
+              Tailwind's utilities. The handle stayed visible and clickable.
+              The same trap is written up in `EditorModal`, where `hidden` lost
+              to `.flex` and a modal would not close.
+            */}
+            {!docked && (
+              <div
+                className="editor-resize-handle"
+                onPointerDown={onResizeStart}
+                title="Resize"
+                role="separator"
+                aria-orientation="horizontal"
+              >
+                <svg width="10" height="10" viewBox="0 0 10 10" className="editor-resize-icon">
+                  <path
+                    d="M9 1L1 9M9 5L5 9"
+                    stroke="currentColor"
+                    strokeWidth="1.2"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </div>
+            )}
           </div>
 
           {/*

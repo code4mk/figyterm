@@ -32,7 +32,7 @@ Not "can we", but **"should a terminal do this at all?"** The honest case
 against is strong enough to write down:
 
 - `rust-analyzer` on a repository of any size is one to four gigabytes resident
-  and minutes of indexing before it answers anything. FigyTerm is a ~10 MB
+  and minutes of indexing before it answers anything. Figylo is a ~10 MB
   terminal that starts fast — the same argument that ruled out Monaco.
 - The editor exists for "peek and patch a file next to my shell". Clicking a
   `tsc` error in terminal output and landing on the right line is the headline

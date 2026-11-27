@@ -147,7 +147,7 @@ function IdleState() {
     <div className="flex flex-col items-center justify-center py-10 gap-3">
       <RefreshCw size={22} className="text-ft-text-muted" />
       <p className="text-xs text-ft-text-secondary">
-        Check whether a newer version of FigyTerm is available.
+        Check whether a newer version of Figylo is available.
       </p>
     </div>
   );
@@ -193,7 +193,7 @@ function ResultState({
           <Check size={20} className="text-ft-success" />
         </div>
         <div>
-          <p className="text-xs font-medium text-ft-text">FigyTerm is up to date</p>
+          <p className="text-xs font-medium text-ft-text">Figylo is up to date</p>
           <p className="text-[11px] text-ft-text-muted mt-1">
             You're running version {info.currentVersion}.
           </p>
@@ -226,7 +226,7 @@ type InstallPhase = "idle" | "confirm" | "downloading" | "installed" | "failed";
 
 function explainInstallFailure(message: string, version: string): string {
   if (message === NO_MANIFEST) {
-    return `FigyTerm ${version} doesn't support one-click updates. Install it manually — after that, updates are automatic.`;
+    return `Figylo ${version} doesn't support one-click updates. Install it manually — after that, updates are automatic.`;
   }
   if (message === VERSION_MISMATCH) {
     return `The updater offered a different version than the one shown here, so nothing was installed. Use the manual download to get ${version} specifically.`;
@@ -294,7 +294,7 @@ function UpdateAvailable({
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <p className="text-xs font-semibold text-ft-text">
-              FigyTerm {info.latestVersion} is available
+              Figylo {info.latestVersion} is available
             </p>
             {info.isPrerelease && (
               <span className="px-1.5 py-0.5 rounded text-[9px] font-medium uppercase tracking-wide bg-ft-elevated text-ft-text-muted">
@@ -319,7 +319,7 @@ function UpdateAvailable({
                 This install is managed by your system
               </p>
               <p className="text-[10px] text-ft-text-muted mt-1 leading-relaxed">
-                FigyTerm was installed from a distro package, so its files belong
+                Figylo was installed from a distro package, so its files belong
                 to your package manager and the app can't replace them. Update it
                 the way you installed it, or switch to the AppImage build — that
                 one updates itself.
@@ -373,7 +373,7 @@ function UpdateAvailable({
                 Something is still running
               </p>
               <p className="text-[10px] text-ft-text-muted mt-1 leading-relaxed">
-                Installing restarts FigyTerm, which will end{" "}
+                Installing restarts Figylo, which will end{" "}
                 <span className="font-mono text-ft-text-secondary">
                   {busyCommands.join(", ")}
                 </span>
@@ -425,7 +425,7 @@ function UpdateAvailable({
             <Check size={14} className="text-ft-success shrink-0 mt-0.5" />
             <div className="min-w-0">
               <p className="text-[11px] font-medium text-ft-text">
-                FigyTerm {info.latestVersion} is installed
+                Figylo {info.latestVersion} is installed
               </p>
               <p className="text-[10px] text-ft-text-muted mt-1">
                 Restart to finish. Your open panes will close.
@@ -524,7 +524,7 @@ function bundleKind(assetName: string | null): string {
 }
 
 /**
- * FigyTerm ships unsigned, so macOS quarantines the downloaded DMG and refuses
+ * Figylo ships unsigned, so macOS quarantines the downloaded DMG and refuses
  * to launch the app until the flag is cleared. Rather than burying that in a
  * release body nobody reads, it lives right next to the download button.
  */
@@ -567,7 +567,7 @@ function InstallInstructions({ activeSessionId }: { activeSessionId?: string | n
         <ol className="space-y-1.5 text-[11px] text-ft-text-secondary list-decimal ml-4">
           <li>Open the downloaded .dmg file</li>
           <li>
-            Drag <span className="text-ft-text font-medium">FigyTerm</span> into your{" "}
+            Drag <span className="text-ft-text font-medium">Figylo</span> into your{" "}
             <span className="text-ft-text font-medium">Applications</span> folder
           </li>
           <li>Run this command in a terminal:</li>
@@ -600,7 +600,7 @@ function InstallInstructions({ activeSessionId }: { activeSessionId?: string | n
         </div>
 
         <p className="text-[10px] text-ft-text-muted leading-relaxed">
-          FigyTerm isn't code-signed with an Apple Developer ID, so macOS quarantines
+          Figylo isn't code-signed with an Apple Developer ID, so macOS quarantines
           it on download. This command clears that flag. If macOS still blocks the
           app, open{" "}
           <span className="text-ft-text-secondary">

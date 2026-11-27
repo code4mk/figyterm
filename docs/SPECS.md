@@ -1,10 +1,10 @@
 # Spec Authoring Guide
 
-FigyTerm uses a spec-based autocomplete engine inspired by [Fig's completion specs](https://fig.io/docs/getting-started). This guide explains how to add support for new CLI tools.
+Figylo uses a spec-based autocomplete engine inspired by [Fig's completion specs](https://fig.io/docs/getting-started). This guide explains how to add support for new CLI tools.
 
 ## Overview
 
-A **spec** is a TypeScript object that describes a command's structure — its subcommands, options, and arguments. When a user types a command, FigyTerm's engine traverses the spec tree to determine relevant suggestions.
+A **spec** is a TypeScript object that describes a command's structure — its subcommands, options, and arguments. When a user types a command, Figylo's engine traverses the spec tree to determine relevant suggestions.
 
 ## Quick Start
 
@@ -265,7 +265,7 @@ const spec: Figy.Spec = {
 
 ## Porting Fig Specs
 
-FigyTerm's spec format is compatible with Fig's format. To port an existing Fig spec:
+Figylo's spec format is compatible with Fig's format. To port an existing Fig spec:
 
 1. Copy the spec file
 2. Add `// @ts-nocheck` at the top

@@ -954,24 +954,9 @@
   position: relative;
 }
 
-.history-modal.history-pip {
-  position: fixed;
-  z-index: 250;
-  border: 1px solid rgba(99, 102, 241, 0.3);
-  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(99, 102, 241, 0.15);
-}
 
-.history-pip-label {
+.history-title {
   color: #6e7681;
-}
-
-.history-pip-btn {
-  color: #6e7681;
-}
-
-.history-pip-btn:hover {
-  color: #e6edf3;
-  background: rgba(255, 255, 255, 0.08);
 }
 
 .light .history-modal {
@@ -1094,22 +1079,9 @@
   color: #9ca3af;
 }
 
-.light .history-modal.history-pip {
-  border: 1px solid rgba(79, 70, 229, 0.25);
-  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.1), 0 0 0 1px rgba(79, 70, 229, 0.1);
-}
 
-.light .history-pip-label {
+.light .history-title {
   color: #9ca3af;
-}
-
-.light .history-pip-btn {
-  color: #9ca3af;
-}
-
-.light .history-pip-btn:hover {
-  color: #1f2937;
-  background: rgba(0, 0, 0, 0.05);
 }
 
 /* ─── System Monitor ─── */
@@ -1120,12 +1092,6 @@
   border: 1px solid #252a33;
 }
 
-.monitor-modal.monitor-pip {
-  position: fixed;
-  z-index: 250;
-  border: 1px solid rgba(132, 204, 22, 0.2);
-  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
-}
 
 .monitor-header {
   background: rgba(255, 255, 255, 0.02);
@@ -1234,10 +1200,6 @@
   border: 1px solid #e2e5eb;
 }
 
-.light .monitor-modal.monitor-pip {
-  border: 1px solid rgba(101, 163, 13, 0.2);
-  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.1);
-}
 
 .light .monitor-header {
   background: #f9fafb;
@@ -1448,12 +1410,6 @@
   z-index: 2;
 }
 
-.browser-modal.browser-pip {
-  position: fixed;
-  z-index: 250;
-  border: 1px solid rgba(56, 189, 248, 0.3);
-  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(56, 189, 248, 0.15);
-}
 
 .browser-tabstrip {
   background: rgba(255, 255, 255, 0.02);
@@ -1743,10 +1699,6 @@
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.12);
 }
 
-.light .browser-modal.browser-pip {
-  border: 1px solid rgba(2, 132, 199, 0.3);
-  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.14), 0 0 0 1px rgba(2, 132, 199, 0.12);
-}
 
 .light .browser-tabstrip {
   background: var(--ft-elevated);
@@ -3813,40 +3765,8 @@
 
 /* ─── Code Editor · picture-in-picture ─── */
 
-/*
-  In PiP the backdrop must not eat clicks aimed at the terminal behind it —
-  that's the whole point of the mode. `pointer-events` is turned off on the
-  full-screen layer and back on for the modal itself.
-*/
-.editor-backdrop-pip {
-  pointer-events: none;
-}
 
-/*
-  The modal *and* anything modal raised beside it.
 
-  The dialogs — the workspace picker, the save and conflict prompts — are
-  siblings of `.editor-modal` inside this layer, not children of it, so the
-  click-through above left them completely dead in picture-in-picture: visible,
-  but impossible to click, pick from, or dismiss. A dialog is modal by
-  definition, so while one is open it takes the whole layer back.
-*/
-.editor-backdrop-pip .editor-modal,
-.editor-backdrop-pip .editor-dialog-backdrop {
-  pointer-events: auto;
-}
-
-.editor-modal.editor-pip {
-  position: fixed;
-  z-index: 245;
-  border: 1px solid rgba(99, 102, 241, 0.35);
-  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(99, 102, 241, 0.15);
-}
-
-.light .editor-modal.editor-pip {
-  border: 1px solid rgba(79, 70, 229, 0.3);
-  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.14), 0 0 0 1px rgba(79, 70, 229, 0.12);
-}
 
 /* ─── Code Editor · workspace switcher ─── */
 
@@ -4196,14 +4116,52 @@
 }
 
 
-/* ─── Fullscreen modals ─── */
+/* ─── The layer a floating window sits in ─── */
 
 /*
-  Edge to edge, so the frame's own rounding and border would sit against the
-  window's — square corners and no outer border while fullscreen.
+  Each window is placed by a `fixed inset-0` layer, which covers the screen
+  whether or not the window does. Left solid to the pointer, the topmost of
+  those layers swallowed every click aimed at the windows beneath it — so with
+  three open, clicking one to bring it forward did nothing at all, because the
+  click never reached it.
+
+  It used to be masked by the backdrops dismissing on an outside click: the
+  layer ate the click and closed its own window, which looked like something
+  happening. Now that nothing dismisses that way, the layer has to be
+  transparent to the pointer and its contents opaque.
+
+  `> *` rather than the frame alone, because the editor and Claude render
+  their dialogs as siblings of the frame inside this layer; naming only the
+  frame would leave a modal dialog that could not be clicked.
+*/
+.overlay-layer {
+  pointer-events: none;
+}
+
+.overlay-layer > * {
+  pointer-events: auto;
+}
+
+/* ─── Edge-to-edge windows ─── */
+
+/*
+  A frame that reaches the window's own edges drops its rounding, its border
+  and its shadow — they would sit against the window's, and a card with a drop
+  shadow filling the whole screen is a popup pretending to be an application.
+
+  Two states land here: fullscreen, which a window is holding and can restore,
+  and primary, which is a service that has stopped being a window. Both are
+  spelled `rounded-none` on the element, so both are covered.
+
+  Every frame has to be listed. Drawing and Figy Man were not, which is why
+  those two still looked like popups when they were the primary while the
+  other five did not.
 */
 .editor-modal.editor-fullscreen,
-.browser-modal.browser-fullscreen {
+.browser-modal.browser-fullscreen,
+.figy-modal.rounded-none,
+.drawing-modal.rounded-none,
+.api-modal.rounded-none {
   border-radius: 0;
   border-color: transparent;
   box-shadow: none;
@@ -7580,9 +7538,9 @@
 /* ────────────────────────────────────────────────────────────────────────────
    Claude Code window
 
-   The window keeps the editor's shell — `.editor-modal`, `.editor-pip`,
-   `.editor-fullscreen` and the dialog classes are shared verbatim — and draws
-   its own chrome on top of it.
+   The window keeps the editor's shell — `.editor-modal`, `.editor-fullscreen`
+   and the dialog classes are shared verbatim — and draws its own chrome on top
+   of it.
 
    Two loans were tried and dropped before this one. The browser's tab strip
    went first: a conversation is not a page and a project is not a URL, and the
@@ -8800,130 +8758,6 @@
 .light .claude-locator-conv.idle,
 .light .claude-chip.pending {
   color: var(--ft-text-secondary);
-}
-
-/* ─── The dock ─────────────────────────────────────────────────────────────
- *
- * Windows put away rather than closed, in the footer's control cluster.
- *
- * A chip per window, with its mark and its name, because an icon alone made
- * the row a guessing game — unlabelled glyphs in a 28px bar are not something
- * anybody reads, they are something they hover one at a time. Three of these
- * four marks are generic shapes rather than logos, which is exactly when a
- * word earns its pixels.
- *
- * Sized to its neighbours: 20px tall, like the monitor, theme and settings
- * buttons it sits beside, so the cluster reads as one row of controls rather
- * than as a row with something taped to the front of it.
- * ───────────────────────────────────────────────────────────────────────── */
-
-.dock {
-  min-width: 0;
-}
-
-/* The same rule the status bar uses between its own groups. */
-.dock-divider {
-  width: 1px;
-  height: 12px;
-  flex: none;
-  background: var(--ft-border-subtle);
-}
-
-.dock-item {
-  height: 20px;
-  padding: 0 8px 0 6px;
-  border-radius: 999px;
-  border: 1px solid var(--ft-border-subtle);
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--ft-text-secondary);
-  font-size: 10px;
-  line-height: 1;
-  white-space: nowrap;
-  cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
-}
-
-.dock-item:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: var(--ft-border);
-  color: var(--ft-text);
-}
-
-/*
-  Pressed reads as the accent, which is the colour restoring a window lands
-  on — the same one the window's own chrome uses for what is current.
-*/
-.dock-item:active {
-  background: rgba(99, 102, 241, 0.18);
-  border-color: rgba(99, 102, 241, 0.45);
-  color: var(--ft-text);
-}
-
-.dock-item:focus-visible {
-  outline: none;
-  border-color: var(--ft-accent);
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
-}
-
-/* The mark keeps its own opacity so the name is what the eye lands on. */
-.dock-mark {
-  display: inline-flex;
-  align-items: center;
-  opacity: 0.75;
-}
-
-.dock-item:hover .dock-mark {
-  opacity: 1;
-}
-
-.dock-mark-image {
-  display: block;
-  height: 12px;
-  width: auto;
-  border-radius: 2px;
-}
-
-.dock-name {
-  font-weight: 500;
-  letter-spacing: -0.01em;
-}
-
-/*
-  Something waiting behind a window you cannot see.
-  Accent rather than red: it is a conversation asking a question, not a fault.
-*/
-.dock-badge {
-  min-width: 14px;
-  padding: 0 4px;
-  border-radius: 999px;
-  background: rgba(99, 102, 241, 0.22);
-  color: #a5b4fc;
-  font-size: 9px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  text-align: center;
-}
-
-.light .dock-item {
-  background: rgba(15, 23, 42, 0.05);
-}
-
-.light .dock-item:hover {
-  background: rgba(15, 23, 42, 0.09);
-}
-
-.light .dock-item:active {
-  background: rgba(79, 70, 229, 0.12);
-  border-color: rgba(79, 70, 229, 0.35);
-}
-
-.light .dock-badge {
-  background: rgba(79, 70, 229, 0.14);
-  color: var(--ft-accent);
-}
-
-.light .dock-item:focus-visible {
-  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.2);
 }
 
 /* ─── Drawing window ───────────────────────────────────────────────────────
@@ -13157,6 +12991,10 @@ body > .cm-api-completions .cm-completionDetail {
   /* Prose stops being readable past about ninety characters however wide
      the window is dragged. Code is free to use the rest. */
   max-width: 980px;
+}
+
+.figy-modal.rounded-none .figy-transcript {
+  max-width: none;
 }
 
 /* A symbol name inside a sentence, as the markdown renderer emits it:

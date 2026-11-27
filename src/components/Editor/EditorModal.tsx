@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FigyMark } from "../Shared/FigyMark";
+import { MakePrimary, PrimaryHome } from "../AppShell/PrimaryChrome";
 import { invoke } from "@tauri-apps/api/core";
 import {
   AlignLeft,
@@ -21,14 +23,12 @@ import {
   GitBranch,
   ListOrdered,
   Maximize2,
-  Minus,
   Minimize2,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
   PenLine,
-  PictureInPicture2,
   Redo2,
   Save,
   Scissors,
@@ -48,11 +48,11 @@ import { claimFront, releaseFront } from "../../services/overlay-stack";
 import { useOverlayZSync } from "../../hooks/useOverlayZSync";
 import {
   fullscreenRect,
-  pictureInPictureRect,
   useDraggableModal,
 } from "../../hooks/useDraggableModal";
 import { useFileWatcher } from "../../hooks/useFileWatcher";
 import { useOverlayRect } from "../../hooks/useOverlayRect";
+import { BASE_SLOT_Z, useBaseSlot } from "../../hooks/useBaseSlot";
 import { useEditorStore, restorableSession } from "../../stores/editorStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useThemeStore } from "../../stores/themeStore";
@@ -210,9 +210,6 @@ const PANEL_MODES = [
 /** The editor itself never gets dragged narrower than this. */
 const MIN_EDITOR = 320;
 
-/** The same idea in picture-in-picture, where there is far less to go round. */
-const MIN_PIP_EDITOR = 240;
-
 /** Debounce before a dirty buffer is journalled to storage. */
 const JOURNAL_MS = 700;
 
@@ -241,16 +238,13 @@ export interface EditorOpenRequest {
 interface EditorModalProps {
   visible: boolean;
   onClose: () => void;
-  /**
-   * Puts the window away without stopping it.
-   *
-   * Absent when the shell has nowhere to put it, which is why the button is
-   * conditional rather than always drawn: a minimize with no dock to land in
-   * would be a close that lied about it.
-   */
-  onMinimize?: () => void;
   /** The focused terminal pane's working directory, if it has one. */
   cwd?: string;
+  /**
+   * This is the base: it fills the slot between the app header and the status
+   * bar, never moves and cannot be put away. See `useBaseSlot`.
+   */
+  docked?: boolean;
   /** Opens a terminal tab rooted at a directory. */
   onOpenTerminal: (dir: string) => void;
   /** A file the app wants opened — a clicked path in terminal output. */
@@ -450,12 +444,12 @@ interface Preview {
 export function EditorModal({
   visible,
   onClose,
-  onMinimize,
   cwd,
   onOpenTerminal,
   openRequest,
   closeTabRequest,
   chordRef,
+  docked = false,
 }: EditorModalProps) {
   const {
     root,
@@ -596,7 +590,6 @@ export function EditorModal({
    */
   const [wrapped, setWrapped] = useState(() => editorSettings.wordWrap);
   const [fullscreen, setFullscreen] = useState(false);
-  const [pipMode, setPipMode] = useState(false);
   /**
    * Keeps this window in front when it's opened or clicked.
    *
@@ -606,7 +599,12 @@ export function EditorModal({
    * behind the browser's however high its own z-index was set.
    */
   const [frontZ, setFrontZ] = useState<number | null>(null);
-  const raise = useCallback(() => setFrontZ(claimFront("editor")), []);
+  // The base never joins the stack — there is nothing for it to be raised
+  // above, and claiming a rank would put it over every open window.
+  const raise = useCallback(() => {
+    if (docked) return;
+    setFrontZ(claimFront("editor"));
+  }, [docked]);
   // A claim by any overlay renumbers the rest; this re-reads ours.
   useOverlayZSync("editor", setFrontZ);
 
@@ -773,7 +771,18 @@ export function EditorModal({
     a full-screen backdrop, and the stack's "no rectangle means it covers
     everything" is the right answer for that.
   */
-  useOverlayRect("editor", modalRef, visible && pipMode);
+  useOverlayRect("editor", modalRef, docked);
+
+  /*
+    Back to a window's own geometry when something else takes the primary
+    slot: centred, default size, not fullscreen. See `useBaseSlot`.
+  */
+  const undock = useCallback(() => {
+    setFullscreen(false);
+    reset();
+  }, [reset]);
+
+  useBaseSlot(docked, place, undock);
 
   const { change, mechanism } = useFileWatcher(rootReady ? root : null, visible);
 
@@ -1668,7 +1677,8 @@ export function EditorModal({
     */
     releaseFront("editor");
     setFrontZ(null);
-  }, [visible, pipMode, raise]);
+  }, [visible, raise]);
+
 
   /**
    * Focus follows the editor when it opens.
@@ -1893,7 +1903,6 @@ export function EditorModal({
   );
 
   const toggleFullscreen = useCallback(() => {
-    setPipMode(false);
     setFullscreen((prev) => {
       if (prev) {
         reset();
@@ -1907,25 +1916,6 @@ export function EditorModal({
 
   /**
    * Picture-in-picture: a small, always-on-top editor with no backdrop.
-   *
-   * It parks bottom-right, out of the way of a shell being typed into, which is
-   * the case it exists for — keeping a file in view while working in the
-   * terminal. The side panel and the preview are left out at this size rather
-   * than squeezed: two 260px panes in a 560px window would leave no editor.
-   */
-  const togglePip = useCallback(() => {
-    setFullscreen(false);
-    setPipMode((prev) => {
-      if (prev) {
-        reset();
-      } else {
-        const rect = pictureInPictureRect();
-        place({ x: rect.x, y: rect.y }, { w: rect.w, h: rect.h });
-      }
-      return !prev;
-    });
-  }, [place, reset]);
-
   /*
     No folder, no panel. The explorer, search and source control all describe a
     folder, so with none open the column has nothing to say — and showed a
@@ -1937,20 +1927,6 @@ export function EditorModal({
   const rightShown = previewShown || agentOpen;
 
   /**
-   * A pane's width as the layout should use it.
-   *
-   * In picture-in-picture the whole window is 560px, so a 260px tree plus a
-   * 420px preview would leave the editor at nothing — the panes are narrowed to
-   * fit instead of being hidden. Hiding them was the first attempt and it made
-   * the tree's toggle look broken: pressing it changed a flag that the layout
-   * then ignored.
-   */
-  const paneWidth = useCallback(
-    (width: number) =>
-      pipMode ? Math.min(width, Math.max(140, modalSize.w - MIN_PIP_EDITOR)) : width,
-    [pipMode, modalSize.w]
-  );
-
   /** Keeps a fullscreen modal the size of the window it's filling. */
   useEffect(() => {
     if (!fullscreen) return;
@@ -2789,7 +2765,7 @@ export function EditorModal({
 
   /** Wide enough for the switcher's tabs to be worth labelling. */
   const wideControls =
-    panelShown && paneWidth(dragWidth ?? explorerWidth) >= LABELLED_CONTROLS;
+    panelShown && (dragWidth ?? explorerWidth) >= LABELLED_CONTROLS;
 
   const gitPanelTitle = git.isRepo
     ? `Source control — ${git.files.length} change${git.files.length === 1 ? "" : "s"}`
@@ -2843,7 +2819,7 @@ export function EditorModal({
       style={
         panelShown
           ? {
-              width: paneWidth(dragWidth ?? explorerWidth) - TOOLBAR_PAD + DIVIDER_W,
+              width: (dragWidth ?? explorerWidth) - TOOLBAR_PAD + DIVIDER_W,
               // Never narrower than the icons: a panel dragged to its minimum
               // in picture-in-picture must not push them out of their own box.
               minWidth: "fit-content",
@@ -2955,7 +2931,7 @@ export function EditorModal({
       )}
       <div
         className={`shrink-0 min-h-0 editor-sidepanel on-${panelSide}`}
-        style={{ width: paneWidth(dragWidth ?? explorerWidth) }}
+        style={{ width: (dragWidth ?? explorerWidth) }}
       >
         {sidePanel === "git" && root && rootReady ? (
           <SourceControl
@@ -3027,21 +3003,26 @@ export function EditorModal({
         went away. Closing it looked like a dead button.
       */}
       <div
-        className={`fixed inset-0 z-[240] items-start justify-center pt-[4vh] ${
-          visible ? "flex" : "hidden"
-        } ${pipMode ? "editor-backdrop-pip" : ""}`}
-        style={{ zIndex: frontZ ?? undefined }}
+        className={`overlay-layer fixed inset-0 ${
+          docked
+            ? "flex"
+            : `z-[240] items-start justify-center pt-[4vh] ${visible ? "flex" : "hidden"}`
+        }`}
+        style={{ zIndex: docked ? BASE_SLOT_Z : (frontZ ?? undefined) }}
         onPointerDownCapture={raise}
         /*
-          Clicking outside hides the editor, as the other overlays do. Nothing
-          is lost by it: the modal stays mounted, so buffers, undo history and
-          selections are all still there when it reopens, and dirty buffers are
-          journalled to storage regardless. In picture-in-picture there is no
-          backdrop to click — the class below makes it click-through.
+          A click beside a window does not close it.
+
+          These windows hold work in progress — a request in flight, a buffer
+          with unsaved edits, a conversation mid-turn — and a backdrop that
+          dismisses on a stray click is how that gets lost by reaching for the
+          thing behind it. They close by their own button, by Escape, or not at
+          all. FigyCode never did dismiss this way; now none of them do.
+
+          The layer still has to swallow the click rather than let it fall
+          through to whatever is underneath.
         */
-        onMouseDown={(e) => {
-          if (!pipMode && e.target === e.currentTarget) onClose();
-        }}
+        onMouseDown={(e) => e.stopPropagation()}
         onKeyUp={(e) => e.stopPropagation()}
       >
         <div
@@ -3054,8 +3035,8 @@ export function EditorModal({
           */
           tabIndex={-1}
           className={`editor-modal overflow-hidden shadow-2xl flex flex-col focus:outline-none ${
-            pipMode ? "editor-pip" : ""
-          } ${fullscreen ? "editor-fullscreen" : "rounded-xl"}`}
+            fullscreen || docked ? "editor-fullscreen" : "rounded-xl"
+          }`}
           style={modalStyle}
           onMouseDown={(e) => e.stopPropagation()}
           onKeyDown={onKeyDown}
@@ -3066,12 +3047,15 @@ export function EditorModal({
           {/* Tab strip, doubling as the drag handle */}
           <div className="flex items-stretch editor-chrome">
             <div
-              className="editor-brand editor-tabstrip flex items-center gap-2 pl-3 pr-2.5 shrink-0 cursor-grab active:cursor-grabbing"
-              onPointerDown={onDragStart}
+              className={`editor-brand editor-tabstrip flex items-center gap-2 pl-3 pr-2.5 shrink-0 ${
+                docked ? "" : "cursor-grab active:cursor-grabbing"
+              }`}
+              onPointerDown={docked ? undefined : onDragStart}
             >
-              <img src="/logo.png" alt="" className="h-3.5 w-auto shrink-0" />
+              {docked && <PrimaryHome className="-ml-1 mr-0.5" />}
+              <FigyMark size={16} />
               <span className="editor-brand-title text-[11px] font-semibold whitespace-nowrap">
-                Code Editor
+                Figy Code Editor
               </span>
             </div>
             <div className="flex-1 min-w-0">
@@ -3109,44 +3093,36 @@ export function EditorModal({
                   openScratch();
                 }}
                 onReorder={reorderBuffers}
-                onDragHandle={onDragStart}
+                onDragHandle={docked ? undefined : onDragStart}
               />
             </div>
             <div className="flex items-center gap-0.5 px-2 shrink-0 editor-tabstrip">
-              {onMinimize && (
-                <button
-                  className="editor-btn p-1 rounded"
-                  onClick={onMinimize}
-                  title="Minimize — open files and undo history are kept"
-                  aria-label="Minimize"
-                >
-                  <Minus size={12} />
-                </button>
+              {/*
+                No window controls on the base. Every one of these is an answer
+                to "put this away", and the base is what is left when
+                everything is put away. Changing it is a settings decision.
+              */}
+              {!docked && (
+                <>
+                  <MakePrimary id="figy-code-editor" />
+                  <button
+                    className={`editor-btn p-1 rounded ${fullscreen ? "on" : ""}`}
+                    onClick={toggleFullscreen}
+                    title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+                    aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+                  >
+                    {fullscreen ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+                  </button>
+                  <button
+                    className="editor-btn editor-btn-close p-1 rounded"
+                    onClick={onClose}
+                    title="Close editor"
+                    aria-label="Close editor"
+                  >
+                    <X size={13} />
+                  </button>
+                </>
               )}
-              <button
-                className={`editor-btn p-1 rounded ${pipMode ? "on" : ""}`}
-                onClick={togglePip}
-                title={pipMode ? "Exit picture-in-picture" : "Picture-in-picture"}
-                aria-label={pipMode ? "Exit picture-in-picture" : "Picture-in-picture"}
-              >
-                <PictureInPicture2 size={12} />
-              </button>
-              <button
-                className={`editor-btn p-1 rounded ${fullscreen ? "on" : ""}`}
-                onClick={toggleFullscreen}
-                title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
-                aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
-              >
-                {fullscreen ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
-              </button>
-              <button
-                className="editor-btn editor-btn-close p-1 rounded"
-                onClick={onClose}
-                title="Close editor"
-                aria-label="Close editor"
-              >
-                <X size={13} />
-              </button>
             </div>
           </div>
 
@@ -3535,7 +3511,7 @@ export function EditorModal({
                 />
                 <div
                   className="shrink-0 min-h-0"
-                  style={{ width: paneWidth(previewDragWidth ?? previewWidth) }}
+                  style={{ width: (previewDragWidth ?? previewWidth) }}
                 >
                   {agentOpen ? (
                     <AgentPanel
@@ -3592,7 +3568,9 @@ export function EditorModal({
             onSetPythonPath={setPythonPath}
             onRefreshInterpreters={refreshInterpreters}
             onGoToLine={openGoToLine}
-            onResizeStart={onResizeStart}
+            // The primary is the size of the slot; there is nothing to
+            // resize it against, so the grip is not offered.
+            onResizeStart={docked ? undefined : onResizeStart}
           />
 
           {quickOpen && root && rootReady && (

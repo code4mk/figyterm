@@ -156,7 +156,7 @@ Three corrections the code forced, recorded here rather than quietly applied.
       to write. Routed as a request prop through `AppShell`, like the editor's
       clicked-path, so it can't race the window being mounted
 - [ ] The same from the git panel — the tree covers the common case; revisit
-- [x] `claude_past_conversations` + `HistoryPicker`: conversations FigyTerm
+- [x] `claude_past_conversations` + `HistoryPicker`: conversations Figylo
       never launched, read from `~/.claude/projects`, resumable by id
 
 ## Fixes, from the first real run
@@ -299,7 +299,7 @@ Filled in as phases land. Nothing is ticked here from reading the code.
 
 **Still to do, and needs a person at the keyboard:**
 
-- [ ] `claude` resolved when FigyTerm is launched from Finder (the case
+- [ ] `claude` resolved when Figylo is launched from Finder (the case
       `search_path` exists for)
 - [ ] A project folder containing a space and a `$(`
 - [ ] Switch project mid-turn, come back: output complete, no redraw damage

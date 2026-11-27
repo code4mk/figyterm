@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Search, Clock, CornerDownLeft, X, PictureInPicture2, Maximize2 } from "lucide-react";
+import { Search, Clock, CornerDownLeft, X } from "lucide-react";
 import { OverlayPortal } from "../Overlay/OverlayPortal";
 import { useOverlayRect } from "../../hooks/useOverlayRect";
 import { claimFront, releaseFront } from "../../services/overlay-stack";
@@ -88,13 +88,12 @@ export function HistorySearch({ visible, onClose, onSelect }: HistorySearchProps
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [loading, setLoading] = useState(false);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
-  const [pipMode, setPipMode] = useState(false);
 
   /**
    * Keeps this window in front when it's opened or clicked, and steps aside
    * when it closes. See `services/overlay-stack.ts`.
    */
-  const [frontZ, setFrontZ] = useState<number | null>(null);
+  const [, setFrontZ] = useState<number | null>(null);
   const raise = useCallback(() => setFrontZ(claimFront("history")), []);
   // A claim by any overlay renumbers the rest; this re-reads ours.
   useOverlayZSync("history", setFrontZ);
@@ -107,15 +106,16 @@ export function HistorySearch({ visible, onClose, onSelect }: HistorySearchProps
     // Released on close, so whatever is still open becomes frontmost.
     releaseFront("history");
     setFrontZ(null);
-  }, [visible, pipMode, raise]);
+  }, [visible, raise]);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const selectedRef = useRef<HTMLButtonElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
 
-  // As above: a window in picture-in-picture, a backdropped modal otherwise.
-  useOverlayRect("history", modalRef, visible && pipMode);
+  // A backdropped modal, which the stack reads as covering everything — see
+  // `useOverlayRect`, and the note there about a missing rectangle.
+  useOverlayRect("history", modalRef, false);
 
   // Drag state
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
@@ -130,7 +130,6 @@ export function HistorySearch({ visible, onClose, onSelect }: HistorySearchProps
       setQuery("");
       setSelectedIndex(0);
       setVisibleCount(PAGE_SIZE);
-      setPipMode(false);
       setPos(null);
       setSize({ w: 520, h: 440 });
       setLoading(true);
@@ -184,8 +183,8 @@ export function HistorySearch({ visible, onClose, onSelect }: HistorySearchProps
 
   const handleSelect = useCallback((cmd: string) => {
     onSelect(cmd);
-    if (!pipMode) onClose();
-  }, [onSelect, onClose, pipMode]);
+    onClose();
+  }, [onSelect, onClose]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     e.stopPropagation();
@@ -283,25 +282,6 @@ export function HistorySearch({ visible, onClose, onSelect }: HistorySearchProps
     window.addEventListener("pointerup", onUp);
   }, [size]);
 
-  const togglePip = useCallback(() => {
-    setPipMode((prev) => {
-      const next = !prev;
-      if (next && !pos) {
-        // Enter PiP: snap to bottom-right
-        setSize({ w: 420, h: 360 });
-        setPos({
-          x: window.innerWidth - 440,
-          y: window.innerHeight - 380,
-        });
-      } else if (!next) {
-        // Exit PiP: center it again
-        setPos(null);
-        setSize({ w: 520, h: 440 });
-      }
-      return next;
-    });
-  }, [pos]);
-
   if (!visible) return null;
 
   const totalCount = allFiltered.length;
@@ -315,8 +295,8 @@ export function HistorySearch({ visible, onClose, onSelect }: HistorySearchProps
   const modal = (
     <div
       ref={modalRef}
-      className={`history-modal rounded-xl overflow-hidden shadow-2xl ${pipMode ? "history-pip" : ""}`}
-      style={pipMode ? { ...modalStyle, zIndex: frontZ ?? undefined } : modalStyle}
+      className="history-modal rounded-xl overflow-hidden shadow-2xl"
+      style={modalStyle}
       onPointerDownCapture={raise}
       onMouseDown={(e) => e.stopPropagation()}
       onMouseUp={(e) => e.stopPropagation()}
@@ -329,19 +309,7 @@ export function HistorySearch({ visible, onClose, onSelect }: HistorySearchProps
         className="history-drag-handle flex items-center justify-between px-3 py-1 cursor-grab active:cursor-grabbing select-none"
         onPointerDown={handleDragStart}
       >
-        <span className="text-[10px] history-pip-label font-medium">
-          {pipMode ? "PiP — History" : "History"}
-        </span>
-        <div className="flex items-center gap-1">
-          <button
-            className="history-pip-btn p-0.5 rounded transition-colors"
-            onClick={(e) => { e.stopPropagation(); togglePip(); }}
-            onPointerDown={(e) => e.stopPropagation()}
-            title={pipMode ? "Exit PiP mode" : "Enter PiP mode"}
-          >
-            {pipMode ? <Maximize2 size={12} /> : <PictureInPicture2 size={12} />}
-          </button>
-        </div>
+        <span className="text-[10px] history-title font-medium">History</span>
       </div>
 
       {/* Search input */}
@@ -451,12 +419,6 @@ export function HistorySearch({ visible, onClose, onSelect }: HistorySearchProps
     </div>
   );
 
-  // PiP mode: no backdrop, terminal is fully interactive
-  if (pipMode) {
-    return <OverlayPortal>{modal}</OverlayPortal>;
-  }
-
-  // Normal mode: centered with backdrop
   return (
     <OverlayPortal>
       <div

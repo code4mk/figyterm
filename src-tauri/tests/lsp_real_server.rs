@@ -93,7 +93,7 @@ fn initialize_message(root: &str) -> String {
         "method": "initialize",
         "params": {
             "processId": null,
-            "clientInfo": { "name": "FigyTerm" },
+            "clientInfo": { "name": "Figylo" },
             "rootUri": format!("file://{root}"),
             "capabilities": {
                 "general": { "positionEncodings": ["utf-16", "utf-8"] },

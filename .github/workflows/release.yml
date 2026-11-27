@@ -121,11 +121,11 @@ jobs:
           VERSION: ${{ steps.meta.outputs.version }}
         run: |
           cat > "$RUNNER_TEMP/notes.md" <<'NOTES'
-          ## FigyTerm v__VERSION__
+          ## Figylo v__VERSION__
 
           ### Updating
 
-          FigyTerm updates itself from here on — it checks for new versions and
+          Figylo updates itself from here on — it checks for new versions and
           installs them in-app, with no Gatekeeper prompt and no `xattr` step.
           If you're coming from **v0.0.6 or earlier**, this one install is manual;
           after it, updates are automatic.
@@ -143,7 +143,7 @@ jobs:
           One line, no security dialog, no `xattr` step. It picks the right build for
           your Mac and installs to `/Applications`.
 
-          Why it's simpler: FigyTerm isn't code-signed with an Apple Developer ID, and
+          Why it's simpler: Figylo isn't code-signed with an Apple Developer ID, and
           macOS quarantines anything downloaded by a **browser**. `curl` isn't a
           browser, so this route avoids the problem rather than working around it.
           [Read the script](https://github.com/code4mk/figyterm/blob/main/install.sh)
@@ -151,18 +151,18 @@ jobs:
 
           #### Option 2 — download the .dmg manually
 
-          1. Download `FigyTerm___VERSION___aarch64.dmg` (Apple Silicon) or
-             `FigyTerm___VERSION___x64.dmg` (Intel)
-          2. Open the `.dmg` and drag **FigyTerm** into **Applications**
+          1. Download `Figylo___VERSION___aarch64.dmg` (Apple Silicon) or
+             `Figylo___VERSION___x64.dmg` (Intel)
+          2. Open the `.dmg` and drag **Figylo** into **Applications**
           3. Clear the quarantine flag macOS added during the download:
 
              ```
-             xattr -cr /Applications/FigyTerm.app
+             xattr -cr /Applications/Figylo.app
              ```
 
-          4. Launch FigyTerm
+          4. Launch Figylo
 
-          Step 3 isn't optional — without it macOS reports *"FigyTerm is damaged and
+          Step 3 isn't optional — without it macOS reports *"Figylo is damaged and
           can't be opened"*, which only means the app is unsigned.
 
           ### Installation (Linux)
@@ -172,14 +172,14 @@ jobs:
           **AppImage (recommended)** — runs on any distro, and updates itself:
 
           ```
-          chmod +x FigyTerm___VERSION___amd64.AppImage
-          ./FigyTerm___VERSION___amd64.AppImage
+          chmod +x Figylo___VERSION___amd64.AppImage
+          ./Figylo___VERSION___amd64.AppImage
           ```
 
-          **Debian / Ubuntu:** `sudo apt install ./FigyTerm___VERSION___amd64.deb`
-          **Fedora / RHEL:** `sudo dnf install ./FigyTerm-__VERSION__-1.x86_64.rpm`
+          **Debian / Ubuntu:** `sudo apt install ./Figylo___VERSION___amd64.deb`
+          **Fedora / RHEL:** `sudo dnf install ./Figylo-__VERSION__-1.x86_64.rpm`
 
-          A `.deb` or `.rpm` install belongs to your package manager, so FigyTerm
+          A `.deb` or `.rpm` install belongs to your package manager, so Figylo
           won't replace its own files — it tells you a new version exists and leaves
           the install to you. The AppImage is the one that updates in place.
 
@@ -192,7 +192,7 @@ jobs:
 
           ### Installation (Windows)
 
-          Download `FigyTerm___VERSION___x64-setup.exe` and run it. It installs for
+          Download `Figylo___VERSION___x64-setup.exe` and run it. It installs for
           the current user, needs no administrator rights, and updates itself from
           then on.
 
@@ -201,7 +201,7 @@ jobs:
           There's no way around this yet: unlike macOS there's no flag to clear,
           and reputation accrues per binary as downloads accumulate.
 
-          `FigyTerm___VERSION___x64_en-US.msi` is also published for deployment via
+          `Figylo___VERSION___x64_en-US.msi` is also published for deployment via
           Group Policy or Intune. It does *not* self-update — a managed install
           stays managed by whatever pushed it.
 
@@ -209,15 +209,15 @@ jobs:
 
           ### Troubleshooting
 
-          **"FigyTerm can't be opened because it is from an unidentified developer"**
+          **"Figylo can't be opened because it is from an unidentified developer"**
           Open **System Settings > Privacy & Security**, scroll down, and click
           **Open Anyway**. On macOS 15 and later this is the only route — Apple removed
           the old right-click > Open shortcut.
 
-          **"FigyTerm is damaged and can't be opened"**
+          **"Figylo is damaged and can't be opened"**
           The quarantine flag is still set. Run:
           ```
-          xattr -cr /Applications/FigyTerm.app
+          xattr -cr /Applications/Figylo.app
           ```
 
           **Keychain access popup**
@@ -235,7 +235,7 @@ jobs:
           TAG: ${{ steps.meta.outputs.tag }}
           PRERELEASE: ${{ steps.meta.outputs.prerelease }}
         run: |
-          TITLE="FigyTerm $TAG"
+          TITLE="Figylo $TAG"
 
           # GET /releases/tags/{tag} only returns *published* releases, so it
           # 404s on the draft we create here. The list endpoint does include
@@ -535,18 +535,18 @@ jobs:
               '. + {($k): {signature: $s, url: $u}}' <<<"$PLATFORMS")
           }
 
-          add_platform darwin-aarch64 "FigyTerm_${VERSION}_aarch64.app.tar.gz"
-          add_platform darwin-x86_64 "FigyTerm_${VERSION}_x64.app.tar.gz"
+          add_platform darwin-aarch64 "Figylo_${VERSION}_aarch64.app.tar.gz"
+          add_platform darwin-x86_64 "Figylo_${VERSION}_x64.app.tar.gz"
 
           # Linux updates go through the AppImage, which the updater replaces in
           # place. The .deb and .rpm are downloads only: their files belong to
           # the package manager, so the app must never rewrite them.
-          add_platform linux-x86_64 "FigyTerm_${VERSION}_amd64.AppImage"
+          add_platform linux-x86_64 "Figylo_${VERSION}_amd64.AppImage"
 
           # Windows updates go through the NSIS installer, which can install
           # per-user without administrator rights. The .msi ships alongside for
           # enterprise deployment and is left to whatever pushed it.
-          add_platform windows-x86_64 "FigyTerm_${VERSION}_x64-setup.exe"
+          add_platform windows-x86_64 "Figylo_${VERSION}_x64-setup.exe"
 
           jq -n \
             --arg v "$VERSION" \

@@ -1,6 +1,6 @@
 # Windows Port — Task List
 
-Working checklist for making FigyTerm run and ship on Windows. Rationale for each
+Working checklist for making Figylo run and ship on Windows. Rationale for each
 item lives in [`WINDOWS-SUPPORT.md`](./WINDOWS-SUPPORT.md).
 
 Status: `[x]` done · `[~]` done as far as macOS allows, needs confirming on
@@ -70,7 +70,7 @@ authority.
 
 ## 5. Updater
 
-- [x] **Windows asset matching** — Tauri writes `FigyTerm_<v>_x64_en-US.msi`, so
+- [x] **Windows asset matching** — Tauri writes `Figylo_<v>_x64_en-US.msi`, so
       the arch token never matches and selection only works by falling through to
       the lone-bundle branch. Breaks as soon as an NSIS `.exe` ships beside it.
 - [x] **Pick the primary artifact** — NSIS `-setup.exe` for updates, MSI for

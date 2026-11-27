@@ -1,6 +1,6 @@
 # Linux Support
 
-An assessment of what it would take to ship FigyTerm on Linux, written against the
+An assessment of what it would take to ship Figylo on Linux, written against the
 code as it stands. Nothing here is implemented yet — this is the plan.
 
 Related: [`RELEASING.md`](./RELEASING.md) (the pipeline that would need a Linux job),
@@ -158,7 +158,7 @@ On macOS that's a reasonable imitation of Terminal.app. On Linux it's a real bug
 it also drops `DISPLAY`, `WAYLAND_DISPLAY`, `XDG_RUNTIME_DIR`,
 `DBUS_SESSION_BUS_ADDRESS`, `XAUTHORITY`, and `XDG_SESSION_TYPE`. Any command that
 touches the GUI or the session bus — `xdg-open`, `code .`, `firefox`,
-`systemctl --user`, `notify-send`, clipboard tools — will fail from inside FigyTerm
+`systemctl --user`, `notify-send`, clipboard tools — will fail from inside Figylo
 while working fine in every other terminal. That's the kind of thing that gets the
 app written off as broken.
 
