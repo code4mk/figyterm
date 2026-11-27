@@ -97,7 +97,20 @@ export function TerminalWindow({
   useOverlayRect("terminal", modalRef, visible || docked);
 
   useEffect(() => {
-    if (docked) return;
+    /*
+      Becoming the primary gives up the claim.
+
+      A window that is promoted was in the overlay stack, and `if (docked)
+      return` left its rank there — so the stack still believed a floating
+      window was open and frontmost. `noOverlayOpen()` then said no for the
+      primary's own Escape, and the browser went on hiding its native page
+      behind a window that had become the thing underneath.
+    */
+    if (docked) {
+      releaseFront("terminal");
+      setFrontZ(null);
+      return;
+    }
     if (visible) {
       raise();
       return;
@@ -255,7 +268,7 @@ export function TerminalWindow({
         The base ignores `visible` entirely; that is what being the base means.
       */}
       <div
-        className={`fixed inset-0 pointer-events-none ${
+        className={`overlay-layer fixed inset-0 ${
           docked
             ? ""
             : `items-start justify-center pt-[6vh] ${visible ? "flex" : "hidden"}`

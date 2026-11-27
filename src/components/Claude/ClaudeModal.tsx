@@ -288,7 +288,20 @@ export function ClaudeModal({
   useBaseSlot(docked, place, undock);
 
   useEffect(() => {
-    if (docked) return;
+    /*
+      Becoming the primary gives up the claim.
+
+      A window that is promoted was in the overlay stack, and `if (docked)
+      return` left its rank there — so the stack still believed a floating
+      window was open and frontmost. `noOverlayOpen()` then said no for the
+      primary's own Escape, and the browser went on hiding its native page
+      behind a window that had become the thing underneath.
+    */
+    if (docked) {
+      releaseFront("claude");
+      setFrontZ(null);
+      return;
+    }
     if (visible) raise();
     else releaseFront("claude");
   }, [docked, visible, raise]);
@@ -1033,7 +1046,7 @@ export function ClaudeModal({
   return (
     <OverlayPortal>
       <div
-        className={`fixed inset-0 ${
+        className={`overlay-layer fixed inset-0 ${
           docked
             ? "flex"
             : `z-[240] items-start justify-center pt-[4vh] ${visible ? "flex" : "hidden"}`

@@ -3002,7 +3002,7 @@ export function EditorModal({
         went away. Closing it looked like a dead button.
       */}
       <div
-        className={`fixed inset-0 ${
+        className={`overlay-layer fixed inset-0 ${
           docked
             ? "flex"
             : `z-[240] items-start justify-center pt-[4vh] ${visible ? "flex" : "hidden"}`

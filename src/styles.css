@@ -4116,15 +4116,52 @@
 }
 
 
-/* ─── Fullscreen modals ─── */
+/* ─── The layer a floating window sits in ─── */
 
 /*
-  Edge to edge, so the frame's own rounding and border would sit against the
-  window's — square corners and no outer border while fullscreen.
+  Each window is placed by a `fixed inset-0` layer, which covers the screen
+  whether or not the window does. Left solid to the pointer, the topmost of
+  those layers swallowed every click aimed at the windows beneath it — so with
+  three open, clicking one to bring it forward did nothing at all, because the
+  click never reached it.
+
+  It used to be masked by the backdrops dismissing on an outside click: the
+  layer ate the click and closed its own window, which looked like something
+  happening. Now that nothing dismisses that way, the layer has to be
+  transparent to the pointer and its contents opaque.
+
+  `> *` rather than the frame alone, because the editor and Claude render
+  their dialogs as siblings of the frame inside this layer; naming only the
+  frame would leave a modal dialog that could not be clicked.
+*/
+.overlay-layer {
+  pointer-events: none;
+}
+
+.overlay-layer > * {
+  pointer-events: auto;
+}
+
+/* ─── Edge-to-edge windows ─── */
+
+/*
+  A frame that reaches the window's own edges drops its rounding, its border
+  and its shadow — they would sit against the window's, and a card with a drop
+  shadow filling the whole screen is a popup pretending to be an application.
+
+  Two states land here: fullscreen, which a window is holding and can restore,
+  and primary, which is a service that has stopped being a window. Both are
+  spelled `rounded-none` on the element, so both are covered.
+
+  Every frame has to be listed. Drawing and Figy Man were not, which is why
+  those two still looked like popups when they were the primary while the
+  other five did not.
 */
 .editor-modal.editor-fullscreen,
 .browser-modal.browser-fullscreen,
-.figy-modal.rounded-none {
+.figy-modal.rounded-none,
+.drawing-modal.rounded-none,
+.api-modal.rounded-none {
   border-radius: 0;
   border-color: transparent;
   box-shadow: none;

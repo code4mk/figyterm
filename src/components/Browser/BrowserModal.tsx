@@ -111,7 +111,20 @@ export function BrowserModal({
   useOverlayZSync("browser", setFrontZ);
 
   useEffect(() => {
-    if (docked) return;
+    /*
+      Becoming the primary gives up the claim.
+
+      A window that is promoted was in the overlay stack, and `if (docked)
+      return` left its rank there — so the stack still believed a floating
+      window was open and frontmost. `noOverlayOpen()` then said no for the
+      primary's own Escape, and the browser went on hiding its native page
+      behind a window that had become the thing underneath.
+    */
+    if (docked) {
+      releaseFront("browser");
+      setFrontZ(null);
+      return;
+    }
     if (visible) {
       raise();
       return;
@@ -846,7 +859,7 @@ export function BrowserModal({
   return (
     <OverlayPortal>
       <div
-        className={`fixed inset-0 ${
+        className={`overlay-layer fixed inset-0 ${
           docked ? "" : "z-[250] flex items-start justify-center pt-[6vh]"
         }`}
         style={{ zIndex: docked ? BASE_SLOT_Z : (frontZ ?? undefined) }}

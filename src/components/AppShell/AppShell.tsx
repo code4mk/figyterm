@@ -194,6 +194,8 @@ export function AppShell() {
 
   /** The primary, for callbacks defined before it and not rebuilt when it moves. */
   const baseRef = useRef<ServiceId | null>(null);
+  /** The same, ignoring whether the services screen is up over it. */
+  const storedBaseRef = useRef<ServiceId | null>(null);
 
   /**
    * The service actually filling the slot right now.
@@ -204,6 +206,7 @@ export function AppShell() {
    */
   const baseId = launcherOpen ? null : storedBase;
   baseRef.current = baseId;
+  storedBaseRef.current = storedBase;
 
   /**
    * Whether a service should be drawn as a floating window.
@@ -612,17 +615,28 @@ export function AppShell() {
 
   const setPrimary = useCallback(
     (id: ServiceId) => {
+      const outgoing = storedBaseRef.current;
       setStoredBase(id);
       setLauncherOpen(false);
-      /*
-        It stops being a popup as it becomes the primary.
 
-        `windowVisible` already hides it either way — the primary is never
-        drawn as a window — so this is about later: left set, the flag would
-        bring the window back the moment something else was made primary, and
-        promoting B would pop A open behind it.
+      /*
+        The new primary stops being a popup. `windowVisible` already hides it
+        either way — the primary is never drawn as a window — but the flag has
+        to go too, or it would bring the window back the moment something else
+        took the slot.
       */
       setServiceOpen(id, false);
+
+      /*
+        And the one it replaces becomes a popup rather than disappearing.
+
+        It was on screen a moment ago and the user did not close it; a service
+        that vanished because something else was promoted would have to be
+        found again on the services screen. It comes back as a window at the
+        centred default size — `useBaseSlot`'s `onUndock` resets the geometry
+        it was holding as the primary, which was the whole slot.
+      */
+      if (outgoing && outgoing !== id) setServiceOpen(outgoing, true);
     },
     [setServiceOpen]
   );
