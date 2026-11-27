@@ -15,10 +15,10 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { PrimaryHome } from "../AppShell/PrimaryChrome";
 import {
   Ban,
   Maximize2,
-  Minus,
   Minimize2,
   PanelBottom,
   PanelRight,
@@ -77,14 +77,6 @@ export interface ApiModalProps {
   visible: boolean;
   onClose: () => void;
   /**
-   * Puts the window away without stopping it.
-   *
-   * Absent when the shell has nowhere to put it, which is why the button is
-   * conditional rather than always drawn: a minimize with no dock to land in
-   * would be a close that lied about it.
-   */
-  onMinimize?: () => void;
-  /**
    * This is the base: it fills the slot above the status bar, never moves and
    * cannot be put away. See `useBaseSlot`.
    */
@@ -98,7 +90,6 @@ const DEFAULT_SIZE = { w: 1180, h: 760 };
 export function ApiModal({
   visible,
   onClose,
-  onMinimize,
   docked = false,
 }: ApiModalProps) {
   const [fullscreen, setFullscreen] = useState(false);
@@ -580,6 +571,7 @@ export function ApiModal({
         }`}
         onPointerDown={docked ? undefined : onDragStart}
       >
+        {docked && <PrimaryHome className="mr-1" />}
         <div className="browser-brand flex items-center gap-2 pl-1 pr-2.5 mr-1 shrink-0">
           <img src="/logo.png" alt="" className="h-4 w-auto shrink-0" />
           <span className="browser-brand-title text-[11px] font-semibold whitespace-nowrap">
@@ -610,17 +602,6 @@ export function ApiModal({
           >
             {split === "bottom" ? <PanelRight size={14} /> : <PanelBottom size={14} />}
           </button>
-          {onMinimize && !docked && (
-            <button
-              className="p-1.5 rounded text-ft-text-muted hover:bg-ft-surface"
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={onMinimize}
-              title="Minimize — a request in flight is left alone"
-              aria-label="Minimize"
-            >
-              <Minus size={14} />
-            </button>
-          )}
           {/*
             No window controls on the base: picture-in-picture, fullscreen and
             close all move or dismiss a window, and the base is neither moved

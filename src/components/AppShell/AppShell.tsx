@@ -4,7 +4,6 @@ import { emitToSelf, listenToSelf, openWindow } from "../../services/windows";
 import { NewWindowPrompt } from "./NewWindowPrompt";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import { TabBar } from "../Terminal/TabBar";
-import { StatusBar } from "../Terminal/StatusBar";
 import { SystemMonitor } from "../Terminal/SystemMonitor";
 import { BrowserModal } from "../Browser/BrowserModal";
 import { OverlayBoundary } from "../Overlay/OverlayBoundary";
@@ -30,11 +29,10 @@ import { SHORTCUTS, keys, matches } from "../../services/shortcuts";
 import type { EditorOpenRequest } from "../Editor/EditorModal";
 import type { ClaudeMentionRequest } from "../Claude/ClaudeModal";
 import { isMac, EMBEDDED_BROWSER_SUPPORTED } from "../../services/platform";
-import { DockWindow, MinimizedDock } from "./MinimizedDock";
-import { AppHeader } from "./AppHeader";
 import { TerminalWindow } from "../Terminal/TerminalWindow";
 import { ServicesScreen } from "../Services/ServicesScreen";
 import { resolveBase, type ServiceId } from "../../services/catalog";
+import { PrimaryChromeProvider } from "./PrimaryChrome";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { serveAgentLsp } from "../../services/figycode-lsp";
 
@@ -148,7 +146,6 @@ export function AppShell() {
   /** Conversations with a live process, reported by the Claude window. */
   const [claudeLive, setClaudeLive] = useState(0);
   /** Conversations waiting for an answer, reported the same way. */
-  const [claudeAttention, setClaudeAttention] = useState(0);
   /** A file the editor's tree asked Claude to look at. */
   const [claudeMention, setClaudeMention] = useState<ClaudeMentionRequest | null>(null);
   /** Latches on the first open, so the editor is fetched once and then stays. */
@@ -157,20 +154,6 @@ export function AppShell() {
   const [editorRequest, setEditorRequest] = useState<EditorOpenRequest | null>(null);
   /** Counts the ⌘W presses handed to the editor; see the menu listener below. */
   const [editorCloseTab, setEditorCloseTab] = useState(0);
-  /**
-   * Windows put away rather than closed, oldest first.
-   *
-   * The distinction is only about what the footer shows. Every one of these
-   * windows already survives being closed — the `*Mounted` flags above are
-   * what keep a pty, a request in flight and an unsaved buffer alive — but a
-   * closed window leaves nothing on screen to say so, and "is that still
-   * running?" had no answer anywhere. Minimizing puts it in the dock, which is
-   * that answer.
-   *
-   * Order is insertion order so the row does not reshuffle under the pointer
-   * as windows come and go.
-   */
-  const [minimized, setMinimized] = useState<DockWindow[]>([]);
   const [updatesOpen, setUpdatesOpen] = useState(false);
   const [tabs, setTabs] = useState<TabInstance[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
@@ -276,7 +259,6 @@ export function AppShell() {
     toastVisible,
     dismissToast,
     hideToast,
-    updateAvailable,
   } = useUpdateCheck();
   const clearRefs = useRef<Map<string, React.MutableRefObject<(() => void) | null>>>(new Map());
   const focusRefs = useRef<Map<string, React.MutableRefObject<(() => void) | null>>>(new Map());
@@ -627,48 +609,19 @@ export function AppShell() {
     }
   }, []);
 
-  const minimizeWindow = useCallback(
-    (which: DockWindow) => {
-      setMinimized((ids) => (ids.includes(which) ? ids : [...ids, which]));
-      setServiceOpen(which, false);
-      focusActivePane();
-    },
-    [focusActivePane, setServiceOpen]
-  );
-
-  /** Brings one back, and takes it out of the dock. */
-  const restoreWindow = useCallback(
-    (which: DockWindow) => {
-      setMinimized((ids) => ids.filter((id) => id !== which));
-      setServiceOpen(which, true);
-    },
-    [setServiceOpen]
-  );
-
   /*
-    Opening a window by any other route — the chord, the palette, the menu —
-    also takes it out of the dock. Watching the open flags rather than patching
-    six call sites: every one of them sets exactly these, and a route added
-    later would otherwise leave a window on screen and in the dock at once.
+    Minimize is gone with the dock it landed in.
+
+    The dock lived in the app's status bar, which is gone — the native Menu
+    already carries the theme, settings, updates and the monitor, and a second
+    footer under services that draw their own was the duplication this change
+    is about. Without it a minimize button would put a window somewhere with
+    nothing on screen to say where.
+
+    Nothing is lost by that: closing these windows never stopped them. The
+    `*Mounted` flags above are what keep a pty, a request in flight and an
+    unsaved buffer alive, and the services screen marks what is still open.
   */
-  useEffect(() => {
-    const open: Record<ServiceId, boolean> = {
-      "figy-terminal": terminalOpen,
-      "figy-browser": browserOpen,
-      "figy-code-editor": editorOpen,
-      "claude-code": claudeOpen,
-      "figy-harness": figyOpen,
-      "figy-man": apiOpen,
-      "figy-drawing": drawingOpen,
-    };
-    setMinimized((ids) => {
-      // The base is not a window and cannot be in the dock — a service that
-      // becomes the base while minimized has to leave it, or the footer offers
-      // to restore the thing already filling the screen.
-      const next = ids.filter((id) => !open[id] && id !== baseId);
-      return next.length === ids.length ? ids : next;
-    });
-  }, [terminalOpen, browserOpen, editorOpen, claudeOpen, figyOpen, apiOpen, drawingOpen, baseId]);
 
   /** Read by the shortcut handler, which is registered once. */
   const terminalOpenRef = useRef(terminalOpen);
@@ -684,7 +637,6 @@ export function AppShell() {
   const closeTerminal = useCallback(() => {
     if (baseId === "figy-terminal") return;
     setTerminalOpen(false);
-    setMinimized((ids) => ids.filter((id) => id !== "figy-terminal"));
   }, [baseId]);
 
   const toggleTerminal = useCallback(() => {
@@ -695,7 +647,6 @@ export function AppShell() {
 
   const closeEditor = useCallback(() => {
     setEditorOpen(false);
-    setMinimized((ids) => ids.filter((id) => id !== "figy-code-editor"));
     focusActivePane();
   }, [focusActivePane]);
 
@@ -715,7 +666,6 @@ export function AppShell() {
    */
   const closeClaude = useCallback(() => {
     setClaudeOpen(false);
-    setMinimized((ids) => ids.filter((id) => id !== "claude-code"));
     focusActivePane();
   }, [focusActivePane]);
 
@@ -730,7 +680,6 @@ export function AppShell() {
 
   const closeFigy = useCallback(() => {
     setFigyOpen(false);
-    setMinimized((ids) => ids.filter((id) => id !== "figy-harness"));
     focusActivePane();
   }, [focusActivePane]);
 
@@ -764,7 +713,6 @@ export function AppShell() {
    * having when the window comes back. */
   const closeApi = useCallback(() => {
     setApiOpen(false);
-    setMinimized((ids) => ids.filter((id) => id !== "figy-man"));
     focusActivePane();
   }, [focusActivePane]);
 
@@ -916,6 +864,7 @@ export function AppShell() {
       listenToSelf("menu://split-down", () => handleSplitPane("vertical")),
       listenToSelf("menu://close-pane", () => handleClosePane()),
       listenToSelf("menu://clear-terminal", () => handleClearTerminal()),
+      listenToSelf("menu://all-services", () => setLauncherOpen(true)),
       listenToSelf("menu://browser", () => setBrowserOpen((open) => !open)),
       listenToSelf("menu://editor", () => toggleEditor()),
       listenToSelf("menu://claude", () => toggleClaude()),
@@ -1150,28 +1099,9 @@ export function AppShell() {
       .map(([id]) => id)
   );
 
-  /** The header's menu, and anything else that opens a service by name. */
-  const openService = useCallback(
-    (id: ServiceId) => {
-      // The base is already the whole window. Asking for it is a no-op rather
-      // than an error — the menu lists it because leaving it out would be a
-      // list of six that claims to be the services.
-      if (id === baseId) return;
-      setServiceOpen(id, true);
-    },
-    [baseId, setServiceOpen]
-  );
-
   return (
+    <PrimaryChromeProvider onShowServices={() => setLauncherOpen(true)}>
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-ft-bg">
-      <AppHeader
-        baseId={storedBase}
-        openIds={openIds}
-        onOpenService={openService}
-        onShowServices={() => setLauncherOpen(true)}
-        servicesShown={launcherOpen}
-        onOpenSettings={() => setSettingsOpen(true)}
-      />
       {/*
         The slot.
 
@@ -1194,29 +1124,6 @@ export function AppShell() {
           />
         )}
       </div>
-      <div onMouseUp={focusActivePane}>
-        <StatusBar
-          cwd={activePaneId ? (liveCwds[activePaneId] || activePaneSession?.session?.cwd || "") : ""}
-          shell={activePaneSession?.session?.shell ?? ""}
-          onOpenSettings={() => setSettingsOpen(true)}
-          onOpenMonitor={() => setMonitorOpen(true)}
-          updateAvailable={updateAvailable}
-          onOpenUpdates={handleOpenUpdates}
-          // Only while the window is closed; an open one marks the tab itself.
-          claudeAttention={claudeOpen ? 0 : claudeAttention}
-          onOpenClaude={() => setClaudeOpen(true)}
-          dock={
-            <MinimizedDock
-              windows={minimized}
-              onRestore={restoreWindow}
-              // A minimized Claude window is the one place a waiting
-              // conversation can be said out loud, so the count rides on its
-              // dock item rather than being announced twice.
-              badges={{ "claude-code": claudeAttention }}
-            />
-          }
-        />
-      </div>
       {/*
         The terminal, in the frame it never used to have.
 
@@ -1229,8 +1136,7 @@ export function AppShell() {
           visible={windowVisible("figy-terminal", terminalOpen)}
           docked={baseId === "figy-terminal"}
           onClose={closeTerminal}
-          onMinimize={() => minimizeWindow("figy-terminal")}
-          chrome={({ controls, onDragHandle }) => (
+          chrome={({ controls, leading, onDragHandle }) => (
             <div onMouseUp={focusActivePane}>
               <TabBar
                 tabs={tabsForUI}
@@ -1244,6 +1150,7 @@ export function AppShell() {
                 onPrevTab={switchToPreviousTab}
                 onNextTab={switchToNextTab}
                 controls={controls}
+                leading={leading}
                 onDragHandle={onDragHandle}
               />
             </div>
@@ -1297,7 +1204,6 @@ export function AppShell() {
             visible={windowVisible("figy-browser", browserOpen)}
             docked={baseId === "figy-browser"}
             onClose={() => setBrowserOpen(false)}
-            onMinimize={() => minimizeWindow("figy-browser")}
           />
         </OverlayBoundary>
       )}
@@ -1314,7 +1220,6 @@ export function AppShell() {
               visible={windowVisible("figy-code-editor", editorOpen)}
               docked={baseId === "figy-code-editor"}
               onClose={closeEditor}
-              onMinimize={() => minimizeWindow("figy-code-editor")}
               cwd={getActiveCwd()}
               onOpenTerminal={createTab}
               openRequest={editorRequest}
@@ -1336,11 +1241,9 @@ export function AppShell() {
               visible={windowVisible("claude-code", claudeOpen)}
               docked={baseId === "claude-code"}
               onClose={closeClaude}
-              onMinimize={() => minimizeWindow("claude-code")}
               cwd={getActiveCwd()}
               closeTabRequest={claudeCloseTab}
               onLiveCountChange={setClaudeLive}
-              onAttentionCountChange={setClaudeAttention}
               mentionRequest={claudeMention}
             />
           </Suspense>
@@ -1357,7 +1260,6 @@ export function AppShell() {
               visible={windowVisible("figy-harness", figyOpen)}
               docked={baseId === "figy-harness"}
               onClose={closeFigy}
-              onMinimize={() => minimizeWindow("figy-harness")}
               cwd={getActiveCwd()}
             />
           </Suspense>
@@ -1381,7 +1283,6 @@ export function AppShell() {
               visible={windowVisible("figy-man", apiOpen)}
               docked={baseId === "figy-man"}
               onClose={closeApi}
-              onMinimize={() => minimizeWindow("figy-man")}
             />
           </Suspense>
         </OverlayBoundary>
@@ -1407,5 +1308,6 @@ export function AppShell() {
         onSubmit={confirmNewWindow}
       />
     </div>
+    </PrimaryChromeProvider>
   );
 }

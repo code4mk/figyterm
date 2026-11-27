@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { PrimaryHome } from "../AppShell/PrimaryChrome";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useThemeStore } from "../../stores/themeStore";
 import { OverlayPortal } from "../Overlay/OverlayPortal";
@@ -23,7 +24,6 @@ import {
   Globe,
   ExternalLink,
   Maximize2,
-  Minus,
   Minimize2,
   Lock,
   TriangleAlert,
@@ -53,14 +53,6 @@ interface BrowserModalProps {
   visible: boolean;
   onClose: () => void;
   /**
-   * Puts the window away without stopping it.
-   *
-   * Absent when the shell has nowhere to put it, which is why the button is
-   * conditional rather than always drawn: a minimize with no dock to land in
-   * would be a close that lied about it.
-   */
-  onMinimize?: () => void;
-  /**
    * This is the base: it fills the slot above the status bar, never moves and
    * cannot be put away. See `useBaseSlot`.
    */
@@ -77,7 +69,6 @@ const MAX_TABS = 10;
 export function BrowserModal({
   visible,
   onClose,
-  onMinimize,
   docked = false,
 }: BrowserModalProps) {
   const [tabs, setTabs] = useState<BrowserTabState[]>([]);
@@ -590,6 +581,7 @@ export function BrowserModal({
           beside it, so it picks up the strip's own background and the drag
           handler already on the parent.
         */}
+        {docked && <PrimaryHome className="mr-1 self-center" />}
         <div className="browser-brand flex items-center gap-2 pl-1 pr-2.5 mr-1 pb-1.5 shrink-0">
           <img src="/logo.png" alt="" className="h-3.5 w-auto shrink-0" />
           <span className="browser-brand-title text-[11px] font-semibold whitespace-nowrap">
@@ -650,17 +642,6 @@ export function BrowserModal({
         <span className="browser-sep shrink-0" />
 
         <div className="flex items-center gap-0.5 shrink-0 pb-0.5">
-          {onMinimize && !docked && (
-            <button
-              className="browser-btn p-1 rounded"
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={onMinimize}
-              title="Minimize — the page keeps loading"
-              aria-label="Minimize"
-            >
-              <Minus size={12} />
-            </button>
-          )}
           {/*
             No window controls on the base: these move or dismiss a window, and
             the base is neither moved nor dismissed. Changing it is a settings

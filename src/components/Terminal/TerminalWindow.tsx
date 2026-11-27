@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Maximize2, Minimize2, Minus, X } from "lucide-react";
+import { Maximize2, Minimize2, X } from "lucide-react";
 import { OverlayPortal } from "../Overlay/OverlayPortal";
 import { claimFront, releaseFront } from "../../services/overlay-stack";
 import { useOverlayRect } from "../../hooks/useOverlayRect";
 import { useOverlayZSync } from "../../hooks/useOverlayZSync";
 import { fullscreenRect, useDraggableModal } from "../../hooks/useDraggableModal";
 import { BASE_SLOT_Z, useBaseSlot } from "../../hooks/useBaseSlot";
+import { PrimaryHome } from "../AppShell/PrimaryChrome";
 
 /**
  * The frame the terminal lives in — the base slot, or a window above it.
@@ -31,7 +32,6 @@ interface TerminalWindowProps {
   /** Fills the base slot, never moves, and has no window controls. */
   docked?: boolean;
   onClose: () => void;
-  onMinimize?: () => void;
   /**
    * The tab strip, which is also this window's title bar.
    *
@@ -40,6 +40,7 @@ interface TerminalWindowProps {
    */
   chrome: (slots: {
     controls: ReactNode;
+    leading: ReactNode;
     onDragHandle?: (e: React.PointerEvent) => void;
   }) => ReactNode;
   /** The panes. */
@@ -50,7 +51,6 @@ export function TerminalWindow({
   visible,
   docked = false,
   onClose,
-  onMinimize,
   chrome,
   children,
 }: TerminalWindowProps) {
@@ -110,23 +110,12 @@ export function TerminalWindow({
   }, [fullscreen, place]);
 
   /*
-    No window controls on the base — minimize, maximize and close are all
-    answers to "put this away", and the base is what is left when everything is
-    put away. Changing it is a settings decision.
+    As the primary this bar carries the way back to the services screen and
+    nothing else: maximize and close are both answers to "put this away", and
+    the primary is what is left when everything is put away.
   */
   const controls = docked ? null : (
     <>
-      {onMinimize && (
-        <button
-          className="tab-nav-btn flex items-center justify-center w-6 h-6 rounded"
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={onMinimize}
-          title="Minimize — the shells keep running"
-          aria-label="Minimize"
-        >
-          <Minus size={12} />
-        </button>
-      )}
       <button
         className="tab-nav-btn flex items-center justify-center w-6 h-6 rounded"
         onPointerDown={(e) => e.stopPropagation()}
@@ -163,7 +152,11 @@ export function TerminalWindow({
       onMouseDown={(e) => e.stopPropagation()}
       onMouseUp={(e) => e.stopPropagation()}
     >
-      {chrome({ controls, onDragHandle: docked ? undefined : onDragStart })}
+      {chrome({
+        controls,
+        leading: docked ? <PrimaryHome /> : null,
+        onDragHandle: docked ? undefined : onDragStart,
+      })}
       <div className="flex-1 relative min-h-0 overflow-hidden">{children}</div>
     </div>
   );

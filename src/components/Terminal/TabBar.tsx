@@ -29,6 +29,14 @@ interface TabBarProps {
    * has nothing to minimize or close to.
    */
   controls?: ReactNode;
+  /**
+   * Goes at the left end, where the logo used to be.
+   *
+   * For the way back to the services screen when the terminal is the primary.
+   * Every other service puts that button at the left of its own bar, and a
+   * terminal that put it on the right would be the odd one.
+   */
+  leading?: ReactNode;
   /** Drags the frame, when this strip is a floating window's handle. */
   onDragHandle?: (e: React.PointerEvent) => void;
 }
@@ -43,6 +51,7 @@ export function TabBar({
   onPrevTab,
   onNextTab,
   controls,
+  leading,
   onDragHandle,
 }: TabBarProps) {
   const [renameModal, setRenameModal] = useState<{ id: string; title: string } | null>(null);
@@ -172,6 +181,10 @@ export function TabBar({
         is the terminal's own chrome, which is all this ever was.
       */}
       <div className="tab-bar flex items-end h-[40px] pt-[6px] pl-2 pr-2 gap-0 overflow-x-auto no-drag select-none">
+        {leading && (
+          <div className="flex items-center h-[32px] mr-1 flex-shrink-0">{leading}</div>
+        )}
+
         {/* Global nav arrows */}
         {tabs.length > 1 && (
           <div className="flex items-center h-[32px] gap-0 mr-1 flex-shrink-0 no-drag">

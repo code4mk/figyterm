@@ -24,6 +24,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { PrimaryHome } from "../AppShell/PrimaryChrome";
 import { open as openFolderDialog } from "@tauri-apps/plugin-dialog";
 import {
   ChevronRight,
@@ -31,7 +32,6 @@ import {
   FolderPlus,
   Maximize2,
   Minimize2,
-  Minus,
   Settings2,
   X,
 } from "lucide-react";
@@ -87,7 +87,6 @@ import { screenFor, type Screen } from "../../services/figycode-views";
 export interface FigyCodeModalProps {
   visible: boolean;
   onClose: () => void;
-  onMinimize: () => void;
   /** The folder the focused terminal is in, so the window opens on it. */
   cwd?: string;
   /**
@@ -203,7 +202,6 @@ function conversationTitle(blocks: Block[]): string | null {
 export function FigyCodeModal({
   visible,
   onClose,
-  onMinimize,
   cwd,
   docked = false,
 }: FigyCodeModalProps) {
@@ -844,6 +842,7 @@ export function FigyCodeModal({
         onPointerDown={docked ? undefined : onDragStart}
       >
         <div className="flex items-center gap-1.5 shrink-0" onPointerDown={(e) => e.stopPropagation()}>
+          {docked && <PrimaryHome />}
           <span className="figy-mark">ƒ</span>
           <span className="figy-brand-title">FigyCode</span>
         </div>
@@ -892,9 +891,6 @@ export function FigyCodeModal({
             <>
               <span className="figy-sep" />
 
-              <button className="figy-iconbtn" onClick={onMinimize} title="Minimize" aria-label="Minimize">
-                <Minus size={12} />
-              </button>
               <button
                 className={`figy-iconbtn ${fullscreen ? "on" : ""}`}
                 onClick={toggleFullscreen}

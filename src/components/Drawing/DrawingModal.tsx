@@ -16,6 +16,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { PrimaryHome } from "../AppShell/PrimaryChrome";
 import { Maximize2, Minimize2, PanelLeft, X } from "lucide-react";
 import { OverlayPortal } from "../Overlay/OverlayPortal";
 import { claimFront, releaseFront } from "../../services/overlay-stack";
@@ -255,6 +256,7 @@ export function DrawingModal({ visible, onClose, docked = false }: DrawingModalP
           className="flex items-center gap-1.5 shrink-0"
           onPointerDown={(e) => e.stopPropagation()}
         >
+          {docked && <PrimaryHome />}
           <button
             className={`drawing-iconbtn ${railCollapsed ? "" : "on"}`}
             onClick={toggleRail}

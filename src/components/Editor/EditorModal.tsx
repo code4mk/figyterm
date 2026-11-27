@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { PrimaryHome } from "../AppShell/PrimaryChrome";
 import { invoke } from "@tauri-apps/api/core";
 import {
   AlignLeft,
@@ -21,7 +22,6 @@ import {
   GitBranch,
   ListOrdered,
   Maximize2,
-  Minus,
   Minimize2,
   PanelLeftClose,
   PanelLeftOpen,
@@ -237,14 +237,6 @@ export interface EditorOpenRequest {
 interface EditorModalProps {
   visible: boolean;
   onClose: () => void;
-  /**
-   * Puts the window away without stopping it.
-   *
-   * Absent when the shell has nowhere to put it, which is why the button is
-   * conditional rather than always drawn: a minimize with no dock to land in
-   * would be a close that lied about it.
-   */
-  onMinimize?: () => void;
   /** The focused terminal pane's working directory, if it has one. */
   cwd?: string;
   /**
@@ -451,7 +443,6 @@ interface Preview {
 export function EditorModal({
   visible,
   onClose,
-  onMinimize,
   cwd,
   onOpenTerminal,
   openRequest,
@@ -3051,6 +3042,7 @@ export function EditorModal({
               }`}
               onPointerDown={docked ? undefined : onDragStart}
             >
+              {docked && <PrimaryHome className="-ml-1 mr-0.5" />}
               <img src="/logo.png" alt="" className="h-3.5 w-auto shrink-0" />
               <span className="editor-brand-title text-[11px] font-semibold whitespace-nowrap">
                 Code Editor
@@ -3102,16 +3094,6 @@ export function EditorModal({
               */}
               {!docked && (
                 <>
-                  {onMinimize && (
-                    <button
-                      className="editor-btn p-1 rounded"
-                      onClick={onMinimize}
-                      title="Minimize — open files and undo history are kept"
-                      aria-label="Minimize"
-                    >
-                      <Minus size={12} />
-                    </button>
-                  )}
                   <button
                     className={`editor-btn p-1 rounded ${fullscreen ? "on" : ""}`}
                     onClick={toggleFullscreen}

@@ -12,10 +12,9 @@ import { baseSlotRect, type ModalPos, type ModalSize } from "./useDraggableModal
  * thing underneath, six times over, each able to drift from the floating one.
  *
  * `fullscreen` has the same shape and is not the same thing. Fullscreen is a
- * window covering the status bar for as long as you hold it; this is a window
- * that stops behaving like one, and stops above the bar so the bar is still
- * readable — which is what makes the base feel like the app rather than like a
- * maximised dialog nobody can dismiss.
+ * window you are holding at full size and can restore; this is a service that
+ * has stopped being a window at all — it cannot be dragged, resized, closed or
+ * restored, because there is nothing to restore it to.
  */
 export function useBaseSlot(
   docked: boolean,

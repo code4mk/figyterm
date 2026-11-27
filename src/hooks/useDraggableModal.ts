@@ -74,42 +74,22 @@ export function fullscreenRect(): ModalPos & ModalSize {
 }
 
 /**
- * The status bar's height, which is `h-7` in `StatusBar.tsx`.
+ * The slot the primary service fills: the whole window.
  *
- * Duplicated from a Tailwind class because the base slot has to be placed
- * before the bar has laid itself out — `baseSlotRect` is read during the first
- * render of a docked window, when measuring the real element would give zero.
- * If the bar's height changes, this changes with it; there is a comment there
- * saying so.
- */
-export const STATUS_BAR_HEIGHT = 28;
-
-/**
- * The app header's height, which is `h-9` in `AppHeader.tsx`.
+ * It subtracts nothing, and that is the change worth recording. The window
+ * used to carry an app header above the primary and an app status bar below
+ * it, so a service that drew its own — and five of the seven do — showed two
+ * of each. Both app bars are gone: the native Menu already carried the theme,
+ * settings, updates and the monitor, and the way back to the services screen
+ * rides in the primary's own bar instead. See `PrimaryChrome`.
  *
- * Duplicated for the same reason as the status bar: the base is placed before
- * the header has laid itself out.
- */
-export const APP_HEADER_HEIGHT = 36;
-
-/**
- * The base slot: the window between the app header and the status bar.
- *
- * Where a service goes when it is the base rather than a floating window. It is
- * `fullscreenRect` minus the two bars the app owns, and it is a rectangle
- * rather than a layout slot on purpose — the docked service is still an
- * overlay, placed by the same `place()` every other window uses, so it keeps
- * the machinery it already has (its own z-order, the browser's native-webview
- * occlusion) instead of needing a second rendering path for the one case where
- * it happens to be the thing underneath.
+ * Identical to `fullscreenRect` today. It stays a separate function because
+ * the two mean different things — one is a window you are holding at full
+ * size, the other is a service that is not a window at all — and the next time
+ * the shell grows a bar, this is the one that has to know about it.
  */
 export function baseSlotRect(): ModalPos & ModalSize {
-  return {
-    x: 0,
-    y: APP_HEADER_HEIGHT,
-    w: window.innerWidth,
-    h: Math.max(0, window.innerHeight - APP_HEADER_HEIGHT - STATUS_BAR_HEIGHT),
-  };
+  return { x: 0, y: 0, w: window.innerWidth, h: window.innerHeight };
 }
 
 export function useDraggableModal({
