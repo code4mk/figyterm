@@ -192,14 +192,14 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let browser = MenuItem::with_id(
         app,
         MENU_BROWSER,
-        label("Browser", "Ctrl+Shift+B"),
+        label("Figy Browser", "Ctrl+Shift+B"),
         true,
         accel("CmdOrCtrl+Shift+B", "Ctrl+Shift+B"),
     )?;
     let editor = MenuItem::with_id(
         app,
         MENU_EDITOR,
-        label("Code Editor", "Ctrl+Shift+E"),
+        label("Figy Code Editor", "Ctrl+Shift+E"),
         true,
         accel("CmdOrCtrl+Shift+E", "Ctrl+Shift+E"),
     )?;
@@ -213,21 +213,21 @@ pub fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let figy_code = MenuItem::with_id(
         app,
         MENU_FIGY_CODE,
-        label("FigyCode", "Ctrl+Shift+G"),
+        label("Figy Harness", "Ctrl+Shift+G"),
         true,
         accel("CmdOrCtrl+Shift+G", "Ctrl+Shift+G"),
     )?;
     let drawing = MenuItem::with_id(
         app,
         MENU_DRAWING,
-        label("Drawing", "Ctrl+Shift+X"),
+        label("Figy Drawing", "Ctrl+Shift+X"),
         true,
         accel("CmdOrCtrl+Shift+X", "Ctrl+Shift+X"),
     )?;
     let api = MenuItem::with_id(
         app,
         MENU_API,
-        label("API Client", "Ctrl+Shift+H"),
+        label("Figy Man", "Ctrl+Shift+H"),
         true,
         accel("CmdOrCtrl+Shift+H", "Ctrl+Shift+H"),
     )?;
